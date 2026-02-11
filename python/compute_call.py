@@ -435,7 +435,7 @@ class Marker_Detection:
 class Marker_Transform:
     def __init__(self):
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.25, 180, 0.0, -90.0]
+        T5_to_marker_data = [0.022, 0.0, 0.245, 180, 0.0, -90.0]
         
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         
@@ -517,7 +517,7 @@ class Marker_Transform:
                     # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
                     T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
                     T5_to_cam_vec = T5_to_cam_tf.flatten()
-                    if T5_to_cam_vec[3] > 4 :
+                    if abs(T5_to_cam_vec[3]) > 4 :
                         T5_to_cam_vec[3] = T5_to_cam_vec[3]/1000
                         T5_to_cam_vec[7] = T5_to_cam_vec[7]/1000
                         T5_to_cam_vec[11] = T5_to_cam_vec[11]/1000
@@ -673,7 +673,7 @@ def se3_log(T):
 # ===============================
 # Robot setup
 # ===============================
-robot = rby.create_robot_a("localhost:50051")
+robot = rby.create_robot_m("192.168.30.1:50051")
 model = robot.model()
 
 robot.connect()
@@ -830,7 +830,7 @@ T_cam_list = []
 # ===============================
 # Gauss–Newton Offset Calibration
 # ===============================
-max_iter = 100
+max_iter = 500
 eps = 1e-3
 
 q_offset = np.zeros(ndof)
@@ -872,7 +872,7 @@ for it in range(max_iter):
 
         Jb = dyn_model.compute_space_jacobian(dyn_state, BASE, EE) 
         
-        # xi[3:] *= 0.1
+        xi[3:] *= 0.1
         # J_joint[3:, :] *= 0.1
         # Jb[:, 7:][3:, :] *= 0.1
         # J_joint[:, 7:][3:, :] *= 0.1

@@ -503,7 +503,7 @@ class Marker_Transform:
                     # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
                     T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
                     T5_to_cam_vec = T5_to_cam_tf.flatten()
-                    if T5_to_cam_vec[3] > 4 :
+                    if abs(T5_to_cam_vec[3]) > 4 :
                         T5_to_cam_vec[3] = T5_to_cam_vec[3]/1000
                         T5_to_cam_vec[7] = T5_to_cam_vec[7]/1000
                         T5_to_cam_vec[11] = T5_to_cam_vec[11]/1000
