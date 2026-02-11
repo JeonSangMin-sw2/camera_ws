@@ -431,8 +431,6 @@ class Marker_Detection:
             y_mm = (main_corner[i][1] - self.principal_point[1]) * depth / self.fy
             corners_3d_mm.append([x_mm, y_mm, depth])
         return corners_3d_mm
-        
-
 
 class Marker_Transform:
     def __init__(self):
