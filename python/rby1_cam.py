@@ -33,7 +33,8 @@ class RealSenseCamera:
         self.width = 640
         self.height = 480
         self.fps = 30
-        self.focal_length = 0.0
+        self.fx = 0.0
+        self.fy = 0.0
         self.principal_point = [0.0, 0.0]
         self.intrinsics = None
         self.profile = None
@@ -56,11 +57,12 @@ class RealSenseCamera:
         self.intrinsics = color_stream.get_intrinsics()
         self.depth_intrinsics = depth_stream.get_intrinsics()
         
-        # Calculate focal length: sqrt(fx^2 + fy^2) as in C++ code
-        self.focal_length = math.sqrt(self.depth_intrinsics.fx**2 + self.depth_intrinsics.fy**2) # pixel
+        # Store fx and fy separately
+        self.fx = self.depth_intrinsics.fx
+        self.fy = self.depth_intrinsics.fy
         self.principal_point = [self.depth_intrinsics.ppx, self.depth_intrinsics.ppy] #pixel
         
-        print(f"Focal Length: {self.focal_length}")
+        print(f"Focal Length: fx={self.fx}, fy={self.fy}")
         print(f"Principal Point: {self.principal_point[0]}, {self.principal_point[1]}")
 
     def start(self):
@@ -130,7 +132,7 @@ class RealSenseCamera:
             return self.depth_image.copy()
 
     def get_principal_point_and_focal_length(self):
-        return [self.principal_point[0], self.principal_point[1], self.focal_length]
+        return [self.principal_point[0], self.principal_point[1], self.fx, self.fy]
 
     def get_depth_resolution(self):
         return self.depth_resolution
@@ -141,12 +143,14 @@ class Marker_Detection:
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
         self.parameters = cv2.aruco.DetectorParameters()
         self.principal_point = [0, 0]
-        self.focal_length = 0
+        self.fx = 0
+        self.fy = 0
         self.depth_resolution = 1
 
     def set_intrinsics_param(self, param):
         self.principal_point = [param[0], param[1]]
-        self.focal_length = param[2]
+        self.fx = param[2]
+        self.fy = param[3]
 
     def set_depth_resolution(self, depth_resolution):
         self.depth_resolution = depth_resolution
@@ -156,12 +160,12 @@ class Marker_Detection:
         if not center:
             return center
         
-        if self.focal_length == 0:
+        if self.fx == 0 or self.fy == 0:
             return center 
 
         z = center[2] * self.depth_resolution
-        x = (center[0] - self.principal_point[0]) * z / self.focal_length
-        y = (center[1] - self.principal_point[1]) * z / self.focal_length
+        x = (center[0] - self.principal_point[0]) * z / self.fx
+        y = (center[1] - self.principal_point[1]) * z / self.fy
         
         return [x, y, z]
 
