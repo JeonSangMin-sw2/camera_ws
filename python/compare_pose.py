@@ -74,7 +74,7 @@ class RealSenseCamera:
         
         # Calculate focal length: sqrt(fx^2 + fy^2) as in C++ code
         self.focal_length = math.sqrt(self.depth_intrinsics.fx**2 + self.depth_intrinsics.fy**2) # pixel
-        self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
+        self.principal_point = [self.depth_intrinsics.ppx, self.depth_intrinsics.ppy] #pixel
         
         print(f"Focal Length: {self.focal_length}")
         print(f"Principal Point: {self.principal_point[0]}, {self.principal_point[1]}")
@@ -175,9 +175,10 @@ class Marker_Detection:
         if self.focal_length == 0:
             return center 
 
-        x = (center[0] - self.principal_point[0]) * center[2] / self.focal_length
-        y = (center[1] - self.principal_point[1]) * center[2] / self.focal_length
         z = center[2] * self.depth_resolution
+        x = (center[0] - self.principal_point[0]) * z / self.focal_length
+        y = (center[1] - self.principal_point[1]) * z / self.focal_length
+        
         return [x, y, z]
 
     def normalize(self, v):

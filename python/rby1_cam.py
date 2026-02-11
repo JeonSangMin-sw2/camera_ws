@@ -58,7 +58,7 @@ class RealSenseCamera:
         
         # Calculate focal length: sqrt(fx^2 + fy^2) as in C++ code
         self.focal_length = math.sqrt(self.depth_intrinsics.fx**2 + self.depth_intrinsics.fy**2) # pixel
-        self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
+        self.principal_point = [self.depth_intrinsics.ppx, self.depth_intrinsics.ppy] #pixel
         
         print(f"Focal Length: {self.focal_length}")
         print(f"Principal Point: {self.principal_point[0]}, {self.principal_point[1]}")
@@ -159,9 +159,10 @@ class Marker_Detection:
         if self.focal_length == 0:
             return center 
 
-        x = (center[0] - self.principal_point[0]) * center[2] / self.focal_length
-        y = (center[1] - self.principal_point[1]) * center[2] / self.focal_length
         z = center[2] * self.depth_resolution
+        x = (center[0] - self.principal_point[0]) * z / self.focal_length
+        y = (center[1] - self.principal_point[1]) * z / self.focal_length
+        
         return [x, y, z]
 
     def normalize(self, v):
@@ -436,10 +437,10 @@ def main():
             result = marker_transform.get_marker_transform(Visualization=True)
             if result is None:
                 continue
-            print(result[0],result[1],result[2],result[3])
-            print(result[4],result[5],result[6],result[7])
-            print(result[8],result[9],result[10],result[11])
-            print(result[12],result[13],result[14],result[15])
+            # print(result[0],result[1],result[2],result[3])
+            # print(result[4],result[5],result[6],result[7])
+            # print(result[8],result[9],result[10],result[11])
+            # print(result[12],result[13],result[14],result[15])
             # time.sleep(0.01) # Removed sleep for better responsiveness
     except KeyboardInterrupt:
         print("\nProgram interrupted by user.")
