@@ -55,11 +55,13 @@ class RealSenseCamera:
         self.profile = self.pipeline.start(self.config)
         
         color_stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
+        depth_stream = self.profile.get_stream(rs.stream.depth).as_video_stream_profile()
         self.intrinsics = color_stream.get_intrinsics()
+        self.depth_intrinsics = depth_stream.get_intrinsics()
         
         # Calculate focal length: sqrt(fx^2 + fy^2) as in C++ code
-        self.focal_length = math.sqrt(self.intrinsics.fx**2 + self.intrinsics.fy**2)
-        self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy]
+        self.focal_length = math.sqrt(self.depth_intrinsics.fx**2 + self.depth_intrinsics.fy**2) # pixel
+        self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
         
         print(f"Focal Length: {self.focal_length}")
         print(f"Principal Point: {self.principal_point[0]}, {self.principal_point[1]}")
