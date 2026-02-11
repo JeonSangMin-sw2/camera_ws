@@ -10,10 +10,21 @@ import threading
 
 
 class RealSenseCamera:
-    def __init__(self, serial_number=None):
+    def __init__(self):
+        ctx = rs.context()
+        devices = ctx.query_devices()
+        print(f"Total devices: {len(devices)}")
+        for i, dev in enumerate(devices):
+            print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
+        self.device_name = devices[0].get_info(rs.camera_info.name)
+        print("Using device 0 : ", self.device_name)
+        self.serial_number = devices[0].get_info(rs.camera_info.serial_number)
+        if self.device_name == "Intel RealSense D435I":
+            self.depth_resolution = 1
+        elif self.device_name == "Intel RealSense D405":
+            self.depth_resolution = 0.1
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        self.serial_number = serial_number
         self.camera_running = True
         self.color_image = None
         self.depth_image = None
@@ -121,6 +132,9 @@ class RealSenseCamera:
     def get_principal_point_and_focal_length(self):
         return [self.principal_point[0], self.principal_point[1], self.focal_length]
 
+    def get_depth_resolution(self):
+        return self.depth_resolution
+
 
 class Marker_Detection:
     def __init__(self):
@@ -128,10 +142,14 @@ class Marker_Detection:
         self.parameters = cv2.aruco.DetectorParameters()
         self.principal_point = [0, 0]
         self.focal_length = 0
+        self.depth_resolution = 1
 
     def set_intrinsics_param(self, param):
         self.principal_point = [param[0], param[1]]
         self.focal_length = param[2]
+
+    def set_depth_resolution(self, depth_resolution):
+        self.depth_resolution = depth_resolution
 
     def convert_pixel2mm(self, center):
         # center: [x, y, z] (z is depth value in mm)
@@ -143,7 +161,7 @@ class Marker_Detection:
 
         x = (center[0] - self.principal_point[0]) * center[2] / self.focal_length
         y = (center[1] - self.principal_point[1]) * center[2] / self.focal_length
-        z = center[2]
+        z = center[2] * self.depth_resolution
         return [x, y, z]
 
     def normalize(self, v):
@@ -279,7 +297,7 @@ class Marker_Detection:
         return marker_centers_result
 
 class Marker_Transform:
-    def __init__(self, serial_number=None):
+    def __init__(self):
         # Setup Transforms
         base_to_marker_data = [0.2, 0.0, 1.0, 180, 0.0, -90.0]
         camera_to_tool_data = [0.0, 0.0, -0.1, 0.0, 180.0, 90.0]
@@ -288,7 +306,7 @@ class Marker_Transform:
         self.camera_to_tool_tf = self.make_transform(camera_to_tool_data)
         
         # Initialize
-        self.camera = RealSenseCamera(serial_number)
+        self.camera = RealSenseCamera()
         self.marker_detection = Marker_Detection()
         
         self.width = 1280 # 848
@@ -300,6 +318,9 @@ class Marker_Transform:
         
         intrinsics = self.camera.get_principal_point_and_focal_length()
         self.marker_detection.set_intrinsics_param(intrinsics)
+
+        depth_resolution = self.camera.get_depth_resolution()
+        self.marker_detection.set_depth_resolution(depth_resolution)
 
     def make_transform(self, data):
         # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
