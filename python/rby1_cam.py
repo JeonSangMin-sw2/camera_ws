@@ -83,6 +83,27 @@ class RealSenseCamera:
     def stop(self):
         self.camera_running = False
 
+    def capture_image(self):
+        align_to = rs.stream.color
+        align = rs.align(align_to)
+        if self.camera_running:
+            frames = self.pipeline.wait_for_frames()
+            aligned_frames = align.process(frames)
+            
+            color_frame = aligned_frames.get_color_frame()
+            depth_frame = aligned_frames.get_depth_frame()
+            
+            if not color_frame or not depth_frame:
+                print("no frame")
+            
+            # Convert to numpy arrays
+            color_data = np.asanyarray(color_frame.get_data())
+            depth_data = np.asanyarray(depth_frame.get_data())
+
+            with self.lock:
+                self.color_image = color_data
+                self.depth_image = depth_data
+
     def get_color_image(self):
         with self.lock:
             if self.color_image is None:
@@ -308,39 +329,39 @@ class Marker_Transform:
         
         return m
 
-    def get_marker_transform(self):
+    def get_marker_transform(self,Visualization=False):
         base_to_tool_tf = None
-        cam_thread = threading.Thread(target=self.camera.start)
-        cam_thread.start()
-        
-        print("RealSense Camera Started. Press 'ESC' to exit.")
-        time.sleep(1) # Warmup
-        
+        base_to_tool_vec = None
+        # print("RealSense Camera Started. Press 'ESC' to exit.")
+        # time.sleep(1) # Warmup - Moved or removed for loop performance
         try:
-            while True:
-                color_img = self.camera.get_color_image()
-                depth_img = self.camera.get_depth_image()
+            self.camera.capture_image()
+            color_img = self.camera.get_color_image()
+            depth_img = self.camera.get_depth_image()
+            
+            if color_img is None or depth_img is None:
+                return None
+            
+            marker_transforms = self.marker_detection.detect(color_img, depth_img)
+            
+            for tf_list in marker_transforms:
+                # Convert flattened list to 4x4 matrix
+                camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
                 
-                if color_img is None or depth_img is None:
-                    time.sleep(0.01)
-                    continue
-                
-                marker_transforms = self.marker_detection.detect(color_img, depth_img)
-                
-                for tf_list in marker_transforms:
-                    # Convert flattened list to 4x4 matrix
-                    camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                    
-                    try:
-                        camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                        # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                        base_to_tool_tf = self.base_to_marker_tf @ camera_to_marker_inv @ self.camera_to_tool_tf
-                        
-                        base_to_tool_vec = base_to_tool_tf.flatten()
-                    except np.linalg.LinAlgError:
-                        print("Singular matrix, cannot invert")
+                try:
+                    camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                    # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+                    base_to_tool_tf = self.base_to_marker_tf @ camera_to_marker_inv @ self.camera_to_tool_tf
+                    base_to_tool_vec = base_to_tool_tf.flatten()
+                    if base_to_tool_vec[3] > 4 :
+                        base_to_tool_vec[3] = base_to_tool_vec[3]/1000
+                        base_to_tool_vec[7] = base_to_tool_vec[7]/1000
+                        base_to_tool_vec[11] = base_to_tool_vec[11]/1000
+                except np.linalg.LinAlgError:
+                    print("Singular matrix, cannot invert")
 
-                # Visualization Logic
+            # Visualization Logic
+            if Visualization == True:
                 min_dist = 280.0
                 max_dist = 3000.0
                 
@@ -365,30 +386,43 @@ class Marker_Transform:
                 concat_image = cv2.hconcat([color_img, depth_debug_bgr])
                 
                 cv2.imshow("Preview", concat_image)
+                key = cv2.waitKey(1)
+                if key == 27 or key == ord('q'): # ESC or q
+                    raise KeyboardInterrupt
                 
-                if cv2.waitKey(1) == 27: # ESC
-                    break
-                
-                time.sleep(0.001)
+                if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
+                    raise KeyboardInterrupt
 
         except KeyboardInterrupt:
-            pass
-        finally:
-            self.camera.stop()
-            cam_thread.join()
-            cv2.destroyAllWindows()
-        print("Camera Stopped.")
+            raise
+        # finally:
+            # self.camera.stop()
+            # cv2.destroyAllWindows() # Do not destroy windows every frame if looping
+        # print("Camera Stopped.")
 
-        return base_to_tool_tf
+        return base_to_tool_vec
 
-        
-
-
-
+    def stop(self):
+        self.camera.stop()
+        cv2.destroyAllWindows()
 
 def main():
     marker_transform = Marker_Transform()
-    marker_transform.get_marker_transform()
+    try:
+        while True:
+            result = marker_transform.get_marker_transform()
+            if result is None:
+                continue
+            print(result[0],result[1],result[2],result[3])
+            print(result[4],result[5],result[6],result[7])
+            print(result[8],result[9],result[10],result[11])
+            print(result[12],result[13],result[14],result[15])
+            # time.sleep(0.01) # Removed sleep for better responsiveness
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user.")
+    finally:
+        marker_transform.stop()
+        print("Camera Stopped.")
 
 if __name__ == "__main__":
     main()
