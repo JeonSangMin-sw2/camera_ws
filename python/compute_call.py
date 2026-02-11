@@ -342,8 +342,7 @@ class Marker_Transform:
         return m
 
     def get_marker_transform(self,Visualization=False):
-        base_to_tool_tf = None
-        base_to_tool_vec = None
+        T5_to_cam_vec = None
         # print("RealSense Camera Started. Press 'ESC' to exit.")
         # time.sleep(1) # Warmup - Moved or removed for loop performance
         try:
