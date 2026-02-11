@@ -1,0 +1,3 @@
+/home/rainbow/camera_ws/camera_test/build/CMakeFiles/camera_test.dir
+/home/rainbow/camera_ws/camera_test/build/CMakeFiles/edit_cache.dir
+/home/rainbow/camera_ws/camera_test/build/CMakeFiles/rebuild_cache.dir
