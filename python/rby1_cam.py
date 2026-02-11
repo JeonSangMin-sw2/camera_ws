@@ -10,9 +10,10 @@ import threading
 
 
 class RealSenseCamera:
-    def __init__(self):
+    def __init__(self, serial_number=None):
         self.pipeline = rs.pipeline()
         self.config = rs.config()
+        self.serial_number = serial_number
         self.camera_running = True
         self.color_image = None
         self.depth_image = None
@@ -31,6 +32,9 @@ class RealSenseCamera:
         self.height = set_height
         self.fps = set_fps
         
+        if self.serial_number:
+            self.config.enable_device(self.serial_number)
+            
         self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
         self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
         
@@ -252,29 +256,29 @@ class Marker_Detection:
         return marker_centers_result
 
 class Marker_Transform:
-    def __init__(self):
+    def __init__(self, serial_number=None):
         # Setup Transforms
         base_to_marker_data = [0.2, 0.0, 1.0, 180, 0.0, -90.0]
         camera_to_tool_data = [0.0, 0.0, -0.1, 0.0, 180.0, 90.0]
         
-        self.base_to_marker_tf = make_transform(base_to_marker_data)
-        self.camera_to_tool_tf = make_transform(camera_to_tool_data)
+        self.base_to_marker_tf = self.make_transform(base_to_marker_data)
+        self.camera_to_tool_tf = self.make_transform(camera_to_tool_data)
         
         # Initialize
-        self.camera = RealSenseCamera()
+        self.camera = RealSenseCamera(serial_number)
         self.marker_detection = Marker_Detection()
         
-        width = 1280 # 848
-        height = 720 # 480
-        fps = 30
+        self.width = 1280 # 848
+        self.height = 720 # 480
+        self.fps = 30
         
         print("Initializing Camera...")
-        camera.initialize_camera(width, height, fps)
+        self.camera.initialize_camera(self.width, self.height, self.fps)
         
-        intrinsics = camera.get_principal_point_and_focal_length()
-        marker_detection.set_intrinsics_param(intrinsics)
+        intrinsics = self.camera.get_principal_point_and_focal_length()
+        self.marker_detection.set_intrinsics_param(intrinsics)
 
-    def make_transform(data):
+    def make_transform(self, data):
         # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
         # The C++ code multiplies x,y,z by 1000 inside make_Transform
         x, y, z = data[0]*1000, data[1]*1000, data[2]*1000 
@@ -304,80 +308,87 @@ class Marker_Transform:
         
         return m
 
+    def get_marker_transform(self):
+        base_to_tool_tf = None
+        cam_thread = threading.Thread(target=self.camera.start)
+        cam_thread.start()
+        
+        print("RealSense Camera Started. Press 'ESC' to exit.")
+        time.sleep(1) # Warmup
+        
+        try:
+            while True:
+                color_img = self.camera.get_color_image()
+                depth_img = self.camera.get_depth_image()
+                
+                if color_img is None or depth_img is None:
+                    time.sleep(0.01)
+                    continue
+                
+                marker_transforms = self.marker_detection.detect(color_img, depth_img)
+                
+                for tf_list in marker_transforms:
+                    # Convert flattened list to 4x4 matrix
+                    camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
+                    
+                    try:
+                        camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                        # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+                        base_to_tool_tf = self.base_to_marker_tf @ camera_to_marker_inv @ self.camera_to_tool_tf
+                        
+                        base_to_tool_vec = base_to_tool_tf.flatten()
+                    except np.linalg.LinAlgError:
+                        print("Singular matrix, cannot invert")
+
+                # Visualization Logic
+                min_dist = 280.0
+                max_dist = 3000.0
+                
+                alpha = (0.0 - 200.0) / (max_dist - min_dist)
+                beta = 200.0 - (min_dist * alpha)
+                
+                depth_debug = depth_img.astype(np.float32)
+                depth_debug = depth_debug * alpha + beta
+                depth_debug = np.clip(depth_debug, 0, 255).astype(np.uint8)
+                
+                # Mask invalid depth (0) to black (0)
+                depth_debug[depth_img == 0] = 0
+                
+                depth_debug_bgr = cv2.cvtColor(depth_debug, cv2.COLOR_GRAY2BGR)
+                
+                # Resize for hconcat if dimensions differ
+                if depth_debug_bgr.shape[1] != self.width or depth_debug_bgr.shape[0] != self.height:
+                    depth_debug_bgr = cv2.resize(depth_debug_bgr, (self.width, self.height))
+                if color_img.shape[1] != self.width or color_img.shape[0] != self.height:
+                    color_img = cv2.resize(color_img, (self.width, self.height))
+                    
+                concat_image = cv2.hconcat([color_img, depth_debug_bgr])
+                
+                cv2.imshow("Preview", concat_image)
+                
+                if cv2.waitKey(1) == 27: # ESC
+                    break
+                
+                time.sleep(0.001)
+
+        except KeyboardInterrupt:
+            pass
+        finally:
+            self.camera.stop()
+            cam_thread.join()
+            cv2.destroyAllWindows()
+        print("Camera Stopped.")
+
+        return base_to_tool_tf
+
+        
+
 
 
 
 def main():
-    
-    
-    cam_thread = threading.Thread(target=camera.start)
-    cam_thread.start()
-    
-    print("RealSense Camera Started. Press 'ESC' to exit.")
-    time.sleep(1) # Warmup
-    
-    try:
-        while True:
-            color_img = camera.get_color_image()
-            depth_img = camera.get_depth_image()
-            
-            if color_img is None or depth_img is None:
-                time.sleep(0.01)
-                continue
-            
-            marker_transforms = marker_detection.detect(color_img, depth_img)
-            
-            for tf_list in marker_transforms:
-                # Convert flattened list to 4x4 matrix
-                camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                
-                try:
-                    camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                    # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                    base_to_tool_tf = base_to_marker_tf @ camera_to_marker_inv @ camera_to_tool_tf
-                    
-                    base_to_tool_vec = base_to_tool_tf.flatten()
-                except np.linalg.LinAlgError:
-                    print("Singular matrix, cannot invert")
-
-            # Visualization Logic
-            min_dist = 280.0
-            max_dist = 3000.0
-            
-            alpha = (0.0 - 200.0) / (max_dist - min_dist)
-            beta = 200.0 - (min_dist * alpha)
-            
-            depth_debug = depth_img.astype(np.float32)
-            depth_debug = depth_debug * alpha + beta
-            depth_debug = np.clip(depth_debug, 0, 255).astype(np.uint8)
-            
-            # Mask invalid depth (0) to black (0)
-            depth_debug[depth_img == 0] = 0
-            
-            depth_debug_bgr = cv2.cvtColor(depth_debug, cv2.COLOR_GRAY2BGR)
-            
-            # Resize for hconcat if dimensions differ
-            if depth_debug_bgr.shape[1] != width or depth_debug_bgr.shape[0] != height:
-                 depth_debug_bgr = cv2.resize(depth_debug_bgr, (width, height))
-            if color_img.shape[1] != width or color_img.shape[0] != height:
-                 color_img = cv2.resize(color_img, (width, height))
-                 
-            concat_image = cv2.hconcat([color_img, depth_debug_bgr])
-            
-            cv2.imshow("Preview", concat_image)
-            
-            if cv2.waitKey(1) == 27: # ESC
-                break
-            
-            time.sleep(0.001)
-
-    except KeyboardInterrupt:
-        pass
-    finally:
-        camera.stop()
-        cam_thread.join()
-        cv2.destroyAllWindows()
-        print("Camera Stopped.")
+    marker_transform = Marker_Transform()
+    marker_transform.get_marker_transform()
 
 if __name__ == "__main__":
     main()
