@@ -281,11 +281,9 @@ class Marker_Detection:
 class Marker_Transform:
     def __init__(self, serial_number=None):
         # Setup Transforms
-        base_to_marker_data = [0.2, 0.0, 1.0, 180, 0.0, -90.0]
-        camera_to_tool_data = [0.0, 0.0, -0.1, 0.0, 180.0, 90.0]
+        T5_to_marker_data = [0.022, 0.0, 0.25, 180, 0.0, -90.0]
         
-        self.base_to_marker_tf = self.make_transform(base_to_marker_data)
-        self.camera_to_tool_tf = self.make_transform(camera_to_tool_data)
+        self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         
         # Initialize
         self.camera = RealSenseCamera(serial_number)
@@ -332,8 +330,7 @@ class Marker_Transform:
         return m
 
     def get_marker_transform(self,Visualization=False):
-        base_to_tool_tf = None
-        base_to_tool_vec = None
+        T5_to_cam_vec = None
         # print("RealSense Camera Started. Press 'ESC' to exit.")
         # time.sleep(1) # Warmup - Moved or removed for loop performance
         try:
@@ -346,54 +343,21 @@ class Marker_Transform:
             
             marker_transforms = self.marker_detection.detect(color_img, depth_img)
             
-            for tf_list in marker_transforms:
+            for tf_list in marker_transforms: # 마커 여러개일 때 처리할 기능도 추가해야함
                 # Convert flattened list to 4x4 matrix
                 camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
                 
                 try:
                     camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
                     # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                    base_to_tool_tf = self.base_to_marker_tf @ camera_to_marker_inv @ self.camera_to_tool_tf
-                    base_to_tool_vec = base_to_tool_tf.flatten()
-                    if base_to_tool_vec[3] > 4 :
-                        base_to_tool_vec[3] = base_to_tool_vec[3]/1000
-                        base_to_tool_vec[7] = base_to_tool_vec[7]/1000
-                        base_to_tool_vec[11] = base_to_tool_vec[11]/1000
+                    T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
+                    T5_to_cam_vec = T5_to_cam_tf.flatten()
+                    if T5_to_cam_vec[3] > 4 :
+                        T5_to_cam_vec[3] = T5_to_cam_vec[3]/1000
+                        T5_to_cam_vec[7] = T5_to_cam_vec[7]/1000
+                        T5_to_cam_vec[11] = T5_to_cam_vec[11]/1000
                 except np.linalg.LinAlgError:
                     print("Singular matrix, cannot invert")
-
-            # Visualization Logic
-            if Visualization == True:
-                min_dist = 280.0
-                max_dist = 3000.0
-                
-                alpha = (0.0 - 200.0) / (max_dist - min_dist)
-                beta = 200.0 - (min_dist * alpha)
-                
-                depth_debug = depth_img.astype(np.float32)
-                depth_debug = depth_debug * alpha + beta
-                depth_debug = np.clip(depth_debug, 0, 255).astype(np.uint8)
-                
-                # Mask invalid depth (0) to black (0)
-                depth_debug[depth_img == 0] = 0
-                
-                depth_debug_bgr = cv2.cvtColor(depth_debug, cv2.COLOR_GRAY2BGR)
-                
-                # Resize for hconcat if dimensions differ
-                if depth_debug_bgr.shape[1] != self.width or depth_debug_bgr.shape[0] != self.height:
-                    depth_debug_bgr = cv2.resize(depth_debug_bgr, (self.width, self.height))
-                if color_img.shape[1] != self.width or color_img.shape[0] != self.height:
-                    color_img = cv2.resize(color_img, (self.width, self.height))
-                    
-                concat_image = cv2.hconcat([color_img, depth_debug_bgr])
-                
-                cv2.imshow("Preview", concat_image)
-                key = cv2.waitKey(1)
-                if key == 27 or key == ord('q'): # ESC or q
-                    raise KeyboardInterrupt
-                
-                if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
-                    raise KeyboardInterrupt
 
         except KeyboardInterrupt:
             raise
@@ -402,7 +366,7 @@ class Marker_Transform:
             # cv2.destroyAllWindows() # Do not destroy windows every frame if looping
         # print("Camera Stopped.")
 
-        return base_to_tool_vec
+        return T5_to_cam_vec
 
     def stop(self):
         self.camera.stop()
