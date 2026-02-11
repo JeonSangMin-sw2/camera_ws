@@ -10,19 +10,41 @@ import threading
 
 
 class RealSenseCamera:
-    def __init__(self, serial_number=None):
+    def __init__(self, serial_number=None, Infrared=False):
+        self.device_number = 0
+        ctx = rs.context()
+        devices = ctx.query_devices()
+        print(f"Total devices: {len(devices)}")
+        if len(devices) == 0:
+            print("No RealSense devices found!")
+            raise RuntimeError("No RealSense connected")
+        for i, dev in enumerate(devices):
+            print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
+            if serial_number == dev.get_info(rs.camera_info.serial_number):
+                self.device_number = i
+                break
+        self.device_name = devices[self.device_number].get_info(rs.camera_info.name)
+        print("Using camera is : ", self.device_name)
+        self.serial_number = devices[self.device_number].get_info(rs.camera_info.serial_number)
+        depth_sensor = devices[self.device_number].first_depth_sensor()
+        self.depth_scale = depth_sensor.get_depth_scale()
+        print("depth scale : ", self.depth_scale)
+        self.depth_resolution = self.depth_scale*1000
         self.pipeline = rs.pipeline()
         self.config = rs.config()
-        self.serial_number = serial_number
+        self.Infrared = Infrared
         self.camera_running = True
         self.color_image = None
         self.depth_image = None
+        self.left_ir_image = None
+        self.right_ir_image = None
         self.lock = threading.Lock()
         
         self.width = 640
         self.height = 480
         self.fps = 30
-        self.focal_length = 0.0
+        self.fx = 0.0
+        self.fy = 0.0
         self.principal_point = [0.0, 0.0]
         self.intrinsics = None
         self.profile = None
@@ -31,28 +53,43 @@ class RealSenseCamera:
         self.width = set_width
         self.height = set_height
         self.fps = set_fps
-        
-        if self.serial_number:
-            self.config.enable_device(self.serial_number)
-            
+        self.config.enable_device(self.serial_number)
+        # if self.Infrared:
+        #     self.config.enable_stream(rs.stream.infrared, 1, self.width, self.height, rs.format.y8, self.fps)
+        #     self.config.enable_stream(rs.stream.infrared, 2, self.width, self.height, rs.format.y8, self.fps)
+        # else:
         self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
         self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
         
-        self.profile = self.pipeline.start(self.config)
         
+        self.profile = self.pipeline.start(self.config)
+
+        for i in range(10):
+            self.pipeline.wait_for_frames()
+        
+        # if self.Infrared:
+        #     color_stream = self.profile.get_stream(rs.stream.infrared, 1).as_video_stream_profile()
+        #     depth_stream = self.profile.get_stream(rs.stream.infrared, 2).as_video_stream_profile()
+        # else:
         color_stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
         depth_stream = self.profile.get_stream(rs.stream.depth).as_video_stream_profile()
         self.intrinsics = color_stream.get_intrinsics()
         self.depth_intrinsics = depth_stream.get_intrinsics()
+
+        # left_ir_profile = self.profile.get_stream(rs.stream.infrared, 1)
+        # extrinsics = depth_stream.get_extrinsics_to(left_ir_profile)
+        # self.baseline = abs(extrinsics.translation[0])
+        self.baseline = 0.065
         
-        # Calculate focal length: sqrt(fx^2 + fy^2) as in C++ code
-        self.focal_length = math.sqrt(self.depth_intrinsics.fx**2 + self.depth_intrinsics.fy**2) # pixel
-        self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
+        # Store fx and fy separately
+        self.fx = self.depth_intrinsics.fx
+        self.fy = self.depth_intrinsics.fy
+        self.principal_point = [self.depth_intrinsics.ppx, self.depth_intrinsics.ppy] #pixel
         
-        print(f"Focal Length: {self.focal_length}")
+        print(f"Focal Length: fx={self.fx}, fy={self.fy}")
         print(f"Principal Point: {self.principal_point[0]}, {self.principal_point[1]}")
 
-    def start(self):
+    def stream_on(self):
         align_to = rs.stream.color
         align = rs.align(align_to)
         
@@ -82,7 +119,11 @@ class RealSenseCamera:
         finally:
             self.pipeline.stop()
 
+    def stream_off(self):
+        self.camera_running = False
+
     def stop(self):
+        self.pipeline.stop()
         self.camera_running = False
 
     def capture_image(self):
@@ -97,6 +138,7 @@ class RealSenseCamera:
             
             if not color_frame or not depth_frame:
                 print("no frame")
+                return
             
             # Convert to numpy arrays
             color_data = np.asanyarray(color_frame.get_data())
@@ -105,6 +147,24 @@ class RealSenseCamera:
             with self.lock:
                 self.color_image = color_data
                 self.depth_image = depth_data
+
+    def capture_image_stereo(self):
+        if self.camera_running:
+            frames = self.pipeline.wait_for_frames()
+            left_ir_frame = frames.get_infrared_frame(1)
+            right_ir_frame = frames.get_infrared_frame(2)
+            
+            if not left_ir_frame or not right_ir_frame:
+                print("no frame")
+                return
+            
+            # Convert to numpy arrays
+            left_ir_data = np.asanyarray(left_ir_frame.get_data())
+            right_ir_data = np.asanyarray(right_ir_frame.get_data())
+
+            with self.lock:
+                self.left_ir_image = left_ir_data
+                self.right_ir_image = right_ir_data
 
     def get_color_image(self):
         with self.lock:
@@ -119,7 +179,13 @@ class RealSenseCamera:
             return self.depth_image.copy()
 
     def get_principal_point_and_focal_length(self):
-        return [self.principal_point[0], self.principal_point[1], self.focal_length]
+        return [self.principal_point[0], self.principal_point[1], self.fx, self.fy]
+
+    def get_depth_resolution(self):
+        return self.depth_resolution
+
+    def get_baseline(self):
+        return self.baseline
 
 
 class Marker_Detection:
@@ -127,23 +193,33 @@ class Marker_Detection:
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
         self.parameters = cv2.aruco.DetectorParameters()
         self.principal_point = [0, 0]
-        self.focal_length = 0
+        self.fx = 0
+        self.fy = 0
+        self.depth_resolution = 1
 
     def set_intrinsics_param(self, param):
         self.principal_point = [param[0], param[1]]
-        self.focal_length = param[2]
+        self.fx = param[2]
+        self.fy = param[3]
+
+    def set_depth_resolution(self, depth_resolution):
+        self.depth_resolution = depth_resolution
+
+    def set_baseline(self, baseline):
+        self.baseline = baseline
 
     def convert_pixel2mm(self, center):
         # center: [x, y, z] (z is depth value in mm)
         if not center:
             return center
         
-        if self.focal_length == 0:
+        if self.fx == 0 or self.fy == 0:
             return center 
 
-        x = (center[0] - self.principal_point[0]) * center[2] / self.focal_length
-        y = (center[1] - self.principal_point[1]) * center[2] / self.focal_length
-        z = center[2]
+        z = center[2] * self.depth_resolution
+        x = (center[0] - self.principal_point[0]) * z / self.fx
+        y = (center[1] - self.principal_point[1]) * z / self.fy
+        
         return [x, y, z]
 
     def normalize(self, v):
@@ -278,15 +354,82 @@ class Marker_Detection:
                 
         return marker_centers_result
 
+    def detect_stereo(self, main_img, ref_img):
+        main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
+        ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
+
+        marker_centers_result = []
+        
+        if main_ids is not None and ref_ids is not None and len(main_ids) == len(ref_ids):
+            # main_ids와 ref_ids의 개수가 서로 다를 경우에 관한 로직 추후게 구현해야함
+            for i in range(len(main_ids)):
+                if main_ids[i] != ref_ids[i]:
+                    continue
+                # Get depth
+                corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corners[i][0], ref_corners[i][0])
+
+                c = corners_3d_mm # c has 4 points
+                
+                # C++ Logic: Center is average of min/max (AABB center), not centroid
+                xs = [pt[0] for pt in c]
+                ys = [pt[1] for pt in c]
+                zs = [pt[2] for pt in c]
+                xs.sort()
+                ys.sort()
+                zs.sort()
+                
+                x_center = (xs[0] + xs[3]) / 2.0
+                y_center = (ys[0] + ys[3]) / 2.0
+                z_center = (zs[0] + zs[3]) / 2.0
+                
+                # Rotation Matrix
+                c_list = [[pt[0], pt[1]] for pt in c]
+                depth_list = [pt[2] for pt in c]
+                rot_matrix = self.get_rotation_matrix(c_list, depth_list) # 사용중인 함수의 양식을 맞추기 위함
+                
+                # RPY
+                rpy = self.get_rpy_from_matrix(rot_matrix)
+                
+                # Cartesian Matrix (4x4)
+                transform = [
+                    rot_matrix[0][0], rot_matrix[0][1], rot_matrix[0][2], x_center,
+                    rot_matrix[1][0], rot_matrix[1][1], rot_matrix[1][2], y_center,
+                    rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], z_center,
+                    0.0, 0.0, 0.0, 1.0
+                ]
+                
+                print(f"id : {main_ids[i][0]}")
+                print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
+                print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
+                
+                marker_centers_result.append(transform)
+                
+        return marker_centers_result
+
+    def stereo_cal_corners_3d_mm(self, main_corner, ref_corner):
+        corners_3d_mm = []
+        for i in range(4):
+            disparity = main_corner[i][0] - ref_corner[i][0]
+            if disparity == 0:
+                continue
+            depth = (self.baseline * self.fx) / disparity * 1000 # m -> mm
+            x_mm = (main_corner[i][0] - self.principal_point[0]) * depth / self.fx
+            y_mm = (main_corner[i][1] - self.principal_point[1]) * depth / self.fy
+            corners_3d_mm.append([x_mm, y_mm, depth])
+        return corners_3d_mm
+        
+
+
 class Marker_Transform:
-    def __init__(self, serial_number=None):
+    def __init__(self):
         # Setup Transforms
         T5_to_marker_data = [0.022, 0.0, 0.25, 180, 0.0, -90.0]
         
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         
         # Initialize
-        self.camera = RealSenseCamera(serial_number)
+        #self.camera = RealSenseCamera(Infrared=True)
+        self.camera = RealSenseCamera()
         self.marker_detection = Marker_Detection()
         
         self.width = 1280 # 848
@@ -298,6 +441,12 @@ class Marker_Transform:
         
         intrinsics = self.camera.get_principal_point_and_focal_length()
         self.marker_detection.set_intrinsics_param(intrinsics)
+
+        depth_resolution = self.camera.get_depth_resolution()
+        self.marker_detection.set_depth_resolution(depth_resolution)
+
+        # baseline = self.camera.get_baseline()
+        # self.marker_detection.set_baseline(baseline)
 
     def make_transform(self, data):
         # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
@@ -330,6 +479,7 @@ class Marker_Transform:
         return m
 
     def get_marker_transform(self,Visualization=False):
+        T5_to_cam_tf = None
         T5_to_cam_vec = None
         # print("RealSense Camera Started. Press 'ESC' to exit.")
         # time.sleep(1) # Warmup - Moved or removed for loop performance
@@ -337,13 +487,16 @@ class Marker_Transform:
             self.camera.capture_image()
             color_img = self.camera.get_color_image()
             depth_img = self.camera.get_depth_image()
+            # left_ir_img = self.camera.get_left_ir_image()
+            # right_ir_img = self.camera.get_right_ir_image()
             
             if color_img is None or depth_img is None:
                 return None
             
             marker_transforms = self.marker_detection.detect(color_img, depth_img)
+            #marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img)
             
-            for tf_list in marker_transforms: # 마커 여러개일 때 처리할 기능도 추가해야함
+            for tf_list in marker_transforms:
                 # Convert flattened list to 4x4 matrix
                 camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
                 
@@ -359,6 +512,33 @@ class Marker_Transform:
                 except np.linalg.LinAlgError:
                     print("Singular matrix, cannot invert")
 
+            # Visualization Logic
+            if Visualization == True:
+                min_dist = 280.0
+                max_dist = 3000.0
+                
+                alpha = (0.0 - 200.0) / (max_dist - min_dist)
+                beta = 200.0 - (min_dist * alpha)
+                
+                depth_debug = depth_img.astype(np.float32)
+                depth_debug = depth_debug * alpha + beta
+                depth_debug = np.clip(depth_debug, 0, 255).astype(np.uint8)
+                
+                # Mask invalid depth (0) to black (0)
+                depth_debug[depth_img == 0] = 0
+                
+                depth_debug_bgr = cv2.cvtColor(depth_debug, cv2.COLOR_GRAY2BGR)
+                    
+                concat_image = cv2.hconcat([color_img, depth_debug_bgr])
+                
+                cv2.imshow("Preview", concat_image)
+                key = cv2.waitKey(1)
+                if key == 27 or key == ord('q'): # ESC or q
+                    raise KeyboardInterrupt
+                
+                if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
+                    raise KeyboardInterrupt
+
         except KeyboardInterrupt:
             raise
         # finally:
@@ -373,8 +553,9 @@ class Marker_Transform:
         cv2.destroyAllWindows()
 
 def main():
-    marker_transform = Marker_Transform()
+    marker_transform = None
     try:
+        marker_transform = Marker_Transform()
         while True:
             result = marker_transform.get_marker_transform(Visualization=True)
             if result is None:
@@ -383,11 +564,14 @@ def main():
             print(result[4],result[5],result[6],result[7])
             print(result[8],result[9],result[10],result[11])
             print(result[12],result[13],result[14],result[15])
-            # time.sleep(0.01) # Removed sleep for better responsiveness
+            time.sleep(0.01) # Removed sleep for better responsiveness
+    except RuntimeError as e:
+        print(f"Initialization Error: {e}")
     except KeyboardInterrupt:
         print("\nProgram interrupted by user.")
     finally:
-        marker_transform.stop()
+        if marker_transform:
+            marker_transform.stop()
         print("Camera Stopped.")
 
 if __name__ == "__main__":
