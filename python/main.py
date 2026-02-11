@@ -59,7 +59,7 @@ class RealSenseCamera:
         self.profile = None
 
     def initialize_camera(self, set_width, set_height, set_fps):
-        self.width = set_width
+        zself.width = set_width
         self.height = set_height
         self.fps = set_fps
         
