@@ -790,21 +790,16 @@ while True:
     time.sleep(0.05)
 
 # 저장
-if len(recorded_data) > 0:
-    q_list = []
-    marker_list = []
-
-    for q, m in recorded_data:
-        q_list.append(q)
-        marker_list.append(m)
+if len(q_cmd_list) > 0:
 
     np.savez_compressed(
         "captured_dataset.npz",
-        q=np.array(q_list),
-        marker=np.array(marker_list)
+        q=np.array(q_cmd_list),
+        marker=np.array(T_meas_list)
     )
 
-    print(f"\nSaved {len(recorded_data)} samples to captured_dataset.npz")
+    print(f"\nSaved {len(q_cmd_list)} samples to captured_dataset.npz")
+
 else:
     print("No data captured.")
     
