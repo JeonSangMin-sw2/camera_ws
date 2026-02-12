@@ -417,6 +417,7 @@ class Marker_Detection:
                     rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], center_pos[2],
                     0.0, 0.0, 0.0, 1.0
                 ]
+                
                 print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
@@ -442,7 +443,6 @@ class Marker_Detection:
                     continue
                 # Get depth
                 corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corners[i][0], ref_corners[i][0])
-                print(corners_3d_mm)
 
                 c = corners_3d_mm # c has 4 points
                 
