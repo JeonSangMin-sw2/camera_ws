@@ -632,15 +632,19 @@ class Marker_Transform:
 # Lie algebra utils
 # ===============================
 def adjoint(T):
-    R, p = T[:3,:3], T[:3,3]
-    p_hat = np.array([[0,-p[2],p[1]],
-                      [p[2],0,-p[0]],
-                      [-p[1],p[0],0]])
+    R = T[:3,:3]
+    p = T[:3,3]
+    p_hat = np.array([
+        [0, -p[2], p[1]],
+        [p[2], 0, -p[0]],
+        [-p[1], p[0], 0]
+    ])
     Ad = np.zeros((6,6))
     Ad[:3,:3] = R
     Ad[3:,3:] = R
     Ad[3:,:3] = p_hat @ R
     return Ad
+
 
 def so3_exp(w):
     theta = np.linalg.norm(w)
@@ -662,20 +666,74 @@ def so3_exp(w):
 
 
 def se3_exp(xi):
+    w = xi[:3]
+    v = xi[3:]
+
+    R = so3_exp(w)
+    theta = np.linalg.norm(w)
+
+    if theta < 1e-8:
+        V = np.eye(3)
+    else:
+        K = np.array([
+            [0, -w[2], w[1]],
+            [w[2], 0, -w[0]],
+            [-w[1], w[0], 0]
+        ]) / theta
+
+        V = (
+            np.eye(3)
+            + (1 - np.cos(theta)) / theta * K
+            + (theta - np.sin(theta)) / theta * (K @ K)
+        )
+
     T = np.eye(4)
-    T[:3,3] = xi[3:]
-    return T   # 회전 exp는 생략 (소각 가정)
+    T[:3,:3] = R
+    T[:3,3] = V @ v
+    return T
 
 
 def so3_log(R):
-    theta = np.arccos(np.clip((np.trace(R)-1)/2, -1, 1))
+    cos_theta = (np.trace(R) - 1) / 2
+    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    theta = np.arccos(cos_theta)
+
     if theta < 1e-8:
         return np.zeros(3)
-    w_hat = (R - R.T) / (2*np.sin(theta))
-    return theta * np.array([w_hat[2,1], w_hat[0,2], w_hat[1,0]])
+
+    w_hat = (R - R.T) / (2 * np.sin(theta))
+    return theta * np.array([
+        w_hat[2,1],
+        w_hat[0,2],
+        w_hat[1,0]
+    ])
 
 def se3_log(T):
-    return np.hstack([so3_log(T[:3,:3]), T[:3,3]])
+    R = T[:3, :3]
+    t = T[:3, 3]
+
+    w = so3_log(R)
+    theta = np.linalg.norm(w)
+
+    if theta < 1e-8:
+        v = t
+    else:
+        w_hat = np.array([
+            [    0, -w[2],  w[1]],
+            [ w[2],     0, -w[0]],
+            [-w[1],  w[0],     0]
+        ]) / theta
+
+        A = (
+            np.eye(3)
+            - 0.5 * w_hat
+            + (1/theta**2) * (1 - theta/(2*np.tan(theta/2)))
+            * (w_hat @ w_hat)
+        )
+        v = A @ t
+
+    return np.hstack([w, v])   # (6,)
+
 
 # ===============================
 # Robot setup
