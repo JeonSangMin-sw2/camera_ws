@@ -721,7 +721,9 @@ def se3_log(T):
 # ===============================
 # Robot setup
 # ===============================
-robot = rby.create_robot_a("192.168.30.1:50051")
+robot = rby.create_robot_a("localhost:50051")
+# robot = rby.create_robot_a("192.168.30.1:50051")
+
 model = robot.model()
 
 robot.connect()
