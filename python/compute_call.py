@@ -815,7 +815,7 @@ else:
 xi_cam_pose = np.array([0, 0, 0,   # rotation
                         0, 0, 0]) # translation
 T_cam_pose = se3_exp(xi_cam_pose)
-T_cam_true = se3_exp(xi_cam_true)
+# T_cam_true = se3_exp(xi_cam_true)
 
 # ===============================
 # Command poses
