@@ -737,8 +737,8 @@ def se3_log(T):
 # ===============================
 # Robot setup
 # ===============================
-robot = rby.create_robot_a("localhost:50051")
-# robot = rby.create_robot_a("192.168.30.1:50051")
+# robot = rby.create_robot_a("localhost:50051")
+robot = rby.create_robot_a("192.168.30.1:50051")
 
 model = robot.model()
 
@@ -764,7 +764,7 @@ BASE, EE = 0, 1
 #     T_fk = dyn_robot.compute_transformation(dyn_state, BASE, EE)
 #     return np.round(T_fk[:3, 3],2)
 
-marker_transform = Marker_Transform(Stereo=True)
+marker_transform = Marker_Transform(Stereo=False)
 marker_transform.camera.monitoring(Flag=True)
 
 
