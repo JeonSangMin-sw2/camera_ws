@@ -632,13 +632,10 @@ class Marker_Transform:
 # Lie algebra utils
 # ===============================
 def adjoint(T):
-    R = T[:3,:3]
-    p = T[:3,3]
-    p_hat = np.array([
-        [0, -p[2], p[1]],
-        [p[2], 0, -p[0]],
-        [-p[1], p[0], 0]
-    ])
+    R, p = T[:3,:3], T[:3,3]
+    p_hat = np.array([[0,-p[2],p[1]],
+                      [p[2],0,-p[0]],
+                      [-p[1],p[0],0]])
     Ad = np.zeros((6,6))
     Ad[:3,:3] = R
     Ad[3:,3:] = R
@@ -665,74 +662,20 @@ def so3_exp(w):
 
 
 def se3_exp(xi):
-    w = xi[:3]
-    v = xi[3:]
-
-    R = so3_exp(w)
-    theta = np.linalg.norm(w)
-
-    if theta < 1e-8:
-        V = np.eye(3)
-    else:
-        K = np.array([
-            [0, -w[2], w[1]],
-            [w[2], 0, -w[0]],
-            [-w[1], w[0], 0]
-        ]) / theta
-
-        V = (
-            np.eye(3)
-            + (1 - np.cos(theta)) / theta * K
-            + (theta - np.sin(theta)) / theta * (K @ K)
-        )
-
     T = np.eye(4)
-    T[:3,:3] = R
-    T[:3,3] = V @ v
-    return T
+    T[:3,3] = xi[3:]
+    return T   # 회전 exp는 생략 (소각 가정)
+
 
 def so3_log(R):
-    cos_theta = (np.trace(R) - 1) / 2
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
-    theta = np.arccos(cos_theta)
-
+    theta = np.arccos(np.clip((np.trace(R)-1)/2, -1, 1))
     if theta < 1e-8:
         return np.zeros(3)
-
-    w_hat = (R - R.T) / (2 * np.sin(theta))
-    return theta * np.array([
-        w_hat[2,1],
-        w_hat[0,2],
-        w_hat[1,0]
-    ])
-
+    w_hat = (R - R.T) / (2*np.sin(theta))
+    return theta * np.array([w_hat[2,1], w_hat[0,2], w_hat[1,0]])
 
 def se3_log(T):
-    R = T[:3, :3]
-    t = T[:3, 3]
-
-    w = so3_log(R)
-    theta = np.linalg.norm(w)
-
-    if theta < 1e-8:
-        v = t
-    else:
-        w_hat = np.array([
-            [    0, -w[2],  w[1]],
-            [ w[2],     0, -w[0]],
-            [-w[1],  w[0],     0]
-        ]) / theta
-
-        A = (
-            np.eye(3)
-            - 0.5 * w_hat
-            + (1/theta**2) * (1 - theta/(2*np.tan(theta/2)))
-            * (w_hat @ w_hat)
-        )
-        v = A @ t
-
-    return np.hstack([w, v])   # (6,)
-
+    return np.hstack([so3_log(T[:3,:3]), T[:3,3]])
 
 # ===============================
 # Robot setup
@@ -741,7 +684,6 @@ def se3_log(T):
 robot = rby.create_robot_a("192.168.30.1:50051")
 
 model = robot.model()
-
 robot.connect()
 robot.power_on(".*")
 robot.servo_on(".*")
@@ -754,19 +696,9 @@ RIGHT_ARM_IDX = model.right_arm_idx[:7]
 ndof = len(RIGHT_ARM_IDX)
 
 BASE, EE = 0, 1
-# def compute_T_fk(q):
-#     model = robot.model()
-#     dyn_robot = robot.get_dynamics()
-#     dyn_state = dyn_robot.make_state(["link_torso_5", "ee_right"], model.robot_joint_names)
-#     q_ = q
-#     dyn_state.set_q(q_)
-#     dyn_robot.compute_forward_kinematics(dyn_state)
-#     T_fk = dyn_robot.compute_transformation(dyn_state, BASE, EE)
-#     return np.round(T_fk[:3, 3],2)
 
 marker_transform = Marker_Transform(Stereo=False)
 marker_transform.camera.monitoring(Flag=True)
-
 
 print("\nPress 'e' + Enter to capture (q + marker)")
 print("Press 'q' + Enter to quit\n")
@@ -928,14 +860,14 @@ for it in range(max_iter):
         T_model = T_fk @ T_cam_pose @ T_extrinsic
         
         
-        # T_err = T_model @ np.linalg.inv(T_meas)
+        T_err = np.linalg.inv(T_model) @ T_meas
+        xi = se3_log(T_err)   # body error
+        # T_err =  T_meas @ np.linalg.inv(T_model) 
         # xi = se3_log(T_err)   # space error
-        T_err =  T_meas @ np.linalg.inv(T_model) 
-        xi = se3_log(T_err)   # space error
 
-        Jb = dyn_model.compute_space_jacobian(dyn_state, BASE, EE) 
+        Jb = dyn_model.compute_body_jacobian(dyn_state, BASE, EE) 
         
-        xi[3:] *= 0.1
+        # xi[3:] *= 0.1
         # J_joint[3:, :] *= 0.1
         # Jb[:, 7:][3:, :] *= 0.1
         # J_joint[:, 7:][3:, :] *= 0.1
@@ -943,8 +875,8 @@ for it in range(max_iter):
         # Camera Jacobian = Identity
         J = np.zeros((6,13))
         J[:, :7] = Jb[:, RIGHT_ARM_IDX]
-        # J[:, 7:] = np.eye(6)
-        J[:, 7:] = adjoint(T_fk @ T_cam_pose)
+        J[:, 7:] = np.eye(6)
+        # J[:, 7:] = adjoint(T_fk @ T_cam_pose)
         
         H += J.T @ J
         g += J.T @ xi
