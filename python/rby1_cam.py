@@ -90,9 +90,8 @@ class RealSenseCamera:
                 right_ir_stream = self.profile.get_stream(rs.stream.infrared, 2).as_video_stream_profile()
                 self.intrinsics = left_ir_stream.get_intrinsics()
                 
-                left_ir_profile = self.profile.get_stream(rs.stream.infrared, 1)
-                extrinsics = depth_stream.get_extrinsics_to(left_ir_profile)
-                self.baseline = abs(extrinsics.translation[0])
+                extrinsics = left_ir_stream.get_extrinsics_to(right_ir_stream)
+                self.baseline = abs(extrinsics.translation[0]) # m
                 self.fx = self.intrinsics.fx
                 self.fy = self.intrinsics.fy
                 self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
@@ -370,9 +369,9 @@ class Marker_Detection:
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         
-        cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
-        cv2.imshow("Main", color_image)
-        cv2.waitKey(1)
+        # cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
+        # cv2.imshow("Main", color_image)
+        # cv2.waitKey(1)
         
         marker_centers_result = []
         
@@ -418,8 +417,6 @@ class Marker_Detection:
                     rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], center_pos[2],
                     0.0, 0.0, 0.0, 1.0
                 ]
-                
-                print(f"id : {ids[i][0]}")
                 print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
@@ -430,21 +427,22 @@ class Marker_Detection:
     def detect_stereo(self, main_img, ref_img):
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
-        cv2.aruco.drawDetectedMarkers(main_img, main_corners, main_ids)
         
-        cv2.imshow("Main", main_img)
-        cv2.waitKey(1)
+        # cv2.aruco.drawDetectedMarkers(main_img, main_corners, main_ids)
+        # cv2.imshow("Main", main_img)
+        # cv2.waitKey(1)
 
         marker_centers_result = []
         
         if main_ids is not None and ref_ids is not None and len(main_ids) == len(ref_ids):
             # main_ids와 ref_ids의 개수가 서로 다를 경우에 관한 로직 추후게 구현해야함
-            print(main_ids)
+            
             for i in range(len(main_ids)):
                 if main_ids[i] != ref_ids[i]:
                     continue
                 # Get depth
                 corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corners[i][0], ref_corners[i][0])
+                print(corners_3d_mm)
 
                 c = corners_3d_mm # c has 4 points
                 
@@ -474,8 +472,6 @@ class Marker_Detection:
                     rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], z_center,
                     0.0, 0.0, 0.0, 1.0
                 ]
-                
-                print(f"id : {main_ids[i][0]}")
                 print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
@@ -605,7 +601,7 @@ def main():
     marker_transform = None
     try:
         marker_transform = Marker_Transform(Stereo=True)
-        #marker_transform.camera.monitoring()
+        marker_transform.camera.monitoring()
         while True:
             result = marker_transform.get_marker_transform()
             if result is None:
@@ -621,7 +617,7 @@ def main():
         print("\nProgram interrupted by user.")
     finally:
         if marker_transform is not None:
-            #marker_transform.camera.monitoring(Flag=False)
+            marker_transform.camera.monitoring(Flag=False)
             print("Camera Stopped.")
 
 if __name__ == "__main__":
