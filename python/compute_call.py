@@ -33,6 +33,24 @@ class RealSenseCamera:
         if len(devices) == 0:
             print("No RealSense devices found!")
             raise RuntimeError("No RealSense connected")
+        
+        # Hardware Reset to fix frame timeout
+        print("Resetting Realsense device...")
+        devices[0].hardware_reset()
+        time.sleep(5)
+        
+        # Re-query after reset
+        ctx = rs.context()
+        devices = ctx.query_devices()
+        if len(devices) == 0:
+             # Wait a bit more if not found yet
+             time.sleep(3)
+             ctx = rs.context()
+             devices = ctx.query_devices()
+        
+        if len(devices) == 0:
+            print("No RealSense devices found after reset!")
+            raise RuntimeError("No RealSense connected")
         for i, dev in enumerate(devices):
             print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
             if serial_number == dev.get_info(rs.camera_info.serial_number):
@@ -92,7 +110,7 @@ class RealSenseCamera:
             self.profile = self.pipeline.start(self.config)
 
             # 카메라 안정화를 위해 10프레임 정도는 무시하고 사용
-            for i in range(10):
+            for i in range(30):
                 self.pipeline.wait_for_frames()
             
             # depth 카메라 내부 파라미터 얻기 : baseline, fx, fy, principal_point 를 위해 사용
@@ -106,6 +124,7 @@ class RealSenseCamera:
                 
                 extrinsics = left_ir_stream.get_extrinsics_to(right_ir_stream)
                 self.baseline = abs(extrinsics.translation[0]) # m
+                print("Baseline: ", self.baseline)
                 self.fx = self.intrinsics.fx
                 self.fy = self.intrinsics.fy
                 self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
@@ -432,7 +451,6 @@ class Marker_Detection:
                     0.0, 0.0, 0.0, 1.0
                 ]
                 
-                print(f"id : {ids[i][0]}")
                 print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
@@ -487,8 +505,6 @@ class Marker_Detection:
                     rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], z_center,
                     0.0, 0.0, 0.0, 1.0
                 ]
-                
-                print(f"id : {main_ids[i][0]}")
                 print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
