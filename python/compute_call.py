@@ -514,7 +514,7 @@ class Marker_Transform:
         self.Stereo = Stereo
         
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.25, 180, 0.0, -90.0]
+        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
         
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         
@@ -807,9 +807,9 @@ else:
 # Ground truth offset (simulation)
 # ===============================
 # q_offset_true = np.deg2rad([0.5, -1.0, 1.0, 0.5, -5.0, 0.5, 0.2])
-q_offset_true = np.deg2rad([5, -5, 2, 5, -5, 5, 2])
-xi_cam_true = np.array([0.02, -0.04, 0.03,   # rotation
-                        0.01, 0.02, -0.015]) # translation
+# q_offset_true = np.deg2rad([5, -5, 2, 5, -5, 5, 2])
+# xi_cam_true = np.array([0.02, -0.04, 0.03,   # rotation
+#                         0.01, 0.02, -0.015]) # translation
 
 # expected position about camera braket
 xi_cam_pose = np.array([0, 0, 0,   # rotation
@@ -949,16 +949,16 @@ for it in range(max_iter):
 # Result
 # ===============================
 print("\n===== Joint Offset =====")
-print("True offset [deg]:")
-print(np.round(np.rad2deg(q_offset_true), 4))
+# print("True offset [deg]:")
+# print(np.round(np.rad2deg(q_offset_true), 4))
 
 print("Estimated offset [deg]:")
 print(np.round(np.rad2deg(q_offset), 4))
 
 
 print("\n===== Camera Extrinsic (xi) =====")
-print("True xi_cam:")
-print(np.round(xi_cam_true, 6))
+# print("True xi_cam:")
+# print(np.round(xi_cam_true, 6))
 
 print("Estimated xi_cam:")
 print(np.round(xi_cam, 6))
