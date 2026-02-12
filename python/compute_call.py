@@ -458,7 +458,6 @@ class Marker_Detection:
                     continue
                 # Get depth
                 corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corners[i][0], ref_corners[i][0])
-                print(corners_3d_mm)
 
                 c = corners_3d_mm # c has 4 points
                 
