@@ -822,23 +822,23 @@ else:
 #                         0.01, 0.02, -0.015]) # translation
 
 # expected position about camera braket
-xi_cam_pose = np.array([0, 0, 0,   # rotation
-                        0, 0, 0]) # translation
-T_cam_pose = se3_exp(xi_cam_pose)
+# xi_cam_pose = np.array([0, 0, 0,   # rotation
+#                         0, 0, 0]) # translation
+# T_cam_pose = se3_exp(xi_cam_pose)
 # T_cam_true = se3_exp(xi_cam_true)
 
 # ===============================
 # Command poses
 # ===============================
-joint_limits = np.array([
-    [-2.0,  2.0],
-    [-2.5,  0.0],
-    [-1.5,  1.5],
-    [-2.5,  0.0],
-    [-3.141592654,  3.141592654],
-    [-1.570796327,  1.570796327],
-    [-1.570796327,  1.570796327]
-])
+# joint_limits = np.array([
+#     [-2.0,  2.0],
+#     [-2.5,  0.0],
+#     [-1.5,  1.5],
+#     [-2.5,  0.0],
+#     [-3.141592654,  3.141592654],
+#     [-1.570796327,  1.570796327],
+#     [-1.570796327,  1.570796327]
+# ])
 
 # def generate_random_q_list(n_samples=10, margin_ratio=0.15, seed=42):
 #     rng = np.random.default_rng(seed)
@@ -864,7 +864,7 @@ q_nominal = robot.get_state().position.copy()
 # ===============================
 # Fake camera measurements
 # ===============================
-T_cam_list = []
+# T_cam_list = []
 
 # for q_cmd in q_cmd_list:
 #     q_full = q_nominal.copy()
@@ -889,12 +889,14 @@ max_iter = 500
 eps = 1e-6
 
 q_offset = np.zeros(ndof)
-xi_cam = np.zeros(6)
+# xi_cam = np.zeros(6)
 
 for it in range(max_iter):
 
-    H = np.zeros((ndof+6, ndof+6))
-    g = np.zeros(ndof+6)
+    # H = np.zeros((ndof+6, ndof+6))
+    # g = np.zeros(ndof+6)
+    H = np.zeros((ndof, ndof))
+    g = np.zeros(ndof)
 
     total_err = 0.0
 
@@ -917,8 +919,8 @@ for it in range(max_iter):
         # ---- Camera extrinsic ----
         T_extrinsic = se3_exp(xi_cam)
         # ---- Full model ----
-        T_model = T_fk @ T_cam_pose @ T_extrinsic
-        
+        # T_model = T_fk @ T_cam_pose @ T_extrinsic
+        T_model = T_fk        
         
         T_err = np.linalg.inv(T_model) @ T_meas
         xi = se3_log(T_err)   # body error
@@ -933,9 +935,9 @@ for it in range(max_iter):
         # J_joint[:, 7:][3:, :] *= 0.1
         
         # Camera Jacobian = Identity
-        J = np.zeros((6,13))
+        J = np.zeros((6,7))
         J[:, :7] = Jb[:, RIGHT_ARM_IDX]
-        J[:, 7:] = np.eye(6)
+        # J[:, 7:] = np.eye(6)
         # J[:, 7:] = adjoint(T_fk @ T_cam_pose)
         
         H += J.T @ J
@@ -966,11 +968,11 @@ print("Estimated offset [deg]:")
 print(np.round(np.rad2deg(q_offset), 4))
 
 
-print("\n===== Camera Extrinsic (xi) =====")
+# print("\n===== Camera Extrinsic (xi) =====")
 # print("True xi_cam:")
 # print(np.round(xi_cam_true, 6))
 
-print("Estimated xi_cam:")
-print(np.round(xi_cam, 6))
+# print("Estimated xi_cam:")
+# print(np.round(xi_cam, 6))
 
 marker_transform.camera.monitoring(Flag=False)
