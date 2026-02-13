@@ -789,9 +789,9 @@ while True:
         # recorded_data.append((q_current, result))
 
         print("Captured!")
+        print(f"Total samples: {len(q_cmd_list)}")   # ← 추가
         print("q =", q_current[RIGHT_ARM_IDX])
         print("marker =", result)
-
     elif key == 'q':
         print("Exiting capture loop.")
         break
