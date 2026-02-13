@@ -790,8 +790,9 @@ while True:
 
         print("Captured!")
         print(f"Total samples: {len(q_cmd_list)}")   # ← 추가
-        print("q =", q_current[RIGHT_ARM_IDX])
-        print("marker =", result)
+        print("q =", np.round(q_current[RIGHT_ARM_IDX],3))
+        T_print = np.array(result).reshape(4, 4)
+        print("marker =", np.round(T_print,3))
     elif key == 'q':
         print("Exiting capture loop.")
         break
