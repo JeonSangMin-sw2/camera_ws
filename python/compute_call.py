@@ -531,8 +531,9 @@ class Marker_Transform:
         
         # Setup Transforms
         T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        
+        cam_to_tool_rot = [0,0,0,-180,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
+        self.cam_to_tool_rot_tf = self.make_transform(cam_to_tool_rot)
         
         # Initialize
         self.camera = RealSenseCamera(Stereo=Stereo)
@@ -614,9 +615,9 @@ class Marker_Transform:
                 try:
                     camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
                     # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                    T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
+                    T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ self.cam_to_tool_rot_tf
                     T5_to_cam_vec = T5_to_cam_tf.flatten()
-                    if abs(T5_to_cam_vec[3]) > 4 :
+                    if abs(T5_to_cam_vec[3]) > 4 or abs(T5_to_cam_vec[7]) > 4 or abs(T5_to_cam_vec[11]) > 4:
                         T5_to_cam_vec[3] = T5_to_cam_vec[3]/1000
                         T5_to_cam_vec[7] = T5_to_cam_vec[7]/1000
                         T5_to_cam_vec[11] = T5_to_cam_vec[11]/1000
@@ -884,7 +885,7 @@ T_cam_list = []
 # Gauss–Newton Offset Calibration
 # ===============================
 max_iter = 500
-eps = 1e-3
+eps = 1e-6
 
 q_offset = np.zeros(ndof)
 xi_cam = np.zeros(6)
@@ -920,8 +921,8 @@ for it in range(max_iter):
         
         T_err = np.linalg.inv(T_model) @ T_meas
         xi = se3_log(T_err)   # body error
-        # T_err =  T_meas @ np.linalg.inv(T_model) 
-        # xi = se3_log(T_err)   # space error
+        #T_err =  T_meas @ np.linalg.inv(T_model) 
+        #xi = se3_log(T_err)   # space error
 
         Jb = dyn_model.compute_body_jacobian(dyn_state, BASE, EE) 
         
