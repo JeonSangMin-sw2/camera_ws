@@ -917,7 +917,7 @@ for it in range(max_iter):
         T_fk = dyn_model.compute_transformation(dyn_state, BASE, EE)
 
         # ---- Camera extrinsic ----
-        T_extrinsic = se3_exp(xi_cam)
+        # T_extrinsic = se3_exp(xi_cam)
         # ---- Full model ----
         # T_model = T_fk @ T_cam_pose @ T_extrinsic
         T_model = T_fk        
