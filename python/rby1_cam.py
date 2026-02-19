@@ -395,6 +395,17 @@ class Marker_Detection:
             yaw = 0
         return [roll, pitch, yaw]
 
+    def get_depth_average(self, target, img, range = 3):
+        if target[0] - range < 0 or target[0] + range > img.shape[1] or target[1] - range < 0 or target[1] + range > img.shape[0]:
+            return img[target[1]][target[0]]
+        else:
+            sum = 0
+            for i in range(target[0] - range, target[0] + range + 1):
+                for j in range(target[1] - range, target[1] + range + 1):
+                    sum += img[j][i]
+            return sum / ((2 * range + 1) * (2 * range + 1))
+        
+
     # 마커들의 중심좌표(4*4행렬)
     def detect(self, color_image, depth_image):
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
@@ -425,7 +436,7 @@ class Marker_Detection:
                 # C++ uses simple cast (truncation), not rounding
                 iy, ix = int(y_center), int(x_center)
                 if 0 <= iy < depth_image.shape[0] and 0 <= ix < depth_image.shape[1]:
-                    z = depth_image[iy, ix]
+                    z = self.get_depth_average([ix, iy], depth_image, 5)
                 if z == 0:
                     continue
                 # Pixel to MM
