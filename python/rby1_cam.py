@@ -8,63 +8,66 @@ import math
 import time
 import threading
 
+###
+# 해당 클래스는 마커인식을 위한 기능들을 realsense 카메라를 기준으로 정의한 클래스 
+# 다른 카메라로 기능을 사용할 경우 나머지 클래스와의 연동을 위해 함수의 양식은 일치시켜주어야함
+# 필수 구현함수 : capture_image(), get 이라 들어간 모든 함수
 
+###
 class RealSenseCamera:
     def __init__(self, serial_number=None, Stereo=False):
-        # 별도로 설정한 시리얼 번호가 없으면 처음 인식되는 카메라 사용
-        self.device_number = 0
-        # 연결되어있던 카메라 검색
+        # 연결되어있는 카메라 검색
         ctx = rs.context()
         devices = ctx.query_devices()
         if len(devices) == 0:
             print("No RealSense devices found!")
             raise RuntimeError("No RealSense connected")
-        
-        # Hardware Reset to fix frame timeout
-        print("Resetting Realsense device...")
-        devices[0].hardware_reset()
-        time.sleep(5)
-        
-        # Re-query after reset
-        ctx = rs.context()
-        devices = ctx.query_devices()
-        if len(devices) == 0:
-             # Wait a bit more if not found yet
-             time.sleep(3)
-             ctx = rs.context()
-             devices = ctx.query_devices()
-        
-        if len(devices) == 0:
-            print("No RealSense devices found after reset!")
-            raise RuntimeError("No RealSense connected")
+        # 카메라 선택 : 시리얼 넘버가 정해져있으면 해당 카메라 사용, 없으면 첫번째 카메라 사용
         for i, dev in enumerate(devices):
             print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
-            if serial_number == dev.get_info(rs.camera_info.serial_number):
+            if serial_number == dev.get_info(rs.camera_info.serial_number) or serial_number is None:
                 self.device_number = i
                 break
+
+        # 안전한 사용을 위해 선택한 카메라 재연결
+        print("Resetting Realsense device...")
+        devices[self.device_number].hardware_reset()
+        # 카메라가 다시 연결될 때까지 대기
+        time.sleep(3)
+
+        # 카메라 정보 재확인(하드웨어 리셋했으므로 재확인 필요)
+        ctx = rs.context()
+        devices = ctx.query_devices()
+
         self.device_name = devices[self.device_number].get_info(rs.camera_info.name)
         self.serial_number = devices[self.device_number].get_info(rs.camera_info.serial_number)
         print("Using camera is : ", self.device_name)
+
         # depth 해상도 확인 : D435는 1mm, D405 는 0.1mm. 즉 모델에 따라 다름
         depth_sensor = devices[self.device_number].first_depth_sensor()
         depth_scale = depth_sensor.get_depth_scale()
         print("depth scale : ", depth_scale)
         self.depth_resolution = depth_scale*1000
+
         #나머지 카메라 구동을 위한 파라미터 설정
         self.pipeline = rs.pipeline()
         self.config = rs.config()
+
         #적외선카메라 사용여부확인
         self.Infrared = Stereo
         self.camera_running = False
+
         #이미지 저장 변수
         self.color_image = None
         self.depth_image = None
         self.left_ir_image = None
         self.right_ir_image = None
+
         # 기본해상도
         self.width = 1280 # 848
         self.height = 720 # 480
         self.fps = 30
+
         #카메라 내부 파라미터
         self.fx = 0.0
         self.fy = 0.0
@@ -84,6 +87,7 @@ class RealSenseCamera:
         try:
             self.config.enable_device(self.serial_number)
             # 사용할 카메라(컬러, depth, ir) 스트리밍 활성화. depth는 모든상황에 사용됨
+            # cpu 부하를 줄이기 위해 적외선 사용 시 ir1, ir2 를, 사용하지 않을 경우 color만 추가로 스트리밍 진행
             self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
             if self.Infrared:
                 print("Infrared camera is used")
@@ -95,8 +99,8 @@ class RealSenseCamera:
             # 파이프라인 시작
             self.profile = self.pipeline.start(self.config)
 
-            # 카메라 안정화를 위해 10프레임 정도는 무시하고 사용
-            for i in range(30):
+            # 구동 후 카메라 안정화를 위해 10프레임 정도는 무시하고 사용
+            for i in range(10):
                 self.pipeline.wait_for_frames()
             
             # depth 카메라 내부 파라미터 얻기 : baseline, fx, fy, principal_point 를 위해 사용
@@ -205,8 +209,6 @@ class RealSenseCamera:
         align = rs.align(align_to)
         if self.camera_running:
             if self.thread is not None and self.thread.is_alive() and threading.current_thread() != self.thread:
-                # Monitoring thread handles capture, just wait or check cached data
-                # We can sleep briefly to mimic frame rate
                 time.sleep(1.0/self.fps)
                 return
 
@@ -278,7 +280,17 @@ class Marker_Detection:
         # 어떤 마커를 인식시킬건지 정의
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
         self.parameters = cv2.aruco.DetectorParameters()
-        # 카메라 내부 파라미터
+        # 마커 인식 정밀도 향상을 위한 파라미터 튜닝
+        self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX  # 서브픽셀 활성화
+        self.parameters.adaptiveThreshWinSizeMin = 3  # 적응형 임계값 최소 윈도우 크기
+        self.parameters.adaptiveThreshWinSizeMax = 23 # 적응형 임계값 최대 윈도우 크기
+        #self.parameters.adaptiveThreshWinSizeStep = 10 # 윈도우 크기 증가 단계
+        self.parameters.adaptiveThreshConstant = 9 # 임계값 상수 (조명 변화에 강하게)
+        self.parameters.polygonalApproxAccuracyRate = 0.02 # 다각형 근사 정확도 (낮을수록 정밀)
+        self.parameters.minDistanceToBorder = 5 # 마커와 이미지 경계 사이의 최소 거리
+        self.parameters.useAruco3Detection = True # 아루코 3.0 디텍터 사용
+
+        # 계산에 쓰일 카메라 내부 파라미터
         self.principal_point = [0, 0]
         self.fx = 0
         self.fy = 0
@@ -395,7 +407,6 @@ class Marker_Detection:
         marker_centers_result = []
         
         if ids is not None and len(ids) > 0:
-            cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
             
             for i in range(len(ids)):
                 c = corners[i][0] # c has 4 points
@@ -415,10 +426,8 @@ class Marker_Detection:
                 iy, ix = int(y_center), int(x_center)
                 if 0 <= iy < depth_image.shape[0] and 0 <= ix < depth_image.shape[1]:
                     z = depth_image[iy, ix]
-                
-                # Draw center
-                cv2.circle(color_image, (ix, iy), 5, (0, 0, 255), -1)
-                
+                if z == 0:
+                    continue
                 # Pixel to MM
                 center_pos = self.convert_pixel2mm([x_center, y_center, float(z)])
                 
@@ -454,14 +463,47 @@ class Marker_Detection:
 
         marker_centers_result = []
         
-        if main_ids is not None and ref_ids is not None and len(main_ids) == len(ref_ids):
-            # main_ids와 ref_ids의 개수가 서로 다를 경우에 관한 로직 추후게 구현해야함
-            
-            for i in range(len(main_ids)):
-                if main_ids[i] != ref_ids[i]:
+        if main_ids is not None and ref_ids is not None:
+            # Group reference markers by ID to handle duplicates
+            ref_dict = {}
+            for i, marker_id in enumerate(ref_ids):
+                mid = marker_id[0]
+                if mid not in ref_dict:
+                    ref_dict[mid] = []
+                ref_dict[mid].append(ref_corners[i][0])
+
+            for i, marker_id in enumerate(main_ids):
+                mid = marker_id[0]
+                if mid not in ref_dict:
                     continue
+
+                main_corner = main_corners[i][0]
+                candidates = ref_dict[mid]
+                
+                # Find best matching candidate based on Y-coordinate similarity (Epipolar constraint)
+                best_idx = -1
+                min_y_diff = float('inf')
+                
+                main_center_y = sum([pt[1] for pt in main_corner]) / 4.0
+                
+                for idx, ref_c in enumerate(candidates):
+                    ref_center_y = sum([pt[1] for pt in ref_c]) / 4.0
+                    y_diff = abs(main_center_y - ref_center_y)
+                    
+                    # 수직으로 50픽셀 이내면 같은 마커로 인식. 인식거리에 따라 threshold는 추후 보정 필요
+                    if y_diff < 50: # pixel threshold
+                        if y_diff < min_y_diff:
+                            min_y_diff = y_diff
+                            best_idx = idx
+                
+                if best_idx == -1:
+                    continue
+                ref_corner = candidates.pop(best_idx) # Remove matched candidate to prevent double counting
+                if len(candidates) == 0:
+                    del ref_dict[mid]
+
                 # Get depth
-                corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corners[i][0], ref_corners[i][0])
+                corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corner, ref_corner)
 
                 c = corners_3d_mm # c has 4 points
                 
