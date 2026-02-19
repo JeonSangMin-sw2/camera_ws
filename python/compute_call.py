@@ -470,7 +470,6 @@ class Marker_Detection:
         
         if main_ids is not None and ref_ids is not None and len(main_ids) == len(ref_ids):
             # main_ids와 ref_ids의 개수가 서로 다를 경우에 관한 로직 추후게 구현해야함
-            
             for i in range(len(main_ids)):
                 if main_ids[i] != ref_ids[i]:
                     continue
@@ -611,7 +610,6 @@ class Marker_Transform:
             for tf_list in marker_transforms:
                 # Convert flattened list to 4x4 matrix
                 camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                
                 try:
                     camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
                     # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
