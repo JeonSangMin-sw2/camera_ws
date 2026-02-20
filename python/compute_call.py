@@ -457,7 +457,7 @@ class Marker_Detection:
                 # C++ uses simple cast (truncation), not rounding
                 iy, ix = int(y_center), int(x_center)
                 if 0 <= iy < depth_image.shape[0] and 0 <= ix < depth_image.shape[1]:
-                    z = self.get_depth_average([ix, iy], depth_image, 5)
+                    z = self.get_depth_average([ix, iy], depth_image, 19)
                 if z == 0:
                     continue
                 # Pixel to MM

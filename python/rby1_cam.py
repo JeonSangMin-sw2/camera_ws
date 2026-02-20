@@ -442,7 +442,7 @@ class Marker_Detection:
                 # C++ uses simple cast (truncation), not rounding
                 iy, ix = int(y_center), int(x_center)
                 if 0 <= iy < depth_image.shape[0] and 0 <= ix < depth_image.shape[1]:
-                    z = self.get_depth_average([ix, iy], depth_image, 5)
+                    z = self.get_depth_average([ix, iy], depth_image, 19)
                 if z == 0:
                     continue
                 # Pixel to MM
@@ -576,8 +576,9 @@ class Marker_Transform:
         
         # Setup Transforms
         T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        
+        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
+        self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
         self.camera = RealSenseCamera(Stereo=Stereo)
@@ -630,8 +631,8 @@ class Marker_Transform:
         return m
 
     def get_marker_transform(self):
-        T5_to_cam_tf = None
-        T5_to_cam_vec = None
+        T5_to_tool_tf = None
+        T5_to_tool_vec = None
         # print("RealSense Camera Started. Press 'ESC' to exit.")
         # time.sleep(1) # Warmup - Moved or removed for loop performance
         try:
@@ -658,27 +659,28 @@ class Marker_Transform:
                 
                 try:
                     camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                    tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
                     # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                    T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
-                    T5_to_cam_vec = T5_to_cam_tf.flatten()
-                    if abs(T5_to_cam_vec[3]) > 4 :
-                        T5_to_cam_vec[3] = T5_to_cam_vec[3]/1000
-                        T5_to_cam_vec[7] = T5_to_cam_vec[7]/1000
-                        T5_to_cam_vec[11] = T5_to_cam_vec[11]/1000
+                    T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                    T5_to_tool_vec = T5_to_tool_tf.flatten()
+                    if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                        T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
+                        T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
+                        T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
                 except np.linalg.LinAlgError:
                     print("Singular matrix, cannot invert")
 
         except KeyboardInterrupt:
             raise
 
-        return T5_to_cam_vec
+        return T5_to_tool_vec
 
 
 
 def main():
     marker_transform = None
     try:
-        marker_transform = Marker_Transform(Stereo=True)
+        marker_transform = Marker_Transform(Stereo=False)
         marker_transform.camera.monitoring()
         while True:
             result = marker_transform.get_marker_transform()
