@@ -395,16 +395,22 @@ class Marker_Detection:
             yaw = 0
         return [roll, pitch, yaw]
 
-    def get_depth_average(self, target, img, range = 3):
-        if target[0] - range < 0 or target[0] + range > img.shape[1] or target[1] - range < 0 or target[1] + range > img.shape[0]:
-            return img[target[1]][target[0]]
-        else:
-            sum = 0
-            for i in range(target[0] - range, target[0] + range + 1):
-                for j in range(target[1] - range, target[1] + range + 1):
-                    sum += img[j][i]
-            return sum / ((2 * range + 1) * (2 * range + 1))
+    def get_depth_average(self, target, img, radius = 3):
+        x,y = target
+        y_min = max(0,y - radius)
+        y_max = min(img.shape[0], y +radius +1)
+        x_min = max(0,x - radius)
+        x_max = min(img.shape[1], x +radius +1)
         
+        roi = img[y_min:y_max, x_min:x_max]
+        
+        valid_val = roi[roi > 0]
+        
+        if valid_val.size > 0:
+            return np.mean(valid_val)
+        else:
+            return 0
+            
 
     # 마커들의 중심좌표(4*4행렬)
     def detect(self, color_image, depth_image):
