@@ -9,6 +9,16 @@ import time
 import threading
 
 ###
+# 데이터를 텍스트 파일로 저장하는 클래스
+class File_Logger:
+    def __init__(self, filepath="log.txt"):
+        self.filepath = filepath
+
+    def save(self, content):
+        with open(self.filepath, "a", encoding="utf-8") as f:
+            f.write(str(content) + "\n")
+
+###
 # 해당 클래스는 마커인식을 위한 기능들을 realsense 카메라를 기준으로 정의한 클래스 
 # 다른 카메라로 기능을 사용할 경우 나머지 클래스와의 연동을 위해 함수의 양식은 일치시켜주어야함
 # 필수 구현함수 : capture_image(), get 이라 들어간 모든 함수
@@ -395,25 +405,108 @@ class Marker_Detection:
             yaw = 0
         return [roll, pitch, yaw]
 
-    def get_depth_average(self, target, img, radius = 3):
-        x,y = target
-        y_min = max(0,y - radius)
-        y_max = min(img.shape[0], y +radius +1)
-        x_min = max(0,x - radius)
-        x_max = min(img.shape[1], x +radius +1)
-        
+    def get_depth_average(self, target, img, radius=3):
+        x, y = target
+        # 이미지 범위를 벗어나지 않도록 슬라이싱 범위 설정 (Clamping)
+        y_min = max(0, y - radius)
+        y_max = min(img.shape[0], y + radius + 1)
+        x_min = max(0, x - radius)
+        x_max = min(img.shape[1], x + radius + 1)
+
+        # 관심 영역(ROI) 추출
         roi = img[y_min:y_max, x_min:x_max]
+
+        # 0(유효하지 않은 값)을 제외하고 평균 계산
+        valid_values = roi[roi > 0]
         
-        valid_val = roi[roi > 0]
-        
-        if valid_val.size > 0:
-            return np.mean(valid_val)
+        if valid_values.size > 0:
+            return np.median(valid_values)
         else:
             return 0
+        
+
+    def get_marker_plane_equation(self, corners, depth_img):
+        # corners: list of [x, y]
+        # Find bounding box of the marker
+        xs = [pt[0] for pt in corners]
+        ys = [pt[1] for pt in corners]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        
+        # Shrink ROI to center 50% to avoid border noise
+        w = max_x - min_x
+        h = max_y - min_y
+        
+        start_x = int(min_x + w * 0.25)
+        end_x = int(max_x - w * 0.25)
+        start_y = int(min_y + h * 0.25)
+        end_y = int(max_y - h * 0.25)
+        
+        # Ensure ROI is within image bounds
+        start_x = max(0, start_x)
+        start_y = max(0, start_y)
+        end_x = min(depth_img.shape[1], end_x)
+        end_y = min(depth_img.shape[0], end_y)
+        
+        if end_x <= start_x or end_y <= start_y:
+            return None
+
+        # Extract depth values in ROI
+        roi_depth = depth_img[start_y:end_y, start_x:end_x]
+        
+        # Create coordinate grids
+        # Note: indices returns (y_grid, x_grid)
+        y_grid, x_grid = np.indices(roi_depth.shape)
+        y_grid += start_y
+        x_grid += start_x
+        
+        # Flatten everything
+        z_flat = roi_depth.flatten()
+        x_flat = x_grid.flatten()
+        y_flat = y_grid.flatten()
+        
+        # Filter invalid depth (0)
+        valid_mask = z_flat > 0
+        
+        if np.sum(valid_mask) < 50: # Need enough points for robust fit
+            return None, 0, 0
             
+        z_valid = z_flat[valid_mask]
+        x_valid = x_flat[valid_mask]
+        y_valid = y_flat[valid_mask]
+        
+        # Robust Plane Fitting: 1/Z vs (u, v) normalized
+        # A plane in 3D (AX + BY + CZ + D = 0) corresponds to 
+        # 1/Z = -(A/D)*X/Z - (B/D)*Y/Z - (C/D)
+        # 1/Z = a * u_norm + b * v_norm + c
+        # where u_norm = (u - cx)/fx, v_norm = (v - cy)/fy
+        
+        inv_z = 1.0 / z_valid
+        
+        u_norm = (x_valid - self.principal_point[0]) / self.fx
+        v_norm = (y_valid - self.principal_point[1]) / self.fy
+        
+        # A matrix: [u_norm, v_norm, 1]
+        A = np.column_stack((u_norm, v_norm, np.ones_like(u_norm)))
+        
+        # Solve Ax = B where B is 1/z
+        try:
+            X, residuals, rank, s = np.linalg.lstsq(A, inv_z, rcond=None)
+            
+            # Calculate RMSE (Root Mean Squared Error)
+            # residuals returns sum of squared residuals
+            rmse = 0
+            if residuals.size > 0:
+                rmse = np.sqrt(residuals[0] / len(z_valid))
+            
+            return X, len(z_valid), rmse # [a, b, c], count, rmse
+        except np.linalg.LinAlgError:
+            return None, 0, 0
 
     # 마커들의 중심좌표(4*4행렬)
     def detect(self, color_image, depth_image):
+        depth_image_float = depth_image.astype(np.float32)
+        depth_filtered = cv2.bilateralFilter(depth_image_float, d=5, sigmaColor=50, sigmaSpace=30)# 필터직경,깊이차이허용치,공간차이 허용치
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         
@@ -441,18 +534,55 @@ class Marker_Detection:
                 z = 0
                 # C++ uses simple cast (truncation), not rounding
                 iy, ix = int(y_center), int(x_center)
-                if 0 <= iy < depth_image.shape[0] and 0 <= ix < depth_image.shape[1]:
-                    z = self.get_depth_average([ix, iy], depth_image, 19)
+                if 0 <= iy < depth_filtered.shape[0] and 0 <= ix < depth_filtered.shape[1]:
+                    z = self.get_depth_average([ix, iy], depth_filtered, 5)
                 if z == 0:
                     continue
                 # Pixel to MM
+                # center_pos logic kept same but verify usage of z
+                # However, z from center is used for translation. Can we improve translation too?
+                # For now keep center logic as requested, just fix Rotation
+                
+                # Plane Fitting for Rotation
+                plane, valid_count, rmse = self.get_marker_plane_equation(c, depth_filtered)
+                
+                # print(f"Plane Fit: Count={valid_count}, RMSE={rmse:.6f}")
+                
+                c_list = []
+                if plane is not None:
+                    # Recalculate z for corners based on plane
+                    # Plane is 1/Z = A*u_norm + B*v_norm + C
+                    A, B, C_val = plane
+                    for pt in c:
+                        # pt is [x, y]
+                        u_n = (pt[0] - self.principal_point[0]) / self.fx
+                        v_n = (pt[1] - self.principal_point[1]) / self.fy
+                        inv_z_est = A*u_n + B*v_n + C_val
+                        if abs(inv_z_est) > 1e-6:
+                            z_est = 1.0 / inv_z_est
+                        else:
+                            z_est = 0
+                        c_list.append([pt[0], pt[1], z_est])
+                else:
+                    # Fallback to old method (corner sampling)
+                    c_list = [[pt[0], pt[1], depth_filtered[int(pt[1])][int(pt[0])]] for pt in c]
+
+                # Recalculate center Z based on plane (Optional but better)
+                # If plane is good, center Z from plane is better than median of pixels
+                if plane is not None:
+                    A, B, C_val = plane
+                    u_center_n = (x_center - self.principal_point[0]) / self.fx
+                    v_center_n = (y_center - self.principal_point[1]) / self.fy
+                    inv_z_center = A*u_center_n + B*v_center_n + C_val
+                    if abs(inv_z_center) > 1e-6:
+                        z = 1.0 / inv_z_center
+                
                 center_pos = self.convert_pixel2mm([x_center, y_center, float(z)])
                 
                 # Rotation Matrix
-                c_list = [[pt[0], pt[1],depth_image[int(pt[1])][int(pt[0])]] for pt in c]
                 rot_matrix = self.get_rotation_matrix(c_list)
                 
-                # RPY
+                # RPY(디버깅용)
                 rpy = self.get_rpy_from_matrix(rot_matrix)
                 
                 # Cartesian Matrix (4x4)
@@ -463,8 +593,8 @@ class Marker_Detection:
                     0.0, 0.0, 0.0, 1.0
                 ]
                 
-                print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
-                print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
+                # print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
+                # print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
                 marker_centers_result.append(transform)
                 
@@ -576,9 +706,8 @@ class Marker_Transform:
         
         # Setup Transforms
         T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
+        
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
-        self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
         self.camera = RealSenseCamera(Stereo=Stereo)
@@ -630,66 +759,116 @@ class Marker_Transform:
         
         return m
 
-    def get_marker_transform(self):
-        T5_to_tool_tf = None
-        T5_to_tool_vec = None
-        # print("RealSense Camera Started. Press 'ESC' to exit.")
-        # time.sleep(1) # Warmup - Moved or removed for loop performance
-        try:
-            self.camera.capture_image()
-            if self.Stereo:
-                left_ir_img = self.camera.get_left_ir_image()
-                right_ir_img = self.camera.get_right_ir_image()
-            else:
-                color_img = self.camera.get_color_image()
-                depth_img = self.camera.get_depth_image()
-            
-            if self.Stereo:
-                if left_ir_img is None or right_ir_img is None:
-                    return None
-                marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img)
-            else:
-                if color_img is None or depth_img is None:
-                    return None
-                marker_transforms = self.marker_detection.detect(color_img, depth_img)
-            
-            for tf_list in marker_transforms:
-                # Convert flattened list to 4x4 matrix
-                camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
+    def get_marker_transform(self, sampling_time=0):
+        T5_to_cam_tf = None
+        T5_to_cam_vec = None
+        
+        # Collection list for sampling
+        collected_vectors = []
+        start_time = time.time()
+        
+        # Loop condition:
+        # If sampling_time == 0, run once (current behavior).
+        # If sampling_time > 0, run loop until time expires.
+        
+        while True:
+            # Check timeout if sampling
+            if sampling_time > 0 and (time.time() - start_time > sampling_time):
+                break
                 
-                try:
-                    camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                    tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                    # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                    T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                    T5_to_tool_vec = T5_to_tool_tf.flatten()
-                    if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
-                        T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
-                        T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
-                        T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
-                except np.linalg.LinAlgError:
-                    print("Singular matrix, cannot invert")
-
-        except KeyboardInterrupt:
-            raise
-
-        return T5_to_tool_vec
+            try:
+                self.camera.capture_image()
+                if self.Stereo:
+                    left_ir_img = self.camera.get_left_ir_image()
+                    right_ir_img = self.camera.get_right_ir_image()
+                else:
+                    color_img = self.camera.get_color_image()
+                    depth_img = self.camera.get_depth_image()
+                
+                if self.Stereo:
+                    if left_ir_img is None or right_ir_img is None:
+                        if sampling_time == 0: return None
+                        continue
+                    marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img)
+                else:
+                    if color_img is None or depth_img is None:
+                        if sampling_time == 0: return None
+                        continue
+                    marker_transforms = self.marker_detection.detect(color_img, depth_img)
+                
+                current_vec = None
+                for tf_list in marker_transforms:
+                    # Convert flattened list to 4x4 matrix
+                    camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
+                    
+                    try:
+                        camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                        # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+                        T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
+                        current_vec = T5_to_cam_tf.flatten()
+                        
+                        # Unit conversion if needed (mm -> m logic from original code)
+                        if abs(current_vec[3]) > 4 or abs(current_vec[7]) > 4 or abs(current_vec[11]) > 4:
+                            current_vec[3] = current_vec[3]/1000
+                            current_vec[7] = current_vec[7]/1000
+                            current_vec[11] = current_vec[11]/1000
+                    except np.linalg.LinAlgError:
+                        print("Singular matrix, cannot invert")
+                        continue
+                
+                # If valid vector found
+                if current_vec is not None:
+                    if sampling_time == 0:
+                        return current_vec
+                    else:
+                        collected_vectors.append(current_vec)
+                        
+            except KeyboardInterrupt:
+                raise
+            
+            # If not sampling, break after one attempt (handled by return above)
+            # If sampling, continue loop
+            if sampling_time == 0: 
+                break
+                
+        # Post-processing for sampling
+        if sampling_time > 0:
+            if not collected_vectors:
+                return None
+            
+            data = np.array(collected_vectors) # Shape (N, 16)
+            
+            # Compute Trimmed Mean (removing outliers)
+            # Sort each column independently is one way, or remove vectors based on distance.
+            # Simple approach: Median (Robust to outliers)
+            final_vec = np.median(data, axis=0)
+            
+            # Alternative: Mean
+            # final_vec = np.mean(data, axis=0)
+            
+            return final_vec
+            
+        return None
 
 
 
 def main():
+    logger = File_Logger()
     marker_transform = None
     try:
         marker_transform = Marker_Transform(Stereo=False)
         marker_transform.camera.monitoring()
         while True:
-            result = marker_transform.get_marker_transform()
+            result = marker_transform.get_marker_transform(sampling_time=3)
             if result is None:
                 continue
+            result = [round(n, 4) for n in result]
             print(result[0],result[1],result[2],result[3])
             print(result[4],result[5],result[6],result[7])
             print(result[8],result[9],result[10],result[11])
             print(result[12],result[13],result[14],result[15])
+            string = f"{result[3]},{result[7]},{result[11]}"
+            logger.save(string)
             time.sleep(0.01) # Removed sleep for better responsiveness
     except RuntimeError as e:
         print(f"Initialization Error: {e}")
