@@ -395,15 +395,24 @@ class Marker_Detection:
             yaw = 0
         return [roll, pitch, yaw]
 
-    def get_depth_average(self, target, img, range = 3):
-        if target[0] - range < 0 or target[0] + range > img.shape[1] or target[1] - range < 0 or target[1] + range > img.shape[0]:
-            return img[target[1]][target[0]]
+    def get_depth_average(self, target, img, radius=3):
+        x, y = target
+        # 이미지 범위를 벗어나지 않도록 슬라이싱 범위 설정 (Clamping)
+        y_min = max(0, y - radius)
+        y_max = min(img.shape[0], y + radius + 1)
+        x_min = max(0, x - radius)
+        x_max = min(img.shape[1], x + radius + 1)
+
+        # 관심 영역(ROI) 추출
+        roi = img[y_min:y_max, x_min:x_max]
+
+        # 0(유효하지 않은 값)을 제외하고 평균 계산
+        valid_values = roi[roi > 0]
+        
+        if valid_values.size > 0:
+            return np.mean(valid_values)
         else:
-            sum = 0
-            for i in range(target[0] - range, target[0] + range + 1):
-                for j in range(target[1] - range, target[1] + range + 1):
-                    sum += img[j][i]
-            return sum / ((2 * range + 1) * (2 * range + 1))
+            return 0
         
 
     # 마커들의 중심좌표(4*4행렬)
@@ -672,7 +681,7 @@ class Marker_Transform:
 def main():
     marker_transform = None
     try:
-        marker_transform = Marker_Transform(Stereo=True)
+        marker_transform = Marker_Transform(Stereo=False)
         marker_transform.camera.monitoring()
         while True:
             result = marker_transform.get_marker_transform()
