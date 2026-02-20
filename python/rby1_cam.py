@@ -437,10 +437,10 @@ class Marker_Detection:
         w = max_x - min_x
         h = max_y - min_y
         
-        start_x = int(min_x + w * 0.25)
-        end_x = int(max_x - w * 0.25)
-        start_y = int(min_y + h * 0.25)
-        end_y = int(max_y - h * 0.25)
+        start_x = int(min_x + w * 0.1)
+        end_x = int(max_x - w * 0.1)
+        start_y = int(min_y + h * 0.1)
+        end_y = int(max_y - h * 0.1)
         
         # Ensure ROI is within image bounds
         start_x = max(0, start_x)
@@ -505,8 +505,7 @@ class Marker_Detection:
 
     # 마커들의 중심좌표(4*4행렬)
     def detect(self, color_image, depth_image):
-        depth_image_float = depth_image.astype(np.float32)
-        depth_filtered = cv2.bilateralFilter(depth_image_float, d=5, sigmaColor=50, sigmaSpace=30)# 필터직경,깊이차이허용치,공간차이 허용치
+        depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         
@@ -706,8 +705,10 @@ class Marker_Transform:
         
         # Setup Transforms
         T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        
+        tool_to_cam = [0,0,0,0,0,0]
+        # tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
+        self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
         self.camera = RealSenseCamera(Stereo=Stereo)
@@ -760,8 +761,8 @@ class Marker_Transform:
         return m
 
     def get_marker_transform(self, sampling_time=0):
-        T5_to_cam_tf = None
-        T5_to_cam_vec = None
+        T5_to_tool_tf = None
+        T5_to_tool_vec = None
         
         # Collection list for sampling
         collected_vectors = []
@@ -803,25 +804,26 @@ class Marker_Transform:
                     
                     try:
                         camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                        tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
                         # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                        T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv
-                        current_vec = T5_to_cam_tf.flatten()
+                        T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                        T5_to_tool_vec = T5_to_tool_tf.flatten()
                         
                         # Unit conversion if needed (mm -> m logic from original code)
-                        if abs(current_vec[3]) > 4 or abs(current_vec[7]) > 4 or abs(current_vec[11]) > 4:
-                            current_vec[3] = current_vec[3]/1000
-                            current_vec[7] = current_vec[7]/1000
-                            current_vec[11] = current_vec[11]/1000
+                        if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                            T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
+                            T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
+                            T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
                     except np.linalg.LinAlgError:
                         print("Singular matrix, cannot invert")
                         continue
                 
                 # If valid vector found
-                if current_vec is not None:
+                if T5_to_tool_vec is not None:
                     if sampling_time == 0:
-                        return current_vec
+                        return T5_to_tool_vec
                     else:
-                        collected_vectors.append(current_vec)
+                        collected_vectors.append(T5_to_tool_vec)
                         
             except KeyboardInterrupt:
                 raise
@@ -838,13 +840,43 @@ class Marker_Transform:
             
             data = np.array(collected_vectors) # Shape (N, 16)
             
-            # Compute Trimmed Mean (removing outliers)
-            # Sort each column independently is one way, or remove vectors based on distance.
-            # Simple approach: Median (Robust to outliers)
-            final_vec = np.median(data, axis=0)
+            # Separate translation and rotation
+            translations = data[:, [3, 7, 11]]
             
-            # Alternative: Mean
-            # final_vec = np.mean(data, axis=0)
+            # Median for translation is robust
+            final_translation = np.median(translations, axis=0)
+            
+            # Average rotations using SVD (chordal L2 mean) to maintain orthogonality
+            # Extract 3x3 rotation matrices
+            rotations = []
+            for vec in data:
+                R = np.array([
+                    [vec[0], vec[1], vec[2]],
+                    [vec[4], vec[5], vec[6]],
+                    [vec[8], vec[9], vec[10]]
+                ])
+                rotations.append(R)
+            
+            sum_R = np.sum(rotations, axis=0)
+            U, S, Vt = np.linalg.svd(sum_R)
+            final_R = U @ Vt
+            
+            # Ensure det(R) = 1 (proper rotation)
+            if np.linalg.det(final_R) < 0:
+                U[:, 2] *= -1
+                final_R = U @ Vt
+            
+            # Reconstruct the 4x4 flattened vector
+            final_vec = np.zeros(16, dtype=np.float32)
+            final_vec[0:3] = final_R[0, :]
+            final_vec[4:7] = final_R[1, :]
+            final_vec[8:11] = final_R[2, :]
+            
+            final_vec[3] = final_translation[0]
+            final_vec[7] = final_translation[1]
+            final_vec[11] = final_translation[2]
+            
+            final_vec[15] = 1.0
             
             return final_vec
             
