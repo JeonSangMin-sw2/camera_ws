@@ -1155,7 +1155,7 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             T_meas_list.append(T_meas)
 
             print(f"Captured sample {len(q_cmd_list)}")
-            print("q =", np.round(q_current[RIGHT_ARM_IDX],3))
+            print("q =", np.round(q_full[RIGHT_ARM_IDX],3))
             T_print = np.array(result).reshape(4, 4)
             print("marker =", np.round(T_print,3))
         elif key == 'q':
