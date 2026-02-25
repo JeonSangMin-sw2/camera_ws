@@ -1155,7 +1155,9 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             T_meas_list.append(T_meas)
 
             print(f"Captured sample {len(q_cmd_list)}")
-
+            print("q =", np.round(q_current[RIGHT_ARM_IDX],3))
+            T_print = np.array(result).reshape(4, 4)
+            print("marker =", np.round(T_print,3))
         elif key == 'q':
             break
 
@@ -1266,7 +1268,7 @@ def main():
     RIGHT_ARM_IDX = model.right_arm_idx
 
     # marker_transform는 기존 코드 그대로 사용
-    marker_transform = Marker_Transform(Stereo=False)
+    marker_transform = Marker_Transform(Stereo=True)
     marker_transform.camera.monitoring(Flag=True)
 
     q_cmd_list, T_meas_list = capture_dataset(
