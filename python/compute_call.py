@@ -1143,7 +1143,7 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             q_full = state.position.copy()
             q_cmd = q_full[RIGHT_ARM_IDX[:7]].copy()
 
-            result = marker_transform.get_marker_transform(sampling_time=2)
+            result = marker_transform.get_marker_transform(sampling_time=0)
 
             if result is None:
                 print("Marker not detected.")
