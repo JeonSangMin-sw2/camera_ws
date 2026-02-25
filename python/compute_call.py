@@ -1150,7 +1150,7 @@ while True:
         q_cmd = q_full[RIGHT_ARM_IDX].copy()
         
         # 2️⃣ 마커 pose 읽기
-        result = marker_transform.get_marker_transform()
+        result = marker_transform.get_marker_transform(sampling_time=2)
         if result is None:
             print("Marker not detected.")
             continue

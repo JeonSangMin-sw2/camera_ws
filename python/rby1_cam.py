@@ -1,6 +1,6 @@
 
-from scipy.spatial.transform import Rotation as SciPyRotation
-from scipy.spatial.transform import Slerp
+#from scipy.spatial.transform import Rotation as SciPyRotation
+#from scipy.spatial.transform import Slerp
 import pyrealsense2 as rs
 import numpy as np
 import cv2
@@ -20,51 +20,51 @@ class File_Logger:
         with open(self.filepath, "a", encoding="utf-8") as f:
             f.write(str(content) + "\n")
 
-class SE3_Filter:
-    def __init__(self, alpha=0.3):
-        self.alpha = alpha
-        self.prev_T = {}
-        self.prev_q = {}
+# class SE3_Filter:
+#     def __init__(self, alpha=0.3):
+#         self.alpha = alpha
+#         self.prev_T = {}
+#         self.prev_q = {}
 
-    def apply(self, marker_id, matrix_4x4):
-        T_raw = np.array([matrix_4x4[3], matrix_4x4[7], matrix_4x4[11]])
-        R_raw = np.array([
-            [matrix_4x4[0], matrix_4x4[1], matrix_4x4[2]],
-            [matrix_4x4[4], matrix_4x4[5], matrix_4x4[6]],
-            [matrix_4x4[8], matrix_4x4[9], matrix_4x4[10]]
-        ])
+#     def apply(self, marker_id, matrix_4x4):
+#         T_raw = np.array([matrix_4x4[3], matrix_4x4[7], matrix_4x4[11]])
+#         R_raw = np.array([
+#             [matrix_4x4[0], matrix_4x4[1], matrix_4x4[2]],
+#             [matrix_4x4[4], matrix_4x4[5], matrix_4x4[6]],
+#             [matrix_4x4[8], matrix_4x4[9], matrix_4x4[10]]
+#         ])
         
-        # 회전 행렬을 쿼터니언으로 변환
-        q_raw = SciPyRotation.from_matrix(R_raw).as_quat()
+#         # 회전 행렬을 쿼터니언으로 변환
+#         q_raw = SciPyRotation.from_matrix(R_raw).as_quat()
 
-        if marker_id not in self.prev_T:
-            self.prev_T[marker_id] = T_raw
-            self.prev_q[marker_id] = q_raw
-            return matrix_4x4
+#         if marker_id not in self.prev_T:
+#             self.prev_T[marker_id] = T_raw
+#             self.prev_q[marker_id] = q_raw
+#             return matrix_4x4
 
-        # 1. Translation 필터링 (EMA)
-        T_new = self.alpha * T_raw + (1.0 - self.alpha) * self.prev_T[marker_id]
+#         # 1. Translation 필터링 (EMA)
+#         T_new = self.alpha * T_raw + (1.0 - self.alpha) * self.prev_T[marker_id]
 
-        # 2. Rotation 필터링 (SLERP)
-        key_times = [0, 1]
-        key_rots = SciPyRotation.from_quat([self.prev_q[marker_id], q_raw])
-        slerp = Slerp(key_times, key_rots)
+#         # 2. Rotation 필터링 (SLERP)
+#         key_times = [0, 1]
+#         key_rots = SciPyRotation.from_quat([self.prev_q[marker_id], q_raw])
+#         slerp = Slerp(key_times, key_rots)
         
-        R_new = slerp([self.alpha])[0].as_matrix()
-        q_new = slerp([self.alpha])[0].as_quat()
+#         R_new = slerp([self.alpha])[0].as_matrix()
+#         q_new = slerp([self.alpha])[0].as_quat()
 
-        # 이전 상태 업데이트
-        self.prev_T[marker_id] = T_new
-        self.prev_q[marker_id] = q_new
+#         # 이전 상태 업데이트
+#         self.prev_T[marker_id] = T_new
+#         self.prev_q[marker_id] = q_new
 
-        # 4x4 리스트로 재조립
-        filtered_transform = [
-            R_new[0][0], R_new[0][1], R_new[0][2], T_new[0],
-            R_new[1][0], R_new[1][1], R_new[1][2], T_new[1],
-            R_new[2][0], R_new[2][1], R_new[2][2], T_new[2],
-            0.0, 0.0, 0.0, 1.0
-        ]
-        return filtered_transform
+#         # 4x4 리스트로 재조립
+#         filtered_transform = [
+#             R_new[0][0], R_new[0][1], R_new[0][2], T_new[0],
+#             R_new[1][0], R_new[1][1], R_new[1][2], T_new[1],
+#             R_new[2][0], R_new[2][1], R_new[2][2], T_new[2],
+#             0.0, 0.0, 0.0, 1.0
+#         ]
+#         return filtered_transform
 
 
 class RealSenseCamera:
