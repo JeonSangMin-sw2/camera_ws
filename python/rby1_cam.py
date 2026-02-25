@@ -1,6 +1,4 @@
 
-#from scipy.spatial.transform import Rotation as SciPyRotation
-#from scipy.spatial.transform import Slerp
 import pyrealsense2 as rs
 import numpy as np
 import cv2
@@ -19,52 +17,6 @@ class File_Logger:
     def save(self, content):
         with open(self.filepath, "a", encoding="utf-8") as f:
             f.write(str(content) + "\n")
-
-# class SE3_Filter:
-#     def __init__(self, alpha=0.3):
-#         self.alpha = alpha
-#         self.prev_T = {}
-#         self.prev_q = {}
-
-#     def apply(self, marker_id, matrix_4x4):
-#         T_raw = np.array([matrix_4x4[3], matrix_4x4[7], matrix_4x4[11]])
-#         R_raw = np.array([
-#             [matrix_4x4[0], matrix_4x4[1], matrix_4x4[2]],
-#             [matrix_4x4[4], matrix_4x4[5], matrix_4x4[6]],
-#             [matrix_4x4[8], matrix_4x4[9], matrix_4x4[10]]
-#         ])
-        
-#         # 회전 행렬을 쿼터니언으로 변환
-#         q_raw = SciPyRotation.from_matrix(R_raw).as_quat()
-
-#         if marker_id not in self.prev_T:
-#             self.prev_T[marker_id] = T_raw
-#             self.prev_q[marker_id] = q_raw
-#             return matrix_4x4
-
-#         # 1. Translation 필터링 (EMA)
-#         T_new = self.alpha * T_raw + (1.0 - self.alpha) * self.prev_T[marker_id]
-
-#         # 2. Rotation 필터링 (SLERP)
-#         key_times = [0, 1]
-#         key_rots = SciPyRotation.from_quat([self.prev_q[marker_id], q_raw])
-#         slerp = Slerp(key_times, key_rots)
-        
-#         R_new = slerp([self.alpha])[0].as_matrix()
-#         q_new = slerp([self.alpha])[0].as_quat()
-
-#         # 이전 상태 업데이트
-#         self.prev_T[marker_id] = T_new
-#         self.prev_q[marker_id] = q_new
-
-#         # 4x4 리스트로 재조립
-#         filtered_transform = [
-#             R_new[0][0], R_new[0][1], R_new[0][2], T_new[0],
-#             R_new[1][0], R_new[1][1], R_new[1][2], T_new[1],
-#             R_new[2][0], R_new[2][1], R_new[2][2], T_new[2],
-#             0.0, 0.0, 0.0, 1.0
-#         ]
-#         return filtered_transform
 
 
 class RealSenseCamera:
@@ -237,8 +189,8 @@ class RealSenseCamera:
                     #depth_re_img_bgr = cv2.applyColorMap(depth_re_img, cv2.COLORMAP_BONE)
                     result_list.append(depth_re_img_bgr)
                 if self.Infrared == True and self.left_ir_image is not None and self.right_ir_image is not None:
-                    result_list.append(self.left_ir_image)
-                    result_list.append(self.right_ir_image)
+                    result_list.append(cv2.cvtColor(self.left_ir_image, cv2.COLOR_GRAY2BGR))
+                    result_list.append(cv2.cvtColor(self.right_ir_image, cv2.COLOR_GRAY2BGR))
                 
                 if len(result_list) > 0:
                     if len(result_list) == 1:
@@ -280,22 +232,33 @@ class RealSenseCamera:
         try:
             frames = self.pipeline.wait_for_frames()
             
-            # 파이썬 API의 한계로 인해 필터를 align 이후에 적용합니다. 
-            # 대신 뒤에서 SE(3) 필터로 노이즈를 제어합니다.
-            align_to = rs.stream.color
-            align = rs.align(align_to)
-            aligned_frames = align.process(frames)
-            
             if self.Infrared:
                 left_ir_frame = frames.get_infrared_frame(1)
                 right_ir_frame = frames.get_infrared_frame(2)
+                depth_frame = frames.get_depth_frame()
                 
-                if not left_ir_frame or not right_ir_frame:
+                if not left_ir_frame or not right_ir_frame or not depth_frame:
                     print("no frame")
                     return
+                
+                depth_frame = self.spatial.process(depth_frame)
+                depth_frame = self.temporal.process(depth_frame)
+                depth_frame = self.hole_filling.process(depth_frame)
+                
                 left_ir_data = np.asanyarray(left_ir_frame.get_data())
                 right_ir_data = np.asanyarray(right_ir_frame.get_data())
+                depth_data = np.asanyarray(depth_frame.get_data())
+                
+                with self.lock:
+                    self.left_ir_image = left_ir_data
+                    self.right_ir_image = right_ir_data
+                    self.depth_image = depth_data
             else:
+                # 파이썬 API의 한계로 인해 필터를 align 이후에 적용합니다. 
+                # 대신 뒤에서 SE(3) 필터로 노이즈를 제어합니다.
+                align_to = rs.stream.color
+                align = rs.align(align_to)
+                aligned_frames = align.process(frames)
                 color_frame = aligned_frames.get_color_frame()
                 depth_frame = aligned_frames.get_depth_frame()
                 # 추가 필터적용
@@ -308,11 +271,7 @@ class RealSenseCamera:
                 color_data = np.asanyarray(color_frame.get_data())
                 depth_data = np.asanyarray(depth_frame.get_data())
             
-            with self.lock:
-                if self.Infrared:
-                    self.left_ir_image = left_ir_data
-                    self.right_ir_image = right_ir_data
-                else:
+                with self.lock:
                     self.color_image = color_data
                     self.depth_image = depth_data
         except Exception as e:
@@ -355,7 +314,7 @@ class RealSenseCamera:
 class Marker_Detection:
     def __init__(self):
 
-        self.logger = File_Logger(filepath="marker_pixel.txt")
+        # self.logger = File_Logger(filepath="marker_pixel.txt")
 
 
         # 어떤 마커를 인식시킬건지 정의
@@ -731,20 +690,20 @@ class Marker_Detection:
                     pt_3d_mm = self.convert_pixel2mm([pt[0], pt[1], float(z_est)])
                     c_list.append(pt_3d_mm)
 
-                string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
-                self.logger.save(string)
+                # string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
+                # self.logger.save(string)
                     
-                # 1. 코너점들의 형태를 정사각형으로 보정
+                #코너점들의 형태를 정사각형으로 보정
                 is_valid, c_list_corrected = self.validate_and_correct_marker_shape(c_list)
 
-                # 2. 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
+                # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
                 c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
 
-                # 3. 필터링된 꼭짓점 4개의 중심 좌표 재계산
+                # 필터링된 꼭짓점 4개의 중심 좌표 재계산
                 center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
-                # 4. 필터링된 코너점 기반 회전 행렬 계산
+                # 필터링된 코너점 기반 회전 행렬 계산
                 rot_matrix = self.get_rotation_matrix(c_list_filtered)
                 
                 # Cartesian Matrix (4x4)
@@ -786,7 +745,7 @@ class Marker_Detection:
                 main_corner = main_corners[i][0]
                 candidates = ref_dict[mid]
                 
-                # Find best matching candidate based on Y-coordinate similarity (Epipolar constraint)
+               
                 best_idx = -1
                 min_y_diff = float('inf')
                 
@@ -804,41 +763,36 @@ class Marker_Detection:
                 
                 if best_idx == -1:
                     continue
-                ref_corner = candidates.pop(best_idx) # Remove matched candidate to prevent double counting
+                ref_corner = candidates.pop(best_idx) 
                 if len(candidates) == 0:
                     del ref_dict[mid]
 
                 # Get depth
                 corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corner, ref_corner)
 
-                c = corners_3d_mm # c has 4 points
+                if len(corners_3d_mm) != 4:
+                    continue
                 
-                # C++ Logic: Center is average of min/max (AABB center), not centroid
-                xs = [pt[0] for pt in c]
-                ys = [pt[1] for pt in c]
-                zs = [pt[2] for pt in c]
-                xs.sort()
-                ys.sort()
-                zs.sort()
+                # 코너점들의 형태를 정사각형으로 보정
+                is_valid, c_list_corrected = self.validate_and_correct_marker_shape(corners_3d_mm)
+
+                # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
+                c_list_filtered = self.apply_point_lpf(mid, c_list_corrected)
+
+                # 필터링된 꼭짓점 4개의 중심 좌표 재계산 (테스트코드와 동일하게 np.mean 사용)
+                center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
-                x_center = (xs[0] + xs[3]) / 2.0
-                y_center = (ys[0] + ys[3]) / 2.0
-                z_center = (zs[0] + zs[3]) / 2.0
-                
-                # Rotation Matrix
-                c_list = [[pt[0], pt[1], pt[2]] for pt in c]
-                rot_matrix = self.get_rotation_matrix(c_list) # 사용중인 함수의 양식을 맞추기 위함
-                
-                # RPY
-                # self.rpy = self.get_rpy_from_matrix(rot_matrix)
+                # 필터링된 코너점 기반 회전 행렬 계산
+                rot_matrix = self.get_rotation_matrix(c_list_filtered)
                 
                 # Cartesian Matrix (4x4)
                 transform = [
-                    rot_matrix[0][0], rot_matrix[0][1], rot_matrix[0][2], x_center,
-                    rot_matrix[1][0], rot_matrix[1][1], rot_matrix[1][2], y_center,
-                    rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], z_center,
+                    rot_matrix[0][0], rot_matrix[0][1], rot_matrix[0][2], center_pos[0],
+                    rot_matrix[1][0], rot_matrix[1][1], rot_matrix[1][2], center_pos[1],
+                    rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], center_pos[2],
                     0.0, 0.0, 0.0, 1.0
                 ]
+
                 # print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 # print(f"rpy    [{self.rpy[0]*180/math.pi}, {self.rpy[1]*180/math.pi}, {self.rpy[2]*180/math.pi}]")
                 
@@ -851,7 +805,7 @@ class Marker_Detection:
         corners_3d_mm = []
         for i in range(4):
             disparity = main_corner[i][0] - ref_corner[i][0]
-            if disparity == 0:
+            if disparity <= 0:
                 continue
             depth = (self.baseline * self.fx) / disparity * 1000 # m -> mm
             x_mm = (main_corner[i][0] - self.principal_point[0]) * depth / self.fx
@@ -924,11 +878,10 @@ class Marker_Transform:
         return m
 
     def get_marker_transform(self, sampling_time=0):
-        T5_to_tool_tf = None
         T5_to_tool_vec = None
         
         # Collection list for sampling
-        collected_vectors = []
+        collected_transforms = []
         start_time = time.time()
         
         # Loop condition:
@@ -957,36 +910,36 @@ class Marker_Transform:
                         continue
                     marker_transforms = self.marker_detection.detect(color_img, depth_img)
                 
-                current_vec = None
                 for tf_list in marker_transforms:
                     # Convert flattened list to 4x4 matrix
                     camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
                     
-                    try:
-                        camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                        tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                        # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                        T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                        T5_to_tool_vec = T5_to_tool_tf.flatten()
-                        
-                        # Unit conversion if needed (mm -> m logic from original code)
-                        if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
-                            T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
-                            T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
-                            T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
-                    except np.linalg.LinAlgError:
-                        print("Singular matrix, cannot invert")
-                        continue
-                
-                # If valid vector found
-                if T5_to_tool_vec is not None:
                     if sampling_time == 0:
-                        return T5_to_tool_vec
+                        try:
+                            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+                            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                            T5_to_tool_vec = T5_to_tool_tf.flatten()
+                            
+                            # Unit conversion if needed (mm -> m logic from original code)
+                            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                                T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
+                                T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
+                                T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
+                            return T5_to_tool_vec
+                        except np.linalg.LinAlgError:
+                            print("Singular matrix, cannot invert")
+                            continue
                     else:
-                        collected_vectors.append(T5_to_tool_vec)
+                        # Append the FORWARD transform, NOT the inverted one
+                        collected_transforms.append(tf_list)
                         
             except KeyboardInterrupt:
                 raise
+            
+            # CPU 점유율을 낮추기 위한 미세한 대기
+            time.sleep(0.01)
             
             # If not sampling, break after one attempt (handled by return above)
             # If sampling, continue loop
@@ -995,12 +948,12 @@ class Marker_Transform:
                 
         # Post-processing for sampling
         if sampling_time > 0:
-            if not collected_vectors:
+            if not collected_transforms:
                 return None
             
-            data = np.array(collected_vectors) # Shape (N, 16)
+            data = np.array(collected_transforms) # Shape (N, 16)
             
-            # Separate translation and rotation
+            # Separate translation and rotation for CAMERA_TO_MARKER (NOT inverted yet)
             translations = data[:, [3, 7, 11]]
             
             # Median for translation is robust
@@ -1026,19 +979,27 @@ class Marker_Transform:
                 U[:, 2] *= -1
                 final_R = U @ Vt
             
-            # Reconstruct the 4x4 flattened vector
-            final_vec = np.zeros(16, dtype=np.float32)
-            final_vec[0:3] = final_R[0, :]
-            final_vec[4:7] = final_R[1, :]
-            final_vec[8:11] = final_R[2, :]
+            # Reconstruct the averaged 4x4 camera_to_marker transform
+            avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
+            avg_cam_to_marker_tf[0:3, 0:3] = final_R
+            avg_cam_to_marker_tf[0:3, 3] = final_translation
             
-            final_vec[3] = final_translation[0]
-            final_vec[7] = final_translation[1]
-            final_vec[11] = final_translation[2]
-            
-            final_vec[15] = 1.0
-            
-            return final_vec
+            # NOW compute the inversions and multiplication with stable values
+            try:
+                camera_to_marker_inv = np.linalg.inv(avg_cam_to_marker_tf)
+                tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                final_vec = T5_to_tool_tf.flatten()
+                
+                # Unit conversion
+                if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
+                    final_vec[3] /= 1000
+                    final_vec[7] /= 1000
+                    final_vec[11] /= 1000
+                    
+                return final_vec
+            except np.linalg.LinAlgError:
+                return None
             
         return None
 
@@ -1048,7 +1009,7 @@ def main():
     logger = File_Logger()
     marker_transform = None
     try:
-        marker_transform = Marker_Transform(Stereo=False)
+        marker_transform = Marker_Transform(Stereo=True)
         marker_transform.camera.monitoring()
         
         while True:
