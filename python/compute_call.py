@@ -1113,6 +1113,12 @@ def se3_log(T):
 # Robot initialization
 # ============================================================
 
+
+def load_npz_dataset(path):
+    data = np.load(path)
+    return data["q"], data["marker"]
+
+
 def create_robot(ip):
     robot = rby.create_robot_a(ip)
     robot.connect()
@@ -1169,6 +1175,42 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
 # ============================================================
 # Gauss Newton (기존 알고리즘 그대로)
 # ============================================================
+
+
+def generate_sim_measurements(robot, dyn_model,
+                              q_cmd_list, RIGHT_ARM_IDX,
+                              q_nominal, ndof):
+    q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
+    xi_cam_true = np.array([0.02, -0.01, 0.015, 0.01, 0.02, -0.01])
+    
+    T_list = []
+
+    for q_cmd in q_cmd_list:
+        q_full = q_nominal.copy()
+        q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
+
+        state = dyn_model.make_state(
+            ["link_torso_5", "ee_right"],
+            robot.model().robot_joint_names
+        )
+        state.set_q(q_full)
+        dyn_model.compute_forward_kinematics(state)
+
+        T_fk = dyn_model.compute_transformation(state, 0, 1)
+
+        # noise = np.array([-0.100956, 0.024401, 0.009073,
+        #                   -0.002027, 0.028192, 0.022449])
+
+        # T_meas = T_fk @ se3_exp(noise)
+        if ndof == 13:
+            T_meas = T_fk @ se3_exp(xi_cam_true)         
+        else :
+            T_meas = T_fk          
+        T_list.append(T_meas)
+
+    return T_list
+
+
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
@@ -1259,29 +1301,55 @@ def main():
                         choices=[7, 13])
     parser.add_argument("--ip", type=str,
                         default="192.168.30.1:50051")
+    parser.add_argument("--mode", type=str, required=True, 
+                        choices=["live","npz", "sim"]
+                        )
+    parser.add_argument("--path", type=str, default="captured_dataset.npz",
+        help="Path to npz dataset (default: captured_dataset.npz)")
+
+    
 
     args = parser.parse_args()
 
+    marker_transform = None
+    
     robot = create_robot(args.ip)
     dyn_model = robot.get_dynamics()
     model = robot.model()
     RIGHT_ARM_IDX = model.right_arm_idx
 
-    # marker_transform는 기존 코드 그대로 사용
-    marker_transform = Marker_Transform(Stereo=True)
-    marker_transform.camera.monitoring(Flag=True)
 
-    q_cmd_list, T_meas_list = capture_dataset(
-        robot, dyn_model,
-        RIGHT_ARM_IDX,
-        marker_transform
-    )
+    if args.mode == "live":
+        # marker_transform는 기존 코드 그대로 사용
+        marker_transform = Marker_Transform(Stereo=True)
+        marker_transform.camera.monitoring(Flag=True)
 
-    np.savez_compressed(
-        "captured_dataset.npz",
-        q=q_cmd_list,
-        marker=T_meas_list
-    )
+        q_cmd_list, T_meas_list = capture_dataset(
+            robot, dyn_model,
+            RIGHT_ARM_IDX,
+            marker_transform
+        )
+        np.savez_compressed(
+            "captured_dataset.npz",
+            q=q_cmd_list,
+            marker=T_meas_list
+        )
+
+    elif args.mode == "npz":
+        q_cmd_list, T_meas_list = load_npz_dataset(args.path)
+
+    else :
+        q_cmd_list = np.random.uniform(-1, 1, (10, 7))
+        q_nominal = robot.get_state().position.copy()
+        print("q_nominal", q_nominal)
+        T_meas_list = generate_sim_measurements(
+            robot, dyn_model,
+            q_cmd_list,
+            RIGHT_ARM_IDX,
+            q_nominal,
+            args.ndof
+        )
+        
 
     print("Dataset saved.")
 
@@ -1299,8 +1367,8 @@ def main():
     print("Camera xi:")
     print(xi_cam)
 
-    marker_transform.camera.monitoring(Flag=False)
-
-
+    if marker_transform is not None:
+        marker_transform.camera.monitoring(Flag=False)
+    
 if __name__ == "__main__":
     main()
