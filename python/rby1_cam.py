@@ -8,6 +8,38 @@ import math
 import time
 import threading
 
+class TCPClient:
+    def __init__(self, ip, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.connected = False
+        try:
+            self.sock.connect((ip, port))
+            print("Connected to Python Server!")
+            self.connected = True
+        except ConnectionRefusedError:
+            print("Connection Failed. (Is Python Server running?)")
+        except Exception as e:
+            print(f"Connection Error: {e}")
+
+    def __del__(self):
+        if self.connected:
+            self.sock.close()
+
+    def send_pose(self, T):
+        if not self.connected:
+            return
+        
+        # T is expected to be a flat list or numpy array of 16 floats
+        if isinstance(T, np.ndarray):
+            T = T.flatten().tolist()
+            
+        # Pack 16 floats (4 bytes each) -> 64 bytes
+        try:
+            packed_data = struct.pack('16f', *T)
+            self.sock.send(packed_data)
+        except Exception as e:
+            print(f"Send Error: {e}")
+            self.connected = False
 
 # 데이터를 텍스트 파일로 저장하는 클래스
 class File_Logger:
@@ -813,15 +845,18 @@ class Marker_Detection:
             corners_3d_mm.append([x_mm, y_mm, depth])
         return corners_3d_mm
 
+
+
+
 class Marker_Transform:
     def __init__(self, Stereo=False):
         self.Stereo = Stereo
-        
+        self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        T5_to_marker_data = [0,0,0,0,0,0]
-        tool_to_cam = [0,0,0,0,0,0]
-        # tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
+        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        # T5_to_marker_data = [0,0,0,0,0,0]
+        #tool_to_cam = [0,0,0,0,0,0]
+        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
@@ -927,6 +962,8 @@ class Marker_Transform:
                                 T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
                                 T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
                                 T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
+                                
+                            self.client.send_pose(T5_to_tool_vec)
                             return T5_to_tool_vec
                         except np.linalg.LinAlgError:
                             print("Singular matrix, cannot invert")
@@ -990,7 +1027,7 @@ class Marker_Transform:
                 tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
                 T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
                 final_vec = T5_to_tool_tf.flatten()
-                
+                self.client.send_pose(final_vec)
                 # Unit conversion
                 if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
                     final_vec[3] /= 1000
@@ -1006,6 +1043,7 @@ class Marker_Transform:
 
 
 def main():
+    
     logger = File_Logger()
     marker_transform = None
     try:
