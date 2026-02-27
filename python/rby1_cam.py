@@ -8,6 +8,10 @@ import math
 import time
 import threading
 
+###
+# 해당 클래스는 마커인식을 위한 기능들을 realsense 카메라를 기준으로 정의한 클래스 
+# 다른 카메라로 기능을 사용할 경우 나머지 클래스와의 연동을 위해 함수의 양식은 일치시켜주어야함
+# 필수 구현함수 : capture_image(), get 이라 들어간 모든 함수
 
 # 데이터를 텍스트 파일로 저장하는 클래스
 class File_Logger:
