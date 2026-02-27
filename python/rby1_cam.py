@@ -1048,7 +1048,7 @@ def main():
     marker_transform = None
     try:
         marker_transform = Marker_Transform(Stereo=True)
-        marker_transform.camera.monitoring()
+        marker_transform.camera.monitoring(Flag=False)
         
         while True:
             raw_result = marker_transform.get_marker_transform(sampling_time=0)
