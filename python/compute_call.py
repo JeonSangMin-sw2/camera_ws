@@ -223,13 +223,13 @@ class RealSenseCamera:
                         resize_width = (self.width // len(result_list)) * len(result_list)
                     concat_image = cv2.hconcat(result_list)
                     concat_image = cv2.resize(concat_image, (resize_width, resize_height))
-                    cv2.imshow("Preview", concat_image)
+                    # cv2.imshow("Preview", concat_image)
                     key = cv2.waitKey(1)
                     if key == 27 or key == ord('q'): # ESC or q
                         raise KeyboardInterrupt
                     
-                    if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
-                        raise KeyboardInterrupt
+                    # if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
+                        # raise KeyboardInterrupt
                 time.sleep(0.01)
         except RuntimeError as e:
             print(f"Error: {e}")
@@ -718,8 +718,8 @@ class Marker_Detection:
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
-                c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
-
+                #c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
+                c_list_filtered = c_list_corrected
                 # 필터링된 꼭짓점 4개의 중심 좌표 재계산
                 center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
@@ -797,8 +797,8 @@ class Marker_Detection:
                 is_valid, c_list_corrected = self.validate_and_correct_marker_shape(corners_3d_mm)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
-                c_list_filtered = self.apply_point_lpf(mid, c_list_corrected)
-
+                #c_list_filtered = self.apply_point_lpf(mid, c_list_corrected)
+                c_list_filtered = c_list_corrected
                 # 필터링된 꼭짓점 4개의 중심 좌표 재계산 (테스트코드와 동일하게 np.mean 사용)
                 center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
@@ -838,7 +838,7 @@ class Marker_Transform:
         self.Stereo = Stereo
         
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        T5_to_marker_data = [0.022, 0.0, 0.12, 180, 0.0, -90.0]
         # T5_to_marker_data = [0,0,0,0,0,0]
         # tool_to_cam = [0,0,0,0,0,0]
         tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
@@ -1359,16 +1359,18 @@ def main():
         q_cmd_list, T_meas_list = load_npz_dataset(args.path)
         print("size=", np.size(q_cmd_list))
         # 7자유도 최적화 해 역대입
-        # q_offset_deg = np.array([5.60309833, -0.10843499, -3.3175589, 9.95277005, -2.99161362, 2.50289695, 4.26452776 ])
-        # q_offset_rad = np.deg2rad(q_offset_deg)
-        # q_cmd_list = q_cmd_list + q_offset_rad        
+        q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996
+  ,0.42705511])
+        q_offset_rad = np.deg2rad(q_offset_deg)
+        q_cmd_list = q_cmd_list + q_offset_rad        
 
         # 6자유도 최적화 해 역대입
-        # T_noise = se3_exp((np.array([-0.25112801, -0.02261211,  0.0029315,   0.00241164,  0.01717358,  0.04978021])))
-        # T_meas_list = np.array([
-        #     T @ np.linalg.inv(T_noise)
-        #     for T in T_meas_list
-        # ])
+        #T_noise = se3_exp((np.array([-0.24320115, -0.02413357, -0.07419314 , 0.00810397 , 0.02202252 , 0.04349531]))) @ se3_exp((np.array([-0.04490201, -0.29346999  ,0.31853465, -0.08586853,  0.02355423,  0.00065285]))) @ se3_exp((np.array([ 0.06317753 , 0.09781769, -0.21348499,  0.03552647, -0.00931608, -0.0118669]))) @ se3_exp((np.array([ 0.0835465 ,  0.04701598 ,-0.02685293 , 0.01128744 ,-0.0196461  , 0.00919014])))
+        T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
+        T_meas_list = np.array([
+            T @ np.linalg.inv(T_noise)
+            for T in T_meas_list
+        ])
 
     else :
         q_cmd_list = np.random.uniform(-1, 1, (10, 7))
@@ -1400,7 +1402,7 @@ def main():
     print(xi_cam)
 
     if marker_transform is not None:
-        marker_transform.camera.monitoring(Flag=False)
+        marker_transform.camera.monitoring(Flag=True)
     
 if __name__ == "__main__":
     main()
