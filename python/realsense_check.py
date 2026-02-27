@@ -7,6 +7,10 @@ def list_profiles():
         print("No RealSense devices connected")
         return
 
+    print(f"Total devices: {len(devices)}")
+    for i, dev in enumerate(devices):
+        print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
+
     for dev in devices:
         print(f"Device: {dev.get_info(rs.camera_info.name)}")
         sensors = dev.query_sensors()

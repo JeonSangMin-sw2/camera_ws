@@ -9,6 +9,7 @@ import math
 import threading
 import sys
 import select
+import json
 
 recorded_data = []   # (q, marker) 같이 저장
 
@@ -23,62 +24,83 @@ def check_key_press():
 # ===============================
 
 
+###
+# 해당 클래스는 마커인식을 위한 기능들을 realsense 카메라를 기준으로 정의한 클래스 
+# 다른 카메라로 기능을 사용할 경우 나머지 클래스와의 연동을 위해 함수의 양식은 일치시켜주어야함
+# 필수 구현함수 : capture_image(), get 이라 들어간 모든 함수
+
+###
+# 데이터를 텍스트 파일로 저장하는 클래스
+class File_Logger:
+    def __init__(self, filepath="log.txt"):
+        self.filepath = filepath
+
+    def save(self, content):
+        with open(self.filepath, "a", encoding="utf-8") as f:
+            f.write(str(content) + "\n")
+
+
 class RealSenseCamera:
     def __init__(self, serial_number=None, Stereo=False):
-        # 별도로 설정한 시리얼 번호가 없으면 처음 인식되는 카메라 사용
-        self.device_number = 0
-        # 연결되어있던 카메라 검색
+        # 연결되어있는 카메라 검색
         ctx = rs.context()
         devices = ctx.query_devices()
         if len(devices) == 0:
             print("No RealSense devices found!")
             raise RuntimeError("No RealSense connected")
-        
-        # Hardware Reset to fix frame timeout
-        print("Resetting Realsense device...")
-        devices[0].hardware_reset()
-        time.sleep(5)
-        
-        # Re-query after reset
-        ctx = rs.context()
-        devices = ctx.query_devices()
-        if len(devices) == 0:
-             # Wait a bit more if not found yet
-             time.sleep(3)
-             ctx = rs.context()
-             devices = ctx.query_devices()
-        
-        if len(devices) == 0:
-            print("No RealSense devices found after reset!")
-            raise RuntimeError("No RealSense connected")
+        # 카메라 선택 : 시리얼 넘버가 정해져있으면 해당 카메라 사용, 없으면 첫번째 카메라 사용
         for i, dev in enumerate(devices):
             print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
-            if serial_number == dev.get_info(rs.camera_info.serial_number):
+            if serial_number == dev.get_info(rs.camera_info.serial_number) or serial_number is None:
                 self.device_number = i
                 break
+
+        # 안전한 사용을 위해 선택한 카메라 재연결
+        print("Resetting Realsense device...")
+        devices[self.device_number].hardware_reset()
+        # 카메라가 다시 연결될 때까지 대기
+        time.sleep(3)
+
+        # 카메라 정보 재확인(하드웨어 리셋했으므로 재확인 필요)
+        ctx = rs.context()
+        devices = ctx.query_devices()
+
         self.device_name = devices[self.device_number].get_info(rs.camera_info.name)
         self.serial_number = devices[self.device_number].get_info(rs.camera_info.serial_number)
         print("Using camera is : ", self.device_name)
+
         # depth 해상도 확인 : D435는 1mm, D405 는 0.1mm. 즉 모델에 따라 다름
         depth_sensor = devices[self.device_number].first_depth_sensor()
+        if depth_sensor.supports(rs.option.thermal_compensation):
+            depth_sensor.set_option(rs.option.thermal_compensation, 1.0) # 온도보정기능 On
+            depth_sensor.set_option(rs.option.visual_preset, 3) # High Accuracy
         depth_scale = depth_sensor.get_depth_scale()
         print("depth scale : ", depth_scale)
         self.depth_resolution = depth_scale*1000
+
         #나머지 카메라 구동을 위한 파라미터 설정
         self.pipeline = rs.pipeline()
         self.config = rs.config()
+        self.spatial = rs.spatial_filter()       # 공간적 평활화 (노이즈 제거)
+        self.spatial.set_option(rs.option.filter_magnitude, 2)
+        self.temporal = rs.temporal_filter()     # 시간적 평활화 (깜빡임 방지)
+        self.hole_filling = rs.hole_filling_filter() # 빈 공간 채우기
+
         #적외선카메라 사용여부확인
         self.Infrared = Stereo
         self.camera_running = False
+
         #이미지 저장 변수
         self.color_image = None
         self.depth_image = None
         self.left_ir_image = None
         self.right_ir_image = None
+
         # 기본해상도
         self.width = 1280 # 848
         self.height = 720 # 480
         self.fps = 30
+
         #카메라 내부 파라미터
         self.fx = 0.0
         self.fy = 0.0
@@ -95,9 +117,11 @@ class RealSenseCamera:
         self.width = set_width
         self.height = set_height
         self.fps = set_fps
+        
         try:
             self.config.enable_device(self.serial_number)
             # 사용할 카메라(컬러, depth, ir) 스트리밍 활성화. depth는 모든상황에 사용됨
+            # cpu 부하를 줄이기 위해 적외선 사용 시 ir1, ir2 를, 사용하지 않을 경우 color만 추가로 스트리밍 진행
             self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
             if self.Infrared:
                 print("Infrared camera is used")
@@ -109,8 +133,10 @@ class RealSenseCamera:
             # 파이프라인 시작
             self.profile = self.pipeline.start(self.config)
 
-            # 카메라 안정화를 위해 10프레임 정도는 무시하고 사용
-            for i in range(30):
+            
+
+            # 구동 후 카메라 안정화를 위해 10프레임 정도는 무시하고 사용
+            for i in range(10):
                 self.pipeline.wait_for_frames()
             
             # depth 카메라 내부 파라미터 얻기 : baseline, fx, fy, principal_point 를 위해 사용
@@ -164,24 +190,28 @@ class RealSenseCamera:
                     result_list.append(self.color_image)
                 if self.depth_image is not None:
                     if np.max(self.depth_image) > 0:
-                        min_dist = float(np.min(self.depth_image[self.depth_image > 0]))
-                        max_dist = float(np.max(self.depth_image))
-                        alpha = (0.0 - 200.0) / (max_dist - min_dist)
-                        beta = 200.0 - (min_dist * alpha)
+                        # min_dist = float(np.min(self.depth_image[self.depth_image > 0]))
+                        # max_dist = float(np.max(self.depth_image))
+                        min_dist = 700.0
+                        max_dist = 5000.0
+                        alpha = (0.0 - 255.0) / (max_dist - min_dist)
+                        beta = 255.0 - (min_dist * alpha)
                     else:
-                        min_dist = 70.0
-                        max_dist = 2000.0
-                        alpha = (0.0 - 200.0) / (max_dist - min_dist)
-                        beta = 200.0 - (min_dist * alpha)
+                        min_dist = 700.0
+                        max_dist = 5000.0
+                        alpha = (0.0 - 255.0) / (max_dist - min_dist)
+                        beta = 255.0 - (min_dist * alpha)
                     depth_re_img = self.depth_image.astype(np.float32)
                     depth_re_img = depth_re_img * alpha + beta
                     depth_re_img = np.clip(depth_re_img, 0, 255).astype(np.uint8)
+                    # depth_re_img = depth_re_img.astype(np.uint8)
                     depth_re_img[self.depth_image == 0] = 0
                     depth_re_img_bgr = cv2.cvtColor(depth_re_img, cv2.COLOR_GRAY2BGR)
+                    #depth_re_img_bgr = cv2.applyColorMap(depth_re_img, cv2.COLORMAP_BONE)
                     result_list.append(depth_re_img_bgr)
                 if self.Infrared == True and self.left_ir_image is not None and self.right_ir_image is not None:
-                    result_list.append(self.left_ir_image)
-                    result_list.append(self.right_ir_image)
+                    result_list.append(cv2.cvtColor(self.left_ir_image, cv2.COLOR_GRAY2BGR))
+                    result_list.append(cv2.cvtColor(self.right_ir_image, cv2.COLOR_GRAY2BGR))
                 
                 if len(result_list) > 0:
                     if len(result_list) == 1:
@@ -194,13 +224,13 @@ class RealSenseCamera:
                         resize_width = (self.width // len(result_list)) * len(result_list)
                     concat_image = cv2.hconcat(result_list)
                     concat_image = cv2.resize(concat_image, (resize_width, resize_height))
-                    cv2.imshow("Preview", concat_image)
+                    # cv2.imshow("Preview", concat_image)
                     key = cv2.waitKey(1)
                     if key == 27 or key == ord('q'): # ESC or q
                         raise KeyboardInterrupt
                     
-                    if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
-                        raise KeyboardInterrupt
+                    # if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
+                        # raise KeyboardInterrupt
                 time.sleep(0.01)
         except RuntimeError as e:
             print(f"Error: {e}")
@@ -215,43 +245,58 @@ class RealSenseCamera:
             pass
 
     def capture_image(self):
-        align_to = rs.stream.color
-        align = rs.align(align_to)
-        if self.camera_running:
-            if self.thread is not None and self.thread.is_alive() and threading.current_thread() != self.thread:
-                # Monitoring thread handles capture, just wait or check cached data
-                # We can sleep briefly to mimic frame rate
-                time.sleep(1.0/self.fps)
-                return
+        # 복잡한 스레드 검사 로직(if self.thread is not None...)을 전부 삭제합니다.
+        if not self.camera_running:
+            return
 
+        # 이 함수는 stream_on(백그라운드 스레드)에서만 단독으로 실행됩니다.
+        try:
             frames = self.pipeline.wait_for_frames()
-            aligned_frames = align.process(frames)
             
             if self.Infrared:
                 left_ir_frame = frames.get_infrared_frame(1)
                 right_ir_frame = frames.get_infrared_frame(2)
+                depth_frame = frames.get_depth_frame()
                 
-                if not left_ir_frame or not right_ir_frame:
+                if not left_ir_frame or not right_ir_frame or not depth_frame:
                     print("no frame")
                     return
+                
+                depth_frame = self.spatial.process(depth_frame)
+                depth_frame = self.temporal.process(depth_frame)
+                depth_frame = self.hole_filling.process(depth_frame)
+                
                 left_ir_data = np.asanyarray(left_ir_frame.get_data())
                 right_ir_data = np.asanyarray(right_ir_frame.get_data())
+                depth_data = np.asanyarray(depth_frame.get_data())
+                
+                with self.lock:
+                    self.left_ir_image = left_ir_data
+                    self.right_ir_image = right_ir_data
+                    self.depth_image = depth_data
             else:
+                # 파이썬 API의 한계로 인해 필터를 align 이후에 적용합니다. 
+                # 대신 뒤에서 SE(3) 필터로 노이즈를 제어합니다.
+                align_to = rs.stream.color
+                align = rs.align(align_to)
+                aligned_frames = align.process(frames)
                 color_frame = aligned_frames.get_color_frame()
                 depth_frame = aligned_frames.get_depth_frame()
+                # 추가 필터적용
+                depth_frame = self.spatial.process(depth_frame)
+                depth_frame = self.temporal.process(depth_frame)
+                depth_frame = self.hole_filling.process(depth_frame)
                 if not color_frame or not depth_frame:
                     print("no frame")
                     return
                 color_data = np.asanyarray(color_frame.get_data())
                 depth_data = np.asanyarray(depth_frame.get_data())
             
-            with self.lock:
-                if self.Infrared:
-                    self.left_ir_image = left_ir_data
-                    self.right_ir_image = right_ir_data
-                else:
+                with self.lock:
                     self.color_image = color_data
                     self.depth_image = depth_data
+        except Exception as e:
+            pass # 간헐적인 프레임 드랍 무시
 
     def get_color_image(self):
         with self.lock:
@@ -289,14 +334,54 @@ class RealSenseCamera:
 
 class Marker_Detection:
     def __init__(self):
+
+        # self.logger = File_Logger(filepath="marker_pixel.txt")
+
+
         # 어떤 마커를 인식시킬건지 정의
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
         self.parameters = cv2.aruco.DetectorParameters()
-        # 카메라 내부 파라미터
+        # 마커 인식 정밀도 향상을 위한 파라미터 튜닝
+        # 1. 서브픽셀 정밀도 극대화
+        self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
+        self.parameters.cornerRefinementWinSize = 5
+        self.parameters.cornerRefinementMaxIterations = 50
+        self.parameters.cornerRefinementMinAccuracy = 0.01
+
+        # 2. 이진화 세밀화 (조명 및 그림자 대응)
+        self.parameters.adaptiveThreshWinSizeMin = 3
+        self.parameters.adaptiveThreshWinSizeMax = 23
+        self.parameters.adaptiveThreshWinSizeStep = 3  # 세밀한 스캔
+        self.parameters.adaptiveThreshConstant = 7     # 노이즈 대비 약간 낮춤
+
+        # 3. 형상 근사 및 필터링
+        self.parameters.polygonalApproxAccuracyRate = 0.01 # 더 엄격한 사각형 검사
+        self.parameters.minDistanceToBorder = 3
+        self.parameters.minMarkerPerimeterRate = 0.01
+
+        # 4. 내부 비트 샘플링 향상
+        self.parameters.perspectiveRemovePixelPerCell = 10 # 정밀한 비트 추출
+
+        # 계산에 쓰일 카메라 내부 파라미터
         self.principal_point = [0, 0]
         self.fx = 0
         self.fy = 0
         self.depth_resolution = 1
+        self.rpy = [0, 0, 0]
+        
+        self.lpf_alpha = 0.3
+        self.prev_pts_dict = {}
+
+    def apply_point_lpf(self, marker_id, pts_3d):
+        pts_arr = np.array(pts_3d, dtype=np.float32)
+        if marker_id not in self.prev_pts_dict:
+            self.prev_pts_dict[marker_id] = pts_arr
+            return pts_3d
+            
+        new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * self.prev_pts_dict[marker_id]
+        self.prev_pts_dict[marker_id] = new_pts
+        
+        return new_pts.tolist()
 
     # 연산에 필요한 카메라 파라미터 설정
     def set_intrinsics_param(self, param):
@@ -338,14 +423,81 @@ class Marker_Detection:
             a[0]*b[1] - a[1]*b[0]
         ]
     
-    # 마커의 회전행렬 계산
-    def get_rotation_matrix(self, corners):
-        # corners: list of [x, y]
-        pts_3d = []
+    def validate_and_correct_marker_shape(self, pts_3d, length_tol=0.2, angle_tol_deg=2.0):
+        """
+        추출된 마커의 3D 모서리 좌표들이 정사각형에 가까운지 확인 (직각, 길이 동일 여부)
+        유사하지 않다고 판단될 경우 오차를 보정한 완벽한 정사각형 좌표를 반환합니다.
+        """
+        pts = np.array(pts_3d)
+        if len(pts) != 4:
+            return False, pts_3d
+            
+        v0 = pts[1] - pts[0]
+        v1 = pts[2] - pts[1]
+        v2 = pts[3] - pts[2]
+        v3 = pts[0] - pts[3]
+        
+        edges = [v0, v1, v2, v3]
+        lengths = [np.linalg.norm(v) for v in edges]
+        if any(l == 0 for l in lengths):
+            return False, pts_3d
+            
+        mean_len = np.mean(lengths)
+        
+        # 1. 연결한 직선들의 길이가 같은지 확인
+        length_diffs = [abs(l - mean_len) / mean_len for l in lengths]
+        is_length_valid = all(d <= length_tol for d in length_diffs)
+        
+        # 2. 연결한 직선들이 각각 직각인지 확인
+        angles_valid = True
         for i in range(4):
-            cx, cy = corners[i][0], corners[i][1]
-            d = corners[i][2]
-            pts_3d.append(self.convert_pixel2mm([cx, cy, float(d)]))
+            e1 = edges[i]
+            e2 = edges[(i+1)%4]
+            # e1 방향에서 돌아가는 각도의 내적
+            cos_theta = np.dot(-e1, e2) / (lengths[i] * lengths[(i+1)%4])
+            angle_deg = math.degrees(math.acos(np.clip(cos_theta, -1.0, 1.0)))
+            if abs(angle_deg - 90.0) > angle_tol_deg:
+                angles_valid = False
+                break
+                
+        is_valid = is_length_valid and angles_valid
+        
+        if not is_valid:
+            # 보정 기능: 직각과 대칭을 갖는 평면상 이상적인 정사각형 코너로 보정
+            center = np.mean(pts, axis=0)
+            
+            x_vec = (v0 - v2) / 2.0
+            x_axis = x_vec / np.linalg.norm(x_vec)
+            
+            y_vec = (v1 - v3) / 2.0
+            
+            z_axis = np.cross(x_axis, y_vec)
+            z_norm = np.linalg.norm(z_axis)
+            if z_norm < 1e-6:
+                return False, pts_3d
+                
+            z_axis = z_axis / z_norm
+            y_axis = np.cross(z_axis, x_axis)
+            y_axis = y_axis / np.linalg.norm(y_axis)
+            
+            half_l = mean_len / 2.0
+            corrected_pts = [
+                center - half_l * x_axis - half_l * y_axis, # TL
+                center + half_l * x_axis - half_l * y_axis, # TR
+                center + half_l * x_axis + half_l * y_axis, # BR
+                center - half_l * x_axis + half_l * y_axis  # BL
+            ]            
+            return False, [list(p) for p in corrected_pts]
+            
+        return True, pts_3d
+
+    def get_rotation_matrix(self, corners_3d):
+        # corners_3d: list of [x_mm, y_mm, z_mm]
+        # 입력으로 이미 3D mm 좌표계를 바로 받도록 변경 (LPF 필터링 이후 좌표 사용 위함)
+        pts_3d = corners_3d
+        
+        # 코너들이 정사각형에 가까운지 검증하고 필요시 보정------------------------------------------------------------------
+        # is_valid, pts_3d = self.validate_and_correct_marker_shape(pts_3d)
 
         # Vector logic from C++
         # x_axis = (tr + br) - (tl + bl) -> (pt1 + pt2) - (pt0 + pt3)
@@ -397,11 +549,123 @@ class Marker_Detection:
             yaw = 0
         return [roll, pitch, yaw]
 
+    def get_depth_average(self, target, img, radius=3):
+        x, y = target
+        # 이미지 범위를 벗어나지 않도록 슬라이싱 범위 설정 (Clamping)
+        y_min = max(0, y - radius)
+        y_max = min(img.shape[0], y + radius + 1)
+        x_min = max(0, x - radius)
+        x_max = min(img.shape[1], x + radius + 1)
+
+        # 관심 영역(ROI) 추출
+        roi = img[y_min:y_max, x_min:x_max]
+
+        # 0(유효하지 않은 값)을 제외하고 평균 계산
+        valid_values = roi[roi > 0]
+        
+        if valid_values.size > 0:
+            return np.median(valid_values)
+        else:
+            return 0
+        
+
+    def get_marker_plane_equation(self, corners, depth_img):
+        # corners: list of [x, y]
+        # Find bounding box of the marker
+        xs = [pt[0] for pt in corners]
+        ys = [pt[1] for pt in corners]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        # # print(self.depth_resolution)
+        # for i in range(4):
+        #     i_next = (i + 1) % 4
+        #     # 픽셀 좌표와 raw depth 값을 이용해 실제 3D 좌표(mm)로 변환 후 거리 계산
+        #     pt1 = self.convert_pixel2mm([xs[i], ys[i], float(depth_img[int(ys[i]), int(xs[i])])])
+        #     pt2 = self.convert_pixel2mm([xs[i_next], ys[i_next], float(depth_img[int(ys[i_next]), int(xs[i_next])])])
+            
+        #     x_diff = pt2[0] - pt1[0]
+        #     y_diff = pt2[1] - pt1[1]
+        #     z_diff = pt2[2] - pt1[2]
+        #     norm = math.sqrt(x_diff**2 + y_diff**2 + z_diff**2)
+        #     print(f"norm {i} : {norm}")
+        
+        # Shrink ROI to center 50% to avoid border noise
+        w = max_x - min_x
+        h = max_y - min_y
+        
+        start_x = int(min_x + w * 0.1)
+        end_x = int(max_x - w * 0.1)
+        start_y = int(min_y + h * 0.1)
+        end_y = int(max_y - h * 0.1)
+        
+        # Ensure ROI is within image bounds
+        start_x = max(0, start_x)
+        start_y = max(0, start_y)
+        end_x = min(depth_img.shape[1], end_x)
+        end_y = min(depth_img.shape[0], end_y)
+        
+        if end_x <= start_x or end_y <= start_y:
+            return None
+
+        # Extract depth values in ROI 
+        # (중요: 이후 convert_pixel2mm에서 self.depth_resolution이 곱해지므로 평면 방정식은 Raw Depth 단위로 추출해야 함)
+        roi_depth = depth_img[start_y:end_y, start_x:end_x]
+        
+        # Create coordinate grids
+        # Note: indices returns (y_grid, x_grid)
+        y_grid, x_grid = np.indices(roi_depth.shape)
+        y_grid += start_y
+        x_grid += start_x
+        
+        # Flatten everything
+        z_flat = roi_depth.flatten()
+        x_flat = x_grid.flatten()
+        y_flat = y_grid.flatten()
+        
+        # Filter invalid depth (0)
+        valid_mask = z_flat > 0
+        
+        if np.sum(valid_mask) < 50: # Need enough points for robust fit
+            return None, 0, 0
+            
+        z_valid = z_flat[valid_mask]
+        x_valid = x_flat[valid_mask]
+        y_valid = y_flat[valid_mask]
+        
+        # Robust Plane Fitting: 1/Z vs (u, v) normalized
+        # A plane in 3D (AX + BY + CZ + D = 0) corresponds to 
+        # 1/Z = -(A/D)*X/Z - (B/D)*Y/Z - (C/D)
+        # 1/Z = a * u_norm + b * v_norm + c
+        # where u_norm = (u - cx)/fx, v_norm = (v - cy)/fy
+        
+        inv_z = 1.0 / z_valid
+        
+        u_norm = (x_valid - self.principal_point[0]) / self.fx
+        v_norm = (y_valid - self.principal_point[1]) / self.fy
+        
+        # A matrix: [u_norm, v_norm, 1]
+        A = np.column_stack((u_norm, v_norm, np.ones_like(u_norm)))
+        
+        # Solve Ax = B where B is 1/z
+        try:
+            X, residuals, rank, s = np.linalg.lstsq(A, inv_z, rcond=None)
+            
+            # Calculate RMSE (Root Mean Squared Error)
+            # residuals returns sum of squared residuals
+            rmse = 0
+            if residuals.size > 0:
+                rmse = np.sqrt(residuals[0] / len(z_valid))
+            
+            return X, len(z_valid), rmse # [a, b, c], count, rmse
+        except np.linalg.LinAlgError:
+            return None, 0, 0
+
     # 마커들의 중심좌표(4*4행렬)
     def detect(self, color_image, depth_image):
+        depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
-        
+
         # cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
         # cv2.imshow("Main", color_image)
         # cv2.waitKey(1)
@@ -409,9 +673,12 @@ class Marker_Detection:
         marker_centers_result = []
         
         if ids is not None and len(ids) > 0:
-            cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
             
             for i in range(len(ids)):
+
+                # for j in range(4):
+                #     print(f"norm {j} : {corners[i][0][j][0]}, {corners[i][0][j][1]}")
+
                 c = corners[i][0] # c has 4 points
                 
                 # C++ Logic: Center is average of min/max (AABB center), not centroid
@@ -423,25 +690,42 @@ class Marker_Detection:
                 x_center = (xs[0] + xs[3]) / 2.0
                 y_center = (ys[0] + ys[3]) / 2.0
                 
-                # Get depth
-                z = 0
-                # C++ uses simple cast (truncation), not rounding
-                iy, ix = int(y_center), int(x_center)
-                if 0 <= iy < depth_image.shape[0] and 0 <= ix < depth_image.shape[1]:
-                    z = depth_image[iy, ix]
+                # Plane Fitting for Rotation
+                plane, valid_count, rmse = self.get_marker_plane_equation(c, depth_filtered)
                 
-                # Draw center
-                cv2.circle(color_image, (ix, iy), 5, (0, 0, 255), -1)
+                # 만약 노이즈가 너무 심해 평면 방정식을 구하지 못했다면 신뢰할 수 없는 데이터이므로 무시합니다.
+                if plane is None:
+                    continue
+                    
+                A, B, C_val = plane
                 
-                # Pixel to MM
-                center_pos = self.convert_pixel2mm([x_center, y_center, float(z)])
+                # Recalculate z for corners based on plane
+                c_list = []
+                for pt in c:
+                    u_n = (pt[0] - self.principal_point[0]) / self.fx
+                    v_n = (pt[1] - self.principal_point[1]) / self.fy
+                    inv_z_est = A*u_n + B*v_n + C_val
+                    z_est = 1.0 / inv_z_est if abs(inv_z_est) > 1e-6 else 0
+                    
+                    # 미리 mm 단위 3D 좌표로 변환해서 저장
+                    pt_3d_mm = self.convert_pixel2mm([pt[0], pt[1], float(z_est)])
+                    c_list.append(pt_3d_mm)
+
+                # string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
+                # self.logger.save(string)
+                    
+                #코너점들의 형태를 정사각형으로 보정
+                is_valid, c_list_corrected = self.validate_and_correct_marker_shape(c_list)
+
+                # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
+                marker_id = ids[i][0]
+                #c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
+                c_list_filtered = c_list_corrected
+                # 필터링된 꼭짓점 4개의 중심 좌표 재계산
+                center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
-                # Rotation Matrix
-                c_list = [[pt[0], pt[1],depth_image[int(pt[1])][int(pt[0])]] for pt in c]
-                rot_matrix = self.get_rotation_matrix(c_list)
-                
-                # RPY
-                rpy = self.get_rpy_from_matrix(rot_matrix)
+                # 필터링된 코너점 기반 회전 행렬 계산
+                rot_matrix = self.get_rotation_matrix(c_list_filtered)
                 
                 # Cartesian Matrix (4x4)
                 transform = [
@@ -450,9 +734,6 @@ class Marker_Detection:
                     rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], center_pos[2],
                     0.0, 0.0, 0.0, 1.0
                 ]
-                
-                print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
-                print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
                 
                 marker_centers_result.append(transform)
                 
@@ -468,45 +749,73 @@ class Marker_Detection:
 
         marker_centers_result = []
         
-        if main_ids is not None and ref_ids is not None and len(main_ids) == len(ref_ids):
-            # main_ids와 ref_ids의 개수가 서로 다를 경우에 관한 로직 추후게 구현해야함
-            
-            for i in range(len(main_ids)):
-                if main_ids[i] != ref_ids[i]:
-                    continue
-                # Get depth
-                corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corners[i][0], ref_corners[i][0])
+        if main_ids is not None and ref_ids is not None:
+            # Group reference markers by ID to handle duplicates
+            ref_dict = {}
+            for i, marker_id in enumerate(ref_ids):
+                mid = marker_id[0]
+                if mid not in ref_dict:
+                    ref_dict[mid] = []
+                ref_dict[mid].append(ref_corners[i][0])
 
-                c = corners_3d_mm # c has 4 points
+            for i, marker_id in enumerate(main_ids):
+                mid = marker_id[0]
+                if mid not in ref_dict:
+                    continue
+
+                main_corner = main_corners[i][0]
+                candidates = ref_dict[mid]
                 
-                # C++ Logic: Center is average of min/max (AABB center), not centroid
-                xs = [pt[0] for pt in c]
-                ys = [pt[1] for pt in c]
-                zs = [pt[2] for pt in c]
-                xs.sort()
-                ys.sort()
-                zs.sort()
+               
+                best_idx = -1
+                min_y_diff = float('inf')
                 
-                x_center = (xs[0] + xs[3]) / 2.0
-                y_center = (ys[0] + ys[3]) / 2.0
-                z_center = (zs[0] + zs[3]) / 2.0
+                main_center_y = sum([pt[1] for pt in main_corner]) / 4.0
                 
-                # Rotation Matrix
-                c_list = [[pt[0], pt[1], pt[2]] for pt in c]
-                rot_matrix = self.get_rotation_matrix(c_list) # 사용중인 함수의 양식을 맞추기 위함
+                for idx, ref_c in enumerate(candidates):
+                    ref_center_y = sum([pt[1] for pt in ref_c]) / 4.0
+                    y_diff = abs(main_center_y - ref_center_y)
+                    
+                    # 수직으로 50픽셀 이내면 같은 마커로 인식. 인식거리에 따라 threshold는 추후 보정 필요
+                    if y_diff < 50: # pixel threshold
+                        if y_diff < min_y_diff:
+                            min_y_diff = y_diff
+                            best_idx = idx
                 
-                # RPY
-                rpy = self.get_rpy_from_matrix(rot_matrix)
+                if best_idx == -1:
+                    continue
+                ref_corner = candidates.pop(best_idx) 
+                if len(candidates) == 0:
+                    del ref_dict[mid]
+
+                # Get depth
+                corners_3d_mm = self.stereo_cal_corners_3d_mm(main_corner, ref_corner)
+
+                if len(corners_3d_mm) != 4:
+                    continue
+                
+                # 코너점들의 형태를 정사각형으로 보정
+                is_valid, c_list_corrected = self.validate_and_correct_marker_shape(corners_3d_mm)
+
+                # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
+                #c_list_filtered = self.apply_point_lpf(mid, c_list_corrected)
+                c_list_filtered = c_list_corrected
+                # 필터링된 꼭짓점 4개의 중심 좌표 재계산 (테스트코드와 동일하게 np.mean 사용)
+                center_pos = np.mean(c_list_filtered, axis=0).tolist()
+                
+                # 필터링된 코너점 기반 회전 행렬 계산
+                rot_matrix = self.get_rotation_matrix(c_list_filtered)
                 
                 # Cartesian Matrix (4x4)
                 transform = [
-                    rot_matrix[0][0], rot_matrix[0][1], rot_matrix[0][2], x_center,
-                    rot_matrix[1][0], rot_matrix[1][1], rot_matrix[1][2], y_center,
-                    rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], z_center,
+                    rot_matrix[0][0], rot_matrix[0][1], rot_matrix[0][2], center_pos[0],
+                    rot_matrix[1][0], rot_matrix[1][1], rot_matrix[1][2], center_pos[1],
+                    rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], center_pos[2],
                     0.0, 0.0, 0.0, 1.0
                 ]
-                print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
-                print(f"rpy    [{rpy[0]*180/math.pi}, {rpy[1]*180/math.pi}, {rpy[2]*180/math.pi}]")
+
+                # print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
+                # print(f"rpy    [{self.rpy[0]*180/math.pi}, {self.rpy[1]*180/math.pi}, {self.rpy[2]*180/math.pi}]")
                 
                 marker_centers_result.append(transform)
                 
@@ -517,7 +826,7 @@ class Marker_Detection:
         corners_3d_mm = []
         for i in range(4):
             disparity = main_corner[i][0] - ref_corner[i][0]
-            if disparity == 0:
+            if disparity <= 0:
                 continue
             depth = (self.baseline * self.fx) / disparity * 1000 # m -> mm
             x_mm = (main_corner[i][0] - self.principal_point[0]) * depth / self.fx
@@ -530,10 +839,12 @@ class Marker_Transform:
         self.Stereo = Stereo
         
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        cam_to_tool_rot = [0,0,0,-180,0,180]
+        T5_to_marker_data = [0.022, 0.0, 0.12, 180, 0.0, -90.0]
+        # T5_to_marker_data = [0,0,0,0,0,0]
+        # tool_to_cam = [0,0,0,0,0,0]
+        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
-        self.cam_to_tool_rot_tf = self.make_transform(cam_to_tool_rot)
+        self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
         self.camera = RealSenseCamera(Stereo=Stereo)
@@ -582,70 +893,145 @@ class Marker_Transform:
         m[2, 1] = cp * sr
         m[2, 2] = cp * cr
         m[2, 3] = z
+
+        # print(m)
         
         return m
 
-    def get_marker_transform(self):
-        T5_to_cam_tf = None
-        T5_to_cam_vec = None
-        # print("RealSense Camera Started. Press 'ESC' to exit.")
-        # time.sleep(1) # Warmup - Moved or removed for loop performance
-        try:
-            self.camera.capture_image()
-            if self.Stereo:
-                left_ir_img = self.camera.get_left_ir_image()
-                right_ir_img = self.camera.get_right_ir_image()
-            else:
-                color_img = self.camera.get_color_image()
-                depth_img = self.camera.get_depth_image()
-            
-            if self.Stereo:
-                if left_ir_img is None or right_ir_img is None:
-                    return None
-                marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img)
-            else:
-                if color_img is None or depth_img is None:
-                    return None
-                marker_transforms = self.marker_detection.detect(color_img, depth_img)
-            
-            for tf_list in marker_transforms:
-                # Convert flattened list to 4x4 matrix
-                camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
+    def get_marker_transform(self, sampling_time=0):
+        T5_to_tool_vec = None
+        
+        # Collection list for sampling
+        collected_transforms = []
+        start_time = time.time()
+        
+        # Loop condition:
+        # If sampling_time == 0, run once (current behavior).
+        # If sampling_time > 0, run loop until time expires.
+        
+        while True:
+            # Check timeout if sampling
+            if sampling_time > 0 and (time.time() - start_time > sampling_time):
+                break
                 
-                try:
-                    camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                    # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                    T5_to_cam_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ self.cam_to_tool_rot_tf
-                    T5_to_cam_vec = T5_to_cam_tf.flatten()
-                    if abs(T5_to_cam_vec[3]) > 4 or abs(T5_to_cam_vec[7]) > 4 or abs(T5_to_cam_vec[11]) > 4:
-                        T5_to_cam_vec[3] = T5_to_cam_vec[3]/1000
-                        T5_to_cam_vec[7] = T5_to_cam_vec[7]/1000
-                        T5_to_cam_vec[11] = T5_to_cam_vec[11]/1000
-                except np.linalg.LinAlgError:
-                    print("Singular matrix, cannot invert")
+            try:
+                # self.camera.capture_image()
+                if self.Stereo:
+                    left_ir_img = self.camera.get_left_ir_image()
+                    right_ir_img = self.camera.get_right_ir_image()
+                    if left_ir_img is None or right_ir_img is None:
+                        if sampling_time == 0: return None
+                        continue
+                    marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img)
+                else:
+                    color_img = self.camera.get_color_image()
+                    depth_img = self.camera.get_depth_image()
+                    if color_img is None or depth_img is None:
+                        if sampling_time == 0: return None
+                        continue
+                    marker_transforms = self.marker_detection.detect(color_img, depth_img)
+                
+                for tf_list in marker_transforms:
+                    # Convert flattened list to 4x4 matrix
+                    camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
+                    
+                    if sampling_time == 0:
+                        try:
+                            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+                            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+                            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                            T5_to_tool_vec = T5_to_tool_tf.flatten()
+                            
+                            # Unit conversion if needed (mm -> m logic from original code)
+                            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                                T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
+                                T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
+                                T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
+                            return T5_to_tool_vec
+                        except np.linalg.LinAlgError:
+                            print("Singular matrix, cannot invert")
+                            continue
+                    else:
+                        # Append the FORWARD transform, NOT the inverted one
+                        collected_transforms.append(tf_list)
+                        
+            except KeyboardInterrupt:
+                raise
+            
+            # CPU 점유율을 낮추기 위한 미세한 대기
+            time.sleep(0.01)
+            
+            # If not sampling, break after one attempt (handled by return above)
+            # If sampling, continue loop
+            if sampling_time == 0: 
+                break
+                
+        # Post-processing for sampling
+        if sampling_time > 0:
+            if not collected_transforms:
+                return None
+            
+            data = np.array(collected_transforms) # Shape (N, 16)
+            
+            # Separate translation and rotation for CAMERA_TO_MARKER (NOT inverted yet)
+            translations = data[:, [3, 7, 11]]
+            
+            # Median for translation is robust
+            final_translation = np.median(translations, axis=0)
+            
+            # Average rotations using SVD (chordal L2 mean) to maintain orthogonality
+            # Extract 3x3 rotation matrices
+            rotations = []
+            for vec in data:
+                R = np.array([
+                    [vec[0], vec[1], vec[2]],
+                    [vec[4], vec[5], vec[6]],
+                    [vec[8], vec[9], vec[10]]
+                ])
+                rotations.append(R)
+            
+            sum_R = np.sum(rotations, axis=0)
+            U, S, Vt = np.linalg.svd(sum_R)
+            final_R = U @ Vt
+            
+            # Ensure det(R) = 1 (proper rotation)
+            if np.linalg.det(final_R) < 0:
+                U[:, 2] *= -1
+                final_R = U @ Vt
+            
+            # Reconstruct the averaged 4x4 camera_to_marker transform
+            avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
+            avg_cam_to_marker_tf[0:3, 0:3] = final_R
+            avg_cam_to_marker_tf[0:3, 3] = final_translation
+            
+            # NOW compute the inversions and multiplication with stable values
+            try:
+                camera_to_marker_inv = np.linalg.inv(avg_cam_to_marker_tf)
+                tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                final_vec = T5_to_tool_tf.flatten()
+                
+                # Unit conversion
+                if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
+                    final_vec[3] /= 1000
+                    final_vec[7] /= 1000
+                    final_vec[11] /= 1000
+                    
+                return final_vec
+            except np.linalg.LinAlgError:
+                return None
+            
+        return None
+import argparse
+import numpy as np
+import time
+import rby1_sdk as rby
 
-        except KeyboardInterrupt:
-            raise
 
-        return T5_to_cam_vec
-
-# ===============================
-# Lie algebra utils
-# ===============================
-def adjoint(T):
-    R = T[:3,:3]
-    p = T[:3,3]
-    p_hat = np.array([
-        [0, -p[2], p[1]],
-        [p[2], 0, -p[0]],
-        [-p[1], p[0], 0]
-    ])
-    Ad = np.zeros((6,6))
-    Ad[:3,:3] = R
-    Ad[3:,3:] = R
-    Ad[3:,:3] = p_hat @ R
-    return Ad
-
+# ============================================================
+# Lie algebra utilities (그대로 유지)
+# ============================================================
 
 def so3_exp(w):
     theta = np.linalg.norm(w)
@@ -658,18 +1044,12 @@ def so3_exp(w):
         [k[2], 0, -k[0]],
         [-k[1], k[0], 0]
     ])
-
-    return (
-        np.eye(3)
-        + np.sin(theta) * K
-        + (1 - np.cos(theta)) * (K @ K)
-    )
+    return np.eye(3) + np.sin(theta)*K + (1-np.cos(theta))*(K@K)
 
 
 def se3_exp(xi):
     w = xi[:3]
     v = xi[3:]
-
     R = so3_exp(w)
     theta = np.linalg.norm(w)
 
@@ -682,11 +1062,9 @@ def se3_exp(xi):
             [-w[1], w[0], 0]
         ]) / theta
 
-        V = (
-            np.eye(3)
-            + (1 - np.cos(theta)) / theta * K
-            + (theta - np.sin(theta)) / theta * (K @ K)
-        )
+        V = (np.eye(3)
+             + (1-np.cos(theta))/theta * K
+             + (theta-np.sin(theta))/theta * (K@K))
 
     T = np.eye(4)
     T[:3,:3] = R
@@ -695,23 +1073,22 @@ def se3_exp(xi):
 
 
 def so3_log(R):
-    cos_theta = (np.trace(R) - 1) / 2
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    cos_theta = (np.trace(R)-1)/2
+    cos_theta = np.clip(cos_theta, -1, 1)
     theta = np.arccos(cos_theta)
 
     if theta < 1e-8:
         return np.zeros(3)
 
-    w_hat = (R - R.T) / (2 * np.sin(theta))
-    return theta * np.array([
-        w_hat[2,1],
-        w_hat[0,2],
-        w_hat[1,0]
+    w_hat = (R - R.T)/(2*np.sin(theta))
+    return theta*np.array([
+        w_hat[2,1], w_hat[0,2], w_hat[1,0]
     ])
 
+
 def se3_log(T):
-    R = T[:3, :3]
-    t = T[:3, 3]
+    R = T[:3,:3]
+    t = T[:3,3]
 
     w = so3_log(R)
     theta = np.linalg.norm(w)
@@ -720,257 +1097,334 @@ def se3_log(T):
         v = t
     else:
         w_hat = np.array([
-            [    0, -w[2],  w[1]],
-            [ w[2],     0, -w[0]],
-            [-w[1],  w[0],     0]
+            [0, -w[2], w[1]],
+            [w[2], 0, -w[0]],
+            [-w[1], w[0], 0]
         ]) / theta
 
-        A = (
-            np.eye(3)
-            - 0.5 * w_hat
-            + (1/theta**2) * (1 - theta/(2*np.tan(theta/2)))
-            * (w_hat @ w_hat)
-        )
+        A = (np.eye(3)
+             - 0.5*w_hat
+             + (1/theta**2)*(1-theta/(2*np.tan(theta/2)))*(w_hat@w_hat))
         v = A @ t
 
-    return np.hstack([w, v])   # (6,)
+    return np.hstack([w, v])
 
 
-# ===============================
-# Robot setup
-# ===============================
-# robot = rby.create_robot_a("localhost:50051")
-robot = rby.create_robot_a("192.168.30.1:50051")
+# ============================================================
+# Robot initialization
+# ============================================================
 
-model = robot.model()
-robot.connect()
-robot.power_on(".*")
-robot.servo_on(".*")
-robot.reset_fault_control_manager()
-robot.enable_control_manager(False)
 
-dyn_model = robot.get_dynamics()
+def load_npz_dataset(path):
+    data = np.load(path)
+    return data["q"], data["marker"]
 
-RIGHT_ARM_IDX = model.right_arm_idx[:7]
-ndof = len(RIGHT_ARM_IDX)
 
-BASE, EE = 0, 1
+def create_robot(ip):
+    robot = rby.create_robot_a(ip)
+    robot.connect()
+    robot.power_on(".*")
+    robot.servo_on("^(?!.*head).*")
+    robot.reset_fault_control_manager()
+    robot.enable_control_manager(False)
+    return robot
 
-marker_transform = Marker_Transform(Stereo=False)
-marker_transform.camera.monitoring(Flag=True)
 
-print("\nPress 'e' + Enter to capture (q + marker)")
-print("Press 'q' + Enter to quit\n")
+# ============================================================
+# Capture dataset (기존 기능 유지)
+# ============================================================
 
-q_cmd_list = []
-T_meas_list = []
-while True:
-    key = check_key_press()
+def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
 
-    if key == 'e':
-        # 1️⃣ 현재 로봇 상태 읽기
-        state = robot.get_state()
-        q_current = state.position.copy()
-        q_full = state.position.copy()       # 또는 현재 사용중인 q 읽는 함수
-        q_cmd = q_full[RIGHT_ARM_IDX].copy()
+    q_cmd_list = []
+    T_meas_list = []
+
+    print("\nPress 'e' + Enter to capture")
+    print("Press 'q' + Enter to quit\n")
+
+    while True:
+        key = input()
+
+        if key == 'e':
+            state = robot.get_state()
+            q_full = state.position.copy()
+            q_cmd = q_full[RIGHT_ARM_IDX[:7]].copy()
+
+            result = marker_transform.get_marker_transform(sampling_time=0)
+
+            if result is None:
+                print("Marker not detected.")
+                continue
+
+            T_meas = np.array(result).reshape(4, 4)
+
+            q_cmd_list.append(q_cmd)
+            T_meas_list.append(T_meas)
+
+            print(f"Captured sample {len(q_cmd_list)}")
+            print("q =", np.round(q_full[RIGHT_ARM_IDX],3))
+            T_print = np.array(result).reshape(4, 4)
+            print("marker =", np.round(T_print,3))
+        elif key == 'q':
+            break
+
+        time.sleep(0.05)
+
+    return np.array(q_cmd_list), np.array(T_meas_list)
+
+
+# ============================================================
+# Gauss Newton (기존 알고리즘 그대로)
+# ============================================================
+
+
+def generate_sim_measurements(robot, dyn_model,
+                              q_cmd_list, RIGHT_ARM_IDX,
+                              q_nominal, ndof):
+    q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
+    xi_cam_true = np.array([0.02, -0.01, 0.015, 0.01, 0.02, -0.01])
+    
+    T_list = []
+
+    for q_cmd in q_cmd_list:
+        q_full = q_nominal.copy()
+        q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
+
+        state = dyn_model.make_state(
+            ["link_torso_5", "ee_right"],
+            robot.model().robot_joint_names
+        )
+        state.set_q(q_full)
+        dyn_model.compute_forward_kinematics(state)
+
+        T_fk = dyn_model.compute_transformation(state, 0, 1)
+
+        # noise = np.array([-0.100956, 0.024401, 0.009073,
+        #                   -0.002027, 0.028192, 0.022449])
+
+        # T_meas = T_fk @ se3_exp(noise)
+        if ndof == 13:
+            T_meas = T_fk @ se3_exp(xi_cam_true)         
+        else :
+            T_meas = T_fk          
+        T_list.append(T_meas)
+
+    return T_list
+
+def update_optimization(q_cmd_list, T_meas_list):
+     # 7자유도 최적화 해 역대입
+    q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511])
+    q_offset_rad = np.deg2rad(q_offset_deg)
+    q_cmd_list = q_cmd_list + q_offset_rad        
+    # 6자유도 최적화 해 역대입
+    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
+    T_meas_list = np.array([
+        T @ np.linalg.inv(T_noise)
+        for T in T_meas_list
+    ])
+    return q_cmd_list, T_meas_list
+
+def optimize(robot, dyn_model,
+             q_cmd_list, T_meas_list,
+             RIGHT_ARM_IDX, ndof):
+
+    q_nominal = robot.get_state().position.copy()
+
+    q_offset = np.zeros(7)
+    xi_cam = np.zeros(6)
+
+    optimize_all = (ndof == 13)
+    optimize_camera = (ndof == 6)
+    print("optimize_all ==",optimize_all)
+    print("optimize_camera ==",optimize_camera)
+    
+    max_iter = 500
+    eps = 1e-6
+
+    for it in range(max_iter):
+
+        if optimize_all:
+            H = np.zeros((13, 13))
+            g = np.zeros(13)
+        elif optimize_camera:
+            H = np.zeros((6, 6))
+            g = np.zeros(6)
+        else:
+            H = np.zeros((7, 7))
+            g = np.zeros(7)
+            
+
+        total_err = 0
+
+        for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
+
+            q_full = q_nominal.copy()
+            if optimize_camera:
+                q_full[RIGHT_ARM_IDX[:7]] = q_cmd 
+            else:
+                q_full[RIGHT_ARM_IDX[:7]] = q_cmd + q_offset
+            
+            state = dyn_model.make_state(
+                ["link_torso_5", "ee_right"],
+                robot.model().robot_joint_names
+            )
+
+            state.set_q(q_full)
+            dyn_model.compute_forward_kinematics(state)
+            dyn_model.compute_diff_forward_kinematics(state)
+
+            T_fk = dyn_model.compute_transformation(state, 0, 1)
+
+            if optimize_all:
+                T_model = T_fk @ se3_exp(xi_cam)
+            elif optimize_camera:
+                T_model = T_fk @ se3_exp(xi_cam)
+            else:
+                T_model = T_fk
+
+            T_err = np.linalg.inv(T_model) @ T_meas
+            xi = se3_log(T_err)
+
+            Jb = dyn_model.compute_body_jacobian(state, 0, 1)
+
+            if optimize_all:
+                J = np.zeros((6, 13))
+                J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
+                J[:, 7:] = np.eye(6)
+            elif optimize_camera:
+                # J = np.zeros((6, 6))
+                # J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
+                J = np.eye(6)
+            else:
+                J = Jb[:, RIGHT_ARM_IDX[:7]]
+
+            H += J.T @ J
+            g += J.T @ xi
+            total_err += np.linalg.norm(xi)
+
+        dx = np.linalg.pinv(H) @ g
+
+
+        if optimize_all:    
+            q_offset += dx[:7]
+            xi_cam += dx[7:]
+        elif optimize_camera:
+            xi_cam += dx[:6]
+        else :
+            q_offset += dx[:7]
+            
+        print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
+
+        if np.linalg.norm(dx) < eps:
+            print("Converged.")
+            break
+
+    return q_offset, xi_cam
+
+
+# ============================================================
+# Main
+# ============================================================
+
+def main():
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ndof", type=int, default=7,
+                        choices=[6, 7, 13])
+    parser.add_argument("--ip", type=str,
+                        default="192.168.30.1:50051")
+    parser.add_argument("--mode", type=str, required=True, 
+                        choices=["live","npz", "sim"]
+                        )
+    parser.add_argument("--path", type=str, default="captured_dataset.npz",
+        help="Path to npz dataset (default: captured_dataset.npz)")
+
+    
+
+    args = parser.parse_args()
+
+    marker_transform = None
+    
+    robot = create_robot(args.ip)
+    dyn_model = robot.get_dynamics()
+    model = robot.model()
+    RIGHT_ARM_IDX = model.right_arm_idx
+
+
+    if args.mode == "live":
+        # marker_transform는 기존 코드 그대로 사용
+        marker_transform = Marker_Transform(Stereo=True)
+        marker_transform.camera.monitoring(Flag=True)
+
+        q_cmd_list, T_meas_list = capture_dataset(
+            robot, dyn_model,
+            RIGHT_ARM_IDX,
+            marker_transform
+        )
+        np.savez_compressed(
+            "captured_dataset.npz",
+            q=q_cmd_list,
+            marker=T_meas_list
+        )
+
+    elif args.mode == "npz":
+        q_cmd_list, T_meas_list = load_npz_dataset(args.path)
+        print("size=", np.size(q_cmd_list))
+
+    else :
+        q_cmd_list = np.random.uniform(-1, 1, (10, 7))
+        q_nominal = robot.get_state().position.copy()
+        print("q_nominal", q_nominal)
+        T_meas_list = generate_sim_measurements(
+            robot, dyn_model,
+            q_cmd_list,
+            RIGHT_ARM_IDX,
+            q_nominal,
+            args.ndof
+        )
         
-        # 2️⃣ 마커 pose 읽기
-        result = marker_transform.get_marker_transform()
-        if result is None:
-            print("Marker not detected.")
-            continue
-        
-        T_meas = np.array(result).reshape(4, 4)
-        
-        # 3️⃣ 같이 저장
-        q_cmd_list.append(q_cmd)
-        T_meas_list.append(T_meas)
-        
-        # recorded_data.append((q_current, result))
 
-        print("Captured!")
-        print(f"Total samples: {len(q_cmd_list)}")   # ← 추가
-        print("q =", np.round(q_current[RIGHT_ARM_IDX],3))
-        T_print = np.array(result).reshape(4, 4)
-        print("marker =", np.round(T_print,3))
-    elif key == 'q':
-        print("Exiting capture loop.")
-        break
-
-    time.sleep(0.05)
-
-# 저장
-if len(q_cmd_list) > 0:
-
-    np.savez_compressed(
-        "captured_dataset.npz",
-        q=np.array(q_cmd_list),
-        marker=np.array(T_meas_list)
+    print("Dataset saved.")
+    
+    
+    q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
+    
+    q_offset, xi_cam = optimize(
+        robot, dyn_model,
+        q_cmd_list,
+        T_meas_list,
+        RIGHT_ARM_IDX,
+        args.ndof
     )
 
-    print(f"\nSaved {len(q_cmd_list)} samples to captured_dataset.npz")
-
-else:
-    print("No data captured.")
     
-# ===============================
-# Ground truth offset (simulation)
-# ===============================
-# q_offset_true = np.deg2rad([0.5, -1.0, 1.0, 0.5, -5.0, 0.5, 0.2])
-# q_offset_true = np.deg2rad([5, -5, 2, 5, -5, 5, 2])
-# xi_cam_true = np.array([0.02, -0.04, 0.03,   # rotation
-#                         0.01, 0.02, -0.015]) # translation
+    # q_offset, xi_cam = optimize(
+    #     robot, dyn_model,
+    #     q_cmd_list,
+    #     T_meas_list,
+    #     RIGHT_ARM_IDX,
+    #     args.ndof
+    # )
 
-# expected position about camera braket
-xi_cam_pose = np.array([0, 0, 0,   # rotation
-                        0, 0, 0]) # translation
-T_cam_pose = se3_exp(xi_cam_pose)
-# T_cam_true = se3_exp(xi_cam_true)
+    print("\n===== RESULT =====")
+    print("Joint offset (deg):")
+    print(np.rad2deg(q_offset))
+    print("Camera xi:")
+    print(xi_cam)
 
-# ===============================
-# Command poses
-# ===============================
-joint_limits = np.array([
-    [-2.0,  2.0],
-    [-2.5,  0.0],
-    [-1.5,  1.5],
-    [-2.5,  0.0],
-    [-3.141592654,  3.141592654],
-    [-1.570796327,  1.570796327],
-    [-1.570796327,  1.570796327]
-])
+    # ✅ JSON 저장
+    result_dict = {
+        "joint_offset_deg": np.rad2deg(q_offset).tolist(),
+        "xi_cam": np.array(xi_cam).tolist()
+    }
 
-# def generate_random_q_list(n_samples=10, margin_ratio=0.15, seed=42):
-#     rng = np.random.default_rng(seed)
-#     q_list = []
-#     for _ in range(n_samples):
-#         q = []
-#         for lo, hi in joint_limits:
-#             span = hi - lo
-#             q.append(rng.uniform(lo + margin_ratio*span,
-#                                  hi - margin_ratio*span))
-#         q_list.append(np.array(q))
-#     return q_list
+    with open("calibration_result.json", "w") as f:
+        json.dump(result_dict, f, indent=4)
 
-# q_cmd_list = generate_random_q_list(n_samples=100)
+    print("Result saved to calibration_result.json")
 
-
-# ===============================
-# Nominal configuration
-# ===============================
-q_nominal = robot.get_state().position.copy()
-
-
-# ===============================
-# Fake camera measurements
-# ===============================
-T_cam_list = []
-
-# for q_cmd in q_cmd_list:
-#     q_full = q_nominal.copy()
-#     q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
-
-#     dyn_state = dyn_model.make_state(
-#         ["link_torso_5", "ee_right"],
-#         model.robot_joint_names
-#     )
-#     dyn_state.set_q(q_full)
-#     dyn_model.compute_forward_kinematics(dyn_state)
-
-#     T_cam = dyn_model.compute_transformation(dyn_state, BASE, EE)
-#     # T_cam_list.append(T_cam)
-     
-#     T_meas = T_cam @ T_cam_pose @ T_cam_true 
-#     T_cam_list.append(T_meas)
-# ===============================
-# Gauss–Newton Offset Calibration
-# ===============================
-max_iter = 500
-eps = 1e-6
-
-q_offset = np.zeros(ndof)
-xi_cam = np.zeros(6)
-
-for it in range(max_iter):
-
-    H = np.zeros((ndof+6, ndof+6))
-    g = np.zeros(ndof+6)
-
-    total_err = 0.0
-
-    for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
-
-        # 🔁 재선형화 지점
-        q_full = q_nominal.copy()
-        q_full[RIGHT_ARM_IDX] = q_cmd + q_offset
-
-        dyn_state = dyn_model.make_state(
-            ["link_torso_5", "ee_right"],
-            model.robot_joint_names
-        )
-        dyn_state.set_q(q_full)
-        dyn_model.compute_forward_kinematics(dyn_state)
-        dyn_model.compute_diff_forward_kinematics(dyn_state)
-
-        T_fk = dyn_model.compute_transformation(dyn_state, BASE, EE)
-
-        # ---- Camera extrinsic ----
-        T_extrinsic = se3_exp(xi_cam)
-        # ---- Full model ----
-        T_model = T_fk @ T_cam_pose @ T_extrinsic
-        
-        
-        T_err = np.linalg.inv(T_model) @ T_meas
-        xi = se3_log(T_err)   # body error
-        #T_err =  T_meas @ np.linalg.inv(T_model) 
-        #xi = se3_log(T_err)   # space error
-
-        Jb = dyn_model.compute_body_jacobian(dyn_state, BASE, EE) 
-        
-        # xi[3:] *= 0.1
-        # J_joint[3:, :] *= 0.1
-        # Jb[:, 7:][3:, :] *= 0.1
-        # J_joint[:, 7:][3:, :] *= 0.1
-        
-        # Camera Jacobian = Identity
-        J = np.zeros((6,13))
-        J[:, :7] = Jb[:, RIGHT_ARM_IDX]
-        J[:, 7:] = np.eye(6)
-        # J[:, 7:] = adjoint(T_fk @ T_cam_pose)
-        
-        H += J.T @ J
-        g += J.T @ xi
-        total_err += np.linalg.norm(xi)
-
+    if marker_transform is not None:
+        marker_transform.camera.monitoring(Flag=True)
     
-    dx = np.linalg.pinv(H) @ g
-    q_offset += dx[:7]
-    xi_cam += dx[7:]
-
-    print(f"[Iter {it:02d}] |dq| = {np.linalg.norm(dx):.3e}, "
-          f"|xi| = {total_err:.3e}")
-
-    if np.linalg.norm(dx) < eps:
-        print("Converged.")
-        break
-
-
-# ===============================
-# Result
-# ===============================
-print("\n===== Joint Offset =====")
-# print("True offset [deg]:")
-# print(np.round(np.rad2deg(q_offset_true), 4))
-
-print("Estimated offset [deg]:")
-print(np.round(np.rad2deg(q_offset), 4))
-
-
-print("\n===== Camera Extrinsic (xi) =====")
-# print("True xi_cam:")
-# print(np.round(xi_cam_true, 6))
-
-print("Estimated xi_cam:")
-print(np.round(xi_cam, 6))
-
-marker_transform.camera.monitoring(Flag=False)
+if __name__ == "__main__":
+    main()
