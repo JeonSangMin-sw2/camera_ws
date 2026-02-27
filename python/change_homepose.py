@@ -95,22 +95,32 @@ def main(address, model, power, servo):
     movej(robot, right_arm=target_right, minimum_time=10)
     time.sleep(1)
     
-    if robot.home_offset_reset("right_arm_3") == True:
-        time.sleep(2)
+    all_success = True
+
+    for i in range(right_arm_dof):
+        joint_name = f"right_arm_{i}"
+        success = robot.home_offset_reset(joint_name)
+
+        if not success:
+            print(f"Failed to reset {joint_name}")
+            all_success = False
+
+    if all_success:
+        print("All right arm joints reset successfully.")
         robot.disable_control_manager()
-        time.sleep(0.1)
+        time.sleep(2)
         print("power off")
         robot.power_off("48v")
         time.sleep(1)
+
         print("init")
-        initialize_robot(address, model, power=".*", servo="^(?!.*head).*")
+        robot = initialize_robot(address, model, power=".*", servo="^(?!.*head).*")
         print("======================move_j======================")
         movej(robot, right_arm=zero_right, minimum_time=5)
-    else :
-        print("failed to reset homeoffset!!!!!")
-    # for i in range(right_arm_dof):
-    #     robot.home_offset_reset(f"right_arm_{i}")
 
+
+    
+    
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Zero + Offset Move")
