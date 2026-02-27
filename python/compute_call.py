@@ -1210,7 +1210,18 @@ def generate_sim_measurements(robot, dyn_model,
 
     return T_list
 
-
+def update_optimization(q_cmd_list, T_meas_list):
+     # 7자유도 최적화 해 역대입
+    q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511])
+    q_offset_rad = np.deg2rad(q_offset_deg)
+    q_cmd_list = q_cmd_list + q_offset_rad        
+    # 6자유도 최적화 해 역대입
+    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
+    T_meas_list = np.array([
+        T @ np.linalg.inv(T_noise)
+        for T in T_meas_list
+    ])
+    return q_cmd_list, T_meas_list
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
@@ -1247,7 +1258,7 @@ def optimize(robot, dyn_model,
         for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
 
             q_full = q_nominal.copy()
-            if optimize_camera == 1:
+            if optimize_camera:
                 q_full[RIGHT_ARM_IDX[:7]] = q_cmd 
             else:
                 q_full[RIGHT_ARM_IDX[:7]] = q_cmd + q_offset
@@ -1358,19 +1369,6 @@ def main():
     elif args.mode == "npz":
         q_cmd_list, T_meas_list = load_npz_dataset(args.path)
         print("size=", np.size(q_cmd_list))
-        # 7자유도 최적화 해 역대입
-        q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996
-  ,0.42705511])
-        q_offset_rad = np.deg2rad(q_offset_deg)
-        q_cmd_list = q_cmd_list + q_offset_rad        
-
-        # 6자유도 최적화 해 역대입
-        #T_noise = se3_exp((np.array([-0.24320115, -0.02413357, -0.07419314 , 0.00810397 , 0.02202252 , 0.04349531]))) @ se3_exp((np.array([-0.04490201, -0.29346999  ,0.31853465, -0.08586853,  0.02355423,  0.00065285]))) @ se3_exp((np.array([ 0.06317753 , 0.09781769, -0.21348499,  0.03552647, -0.00931608, -0.0118669]))) @ se3_exp((np.array([ 0.0835465 ,  0.04701598 ,-0.02685293 , 0.01128744 ,-0.0196461  , 0.00919014])))
-        T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
-        T_meas_list = np.array([
-            T @ np.linalg.inv(T_noise)
-            for T in T_meas_list
-        ])
 
     else :
         q_cmd_list = np.random.uniform(-1, 1, (10, 7))
@@ -1386,7 +1384,10 @@ def main():
         
 
     print("Dataset saved.")
-
+    
+    
+    q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
+    
     q_offset, xi_cam = optimize(
         robot, dyn_model,
         q_cmd_list,
@@ -1394,6 +1395,15 @@ def main():
         RIGHT_ARM_IDX,
         args.ndof
     )
+
+    
+    # q_offset, xi_cam = optimize(
+    #     robot, dyn_model,
+    #     q_cmd_list,
+    #     T_meas_list,
+    #     RIGHT_ARM_IDX,
+    #     args.ndof
+    # )
 
     print("\n===== RESULT =====")
     print("Joint offset (deg):")
