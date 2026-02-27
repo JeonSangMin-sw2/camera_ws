@@ -9,6 +9,7 @@ import math
 import threading
 import sys
 import select
+import json
 
 recorded_data = []   # (q, marker) 같이 저장
 
@@ -1410,6 +1411,17 @@ def main():
     print(np.rad2deg(q_offset))
     print("Camera xi:")
     print(xi_cam)
+
+    # ✅ JSON 저장
+    result_dict = {
+        "joint_offset_deg": np.rad2deg(q_offset).tolist(),
+        "xi_cam": np.array(xi_cam).tolist()
+    }
+
+    with open("calibration_result.json", "w") as f:
+        json.dump(result_dict, f, indent=4)
+
+    print("Result saved to calibration_result.json")
 
     if marker_transform is not None:
         marker_transform.camera.monitoring(Flag=True)
