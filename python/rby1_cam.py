@@ -236,7 +236,7 @@ class RealSenseCamera:
                         resize_width = (self.width // len(result_list)) * len(result_list)
                     concat_image = cv2.hconcat(result_list)
                     concat_image = cv2.resize(concat_image, (resize_width, resize_height))
-                    cv2.imshow("Preview", concat_image)
+                    # cv2.imshow("Preview", concat_image)
                     key = cv2.waitKey(1)
                     if key == 27 or key == ord('q'): # ESC or q
                         raise KeyboardInterrupt
