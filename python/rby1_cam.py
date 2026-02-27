@@ -189,9 +189,10 @@ class RealSenseCamera:
             if self.thread is not None:
                 self.thread.join()
 
-    def stream_on(self):
+    def stream_on(self , fps = 30):
         align_to = rs.stream.color
         align = rs.align(align_to)
+        frame_sleep = 1/fps
         try:
             while self.camera_running:
                 self.capture_image()
@@ -235,14 +236,14 @@ class RealSenseCamera:
                         resize_width = (self.width // len(result_list)) * len(result_list)
                     concat_image = cv2.hconcat(result_list)
                     concat_image = cv2.resize(concat_image, (resize_width, resize_height))
-                    # cv2.imshow("Preview", concat_image)
+                    cv2.imshow("Preview", concat_image)
                     key = cv2.waitKey(1)
                     if key == 27 or key == ord('q'): # ESC or q
                         raise KeyboardInterrupt
                     
-                    # if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
-                        # raise KeyboardInterrupt
-                time.sleep(0.01)
+                    if cv2.getWindowProperty('Preview', cv2.WND_PROP_VISIBLE) < 1:
+                        raise KeyboardInterrupt
+                time.sleep(frame_sleep)
         except RuntimeError as e:
             print(f"Error: {e}")
 
@@ -371,7 +372,7 @@ class Marker_Detection:
         self.parameters.minMarkerPerimeterRate = 0.01
 
         # 4. 내부 비트 샘플링 향상
-        self.parameters.perspectiveRemovePixelPerCell = 10 # 정밀한 비트 추출
+        self.parameters.perspectiveRemovePixelPerCell = 12 # 정밀한 비트 추출
 
         # 계산에 쓰일 카메라 내부 파라미터
         self.principal_point = [0, 0]
@@ -383,13 +384,22 @@ class Marker_Detection:
         self.lpf_alpha = 0.3
         self.prev_pts_dict = {}
 
-    def apply_point_lpf(self, marker_id, pts_3d):
+    def apply_point_lpf(self, marker_id, pts_3d, spike_threshold=50.0):
         pts_arr = np.array(pts_3d, dtype=np.float32)
         if marker_id not in self.prev_pts_dict:
             self.prev_pts_dict[marker_id] = pts_arr
             return pts_3d
             
-        new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * self.prev_pts_dict[marker_id]
+        # 스파이크 필터(Spike Filter) 추가:
+        # 이전 좌표와 현재 좌표의 거리 차이가 너무 크면 노이즈로 간주하고 이전 좌표를 유지합니다.
+        prev_pts = self.prev_pts_dict[marker_id]
+        
+        distances = np.linalg.norm(pts_arr - prev_pts, axis=1)
+        if np.any(distances > spike_threshold):
+            # 너무 크게 튀는 값이 있다면 현재 입력값을 무시하고 이전 값을 반환
+            return prev_pts.tolist()
+            
+        new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * prev_pts
         self.prev_pts_dict[marker_id] = new_pts
         
         return new_pts.tolist()
@@ -672,7 +682,7 @@ class Marker_Detection:
             return None, 0, 0
 
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, depth_image):
+    def detect(self, color_image, depth_image, lpf = False):
         depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
@@ -730,8 +740,10 @@ class Marker_Detection:
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
-                c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
-
+                if lpf:
+                    c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
+                else:
+                    c_list_filtered = c_list_corrected
                 # 필터링된 꼭짓점 4개의 중심 좌표 재계산
                 center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
@@ -750,7 +762,7 @@ class Marker_Detection:
                 
         return marker_centers_result
 
-    def detect_stereo(self, main_img, ref_img):
+    def detect_stereo(self, main_img, ref_img, lpf = False):
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
         
@@ -809,7 +821,10 @@ class Marker_Detection:
                 is_valid, c_list_corrected = self.validate_and_correct_marker_shape(corners_3d_mm)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
-                c_list_filtered = self.apply_point_lpf(mid, c_list_corrected)
+                if lpf:
+                    c_list_filtered = self.apply_point_lpf(mid, c_list_corrected)
+                else:
+                    c_list_filtered = c_list_corrected
 
                 # 필터링된 꼭짓점 4개의 중심 좌표 재계산 (테스트코드와 동일하게 np.mean 사용)
                 center_pos = np.mean(c_list_filtered, axis=0).tolist()
@@ -851,12 +866,12 @@ class Marker_Detection:
 class Marker_Transform:
     def __init__(self, Stereo=False):
         self.Stereo = Stereo
-        self.client = TCPClient("127.0.0.1", 5000)
+        # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        # T5_to_marker_data = [0,0,0,0,0,0]
-        #tool_to_cam = [0,0,0,0,0,0]
-        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
+        # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        T5_to_marker_data = [0,0,0,0,0,0]
+        tool_to_cam = [0,0,0,0,0,0]
+        #tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
@@ -912,17 +927,15 @@ class Marker_Transform:
         
         return m
 
-    def get_marker_transform(self, sampling_time=0):
+    def get_marker_transform(self, sampling_time=0, lpf = False):
         T5_to_tool_vec = None
-        
         # Collection list for sampling
         collected_transforms = []
         start_time = time.time()
-        
-        # Loop condition:
-        # If sampling_time == 0, run once (current behavior).
-        # If sampling_time > 0, run loop until time expires.
-        
+
+        if lpf and sampling_time > 0:
+            self.marker_detection.prev_pts_dict = {}
+
         while True:
             # Check timeout if sampling
             if sampling_time > 0 and (time.time() - start_time > sampling_time):
@@ -936,14 +949,14 @@ class Marker_Transform:
                     if left_ir_img is None or right_ir_img is None:
                         if sampling_time == 0: return None
                         continue
-                    marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img)
+                    marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img, lpf = lpf)
                 else:
                     color_img = self.camera.get_color_image()
                     depth_img = self.camera.get_depth_image()
                     if color_img is None or depth_img is None:
                         if sampling_time == 0: return None
                         continue
-                    marker_transforms = self.marker_detection.detect(color_img, depth_img)
+                    marker_transforms = self.marker_detection.detect(color_img, depth_img, lpf = lpf)
                 
                 for tf_list in marker_transforms:
                     # Convert flattened list to 4x4 matrix
@@ -963,7 +976,8 @@ class Marker_Transform:
                                 T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
                                 T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
                                 
-                            self.client.send_pose(T5_to_tool_vec)
+                            # self.client.send_pose(T5_to_tool_vec)
+
                             return T5_to_tool_vec
                         except np.linalg.LinAlgError:
                             print("Singular matrix, cannot invert")
@@ -982,7 +996,8 @@ class Marker_Transform:
             # If sampling, continue loop
             if sampling_time == 0: 
                 break
-                
+
+             
         # Post-processing for sampling
         if sampling_time > 0:
             if not collected_transforms:
@@ -1027,7 +1042,7 @@ class Marker_Transform:
                 tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
                 T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
                 final_vec = T5_to_tool_tf.flatten()
-                self.client.send_pose(final_vec)
+                # self.client.send_pose(final_vec)
                 # Unit conversion
                 if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
                     final_vec[3] /= 1000
@@ -1048,10 +1063,10 @@ def main():
     marker_transform = None
     try:
         marker_transform = Marker_Transform(Stereo=True)
-        marker_transform.camera.monitoring(Flag=False)
-        
+        marker_transform.camera.monitoring(Flag=True)
+        fps = 1/30
         while True:
-            raw_result = marker_transform.get_marker_transform(sampling_time=0)
+            raw_result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
             if raw_result is None:
                 continue
                 
@@ -1074,7 +1089,7 @@ def main():
             
             string = f"{filtered_result[3]},{filtered_result[7]},{filtered_result[11]},{rpy[0]*180/math.pi},{rpy[1]*180/math.pi},{rpy[2]*180/math.pi}"
             logger.save(string)
-            time.sleep(0.01) # Removed sleep for better responsiveness
+            time.sleep(fps) # Removed sleep for better responsiveness
     except RuntimeError as e:
         print(f"Initialization Error: {e}")
     except KeyboardInterrupt:
