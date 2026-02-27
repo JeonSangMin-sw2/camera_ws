@@ -95,13 +95,15 @@ def main(address, model, power, servo):
     movej(robot, right_arm=target_right, minimum_time=10)
     time.sleep(1)
     
-    if robot.home_offset_reset("right_arm_3") == False:
+    if robot.home_offset_reset("right_arm_3") == True:
         time.sleep(2)
+        robot.disable_control_manager()
+        time.sleep(0.1)
         print("power off")
         robot.power_off("48v")
         time.sleep(1)
         print("init")
-        initialize_robot(address, model, power=".*", servo=".*")
+        initialize_robot(address, model, power=".*", servo="^(?!.*head).*")
         print("======================move_j======================")
         movej(robot, right_arm=zero_right, minimum_time=5)
     else :
