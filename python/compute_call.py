@@ -1123,7 +1123,7 @@ def create_robot(ip):
     robot = rby.create_robot_a(ip)
     robot.connect()
     robot.power_on(".*")
-    robot.servo_on(".*")
+    robot.servo_on("^(?!.*head).*")
     robot.reset_fault_control_manager()
     robot.enable_control_manager(False)
     return robot
