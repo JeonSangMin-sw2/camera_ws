@@ -816,8 +816,8 @@ class Marker_Transform:
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        T5_to_marker_data = [0,0,0,0,0,0]
+        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        # T5_to_marker_data = [0,0,0,0,0,0]
         # tool_to_cam = [0,0,0,0,0,0]
         #tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
@@ -1198,8 +1198,12 @@ def generate_sim_measurements(robot, dyn_model,
 
     for q_cmd in q_cmd_list:
         q_full = q_nominal.copy()
-        q_full[arm_idx[:7]] = q_cmd + q_offset_true
-
+        
+        if ndof in (7,13):
+            q_full[arm_idx[:7]] = q_cmd + q_offset_true
+        else :
+            q_full[arm_idx[:7]] = q_cmd 
+            
         state = dyn_model.make_state(
             ["link_torso_5", ee_link],
             robot.model().robot_joint_names
@@ -1209,9 +1213,9 @@ def generate_sim_measurements(robot, dyn_model,
 
         T_fk = dyn_model.compute_transformation(state, 0, 1)
 
-        if ndof in (6, 13): 
+        if ndof in (6,13) : 
             T_meas = T_fk @ se3_exp(xi_cam_true)
-        else:
+        else :
             T_meas = T_fk
 
         T_list.append(T_meas)
