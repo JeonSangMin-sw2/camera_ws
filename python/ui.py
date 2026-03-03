@@ -1593,7 +1593,13 @@ class CalibUI(tk.Tk):
             arm_idx, ee_link = get_arm_config(model, arm)
 
             self._log("[LIVE] Initializing Marker_Transform...")
-            marker_transform = Marker_Transform(Stereo=True)
+        arm = self.var_arm.get().strip()
+        if arm == "right":
+            tool_to_cam = [0.009, -0.09, -0.085, 144, 0, 180]
+        else:
+            tool_to_cam = [0.009,  0.09, -0.085, 144, 0,   0]
+
+        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam)
             marker_transform.camera.monitoring(Flag=True)
 
             self.live_session = LiveCaptureSession(
