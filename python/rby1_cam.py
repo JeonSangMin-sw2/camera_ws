@@ -8,6 +8,7 @@ import math
 import time
 import threading
 
+# 좌표가 제대로 보내지고 있는지 확인하기 위해 ros2와 통신하기 위한 클래스. tcp를 통해 데이터 전달 및 rviz에서 시각화
 class TCPClient:
     def __init__(self, ip, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -41,7 +42,7 @@ class TCPClient:
             print(f"Send Error: {e}")
             self.connected = False
 
-# 데이터를 텍스트 파일로 저장하는 클래스
+# 데이터를 텍스트 파일로 저장하는 클래스. 디버깅을 위함
 class File_Logger:
     def __init__(self, filepath="log.txt"):
         self.filepath = filepath
@@ -50,8 +51,15 @@ class File_Logger:
         with open(self.filepath, "a", encoding="utf-8") as f:
             f.write(str(content) + "\n")
 
-
+# 카메라 클래스
+"""
+해당 클래스는 realsense 카메라만 호환
+다른 카메라를 사용할 경우 아래의 get이란 이름이 들어간 함수들의 양식을 동일하게 맞춰주고 구현하는것을 권장
+"""
 class RealSenseCamera:
+    # serial_number : 해당 넘버의 카메라를 사용, 입력하지 않으면 첫번째 카메라 사용
+    # Stereo : 적외선 카메라를 불러와 스테레오 비전으로 depth map을 직접 계산할지 선택
+    """카메라의 시리얼 넘버는 realsense_check.py를 통해 검색할 수 있음"""
     def __init__(self, serial_number=None, Stereo=False):
         # 연결되어있는 카메라 검색
         ctx = rs.context()
@@ -87,19 +95,23 @@ class RealSenseCamera:
             depth_sensor.set_option(rs.option.visual_preset, 3) # High Accuracy
         depth_scale = depth_sensor.get_depth_scale()
         print("depth scale : ", depth_scale)
-        self.depth_resolution = depth_scale*1000
+        
 
-        #나머지 카메라 구동을 위한 파라미터 설정
-        self.pipeline = rs.pipeline()
-        self.config = rs.config()
-        self.spatial = rs.spatial_filter()       # 공간적 평활화 (노이즈 제거)
-        self.spatial.set_option(rs.option.filter_magnitude, 2)
-        self.temporal = rs.temporal_filter()     # 시간적 평활화 (깜빡임 방지)
-        self.hole_filling = rs.hole_filling_filter() # 빈 공간 채우기
+        # 카메라 구동을 위한 파라미터 설정
+        self.depth_resolution = depth_scale*1000                # 각 픽셀의 depth 값 해상도
+        self.pipeline = rs.pipeline()                           # 카메라 스트리밍을 위한 파이프라인
+        self.config = rs.config()                               # 카메라 설정구조체
+        self.spatial = rs.spatial_filter()                      # 평활화 필터 (노이즈 제거)
+        self.spatial.set_option(rs.option.filter_magnitude, 2)  # 평활화 필터의 강도 설정
+        self.temporal = rs.temporal_filter()                    # 깜빡임 방지필터
+        self.hole_filling = rs.hole_filling_filter()            # 노이즈에 의한 빈 공간 채우는 필터
 
         #적외선카메라 사용여부확인
-        self.Infrared = Stereo
-        self.camera_running = False
+        self.Infrared = Stereo                                  # 적외선 카메라 사용여부
+
+        # 상태 flag
+        self.camera_running = False                             # 카메라 구동상태 flag
+        self.camera_monitoring = False                          # 카메라 모니터링 상태 flag
 
         #이미지 저장 변수
         self.color_image = None
@@ -112,13 +124,13 @@ class RealSenseCamera:
         self.height = 720 # 480
         self.fps = 30
 
-        #카메라 내부 파라미터
-        self.fx = 0.0
-        self.fy = 0.0
-        self.principal_point = [0.0, 0.0]
-        self.intrinsics = None
-        self.profile = None
-        self.baseline = 0.065
+        #카메라 내부 파라미터 : 해당 파라미터로 depth map 및 마커좌표 계산됨
+        self.fx = 0.0                                           # 초점거리 x
+        self.fy = 0.0                                           # 초점거리 y
+        self.principal_point = [0.0, 0.0]                       # 주점(이미지 중심)
+        self.intrinsics = None                                  # 내부 파라미터 행렬
+        self.profile = None                                     # 카메라 프로파일
+        self.baseline = 0.065                                   # 스테레오 카메라 베이스라인(m)
 
         # 스레드 동기화를 위한 Lock
         self.lock = threading.Lock()
@@ -144,9 +156,7 @@ class RealSenseCamera:
             # 파이프라인 시작
             self.profile = self.pipeline.start(self.config)
 
-            
-
-            # 구동 후 카메라 안정화를 위해 10프레임 정도는 무시하고 사용
+            # 구동 후 카메라 안정화를 위해 10프레임 정도는 버리고 사용
             for i in range(10):
                 self.pipeline.wait_for_frames()
             
@@ -179,9 +189,12 @@ class RealSenseCamera:
         except Exception as e:
             print(f"Camera didn't initialize: {e}")
             raise e
+
     # Monitoring 함수로 스트리밍을 켜고 끔
     def monitoring(self, Flag=True):
-        if Flag:
+        self.camera_monitoring = Flag
+        if self.camera_monitoring:
+            
             self.thread = threading.Thread(target=self.stream_on)
             self.thread.start()
         else:
@@ -236,7 +249,7 @@ class RealSenseCamera:
                         resize_width = (self.width // len(result_list)) * len(result_list)
                     concat_image = cv2.hconcat(result_list)
                     concat_image = cv2.resize(concat_image, (resize_width, resize_height))
-                    # cv2.imshow("Preview", concat_image)
+                    cv2.imshow("Preview", concat_image)
                     key = cv2.waitKey(1)
                     if key == 27 or key == ord('q'): # ESC or q
                         raise KeyboardInterrupt
@@ -287,8 +300,7 @@ class RealSenseCamera:
                     self.right_ir_image = right_ir_data
                     self.depth_image = depth_data
             else:
-                # 파이썬 API의 한계로 인해 필터를 align 이후에 적용합니다. 
-                # 대신 뒤에서 SE(3) 필터로 노이즈를 제어합니다.
+                # 카메라의 depth map을 사용할 경우 컬러 이미지와 해상도, 사이즈를 맞추기 위해 align을 사용.
                 align_to = rs.stream.color
                 align = rs.align(align_to)
                 aligned_frames = align.process(frames)
@@ -310,6 +322,8 @@ class RealSenseCamera:
         except Exception as e:
             pass # 간헐적인 프레임 드랍 무시
 
+
+    # 연산을 위해 호출돼야하는 함수들
     def get_color_image(self):
         with self.lock:
             if self.color_image is None:
@@ -343,13 +357,27 @@ class RealSenseCamera:
     def get_baseline(self):
         return self.baseline
 
+    def get_camera_temperature(self):
+        try:
+            if not self.camera_running or self.profile is None:
+                return None
+            device = self.profile.get_device()
+            depth_sensor = device.first_depth_sensor()
+            if depth_sensor.supports(rs.option.projector_temperature):
+                proj_temp = depth_sensor.get_option(rs.option.projector_temperature)
+                return proj_temp
+            # 만약 asic 온도를 대신 지원하는 모델일 경우 (D435 등은 둘 다 지원하거나 하나만 지원)
+            elif depth_sensor.supports(rs.option.asic_temperature):
+                asic_temp = depth_sensor.get_option(rs.option.asic_temperature)
+                return asic_temp
+        except Exception as e:
+            print(f"Failed to get temperature: {e}")
+            return None
+        return None
+
 
 class Marker_Detection:
     def __init__(self):
-
-        # self.logger = File_Logger(filepath="marker_pixel.txt")
-
-
         # 어떤 마커를 인식시킬건지 정의
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
         self.parameters = cv2.aruco.DetectorParameters()
@@ -384,26 +412,6 @@ class Marker_Detection:
         self.lpf_alpha = 0.3
         self.prev_pts_dict = {}
 
-    def apply_point_lpf(self, marker_id, pts_3d, spike_threshold=50.0):
-        pts_arr = np.array(pts_3d, dtype=np.float32)
-        if marker_id not in self.prev_pts_dict:
-            self.prev_pts_dict[marker_id] = pts_arr
-            return pts_3d
-            
-        # 스파이크 필터(Spike Filter) 추가:
-        # 이전 좌표와 현재 좌표의 거리 차이가 너무 크면 노이즈로 간주하고 이전 좌표를 유지합니다.
-        prev_pts = self.prev_pts_dict[marker_id]
-        
-        distances = np.linalg.norm(pts_arr - prev_pts, axis=1)
-        if np.any(distances > spike_threshold):
-            # 너무 크게 튀는 값이 있다면 현재 입력값을 무시하고 이전 값을 반환
-            return prev_pts.tolist()
-            
-        new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * prev_pts
-        self.prev_pts_dict[marker_id] = new_pts
-        
-        return new_pts.tolist()
-
     # 연산에 필요한 카메라 파라미터 설정
     def set_intrinsics_param(self, param):
         self.principal_point = [param[0], param[1]]
@@ -417,20 +425,6 @@ class Marker_Detection:
         self.baseline = baseline
 
     # 기본 연산함수
-    def convert_pixel2mm(self, center):
-        # center: [x, y, z] (z is depth value in mm)
-        if not center:
-            return center
-        
-        if self.fx == 0 or self.fy == 0:
-            return center 
-
-        z = center[2] * self.depth_resolution
-        x = (center[0] - self.principal_point[0]) * z / self.fx
-        y = (center[1] - self.principal_point[1]) * z / self.fy
-        
-        return [x, y, z]
-
     def normalize(self, v):
         m = math.sqrt(v[0]**2 + v[1]**2 + v[2]**2)
         if m > 1e-9:
@@ -444,14 +438,114 @@ class Marker_Detection:
             a[0]*b[1] - a[1]*b[0]
         ]
     
+    def convert_pixel2mm(self, center):
+        # center: [x, y, z] (z is depth value in mm)
+        if not center:
+            return center
+        
+        if self.fx == 0 or self.fy == 0:
+            return center 
+
+        z = center[2] * self.depth_resolution
+        x = (center[0] - self.principal_point[0]) * z / self.fx
+        y = (center[1] - self.principal_point[1]) * z / self.fy
+        
+        return [x, y, z]
+    
+    # 스테레오 이미지를 통한 계산은 인자가 다르므로 별도로 구현
+    def stereo_cal_corners_3d_mm(self, main_corner, ref_corner):
+        corners_3d_mm = []
+        for i in range(4):
+            # 카메라는 Left가 기준이 되고, Right영상에서 매칭점을 찾습니다.
+            # D405 등 카메라 모델에 따라 Left/Right의 물리적 위치가 다를 수 있지만
+            # 보통 disparity는 절대값으로 계산하거나 올바른 방향으로 빼주어야 양수 깊이가 나옵니다.-----------------------------------------------
+            disparity = abs(main_corner[i][0] - ref_corner[i][0])
+            depth = (self.baseline * self.fx) / disparity * 1000 # m -> mm
+            x_mm = (main_corner[i][0] - self.principal_point[0]) * depth / self.fx
+            y_mm = (main_corner[i][1] - self.principal_point[1]) * depth / self.fy
+            corners_3d_mm.append([x_mm, y_mm, depth])
+        return corners_3d_mm
+    
+    # 각 좌표의 법선벡터를 활용하여 회전행렬 계산
+    def get_rotation_matrix(self, corners_3d):
+        # 정확한 회전을 계산하기 위해 정사각형으로 보정
+        pts_3d = self.validate_and_correct_marker_shape(corners_3d)
+        """
+        corners order in aruco: TL, TR, BR, BL (0, 1, 2, 3)
+        x_axis = (tr + br) - (tl + bl)
+        y_axis = (bl + br) - (tl + tr)
+        """
+        x_axis = [
+            (pts_3d[1][0] + pts_3d[2][0]) - (pts_3d[0][0] + pts_3d[3][0]),
+            (pts_3d[1][1] + pts_3d[2][1]) - (pts_3d[0][1] + pts_3d[3][1]),
+            (pts_3d[1][2] + pts_3d[2][2]) - (pts_3d[0][2] + pts_3d[3][2])
+        ]
+        
+        y_axis = [
+            (pts_3d[3][0] + pts_3d[2][0]) - (pts_3d[0][0] + pts_3d[1][0]),
+            (pts_3d[3][1] + pts_3d[2][1]) - (pts_3d[0][1] + pts_3d[1][1]),
+            (pts_3d[3][2] + pts_3d[2][2]) - (pts_3d[0][2] + pts_3d[1][2])
+        ]
+        
+        x_axis = self.normalize(x_axis)
+        y_axis = self.normalize(y_axis)
+        
+        z_axis = self.cross(x_axis, y_axis)
+        z_axis = self.normalize(z_axis)
+        
+        # y_axis 재계산 : z_axis와 x_axis에 수직이 되도록
+        y_axis = self.cross(z_axis, x_axis)
+        y_axis = self.normalize(y_axis)
+        
+        # Rotation Matrix (3x3)
+        R = [[0.0]*3 for _ in range(3)]
+        R[0][0] = x_axis[0]; R[0][1] = y_axis[0]; R[0][2] = z_axis[0]
+        R[1][0] = x_axis[1]; R[1][1] = y_axis[1]; R[1][2] = z_axis[1]
+        R[2][0] = x_axis[2]; R[2][1] = y_axis[2]; R[2][2] = z_axis[2]
+        
+        return R
+
+    # 회전행렬을 오일러각으로 변환(디버깅용)
+    def get_rpy_from_matrix(self, R):
+        sy = math.sqrt(R[0][0]**2 + R[1][0]**2)
+        singular = sy < 1e-6
+        if not singular:
+            roll = math.atan2(R[2][1], R[2][2])
+            pitch = math.atan2(-R[2][0], sy)
+            yaw = math.atan2(R[1][0], R[0][0])
+        else:
+            roll = math.atan2(-R[1][2], R[1][1])
+            pitch = math.atan2(-R[2][0], sy)
+            yaw = 0
+        return [roll, pitch, yaw]
+
+    def apply_point_lpf(self, marker_id, pts_3d, spike_threshold=1.0):
+        pts_arr = np.array(pts_3d, dtype=np.float32)
+        if marker_id not in self.prev_pts_dict:
+            # print("First detection")
+            self.prev_pts_dict[marker_id] = pts_arr
+            return pts_3d
+        prev_pts = self.prev_pts_dict[marker_id]
+        
+        distances = np.linalg.norm(pts_arr - prev_pts, axis=1)
+        if np.any(distances > spike_threshold):
+            # 너무 크게 튀는 값이 있다면 현재 입력값을 무시하고 이전 값을 반환
+            #print("Spike detected")
+            return prev_pts.tolist()
+            
+        new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * prev_pts
+        self.prev_pts_dict[marker_id] = new_pts
+        
+        return new_pts.tolist()
+    
     def validate_and_correct_marker_shape(self, pts_3d, length_tol=0.2, angle_tol_deg=2.0):
         """
         추출된 마커의 3D 모서리 좌표들이 정사각형에 가까운지 확인 (직각, 길이 동일 여부)
-        유사하지 않다고 판단될 경우 오차를 보정한 완벽한 정사각형 좌표를 반환합니다.
+        유사하지 않다고 판단될 경우 오차를 보정한 완벽한 정사각형 좌표를 반환
         """
         pts = np.array(pts_3d)
         if len(pts) != 4:
-            return False, pts_3d
+            return pts_3d
             
         v0 = pts[1] - pts[0]
         v1 = pts[2] - pts[1]
@@ -461,7 +555,7 @@ class Marker_Detection:
         edges = [v0, v1, v2, v3]
         lengths = [np.linalg.norm(v) for v in edges]
         if any(l == 0 for l in lengths):
-            return False, pts_3d
+            return pts_3d
             
         mean_len = np.mean(lengths)
         
@@ -495,7 +589,7 @@ class Marker_Detection:
             z_axis = np.cross(x_axis, y_vec)
             z_norm = np.linalg.norm(z_axis)
             if z_norm < 1e-6:
-                return False, pts_3d
+                return pts_3d
                 
             z_axis = z_axis / z_norm
             y_axis = np.cross(z_axis, x_axis)
@@ -508,131 +602,35 @@ class Marker_Detection:
                 center + half_l * x_axis + half_l * y_axis, # BR
                 center - half_l * x_axis + half_l * y_axis  # BL
             ]            
-            return False, [list(p) for p in corrected_pts]
+            return [list(p) for p in corrected_pts]
             
-        return True, pts_3d
-
-    def get_rotation_matrix(self, corners_3d):
-        # corners_3d: list of [x_mm, y_mm, z_mm]
-        # 입력으로 이미 3D mm 좌표계를 바로 받도록 변경 (LPF 필터링 이후 좌표 사용 위함)
-        pts_3d = corners_3d
-        
-        # 코너들이 정사각형에 가까운지 검증하고 필요시 보정------------------------------------------------------------------
-        # is_valid, pts_3d = self.validate_and_correct_marker_shape(pts_3d)
-
-        # Vector logic from C++
-        # x_axis = (tr + br) - (tl + bl) -> (pt1 + pt2) - (pt0 + pt3)
-        # y_axis = (bl + br) - (tl + tr) -> (pt3 + pt2) - (pt0 + pt1) -> Y Down
-        # corners order in aruco: TL, TR, BR, BL (0, 1, 2, 3)
-        
-        x_axis = [
-            (pts_3d[1][0] + pts_3d[2][0]) - (pts_3d[0][0] + pts_3d[3][0]),
-            (pts_3d[1][1] + pts_3d[2][1]) - (pts_3d[0][1] + pts_3d[3][1]),
-            (pts_3d[1][2] + pts_3d[2][2]) - (pts_3d[0][2] + pts_3d[3][2])
-        ]
-        
-        y_axis = [
-            (pts_3d[3][0] + pts_3d[2][0]) - (pts_3d[0][0] + pts_3d[1][0]),
-            (pts_3d[3][1] + pts_3d[2][1]) - (pts_3d[0][1] + pts_3d[1][1]),
-            (pts_3d[3][2] + pts_3d[2][2]) - (pts_3d[0][2] + pts_3d[1][2])
-        ]
-        
-        x_axis = self.normalize(x_axis)
-        y_axis = self.normalize(y_axis)
-        
-        z_axis = self.cross(x_axis, y_axis)
-        z_axis = self.normalize(z_axis)
-        
-        # Recompute Y to be orthogonal
-        y_axis = self.cross(z_axis, x_axis)
-        y_axis = self.normalize(y_axis)
-        
-        # Rotation Matrix (3x3)
-        # Columns correspond to basis vectors
-        R = [[0.0]*3 for _ in range(3)]
-        R[0][0] = x_axis[0]; R[0][1] = y_axis[0]; R[0][2] = z_axis[0]
-        R[1][0] = x_axis[1]; R[1][1] = y_axis[1]; R[1][2] = z_axis[1]
-        R[2][0] = x_axis[2]; R[2][1] = y_axis[2]; R[2][2] = z_axis[2]
-        
-        return R
-
-    # 회전행렬을 오일러각으로 변환(검증용)
-    def get_rpy_from_matrix(self, R):
-        sy = math.sqrt(R[0][0]**2 + R[1][0]**2)
-        singular = sy < 1e-6
-        if not singular:
-            roll = math.atan2(R[2][1], R[2][2])
-            pitch = math.atan2(-R[2][0], sy)
-            yaw = math.atan2(R[1][0], R[0][0])
-        else:
-            roll = math.atan2(-R[1][2], R[1][1])
-            pitch = math.atan2(-R[2][0], sy)
-            yaw = 0
-        return [roll, pitch, yaw]
-
-    def get_depth_average(self, target, img, radius=3):
-        x, y = target
-        # 이미지 범위를 벗어나지 않도록 슬라이싱 범위 설정 (Clamping)
-        y_min = max(0, y - radius)
-        y_max = min(img.shape[0], y + radius + 1)
-        x_min = max(0, x - radius)
-        x_max = min(img.shape[1], x + radius + 1)
-
-        # 관심 영역(ROI) 추출
-        roi = img[y_min:y_max, x_min:x_max]
-
-        # 0(유효하지 않은 값)을 제외하고 평균 계산
-        valid_values = roi[roi > 0]
-        
-        if valid_values.size > 0:
-            return np.median(valid_values)
-        else:
-            return 0
-        
+        return pts_3d
 
     def get_marker_plane_equation(self, corners, depth_img):
         # corners: list of [x, y]
-        # Find bounding box of the marker
+        # 바운더리 추출
         xs = [pt[0] for pt in corners]
         ys = [pt[1] for pt in corners]
         min_x, max_x = min(xs), max(xs)
         min_y, max_y = min(ys), max(ys)
-        # # print(self.depth_resolution)
-        # for i in range(4):
-        #     i_next = (i + 1) % 4
-        #     # 픽셀 좌표와 raw depth 값을 이용해 실제 3D 좌표(mm)로 변환 후 거리 계산
-        #     pt1 = self.convert_pixel2mm([xs[i], ys[i], float(depth_img[int(ys[i]), int(xs[i])])])
-        #     pt2 = self.convert_pixel2mm([xs[i_next], ys[i_next], float(depth_img[int(ys[i_next]), int(xs[i_next])])])
-            
-        #     x_diff = pt2[0] - pt1[0]
-        #     y_diff = pt2[1] - pt1[1]
-        #     z_diff = pt2[2] - pt1[2]
-        #     norm = math.sqrt(x_diff**2 + y_diff**2 + z_diff**2)
-        #     print(f"norm {i} : {norm}")
         
-        # Shrink ROI to center 50% to avoid border noise
+        # ROI를 10% 축소하여 테두리에 대한 노이즈 방지
         w = max_x - min_x
         h = max_y - min_y
         
-        start_x = int(min_x + w * 0.1)
-        end_x = int(max_x - w * 0.1)
-        start_y = int(min_y + h * 0.1)
-        end_y = int(max_y - h * 0.1)
-        
-        # Ensure ROI is within image bounds
-        start_x = max(0, start_x)
-        start_y = max(0, start_y)
-        end_x = min(depth_img.shape[1], end_x)
-        end_y = min(depth_img.shape[0], end_y)
+        start_x = max(0, int(min_x + w * 0.1))
+        end_x = min(depth_img.shape[1], int(max_x - w * 0.1))
+        start_y = max(0, int(min_y + h * 0.1))
+        end_y = min(depth_img.shape[0], int(max_y - h * 0.1))
         
         if end_x <= start_x or end_y <= start_y:
             return None
 
-        # Extract depth values in ROI 
-        # (중요: 이후 convert_pixel2mm에서 self.depth_resolution이 곱해지므로 평면 방정식은 Raw Depth 단위로 추출해야 함)
+        # ROI 내의 depth 값 추출
+        # (평면 방정식은 Raw Depth 단위로 추출. 추후에 depth_resolution을 통해 결과값 출력 예정)
         roi_depth = depth_img[start_y:end_y, start_x:end_x]
         
-        # Create coordinate grids
+        # 좌표 그리드 생성
         # Note: indices returns (y_grid, x_grid)
         y_grid, x_grid = np.indices(roi_depth.shape)
         y_grid += start_y
@@ -646,19 +644,20 @@ class Marker_Detection:
         # Filter invalid depth (0)
         valid_mask = z_flat > 0
         
-        if np.sum(valid_mask) < 50: # Need enough points for robust fit
-            return None, 0, 0
+        if np.sum(valid_mask) < 50: # Robust fit를 위해 최소 50개의 점 필요
+            return None
             
         z_valid = z_flat[valid_mask]
         x_valid = x_flat[valid_mask]
         y_valid = y_flat[valid_mask]
         
-        # Robust Plane Fitting: 1/Z vs (u, v) normalized
-        # A plane in 3D (AX + BY + CZ + D = 0) corresponds to 
-        # 1/Z = -(A/D)*X/Z - (B/D)*Y/Z - (C/D)
-        # 1/Z = a * u_norm + b * v_norm + c
-        # where u_norm = (u - cx)/fx, v_norm = (v - cy)/fy
-        
+        """
+        Robust Plane Fitting: 1/Z vs (u, v) normalized
+        A plane in 3D (AX + BY + CZ + D = 0) corresponds to 
+        1/Z = -(A/D)*X/Z - (B/D)*Y/Z - (C/D)
+        1/Z = a * u_norm + b * v_norm + c
+        where u_norm = (u - cx)/fx, v_norm = (v - cy)/fy
+        """
         inv_z = 1.0 / z_valid
         
         u_norm = (x_valid - self.principal_point[0]) / self.fx
@@ -677,50 +676,40 @@ class Marker_Detection:
             if residuals.size > 0:
                 rmse = np.sqrt(residuals[0] / len(z_valid))
             
-            return X, len(z_valid), rmse # [a, b, c], count, rmse
+            return X # [a, b, c]
         except np.linalg.LinAlgError:
-            return None, 0, 0
+            return None
 
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, depth_image, lpf = False):
+    def detect(self, color_image, depth_image, lpf = False, logging = False):
         depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
-
-        # cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
-        # cv2.imshow("Main", color_image)
-        # cv2.waitKey(1)
-        
         marker_centers_result = []
         
         if ids is not None and len(ids) > 0:
             
             for i in range(len(ids)):
+                c = corners[i][0] # 마커의 모서리
 
-                # for j in range(4):
-                #     print(f"norm {j} : {corners[i][0][j][0]}, {corners[i][0][j][1]}")
-
-                c = corners[i][0] # c has 4 points
-                
-                # C++ Logic: Center is average of min/max (AABB center), not centroid
+                # 마커의 중심점 계산
                 xs = [pt[0] for pt in c]
                 ys = [pt[1] for pt in c]
                 xs.sort()
                 ys.sort()
-                
                 x_center = (xs[0] + xs[3]) / 2.0
                 y_center = (ys[0] + ys[3]) / 2.0
                 
-                # Plane Fitting for Rotation
-                plane, valid_count, rmse = self.get_marker_plane_equation(c, depth_filtered)
+                # 평면 방정식 계산 : depth 노이즈를 줄이기 위함
+                plane = self.get_marker_plane_equation(c, depth_filtered)
                 
-                # 만약 노이즈가 너무 심해 평면 방정식을 구하지 못했다면 신뢰할 수 없는 데이터이므로 무시합니다.
+                # 만약 노이즈가 너무 심해 평면 방정식을 구하지 못했다면 신뢰할 수 없는 데이터이므로 무시
                 if plane is None:
                     continue
                     
                 A, B, C_val = plane
                 
-                # Recalculate z for corners based on plane
+                # 모서리점들의 z값 보정
                 c_list = []
                 for pt in c:
                     u_n = (pt[0] - self.principal_point[0]) / self.fx
@@ -732,18 +721,17 @@ class Marker_Detection:
                     pt_3d_mm = self.convert_pixel2mm([pt[0], pt[1], float(z_est)])
                     c_list.append(pt_3d_mm)
 
-                # string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
-                # self.logger.save(string)
-                    
-                #코너점들의 형태를 정사각형으로 보정
-                is_valid, c_list_corrected = self.validate_and_correct_marker_shape(c_list)
+                if logging:
+                    string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
+                    self.logger.save(string)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
                 if lpf:
-                    c_list_filtered = self.apply_point_lpf(marker_id, c_list_corrected)
+                    c_list_filtered = self.apply_point_lpf(marker_id, c_list)
                 else:
-                    c_list_filtered = c_list_corrected
+                    c_list_filtered = c_list
+
                 # 필터링된 꼭짓점 4개의 중심 좌표 재계산
                 center_pos = np.mean(c_list_filtered, axis=0).tolist()
                 
@@ -765,15 +753,10 @@ class Marker_Detection:
     def detect_stereo(self, main_img, ref_img, lpf = False):
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
-        
-        # cv2.aruco.drawDetectedMarkers(main_img, main_corners, main_ids)
-        # cv2.imshow("Main", main_img)
-        # cv2.waitKey(1)
-
         marker_centers_result = []
         
         if main_ids is not None and ref_ids is not None:
-            # Group reference markers by ID to handle duplicates
+            # 마커 순서가 헷갈리지 않도록 ref_dict에 저장
             ref_dict = {}
             for i, marker_id in enumerate(ref_ids):
                 mid = marker_id[0]
@@ -818,7 +801,7 @@ class Marker_Detection:
                     continue
                 
                 # 코너점들의 형태를 정사각형으로 보정
-                is_valid, c_list_corrected = self.validate_and_correct_marker_shape(corners_3d_mm)
+                c_list_corrected = self.validate_and_correct_marker_shape(corners_3d_mm)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 if lpf:
@@ -848,35 +831,25 @@ class Marker_Detection:
         return marker_centers_result
         
 
-    def stereo_cal_corners_3d_mm(self, main_corner, ref_corner):
-        corners_3d_mm = []
-        for i in range(4):
-            disparity = main_corner[i][0] - ref_corner[i][0]
-            if disparity <= 0:
-                continue
-            depth = (self.baseline * self.fx) / disparity * 1000 # m -> mm
-            x_mm = (main_corner[i][0] - self.principal_point[0]) * depth / self.fx
-            y_mm = (main_corner[i][1] - self.principal_point[1]) * depth / self.fy
-            corners_3d_mm.append([x_mm, y_mm, depth])
-        return corners_3d_mm
+    
 
 
 
 
 class Marker_Transform:
-    def __init__(self, Stereo=False):
+    def __init__(self, Stereo=False, tool_to_cam = [0,0,0,0,0,0], serial_number = None, monitoring = False):
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
         # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
         T5_to_marker_data = [0,0,0,0,0,0]
-        tool_to_cam = [0,0,0,0,0,0]
+        # tool_to_cam = [0,0,0,0,0,0]
         #tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
-        self.camera = RealSenseCamera(Stereo=Stereo)
+        self.camera = RealSenseCamera(serial_number=serial_number, Stereo=Stereo)
         self.marker_detection = Marker_Detection()
         
         self.width = 1280 # 848
@@ -885,6 +858,8 @@ class Marker_Transform:
         
         print("Initializing Camera...")
         self.camera.initialize_camera(self.width, self.height, self.fps)
+        if monitoring:
+            self.camera.monitoring(Flag=True)
         
         intrinsics = self.camera.get_principal_point_and_focal_length()
         self.marker_detection.set_intrinsics_param(intrinsics)
@@ -897,7 +872,6 @@ class Marker_Transform:
 
     def make_transform(self, data):
         # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
-        # The C++ code multiplies x,y,z by 1000 inside make_Transform
         x, y, z = data[0]*1000, data[1]*1000, data[2]*1000 
         roll = data[3] * math.pi / 180
         pitch = data[4] * math.pi / 180
@@ -942,19 +916,22 @@ class Marker_Transform:
                 break
                 
             try:
-                # self.camera.capture_image()
+                if not self.camera.camera_monitoring:
+                    self.camera.capture_image()
                 if self.Stereo:
                     left_ir_img = self.camera.get_left_ir_image()
                     right_ir_img = self.camera.get_right_ir_image()
                     if left_ir_img is None or right_ir_img is None:
-                        if sampling_time == 0: return None
+                        time.sleep(0.01)
+                        if sampling_time == 0 : return None
                         continue
                     marker_transforms = self.marker_detection.detect_stereo(left_ir_img, right_ir_img, lpf = lpf)
                 else:
                     color_img = self.camera.get_color_image()
                     depth_img = self.camera.get_depth_image()
                     if color_img is None or depth_img is None:
-                        if sampling_time == 0: return None
+                        time.sleep(0.01)
+                        if sampling_time == 0 : return None
                         continue
                     marker_transforms = self.marker_detection.detect(color_img, depth_img, lpf = lpf)
                 
@@ -1058,36 +1035,59 @@ class Marker_Transform:
 
 
 def main():
-    
+    #tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
+    #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
+    tool_to_cam = [0,0,0,0,0,0]
     logger = File_Logger()
     marker_transform = None
     try:
-        marker_transform = Marker_Transform(Stereo=True)
-        marker_transform.camera.monitoring(Flag=True)
+        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = True)
         fps = 1/30
         while True:
             raw_result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
             if raw_result is None:
                 continue
-                
-            filtered_result = raw_result
             
             # 필터링된 행렬로 RPY 재계산
             rot_matrix = [
-                [filtered_result[0], filtered_result[1], filtered_result[2]],
-                [filtered_result[4], filtered_result[5], filtered_result[6]],
-                [filtered_result[8], filtered_result[9], filtered_result[10]]
+                [raw_result[0], raw_result[1], raw_result[2]],
+                [raw_result[4], raw_result[5], raw_result[6]],
+                [raw_result[8], raw_result[9], raw_result[10]]
             ]
             rpy = marker_transform.marker_detection.get_rpy_from_matrix(rot_matrix)
             
             # 출력용
-            filtered_result = [round(n, 4) for n in filtered_result]
-            print(filtered_result[0],filtered_result[1],filtered_result[2],filtered_result[3])
-            print(filtered_result[4],filtered_result[5],filtered_result[6],filtered_result[7])
-            print(filtered_result[8],filtered_result[9],filtered_result[10],filtered_result[11])
-            print(filtered_result[12],filtered_result[13],filtered_result[14],filtered_result[15])
+            result = [round(n, 4) for n in raw_result]
+            print(result[0],result[1],result[2],result[3])
+            print(result[4],result[5],result[6],result[7])
+            print(result[8],result[9],result[10],result[11])
+            print(result[12],result[13],result[14],result[15])
+
+            temp = marker_transform.camera.get_camera_temperature()
+            print(f"Camera Temperature: {temp}")
             
-            string = f"{filtered_result[3]},{filtered_result[7]},{filtered_result[11]},{rpy[0]*180/math.pi},{rpy[1]*180/math.pi},{rpy[2]*180/math.pi}"
+            # 온도 보정 계수 (41도 기준, Value_Compensated = Value_Measured - Slope * (Temp - 41.0))
+            if temp is not None:
+                dt = temp - 41.0
+                # mm 단위 
+                comp_x = -0.033835 * dt
+                comp_y = -0.006316 * dt
+                comp_z = 0.055630 * dt
+                # deg 단위 (rad 적용시 변환 필요)
+                comp_roll = -0.000128 * dt * math.pi / 180.0
+                comp_pitch = 0.007515 * dt * math.pi / 180.0
+                comp_yaw = 0.017608 * dt * math.pi / 180.0
+                
+                # 원본 result[3,7,11] 은 m 단위이므로 변환
+                result[3] = result[3] - (comp_x / 1000.0)
+                result[7] = result[7] - (comp_y / 1000.0)
+                result[11] = result[11] - (comp_z / 1000.0)
+                
+                rpy[0] = rpy[0] - comp_roll
+                rpy[1] = rpy[1] - comp_pitch
+                rpy[2] = rpy[2] - comp_yaw
+            
+            string = f"{temp},{result[3]*1000},{result[7]*1000},{result[11]*1000},{rpy[0]*180/math.pi},{rpy[1]*180/math.pi},{rpy[2]*180/math.pi}"
             logger.save(string)
             time.sleep(fps) # Removed sleep for better responsiveness
     except RuntimeError as e:
