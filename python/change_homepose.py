@@ -3,7 +3,15 @@ import argparse
 import numpy as np
 import logging
 import time
+import json
 
+
+def load_offset_from_json(filename="calibration_result.json"):
+    with open(filename, "r") as f:
+        data = json.load(f)
+
+    offset_deg = np.array(data["joint_offset_deg"])
+    return np.deg2rad(offset_deg)
 
 def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=5):
     rc = rby.BodyComponentBasedCommandBuilder()
@@ -68,23 +76,55 @@ def main(address, model, power, servo):
     print("Moving to zero pose...")
     movej(robot, right_arm=zero_right, minimum_time=5)
 
-    # 2️⃣ 사용자 입력 받기
-    print(f"\nEnter {right_arm_dof} joint offsets in DEG (space separated):")
-    print("Example: 1 0 0 0 0 0 0")
+    print("\nSelect offset mode:")
+    print("u → User input")
+    print("j → Load from JSON")
+    mode = input("Mode (u/j) = ").strip().lower()
+    
+    
+    # =========================
+    # 1️⃣ 사용자 입력 모드
+    # =========================
+    if mode == "u":
+        print(f"\nEnter {right_arm_dof} joint offsets in DEG (space separated):")
+        print("Example: 1 0 0 0 0 0 0")
 
-    user_input = input("Offset (deg) = ")
+        user_input = input("Offset (deg) = ")
 
-    try:
-        offset_deg = np.array([float(x) for x in user_input.split()])
-    except:
-        print("Invalid input.")
+        try:
+            offset_deg = np.array([float(x) for x in user_input.split()])
+        except:
+            print("Invalid input.")
+            return
+
+        if len(offset_deg) != right_arm_dof:
+            print(f"Need exactly {right_arm_dof} values.")
+            return
+
+        offset_rad = np.deg2rad(offset_deg)
+
+    # =========================
+    # 2️⃣ JSON 모드
+    # =========================
+    elif mode == "j":
+        try:
+            offset_rad = -load_offset_from_json("calibration_result.json")
+            offset_deg = np.rad2deg(offset_rad)
+        except Exception as e:
+            print("Failed to load JSON:", e)
+            return
+
+        if len(offset_rad) != right_arm_dof:
+            print("JSON offset size mismatch.")
+            return
+
+        print("Loaded offset from JSON (deg):")
+        print(np.rad2deg(offset_rad))
+
+    else:
+        print("Invalid mode selected.")
         return
 
-    if len(offset_deg) != right_arm_dof:
-        print(f"Need exactly {right_arm_dof} values.")
-        return
-
-    offset_rad = np.deg2rad(offset_deg)
 
     # 3️⃣ zero + offset
     target_right = zero_right + offset_rad
