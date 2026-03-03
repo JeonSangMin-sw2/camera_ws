@@ -1134,7 +1134,7 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             q_full = state.position.copy()
             q_cmd = q_full[RIGHT_ARM_IDX[:7]].copy()
 
-            result = marker_transform.get_marker_transform(sampling_time=0)
+            result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
 
             if result is None:
                 print("Marker not detected.")
@@ -1337,8 +1337,9 @@ def main():
 
     if args.mode == "live":
         # marker_transform는 기존 코드 그대로 사용
-        marker_transform = Marker_Transform(Stereo=True)
-        marker_transform.camera.monitoring(Flag=True)
+        tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
+        #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
+        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = False)
 
         q_cmd_list, T_meas_list = capture_dataset(
             robot, dyn_model,
