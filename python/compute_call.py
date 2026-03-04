@@ -802,10 +802,7 @@ class Marker_Detection:
                 marker_centers_result.append(transform)
                 
         return marker_centers_result
-        
-
     
-
 
 
 
@@ -1118,7 +1115,8 @@ def create_robot(ip):
 # Capture dataset (기존 기능 유지)
 # ============================================================
 
-def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
+
+def capture_dataset(robot, dyn_model, ARM_IDX, marker_transform):
 
     q_cmd_list = []
     T_meas_list = []
@@ -1132,7 +1130,7 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
         if key == 'e':
             state = robot.get_state()
             q_full = state.position.copy()
-            q_cmd = q_full[RIGHT_ARM_IDX[:7]].copy()
+            q_cmd = q_full[ARM_IDX[:7]].copy()
 
             result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
 
@@ -1146,7 +1144,7 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             T_meas_list.append(T_meas)
 
             print(f"Captured sample {len(q_cmd_list)}")
-            print("q =", np.round(q_full[RIGHT_ARM_IDX],3))
+            print("q =", np.round(q_full[ARM_IDX],3))
             T_print = np.array(result).reshape(4, 4)
             print("marker =", np.round(T_print,3))
         elif key == 'q':
@@ -1156,26 +1154,29 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
 
     return np.array(q_cmd_list), np.array(T_meas_list)
 
-
 # ============================================================
 # Gauss Newton (기존 알고리즘 그대로)
 # ============================================================
 
 
 def generate_sim_measurements(robot, dyn_model,
-                              q_cmd_list, RIGHT_ARM_IDX,
-                              q_nominal, ndof):
+                              q_cmd_list, ARM_IDX,
+                              q_nominal, ndof, ee_link):
     q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
     xi_cam_true = np.array([0.02, -0.01, 0.015, 0.01, 0.02, -0.01])
     
     T_list = []
 
     for q_cmd in q_cmd_list:
-        q_full = q_nominal.copy()
-        q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
+        if ndof in (7,13):
+            q_full = q_nominal.copy()
+            q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
+        else :
+            q_full = q_nominal.copy()
+            q_full[RIGHT_ARM_IDX] = q_cmd
 
         state = dyn_model.make_state(
-            ["link_torso_5", "ee_right"],
+            ["link_torso_5", ee_link],
             robot.model().robot_joint_names
         )
         state.set_q(q_full)
@@ -1183,25 +1184,25 @@ def generate_sim_measurements(robot, dyn_model,
 
         T_fk = dyn_model.compute_transformation(state, 0, 1)
 
-        # noise = np.array([-0.100956, 0.024401, 0.009073,
-        #                   -0.002027, 0.028192, 0.022449])
-
-        # T_meas = T_fk @ se3_exp(noise)
-        if ndof == 13:
+        if ndof in (6,13):
             T_meas = T_fk @ se3_exp(xi_cam_true)         
         else :
-            T_meas = T_fk          
+            T_meas = T_fk
+            
         T_list.append(T_meas)
 
     return T_list
 
+
+
+
 def update_optimization(q_cmd_list, T_meas_list):
      # 7자유도 최적화 해 역대입
-    q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511])
+    q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511]) # Right
     q_offset_rad = np.deg2rad(q_offset_deg)
     q_cmd_list = q_cmd_list + q_offset_rad        
     # 6자유도 최적화 해 역대입
-    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
+    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))  # Right
     T_meas_list = np.array([
         T @ np.linalg.inv(T_noise)
         for T in T_meas_list
@@ -1210,7 +1211,7 @@ def update_optimization(q_cmd_list, T_meas_list):
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
-             RIGHT_ARM_IDX, ndof):
+             ARM_IDX, ndof, ee_link):
 
     q_nominal = robot.get_state().position.copy()
 
@@ -1244,12 +1245,12 @@ def optimize(robot, dyn_model,
 
             q_full = q_nominal.copy()
             if optimize_camera:
-                q_full[RIGHT_ARM_IDX[:7]] = q_cmd 
+                q_full[ARM_IDX[:7]] = q_cmd
             else:
-                q_full[RIGHT_ARM_IDX[:7]] = q_cmd + q_offset
+                q_full[ARM_IDX[:7]] = q_cmd + q_offset
             
             state = dyn_model.make_state(
-                ["link_torso_5", "ee_right"],
+                ["link_torso_5", ee_link],
                 robot.model().robot_joint_names
             )
 
@@ -1259,9 +1260,7 @@ def optimize(robot, dyn_model,
 
             T_fk = dyn_model.compute_transformation(state, 0, 1)
 
-            if optimize_all:
-                T_model = T_fk @ se3_exp(xi_cam)
-            elif optimize_camera:
+            if optimize_all or optimize_camera:
                 T_model = T_fk @ se3_exp(xi_cam)
             else:
                 T_model = T_fk
@@ -1273,18 +1272,17 @@ def optimize(robot, dyn_model,
 
             if optimize_all:
                 J = np.zeros((6, 13))
-                J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
+                J[:, :7] = Jb[:, ARM_IDX[:7]]
                 J[:, 7:] = np.eye(6)
             elif optimize_camera:
-                # J = np.zeros((6, 6))
-                # J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
                 J = np.eye(6)
             else:
-                J = Jb[:, RIGHT_ARM_IDX[:7]]
+                J = Jb[:, ARM_IDX[:7]]
 
             H += J.T @ J
             g += J.T @ xi
             total_err += np.linalg.norm(xi)
+
 
         dx = np.linalg.pinv(H) @ g
 
@@ -1322,7 +1320,8 @@ def main():
                         )
     parser.add_argument("--path", type=str, default="captured_dataset.npz",
         help="Path to npz dataset (default: captured_dataset.npz)")
-
+    parser.add_argument("--arm", type=str, default="right",
+                    choices=["right", "left"])
     
 
     args = parser.parse_args()
@@ -1332,18 +1331,25 @@ def main():
     robot = create_robot(args.ip)
     dyn_model = robot.get_dynamics()
     model = robot.model()
-    RIGHT_ARM_IDX = model.right_arm_idx
-
+    # RIGHT_ARM_IDX = model.right_arm_idx
+    if args.arm == "right":
+        ARM_IDX = model.right_arm_idx
+        ee_link = "ee_right"
+        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
+    else:
+        ARM_IDX = model.left_arm_idx
+        ee_link = "ee_left"
+        tool_to_cam = [0.009,0.09,-0.085,144,0,0]
 
     if args.mode == "live":
         # marker_transform는 기존 코드 그대로 사용
-        tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
+        # tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
         #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
         marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = False)
 
         q_cmd_list, T_meas_list = capture_dataset(
             robot, dyn_model,
-            RIGHT_ARM_IDX,
+            ARM_IDX,
             marker_transform
         )
         np.savez_compressed(
@@ -1363,7 +1369,7 @@ def main():
         T_meas_list = generate_sim_measurements(
             robot, dyn_model,
             q_cmd_list,
-            RIGHT_ARM_IDX,
+            ARM_IDX,
             q_nominal,
             args.ndof
         )
@@ -1372,14 +1378,15 @@ def main():
     print("Dataset saved.")
     
     
-    q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
+    # q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
     
     q_offset, xi_cam = optimize(
         robot, dyn_model,
         q_cmd_list,
         T_meas_list,
-        RIGHT_ARM_IDX,
-        args.ndof
+        ARM_IDX,
+        args.ndof,
+        ee_link
     )
 
     
