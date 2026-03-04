@@ -1343,7 +1343,7 @@ def main():
     else:
         ARM_IDX = model.left_arm_idx
         ee_link = "ee_left"
-        tool_to_cam = [0.009,0.09,-0.085,144,0,0]
+        tool_to_cam = [-0.009,0.09,-0.085,-144,0,0]
 
     if args.mode == "live":
         # marker_transform는 기존 코드 그대로 사용
