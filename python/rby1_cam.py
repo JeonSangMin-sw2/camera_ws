@@ -1036,7 +1036,7 @@ class Marker_Transform:
 
 def main():
     #tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
-    #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
+    #tool_to_cam = [-0.009,0.09,-0.085,-144,0,0] # left
     tool_to_cam = [0,0,0,0,0,0]
     logger = File_Logger()
     marker_transform = None
