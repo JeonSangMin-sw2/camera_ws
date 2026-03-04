@@ -1,6 +1,3 @@
-import rby1_sdk as rby
-import numpy as np
-import time
 import pyrealsense2 as rs
 import cv2
 import socket
@@ -9,9 +6,14 @@ import math
 import threading
 import sys
 import select
+import argparse
 import json
+import time
+import numpy as np
+import tkinter as tk
+import rby1_sdk as rby
+from tkinter import ttk, filedialog, messagebox
 
-recorded_data = []   # (q, marker) 같이 저장
 
 def check_key_press():
     dr, dw, de = select.select([sys.stdin], [], [], 0)
@@ -1006,12 +1008,6 @@ class Marker_Transform:
         return None
 
 
-        
-import argparse
-import numpy as np
-import time
-import rby1_sdk as rby
-
 
 # ============================================================
 # Lie algebra utilities (그대로 유지)
@@ -1095,9 +1091,8 @@ def se3_log(T):
 
 
 # ============================================================
-# Robot initialization
+# Robot / Dataset utilities
 # ============================================================
-
 
 def load_npz_dataset(path):
     data = np.load(path)
@@ -1114,12 +1109,43 @@ def create_robot(ip):
     return robot
 
 
+def get_arm_config(model, arm: str):
+    """
+    arm: "right" or "left"
+    returns:
+        arm_idx (numpy array),
+        ee_link (str)
+    """
+
+    if arm == "right":
+        arm_idx = np.array(model.right_arm_idx)
+        ee_link = "ee_right"
+
+    elif arm == "left":
+        arm_idx = np.array(model.left_arm_idx)
+        ee_link = "ee_left"
+
+    else:
+        raise ValueError(f"Invalid arm: {arm}. Use 'right' or 'left'.")
+
+    return arm_idx, ee_link
+
 # ============================================================
-# Capture dataset (기존 기능 유지)
+# Marker transform
+#   - live 모드에서만 필요
+#   - 여기서는 "외부에서 주입"받는 형태로만 사용
 # ============================================================
 
-def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
+# !!! 네가 올린 Marker_Transform / camera 클래스는 그대로 파일에 같이 두고
+# 아래 run_pipeline에서 marker_transform.get_marker_transform()만 호출하면 됨.
+# (여기선 코드 길이 때문에 Marker_Transform 본문은 생략)
 
+
+# ============================================================
+# Capture dataset (arm별로 동작)
+# ============================================================
+
+def capture_dataset(robot, arm_idx, marker_transform):
     q_cmd_list = []
     T_meas_list = []
 
@@ -1127,12 +1153,12 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
     print("Press 'q' + Enter to quit\n")
 
     while True:
-        key = input()
+        key = input().strip()
 
         if key == 'e':
             state = robot.get_state()
             q_full = state.position.copy()
-            q_cmd = q_full[RIGHT_ARM_IDX[:7]].copy()
+            q_cmd = q_full[arm_idx[:7]].copy()
 
             result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
 
@@ -1146,36 +1172,40 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             T_meas_list.append(T_meas)
 
             print(f"Captured sample {len(q_cmd_list)}")
-            print("q =", np.round(q_full[RIGHT_ARM_IDX],3))
-            T_print = np.array(result).reshape(4, 4)
-            print("marker =", np.round(T_print,3))
+            print("q =", np.round(q_cmd, 3))
+            print("marker =", np.round(T_meas, 3))
+
         elif key == 'q':
             break
 
-        time.sleep(0.05)
+        time.sleep(0.02)
 
     return np.array(q_cmd_list), np.array(T_meas_list)
 
 
 # ============================================================
-# Gauss Newton (기존 알고리즘 그대로)
+# Sim measurements (arm별로 동작)
 # ============================================================
 
-
 def generate_sim_measurements(robot, dyn_model,
-                              q_cmd_list, RIGHT_ARM_IDX,
-                              q_nominal, ndof):
+                              q_cmd_list, arm_idx,
+                              q_nominal, ndof,
+                              ee_link: str):
     q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
     xi_cam_true = np.array([0.02, -0.01, 0.015, 0.01, 0.02, -0.01])
-    
+
     T_list = []
 
     for q_cmd in q_cmd_list:
         q_full = q_nominal.copy()
-        q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
-
+        
+        if ndof in (7,13):
+            q_full[arm_idx[:7]] = q_cmd + q_offset_true
+        else :
+            q_full[arm_idx[:7]] = q_cmd 
+            
         state = dyn_model.make_state(
-            ["link_torso_5", "ee_right"],
+            ["link_torso_5", ee_link],
             robot.model().robot_joint_names
         )
         state.set_q(q_full)
@@ -1183,34 +1213,102 @@ def generate_sim_measurements(robot, dyn_model,
 
         T_fk = dyn_model.compute_transformation(state, 0, 1)
 
-        # noise = np.array([-0.100956, 0.024401, 0.009073,
-        #                   -0.002027, 0.028192, 0.022449])
-
-        # T_meas = T_fk @ se3_exp(noise)
-        if ndof == 13:
-            T_meas = T_fk @ se3_exp(xi_cam_true)         
+        if ndof in (6,13) : 
+            T_meas = T_fk @ se3_exp(xi_cam_true)
         else :
-            T_meas = T_fk          
+            T_meas = T_fk
+
         T_list.append(T_meas)
 
     return T_list
 
+
+class LiveCaptureSession:
+    """
+    UI에서 버튼/키로 샘플을 쌓고, 마지막에 npz 저장 + 최적화까지 수행하기 위한 세션
+    """
+    def __init__(self, robot, dyn_model, arm_idx, ee_link, marker_transform):
+        self.robot = robot
+        self.dyn_model = dyn_model
+        self.arm_idx = arm_idx
+        self.ee_link = ee_link
+        self.marker_transform = marker_transform
+
+        self.q_cmd_list = []
+        self.T_meas_list = []
+
+        self.running = True
+
+    def capture_one(self):
+        """샘플 1개 캡처"""
+        if not self.running:
+            return False, "Session not running."
+
+        state = self.robot.get_state()
+        q_full = state.position.copy()
+        q_cmd = q_full[self.arm_idx[:7]].copy()
+
+        result = self.marker_transform.get_marker_transform(sampling_time=0)
+        if result is None:
+            return False, "Marker not detected."
+
+        T_meas = np.array(result).reshape(4, 4)
+
+        self.q_cmd_list.append(q_cmd)
+        self.T_meas_list.append(T_meas)
+
+        msg = f"Captured #{len(self.q_cmd_list)} | q={np.round(q_cmd,3)}"
+        return True, msg
+
+    def finish(self):
+        """캡처 종료(더 이상 capture 안 함)"""
+        self.running = False
+
+    def get_dataset(self):
+        return np.array(self.q_cmd_list), np.array(self.T_meas_list)
+
+    def save_npz(self, path):
+        q_cmd_list, T_meas_list = self.get_dataset()
+        np.savez_compressed(path, q=q_cmd_list, marker=T_meas_list)
+
+    def run_optimization(self, ndof):
+        """
+        캡처된 데이터로 update_optimization + optimize 수행
+        """
+        q_cmd_list, T_meas_list = self.get_dataset()
+        if len(q_cmd_list) == 0:
+            raise RuntimeError("No samples captured.")
+
+        q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)
+
+        q_offset, xi_cam = optimize(
+            self.robot, self.dyn_model,
+            q_cmd_list, T_meas_list,
+            self.arm_idx, ndof, self.ee_link
+        )
+        return q_offset, xi_cam
+
+# ============================================================
+# Optimization
+# ============================================================
+
 def update_optimization(q_cmd_list, T_meas_list):
-     # 7자유도 최적화 해 역대입
-    q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511])
+    # (기존 코드 유지) - 여기서도 arm 공통으로 적용 가능
+    q_offset_deg = np.array([-0.3833566, 0.15210911, -0.08483475,
+                             0.2933563, -2.17410442, 1.20850996, 0.42705511])
     q_offset_rad = np.deg2rad(q_offset_deg)
-    q_cmd_list = q_cmd_list + q_offset_rad        
-    # 6자유도 최적화 해 역대입
-    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
-    T_meas_list = np.array([
-        T @ np.linalg.inv(T_noise)
-        for T in T_meas_list
-    ])
+    q_cmd_list = q_cmd_list + q_offset_rad
+
+    T_noise = se3_exp(np.array([-0.18633638, 0.00041163, 0.00745352,
+                                0.00289723, 0.00718141, 0.03564564]))
+    T_meas_list = np.array([T @ np.linalg.inv(T_noise) for T in T_meas_list])
     return q_cmd_list, T_meas_list
+
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
-             RIGHT_ARM_IDX, ndof):
+             arm_idx, ndof,
+             ee_link: str):
 
     q_nominal = robot.get_state().position.copy()
 
@@ -1219,37 +1317,31 @@ def optimize(robot, dyn_model,
 
     optimize_all = (ndof == 13)
     optimize_camera = (ndof == 6)
-    print("optimize_all ==",optimize_all)
-    print("optimize_camera ==",optimize_camera)
-    
+
     max_iter = 500
     eps = 1e-6
 
     for it in range(max_iter):
 
         if optimize_all:
-            H = np.zeros((13, 13))
-            g = np.zeros(13)
+            H = np.zeros((13, 13)); g = np.zeros(13)
         elif optimize_camera:
-            H = np.zeros((6, 6))
-            g = np.zeros(6)
+            H = np.zeros((6, 6)); g = np.zeros(6)
         else:
-            H = np.zeros((7, 7))
-            g = np.zeros(7)
-            
+            H = np.zeros((7, 7)); g = np.zeros(7)
 
-        total_err = 0
+        total_err = 0.0
 
         for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
 
             q_full = q_nominal.copy()
             if optimize_camera:
-                q_full[RIGHT_ARM_IDX[:7]] = q_cmd 
+                q_full[arm_idx[:7]] = q_cmd
             else:
-                q_full[RIGHT_ARM_IDX[:7]] = q_cmd + q_offset
-            
+                q_full[arm_idx[:7]] = q_cmd + q_offset
+
             state = dyn_model.make_state(
-                ["link_torso_5", "ee_right"],
+                ["link_torso_5", ee_link],
                 robot.model().robot_joint_names
             )
 
@@ -1259,9 +1351,7 @@ def optimize(robot, dyn_model,
 
             T_fk = dyn_model.compute_transformation(state, 0, 1)
 
-            if optimize_all:
-                T_model = T_fk @ se3_exp(xi_cam)
-            elif optimize_camera:
+            if optimize_all or optimize_camera:
                 T_model = T_fk @ se3_exp(xi_cam)
             else:
                 T_model = T_fk
@@ -1273,14 +1363,12 @@ def optimize(robot, dyn_model,
 
             if optimize_all:
                 J = np.zeros((6, 13))
-                J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
+                J[:, :7] = Jb[:, arm_idx[:7]]
                 J[:, 7:] = np.eye(6)
             elif optimize_camera:
-                # J = np.zeros((6, 6))
-                # J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
                 J = np.eye(6)
             else:
-                J = Jb[:, RIGHT_ARM_IDX[:7]]
+                J = Jb[:, arm_idx[:7]]
 
             H += J.T @ J
             g += J.T @ xi
@@ -1288,15 +1376,14 @@ def optimize(robot, dyn_model,
 
         dx = np.linalg.pinv(H) @ g
 
-
-        if optimize_all:    
+        if optimize_all:
             q_offset += dx[:7]
             xi_cam += dx[7:]
         elif optimize_camera:
             xi_cam += dx[:6]
-        else :
+        else:
             q_offset += dx[:7]
-            
+
         print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
 
         if np.linalg.norm(dx) < eps:
@@ -1307,109 +1394,392 @@ def optimize(robot, dyn_model,
 
 
 # ============================================================
-# Main
+# Pipeline runner (UI/CLI 공통)
 # ============================================================
 
-def main():
+def run_pipeline(ip: str,
+                 mode: str,
+                 arm: str,
+                 ndof: int,
+                 npz_path: str,
+                 save_npz_path: str,
+                 marker_transform_factory=None):
+    """
+    marker_transform_factory:
+      - live 모드에서 Marker_Transform를 생성해주는 함수(또는 lambda)
+      - 예: lambda: Marker_Transform(Stereo=True)
+    """
 
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--ndof", type=int, default=7,
-                        choices=[6, 7, 13])
-    parser.add_argument("--ip", type=str,
-                        default="192.168.30.1:50051")
-    parser.add_argument("--mode", type=str, required=True, 
-                        choices=["live","npz", "sim"]
-                        )
-    parser.add_argument("--path", type=str, default="captured_dataset.npz",
-        help="Path to npz dataset (default: captured_dataset.npz)")
-
-    
-
-    args = parser.parse_args()
-
-    marker_transform = None
-    
-    robot = create_robot(args.ip)
+    robot = create_robot(ip)
     dyn_model = robot.get_dynamics()
     model = robot.model()
-    RIGHT_ARM_IDX = model.right_arm_idx
 
+    arm_idx, ee_link = get_arm_config(model, arm)
 
-    if args.mode == "live":
-        # marker_transform는 기존 코드 그대로 사용
-        tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
-        #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
+    marker_transform = None
+
+    if mode == "live":
+        if marker_transform_factory is None:
+            raise RuntimeError("live mode requires marker_transform_factory")
+
+    # 🔹 arm에 따라 tool_to_cam 자동 설정
+        if arm == "right":
+            tool_to_cam = [0.009, -0.09, -0.085, 144, 0, 180]
+        elif arm == "left":
+            tool_to_cam = [0.009,  0.09, -0.085, 144, 0,   0]
+        else:
+            raise ValueError(f"Invalid arm: {arm}")
+
         marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = False)
 
-        q_cmd_list, T_meas_list = capture_dataset(
-            robot, dyn_model,
-            RIGHT_ARM_IDX,
-            marker_transform
-        )
-        np.savez_compressed(
-            "captured_dataset.npz",
-            q=q_cmd_list,
-            marker=T_meas_list
-        )
+        q_cmd_list, T_meas_list = capture_dataset(robot, arm_idx, marker_transform)
 
-    elif args.mode == "npz":
-        q_cmd_list, T_meas_list = load_npz_dataset(args.path)
-        print("size=", np.size(q_cmd_list))
+        np.savez_compressed(save_npz_path, q=q_cmd_list, marker=T_meas_list)
+        print(f"Dataset saved to {save_npz_path}")
 
-    else :
+    elif mode == "npz":
+        q_cmd_list, T_meas_list = load_npz_dataset(npz_path)
+        print("Loaded npz:", npz_path, "size =", np.size(q_cmd_list))
+
+    elif mode == "sim":
         q_cmd_list = np.random.uniform(-1, 1, (10, 7))
         q_nominal = robot.get_state().position.copy()
-        print("q_nominal", q_nominal)
         T_meas_list = generate_sim_measurements(
-            robot, dyn_model,
-            q_cmd_list,
-            RIGHT_ARM_IDX,
-            q_nominal,
-            args.ndof
+            robot, dyn_model, q_cmd_list, arm_idx, q_nominal, ndof, ee_link
         )
-        
+        print("Generated sim dataset:", len(q_cmd_list))
 
-    print("Dataset saved.")
-    
-    
-    q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
-    
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
+    # 기존 보정 로직 유지
+    if mode in ("live", "npz"):
+        q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)
+
     q_offset, xi_cam = optimize(
         robot, dyn_model,
-        q_cmd_list,
-        T_meas_list,
-        RIGHT_ARM_IDX,
-        args.ndof
+        q_cmd_list, T_meas_list,
+        arm_idx, ndof, ee_link
     )
 
-    
-    # q_offset, xi_cam = optimize(
-    #     robot, dyn_model,
-    #     q_cmd_list,
-    #     T_meas_list,
-    #     RIGHT_ARM_IDX,
-    #     args.ndof
-    # )
-
-    print("\n===== RESULT =====")
-    print("Joint offset (deg):")
-    print(np.rad2deg(q_offset))
-    print("Camera xi:")
-    print(xi_cam)
-
-    # ✅ JSON 저장
-    result_dict = {
+    result = {
+        "arm": arm,
+        "ndof": ndof,
         "joint_offset_deg": np.rad2deg(q_offset).tolist(),
         "xi_cam": np.array(xi_cam).tolist()
     }
 
-    with open("calibration_result.json", "w") as f:
-        json.dump(result_dict, f, indent=4)
-
-    print("Result saved to calibration_result.json")
+    out_json = f"calibration_result_{arm}.json"
+    with open(out_json, "w") as f:
+        json.dump(result, f, indent=4)
+    print(f"Result saved to {out_json}")
 
     if marker_transform is not None:
-        marker_transform.camera.monitoring(Flag=False)
-    
+        # live에서 켠 monitoring은 보통 꺼주는게 자연스러워서 False 권장
+        try:
+            marker_transform.camera.monitoring(Flag=False)
+        except Exception:
+            pass
+
+    return result
+
+
+# ============================================================
+# Tkinter UI
+# ============================================================
+
+class CalibUI(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("RB-Y1 Calibration UI")
+        self.geometry("560x360")
+
+        self.var_ip = tk.StringVar(value="localhost:50051")
+        self.var_mode = tk.StringVar(value="npz")
+        self.var_arm = tk.StringVar(value="right")
+        self.var_ndof = tk.IntVar(value=7)
+
+        self.var_npz_path = tk.StringVar(value="captured_dataset.npz")
+        self.var_save_npz = tk.StringVar(value="captured_dataset.npz")
+        self.live_session = None
+        self.robot_bundle = None  # (robot, dyn_model, arm_idx, ee_link, marker_transform)
+        self._build()
+
+    def _build(self):
+        pad = {"padx": 10, "pady": 6}
+
+        frm = ttk.Frame(self)
+        frm.pack(fill="both", expand=True, **pad)
+
+        # IP
+        row = 0
+        ttk.Label(frm, text="Robot IP (ip:port)").grid(row=row, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_ip, width=30).grid(row=row, column=1, sticky="w")
+
+        # Mode
+        row += 1
+        ttk.Label(frm, text="Mode").grid(row=row, column=0, sticky="w")
+        mode_box = ttk.Combobox(frm, textvariable=self.var_mode, values=["live", "npz", "sim"], state="readonly", width=10)
+        mode_box.grid(row=row, column=1, sticky="w")
+
+        # Arm
+        row += 1
+        ttk.Label(frm, text="Arm").grid(row=row, column=0, sticky="w")
+        arm_box = ttk.Combobox(frm, textvariable=self.var_arm, values=["right", "left"], state="readonly", width=10)
+        arm_box.grid(row=row, column=1, sticky="w")
+
+        # ndof
+        row += 1
+        ttk.Label(frm, text="ndof").grid(row=row, column=0, sticky="w")
+        ndof_box = ttk.Combobox(frm, textvariable=self.var_ndof, values=[6, 7, 13], state="readonly", width=10)
+        ndof_box.grid(row=row, column=1, sticky="w")
+
+        # NPZ path
+        row += 1
+        ttk.Label(frm, text="NPZ Path (for npz mode)").grid(row=row, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_npz_path, width=30).grid(row=row, column=1, sticky="w")
+        ttk.Button(frm, text="Browse", command=self._browse_npz).grid(row=row, column=2, sticky="w")
+
+        # Save NPZ path
+        row += 1
+        ttk.Label(frm, text="Save NPZ Path (for live mode)").grid(row=row, column=0, sticky="w")
+        ttk.Entry(frm, textvariable=self.var_save_npz, width=30).grid(row=row, column=1, sticky="w")
+        ttk.Button(frm, text="Browse", command=self._browse_save_npz).grid(row=row, column=2, sticky="w")
+
+        # Run
+        # Live control buttons
+        row += 1
+        self.btn_run = ttk.Button(frm, text="RUN (npz/sim)", command=self._run)
+        self.btn_run.grid(row=row, column=0, sticky="w")
+        
+        row += 1
+        self.btn_start_live = ttk.Button(frm, text="Start Live", command=self._start_live)
+        self.btn_start_live.grid(row=row, column=0, sticky="w")
+
+        self.btn_capture = ttk.Button(frm, text="Capture (E)", command=self._capture_one, state="disabled")
+        self.btn_capture.grid(row=row, column=1, sticky="w")
+
+        self.btn_finish = ttk.Button(frm, text="Finish (Q)", command=self._finish_live, state="disabled")
+        self.btn_finish.grid(row=row, column=2, sticky="w")
+
+        # 키 바인딩 (창이 포커스일 때)
+        self.bind("<e>", lambda _e: self._capture_one())
+        self.bind("<q>", lambda _e: self._finish_live())
+                # 로그 창
+        self.txt = tk.Text(frm, height=10)
+        self.txt.grid(row=row+1, column=0, columnspan=3, sticky="nsew", pady=8)
+
+        frm.grid_rowconfigure(row+1, weight=1)
+        frm.grid_columnconfigure(1, weight=1)
+        self.focus_set()  
+        
+        
+    def _start_live(self):
+        """
+        live 모드용: 로봇 연결 + 카메라/마커 초기화 + 세션 생성
+        """
+        ip = self.var_ip.get().strip()
+        arm = self.var_arm.get().strip()
+
+        if self.var_mode.get().strip() != "live":
+            messagebox.showinfo("Info", "Mode를 live로 바꿔주세요.")
+            return
+
+        try:
+            self._log("[LIVE] Connecting robot...")
+            robot = create_robot(ip)
+            dyn_model = robot.get_dynamics()
+            model = robot.model()
+            arm_idx, ee_link = get_arm_config(model, arm)
+
+            self._log("[LIVE] Initializing Marker_Transform...")
+        arm = self.var_arm.get().strip()
+        if arm == "right":
+            tool_to_cam = [0.009, -0.09, -0.085, 144, 0, 180]
+        else:
+            tool_to_cam = [0.009,  0.09, -0.085, 144, 0,   0]
+
+        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam)
+            marker_transform.camera.monitoring(Flag=True)
+
+            self.live_session = LiveCaptureSession(
+                robot=robot,
+                dyn_model=dyn_model,
+                arm_idx=arm_idx,
+                ee_link=ee_link,
+                marker_transform=marker_transform
+            )
+
+            self._log("[LIVE] Ready. Press Capture(E) to collect samples.")
+            self.btn_capture.config(state="normal")
+            self.btn_finish.config(state="normal")
+            self.btn_start_live.config(state="disabled")
+
+            # RUN 버튼은 live에서는 "Finish"로 처리하니까 비활성 추천
+            # (원하면 RUN은 npz/sim 전용으로)
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            self._log(f"[ERROR] {e}")
+
+
+    def _capture_one(self):
+        """
+        live 세션에서 샘플 1개 캡처
+        """
+        if self.live_session is None:
+            return
+        ok, msg = self.live_session.capture_one()
+        if ok:
+            self._log("[CAPTURE] " + msg)
+        else:
+            self._log("[CAPTURE] FAIL: " + msg)
+
+
+    def _finish_live(self):
+        """
+        live 세션 종료 + npz 저장 + 최적화 실행 + 결과 json 저장
+        """
+        if self.live_session is None:
+            return
+
+        ndof = int(self.var_ndof.get())
+        arm = self.var_arm.get().strip()
+        save_npz = self.var_save_npz.get().strip()
+
+        try:
+            self.live_session.finish()
+
+            # 저장
+            self.live_session.save_npz(save_npz)
+            self._log(f"[LIVE] Dataset saved: {save_npz}")
+
+            # 최적화
+            q_offset, xi_cam = self.live_session.run_optimization(ndof)
+
+            result = {
+                "arm": arm,
+                "ndof": ndof,
+                "joint_offset_deg": np.rad2deg(q_offset).tolist(),
+                "xi_cam": np.array(xi_cam).tolist()
+            }
+
+            out_json = f"calibration_result_{arm}.json"
+            with open(out_json, "w") as f:
+                json.dump(result, f, indent=4)
+
+            self._log(f"[LIVE] Result saved: {out_json}")
+            self._log(json.dumps(result, indent=2))
+
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            self._log(f"[ERROR] {e}")
+        finally:
+            # 카메라 끄기
+            try:
+                self.live_session.marker_transform.camera.monitoring(Flag=False)
+            except Exception:
+                pass
+
+            # 버튼 상태 복원
+            self.btn_capture.config(state="disabled")
+            self.btn_finish.config(state="disabled")
+            self.btn_start_live.config(state="normal")
+            self.live_session = None
+        
+    def _browse_npz(self):
+        p = filedialog.askopenfilename(filetypes=[("NPZ", "*.npz"), ("All", "*.*")])
+        if p:
+            self.var_npz_path.set(p)
+
+    def _browse_save_npz(self):
+        p = filedialog.asksaveasfilename(defaultextension=".npz", filetypes=[("NPZ", "*.npz")])
+        if p:
+            self.var_save_npz.set(p)
+
+    def _log(self, s: str):
+        self.txt.insert("end", s + "\n")
+        self.txt.see("end")
+        self.update_idletasks()
+
+    def _run(self):
+        ip = self.var_ip.get().strip()
+        mode = self.var_mode.get().strip()
+        arm = self.var_arm.get().strip()
+        ndof = int(self.var_ndof.get())
+        npz_path = self.var_npz_path.get().strip()
+        save_npz = self.var_save_npz.get().strip()
+        if mode == "live":
+            messagebox.showinfo("Info", "live 모드는 Start Live 버튼으로 시작하세요.")
+            return
+
+        self._log(f"[RUN] ip={ip}, mode={mode}, arm={arm}, ndof={ndof}")
+        self._log(f"      npz={npz_path}")
+        self._log(f"      save_npz={save_npz}")
+
+        try:
+            # live 모드일 때만 Marker_Transform를 생성하도록 주입
+            # 네 코드에 Marker_Transform가 같은 파일에 존재해야 함.
+            def factory():
+                from __main__ import Marker_Transform  # 같은 파일 안에 있다고 가정
+                mt = Marker_Transform(Stereo=True)
+                return mt
+
+            result = run_pipeline(
+                ip=ip,
+                mode=mode,
+                arm=arm,
+                ndof=ndof,
+                npz_path=npz_path,
+                save_npz_path=save_npz,
+                marker_transform_factory=factory if mode == "live" else None
+            )
+
+            self._log("[DONE] result json saved.")
+            self._log(json.dumps(result, indent=2))
+
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
+            self._log(f"[ERROR] {e}")
+
+
+# ============================================================
+# CLI entry
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ui", action="store_true", help="Launch Tkinter UI")
+
+    parser.add_argument("--ip", type=str, default="192.168.30.1:50051")
+    parser.add_argument("--mode", type=str, choices=["live", "npz", "sim"], default="npz")
+    parser.add_argument("--arm", type=str, choices=["right", "left"], default="right")
+
+    parser.add_argument("--ndof", type=int, default=7, choices=[6, 7, 13])
+    parser.add_argument("--path", type=str, default="captured_dataset.npz", help="NPZ input for npz mode")
+    parser.add_argument("--save_npz", type=str, default="captured_dataset.npz", help="NPZ output for live mode")
+
+    args = parser.parse_args()
+
+    if args.ui:
+        app = CalibUI()
+        app.mainloop()
+        return
+
+    # CLI 실행
+    def factory():
+        from __main__ import Marker_Transform  # 같은 파일 안에 있다고 가정
+        return Marker_Transform(Stereo=True)
+
+    run_pipeline(
+        ip=args.ip,
+        mode=args.mode,
+        arm=args.arm,
+        ndof=args.ndof,
+        npz_path=args.path,
+        save_npz_path=args.save_npz,
+        marker_transform_factory=factory if args.mode == "live" else None
+    )
+
+
 if __name__ == "__main__":
     main()
