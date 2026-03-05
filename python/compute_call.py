@@ -807,7 +807,7 @@ class Marker_Detection:
 
 
 class Marker_Transform:
-    def __init__(self, Stereo=False, tool_to_cam = [0,0,0,0,0,0], serial_number = None, monitoring = False):
+    def __init__(self, Stereo=False, serial_number = None, monitoring = False):
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
@@ -820,7 +820,7 @@ class Marker_Transform:
         # tool_to_cam = [0,0,0,0,0,0]
         #tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
-        self.tool_to_cam_tf = self.make_transform(tool_to_cam)
+        # self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
         self.camera = RealSenseCamera(serial_number=serial_number, Stereo=Stereo)
@@ -916,9 +916,11 @@ class Marker_Transform:
                     if sampling_time == 0:
                         try:
                             camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+                            # tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
                             # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv 
+                            # T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                            
                             T5_to_tool_vec = T5_to_tool_tf.flatten()
                             
                             # Unit conversion if needed (mm -> m logic from original code)
@@ -990,8 +992,9 @@ class Marker_Transform:
             # NOW compute the inversions and multiplication with stable values
             try:
                 camera_to_marker_inv = np.linalg.inv(avg_cam_to_marker_tf)
-                tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+                # tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv 
+                # T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
                 final_vec = T5_to_tool_tf.flatten()
                 # self.client.send_pose(final_vec)
                 # Unit conversion
@@ -1017,6 +1020,37 @@ import rby1_sdk as rby
 # ============================================================
 # Lie algebra utilities (그대로 유지)
 # ============================================================
+
+def make_transform(data):
+    # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
+    x, y, z = data[0]*1000, data[1]*1000, data[2]*1000 
+    roll = data[3] * math.pi / 180
+    pitch = data[4] * math.pi / 180
+    yaw = data[5] * math.pi / 180
+    
+    cr = math.cos(roll); sr = math.sin(roll)
+    cp = math.cos(pitch); sp = math.sin(pitch)
+    cy = math.cos(yaw); sy = math.sin(yaw)
+    
+    m = np.eye(4, dtype=np.float32)
+    m[0, 0] = cy * cp
+    m[0, 1] = sr * sp * cy - cr * sy
+    m[0, 2] = cr * sp * cy + sr * sy
+    m[0, 3] = x
+    
+    m[1, 0] = sy * cp
+    m[1, 1] = sr * sp * sy + cr * cy
+    m[1, 2] = cr * sp * sy - sr * cy
+    m[1, 3] = y
+    
+    m[2, 0] = -sp
+    m[2, 1] = cp * sr
+    m[2, 2] = cp * cr
+    m[2, 3] = z
+
+    # print(m)
+    
+    return m
 
 def so3_exp(w):
     theta = np.linalg.norm(w)
@@ -1215,7 +1249,7 @@ def update_optimization(q_cmd_list, T_meas_list):
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
-             ARM_IDX, ndof, ee_link):
+             ARM_IDX, ndof, ee_link, tool_to_cam):
 
     q_nominal = robot.get_state().position.copy()
 
@@ -1227,9 +1261,11 @@ def optimize(robot, dyn_model,
     print("optimize_all ==",optimize_all)
     print("optimize_camera ==",optimize_camera)
     
+    
+    T_tool2cam_temp = make_transform(tool_to_cam)
     max_iter = 500
     eps = 1e-6
-
+    
     for it in range(max_iter):
 
         if optimize_all:
@@ -1265,7 +1301,7 @@ def optimize(robot, dyn_model,
             T_fk = dyn_model.compute_transformation(state, 0, 1)
 
             if optimize_all or optimize_camera:
-                T_model = T_fk @ se3_exp(xi_cam)
+                T_model = T_fk @ T_tool2cam_temp @ se3_exp(xi_cam)
             else:
                 T_model = T_fk
 
@@ -1349,7 +1385,7 @@ def main():
         # marker_transform는 기존 코드 그대로 사용
         # tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
         #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
-        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = False)
+        marker_transform = Marker_Transform(Stereo=True, serial_number= None, monitoring = False)
 
         q_cmd_list, T_meas_list = capture_dataset(
             robot, dyn_model,
@@ -1383,6 +1419,7 @@ def main():
     
     
     # q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
+
     
     q_offset, xi_cam = optimize(
         robot, dyn_model,
@@ -1390,7 +1427,8 @@ def main():
         T_meas_list,
         ARM_IDX,
         args.ndof,
-        ee_link
+        ee_link,
+        tool_to_cam
     )
 
     
