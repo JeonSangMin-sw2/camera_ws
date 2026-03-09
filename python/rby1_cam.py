@@ -532,7 +532,7 @@ class Marker_Detection:
             # 너무 크게 튀는 값이 있다면 현재 입력값을 무시하고 이전 값을 반환
             #print("Spike detected")
             return prev_pts.tolist()
-            
+        
         new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * prev_pts
         self.prev_pts_dict[marker_id] = new_pts
         
@@ -681,7 +681,7 @@ class Marker_Detection:
             return None
 
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, depth_image, lpf = False, logging = False):
+    def detect(self, color_image, depth_image, lpf = False, logging = False):# 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
@@ -721,9 +721,9 @@ class Marker_Detection:
                     pt_3d_mm = self.convert_pixel2mm([pt[0], pt[1], float(z_est)])
                     c_list.append(pt_3d_mm)
 
-                if logging:
-                    string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
-                    self.logger.save(string)
+                # if logging:
+                #     string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
+                #     self.logger.save(string)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
@@ -750,7 +750,7 @@ class Marker_Detection:
                 
         return marker_centers_result
 
-    def detect_stereo(self, main_img, ref_img, lpf = False):
+    def detect_stereo(self, main_img, ref_img, lpf = False): # 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
         marker_centers_result = []
@@ -841,8 +841,8 @@ class Marker_Transform:
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        T5_to_marker_data = [0,0,0,0,0,0]
+        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        # T5_to_marker_data = [0,0,0,0,0,0]
         # tool_to_cam = [0,0,0,0,0,0]
         #tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
@@ -901,20 +901,38 @@ class Marker_Transform:
         
         return m
 
-    def get_marker_transform(self, sampling_time=0, lpf = False):
+    def calc_t5_to_tool(self, camera_to_marker_tf):
+        try:
+            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+            T5_to_tool_vec = T5_to_tool_tf.flatten()
+            
+            # Unit conversion if needed (mm -> m logic from original code)
+            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                T5_to_tool_vec[3] /= 1000
+                T5_to_tool_vec[7] /= 1000
+                T5_to_tool_vec[11] /= 1000
+                
+            return T5_to_tool_vec
+        except np.linalg.LinAlgError:
+            print("Singular matrix, cannot invert")
+            return None
+
+    def get_marker_transform(self, sampling_time=0):
         T5_to_tool_vec = None
+        lpf = False
         # Collection list for sampling
+        camera_to_marker_tf = None
         collected_transforms = []
         start_time = time.time()
 
-        if lpf and sampling_time > 0:
+        if sampling_time > 0:
             self.marker_detection.prev_pts_dict = {}
+            lpf = True
 
         while True:
-            # Check timeout if sampling
-            if sampling_time > 0 and (time.time() - start_time > sampling_time):
-                break
-                
             try:
                 if not self.camera.camera_monitoring:
                     self.camera.capture_image()
@@ -938,43 +956,18 @@ class Marker_Transform:
                 for tf_list in marker_transforms:
                     # Convert flattened list to 4x4 matrix
                     camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                    
-                    if sampling_time == 0:
-                        try:
-                            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                            T5_to_tool_vec = T5_to_tool_tf.flatten()
-                            
-                            # Unit conversion if needed (mm -> m logic from original code)
-                            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
-                                T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
-                                T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
-                                T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
-                                
-                            # self.client.send_pose(T5_to_tool_vec)
-
-                            return T5_to_tool_vec
-                        except np.linalg.LinAlgError:
-                            print("Singular matrix, cannot invert")
-                            continue
-                    else:
-                        # Append the FORWARD transform, NOT the inverted one
-                        collected_transforms.append(tf_list)
+                    # Append the FORWARD transform, NOT the inverted one
+                    collected_transforms.append(tf_list)
+                
+                # Check timeout if sampling
+                if sampling_time == 0 or (sampling_time > 0 and (time.time() - start_time > sampling_time)):
+                    break
                         
             except KeyboardInterrupt:
                 raise
             
             # CPU 점유율을 낮추기 위한 미세한 대기
             time.sleep(0.01)
-            
-            # If not sampling, break after one attempt (handled by return above)
-            # If sampling, continue loop
-            if sampling_time == 0: 
-                break
-
-             
         # Post-processing for sampling
         if sampling_time > 0:
             if not collected_transforms:
@@ -1012,39 +1005,28 @@ class Marker_Transform:
             avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
             avg_cam_to_marker_tf[0:3, 0:3] = final_R
             avg_cam_to_marker_tf[0:3, 3] = final_translation
-            
-            # NOW compute the inversions and multiplication with stable values
-            try:
-                camera_to_marker_inv = np.linalg.inv(avg_cam_to_marker_tf)
-                tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                final_vec = T5_to_tool_tf.flatten()
-                # self.client.send_pose(final_vec)
-                # Unit conversion
-                if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
-                    final_vec[3] /= 1000
-                    final_vec[7] /= 1000
-                    final_vec[11] /= 1000
-                    
-                return final_vec
-            except np.linalg.LinAlgError:
-                return None
-            
-        return None
-
+            T5_to_tool_vec = self.calc_t5_to_tool(avg_cam_to_marker_tf)
+        elif sampling_time == 0:
+            T5_to_tool_vec = self.calc_t5_to_tool(camera_to_marker_tf)
+        
+        if T5_to_tool_vec is not None:
+            # self.client.send_pose(T5_to_tool_vec)
+            return T5_to_tool_vec
+        else:
+            return None
 
 
 def main():
     #tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
-    #tool_to_cam = [-0.009,0.09,-0.085,-144,0,0] # left
-    tool_to_cam = [0,0,0,0,0,0]
+    tool_to_cam = [-0.009,0.09,-0.085,144,0,0] # left
+    #tool_to_cam = [0,0,0,0,0,0]
     logger = File_Logger()
     marker_transform = None
     try:
         marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = True)
         fps = 1/30
         while True:
-            raw_result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
+            raw_result = marker_transform.get_marker_transform(sampling_time=0)
             if raw_result is None:
                 continue
             
@@ -1067,25 +1049,25 @@ def main():
             print(f"Camera Temperature: {temp}")
             
             # 온도 보정 계수 (41도 기준, Value_Compensated = Value_Measured - Slope * (Temp - 41.0))
-            if temp is not None:
-                dt = temp - 41.0
-                # mm 단위 
-                comp_x = -0.033835 * dt
-                comp_y = -0.006316 * dt
-                comp_z = 0.055630 * dt
-                # deg 단위 (rad 적용시 변환 필요)
-                comp_roll = -0.000128 * dt * math.pi / 180.0
-                comp_pitch = 0.007515 * dt * math.pi / 180.0
-                comp_yaw = 0.017608 * dt * math.pi / 180.0
+            # if temp is not None:
+            #     dt = temp - 41.0
+            #     # mm 단위 
+            #     comp_x = -0.033835 * dt
+            #     comp_y = -0.006316 * dt
+            #     comp_z = 0.055630 * dt
+            #     # deg 단위 (rad 적용시 변환 필요)
+            #     comp_roll = -0.000128 * dt * math.pi / 180.0
+            #     comp_pitch = 0.007515 * dt * math.pi / 180.0
+            #     comp_yaw = 0.017608 * dt * math.pi / 180.0
                 
-                # 원본 result[3,7,11] 은 m 단위이므로 변환
-                result[3] = result[3] - (comp_x / 1000.0)
-                result[7] = result[7] - (comp_y / 1000.0)
-                result[11] = result[11] - (comp_z / 1000.0)
+            #     # 원본 result[3,7,11] 은 m 단위이므로 변환
+            #     result[3] = result[3] - (comp_x / 1000.0)
+            #     result[7] = result[7] - (comp_y / 1000.0)
+            #     result[11] = result[11] - (comp_z / 1000.0)
                 
-                rpy[0] = rpy[0] - comp_roll
-                rpy[1] = rpy[1] - comp_pitch
-                rpy[2] = rpy[2] - comp_yaw
+            #     rpy[0] = rpy[0] - comp_roll
+            #     rpy[1] = rpy[1] - comp_pitch
+            #     rpy[2] = rpy[2] - comp_yaw
             
             string = f"{temp},{result[3]*1000},{result[7]*1000},{result[11]*1000},{rpy[0]*180/math.pi},{rpy[1]*180/math.pi},{rpy[2]*180/math.pi}"
             logger.save(string)
