@@ -1000,9 +1000,24 @@ import rby1_sdk as rby
 # Lie algebra utilities (그대로 유지)
 # ============================================================
 
+def adjoint(T):
+    R = T[:3,:3]
+    p = T[:3,3]
+    p_hat = np.array([
+        [0, -p[2], p[1]],
+        [p[2], 0, -p[0]],
+        [-p[1], p[0], 0]
+    ])
+    Ad = np.zeros((6,6))
+    Ad[:3,:3] = R
+    Ad[3:,3:] = R
+    Ad[3:,:3] = p_hat @ R
+    return Ad
+
+
 def make_transform(data):
     # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
-    x, y, z = data[0]*1000, data[1]*1000, data[2]*1000 
+    x, y, z = data[0], data[1], data[2] 
     roll = data[3] * math.pi / 180
     pitch = data[4] * math.pi / 180
     yaw = data[5] * math.pi / 180
@@ -1178,19 +1193,22 @@ def capture_dataset(robot, dyn_model, ARM_IDX, marker_transform):
 
 def generate_sim_measurements(robot, dyn_model,
                               q_cmd_list, ARM_IDX,
-                              q_nominal, ndof, ee_link):
+                              q_nominal, ndof, ee_link, tool_to_cam_nom):
     q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
-    xi_cam_true = np.array([0.02, -0.01, 0.015, 0.01, 0.02, -0.01])
+    xi_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
+    
+    T_tool_to_cam_nom = make_transform(tool_to_cam_nom)
+    T_tool_to_cam_true = T_tool_to_cam_nom @ se3_exp(xi_cam_true)
     
     T_list = []
 
     for q_cmd in q_cmd_list:
         if ndof in (7,13):
             q_full = q_nominal.copy()
-            q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
+            q_full[ARM_IDX] = q_cmd + q_offset_true
         else :
             q_full = q_nominal.copy()
-            q_full[RIGHT_ARM_IDX] = q_cmd
+            q_full[ARM_IDX] = q_cmd
 
         state = dyn_model.make_state(
             ["link_torso_5", ee_link],
@@ -1202,9 +1220,11 @@ def generate_sim_measurements(robot, dyn_model,
         T_fk = dyn_model.compute_transformation(state, 0, 1)
 
         if ndof in (6,13):
-            T_meas = T_fk @ se3_exp(xi_cam_true)         
+            # T_meas = T_fk @ T_tool2cam @ se3_exp(xi_cam_true)  
+            # T_meas = T_fk @ se3_exp(xi_cam_true)  
+            T_meas = T_fk @ T_tool_to_cam_true
         else :
-            T_meas = T_fk
+            T_meas = T_fk @ T_tool_to_cam_nom
             
         T_list.append(T_meas)
 
@@ -1217,9 +1237,14 @@ def update_optimization(q_cmd_list, T_meas_list):
      # 7자유도 최적화 해 역대입
     q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511]) # Right
     q_offset_rad = np.deg2rad(q_offset_deg)
-    q_cmd_list = q_cmd_list + q_offset_rad        
+    q_cmd_list = q_cmd_list  
+    # q_cmd_list = q_cmd_list + q_offset_rad 
+           
     # 6자유도 최적화 해 역대입
-    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))  # Right
+    # T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))  # Right
+    T_noise = se3_exp((np.array([-1.07821491, -0.00570525,  0.01016202, -0.00688604, -0.05085489, -0.08617243])))  # Right
+    
+
     T_meas_list = np.array([
         T @ np.linalg.inv(T_noise)
         for T in T_meas_list
@@ -1228,7 +1253,7 @@ def update_optimization(q_cmd_list, T_meas_list):
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
-             ARM_IDX, ndof, ee_link, tool_to_cam):
+             ARM_IDX, ndof, ee_link, tool_to_cam_nom):
 
     q_nominal = robot.get_state().position.copy()
 
@@ -1237,11 +1262,11 @@ def optimize(robot, dyn_model,
 
     optimize_all = (ndof == 13)
     optimize_camera = (ndof == 6)
-    print("optimize_all ==",optimize_all)
-    print("optimize_camera ==",optimize_camera)
+    # print("optimize_all ==",optimize_all)
+    # print("optimize_camera ==",optimize_camera)
     
     
-    T_tool2cam_temp = make_transform(tool_to_cam)
+    T_tool_to_cam_nom = make_transform(tool_to_cam_nom)
     max_iter = 500
     eps = 1e-6
     
@@ -1278,41 +1303,55 @@ def optimize(robot, dyn_model,
             dyn_model.compute_diff_forward_kinematics(state)
 
             T_fk = dyn_model.compute_transformation(state, 0, 1)
+            Jb = dyn_model.compute_body_jacobian(state, 0, 1)[:, ARM_IDX[:7]]
+
 
             if optimize_all or optimize_camera:
-                T_model = T_fk @ T_tool2cam_temp @ se3_exp(xi_cam)
+                T_tool_to_cam_est = T_tool_to_cam_nom @ se3_exp(xi_cam)
+                
             else:
-                T_model = T_fk
+                T_tool_to_cam_est = T_tool_to_cam_nom
+
+            T_model = T_fk @ T_tool_to_cam_est
+            
 
             T_err = np.linalg.inv(T_model) @ T_meas
             xi = se3_log(T_err)
-
-            Jb = dyn_model.compute_body_jacobian(state, 0, 1)
+            # X = T_tool2cam_temp @ se3_exp(xi_cam)    
+            # X = se3_exp(xi_cam)    
+                   
+            # Jb = dyn_model.compute_body_jacobian(state, 0, 1)
 
             if optimize_all:
                 J = np.zeros((6, 13))
-                J[:, :7] = Jb[:, ARM_IDX[:7]]
+                # J[:, :7] = Jb
+                J[:, :7] = adjoint(np.linalg.inv(T_tool_to_cam_est)) @ Jb
+                
+                # J[:, 7:] = adjoint(T_tool_to_cam_est)
                 J[:, 7:] = np.eye(6)
             elif optimize_camera:
                 J = np.eye(6)
+                # J = adjoint(T_fk @ T_tool2cam_temp)             
             else:
-                J = Jb[:, ARM_IDX[:7]]
-
+                # J = Jb
+                J = adjoint(np.linalg.inv(T_tool_to_cam_nom)) @ Jb
+                
             H += J.T @ J
             g += J.T @ xi
             total_err += np.linalg.norm(xi)
-
+            
 
         dx = np.linalg.pinv(H) @ g
-
+        # lam = 1e-4
+        # dx = np.linalg.solve(H + lam * np.eye(H.shape[0]), g)
 
         if optimize_all:    
             q_offset += dx[:7]
             xi_cam += dx[7:]
         elif optimize_camera:
-            xi_cam += dx[:6]
+            xi_cam += dx
         else :
-            q_offset += dx[:7]
+            q_offset += dx
             
         print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
 
@@ -1354,11 +1393,15 @@ def main():
     if args.arm == "right":
         ARM_IDX = model.right_arm_idx
         ee_link = "ee_right"
-        tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
+        tool_to_cam_nom = [0.009,-0.09,-0.085,144,0,180]
     else:
         ARM_IDX = model.left_arm_idx
         ee_link = "ee_left"
+<<<<<<< HEAD
         tool_to_cam = [-0.009,0.09,-0.085,144,0,0]
+=======
+        tool_to_cam_nom = [-0.009,0.09,-0.085,144,0,0]
+>>>>>>> 4bada3a (refactor: change jacobian)
 
     if args.mode == "live":
         # marker_transform는 기존 코드 그대로 사용
@@ -1382,15 +1425,17 @@ def main():
         print("size=", np.size(q_cmd_list))
 
     else :
-        q_cmd_list = np.random.uniform(-1, 1, (10, 7))
+        q_cmd_list = np.random.uniform(-5, 5, (100, 7))
         q_nominal = robot.get_state().position.copy()
-        print("q_nominal", q_nominal)
+        # print("q_nominal", q_nominal)
         T_meas_list = generate_sim_measurements(
             robot, dyn_model,
             q_cmd_list,
             ARM_IDX,
             q_nominal,
-            args.ndof
+            args.ndof,
+            ee_link,
+            tool_to_cam_nom
         )
         
 
@@ -1407,7 +1452,7 @@ def main():
         ARM_IDX,
         args.ndof,
         ee_link,
-        tool_to_cam
+        tool_to_cam_nom
     )
 
     
