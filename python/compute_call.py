@@ -1402,6 +1402,7 @@ def main():
         ARM_IDX = model.left_arm_idx
         ee_link = "ee_left"
         tool_to_cam_nom = [-0.009,0.09,-0.085,144,0,0]
+        
 
 
     if args.mode == "live":
