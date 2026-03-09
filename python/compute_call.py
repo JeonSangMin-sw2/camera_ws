@@ -814,7 +814,7 @@ class Marker_Transform:
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        T5_to_marker_data = [0.022, 0.0, 0.121, 180, 0.0, -90.0]
 
         #T5_to_marker_data = [0,0,0,0,0,0]
 
@@ -883,7 +883,7 @@ class Marker_Transform:
             camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
             tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
             # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv # @ tool_to_cam_inv
             T5_to_tool_vec = T5_to_tool_tf.flatten()
             
             # Unit conversion if needed (mm -> m logic from original code)
