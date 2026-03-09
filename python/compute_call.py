@@ -505,7 +505,7 @@ class Marker_Detection:
             # 너무 크게 튀는 값이 있다면 현재 입력값을 무시하고 이전 값을 반환
             #print("Spike detected")
             return prev_pts.tolist()
-            
+        
         new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * prev_pts
         self.prev_pts_dict[marker_id] = new_pts
         
@@ -654,7 +654,7 @@ class Marker_Detection:
             return None
 
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, depth_image, lpf = False, logging = False):
+    def detect(self, color_image, depth_image, lpf = False, logging = False):# 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
@@ -694,9 +694,9 @@ class Marker_Detection:
                     pt_3d_mm = self.convert_pixel2mm([pt[0], pt[1], float(z_est)])
                     c_list.append(pt_3d_mm)
 
-                if logging:
-                    string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
-                    self.logger.save(string)
+                # if logging:
+                #     string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
+                #     self.logger.save(string)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
@@ -723,7 +723,7 @@ class Marker_Detection:
                 
         return marker_centers_result
 
-    def detect_stereo(self, main_img, ref_img, lpf = False):
+    def detect_stereo(self, main_img, ref_img, lpf = False): # 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
         marker_centers_result = []
@@ -802,7 +802,10 @@ class Marker_Detection:
                 marker_centers_result.append(transform)
                 
         return marker_centers_result
+        
+
     
+
 
 
 
@@ -871,20 +874,38 @@ class Marker_Transform:
         
         return m
 
-    def get_marker_transform(self, sampling_time=0, lpf = False):
+    def calc_t5_to_tool(self, camera_to_marker_tf):
+        try:
+            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
+            T5_to_tool_vec = T5_to_tool_tf.flatten()
+            
+            # Unit conversion if needed (mm -> m logic from original code)
+            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                T5_to_tool_vec[3] /= 1000
+                T5_to_tool_vec[7] /= 1000
+                T5_to_tool_vec[11] /= 1000
+                
+            return T5_to_tool_vec
+        except np.linalg.LinAlgError:
+            print("Singular matrix, cannot invert")
+            return None
+
+    def get_marker_transform(self, sampling_time=0):
         T5_to_tool_vec = None
+        lpf = False
         # Collection list for sampling
+        camera_to_marker_tf = None
         collected_transforms = []
         start_time = time.time()
 
-        if lpf and sampling_time > 0:
+        if sampling_time > 0:
             self.marker_detection.prev_pts_dict = {}
+            lpf = True
 
         while True:
-            # Check timeout if sampling
-            if sampling_time > 0 and (time.time() - start_time > sampling_time):
-                break
-                
             try:
                 if not self.camera.camera_monitoring:
                     self.camera.capture_image()
@@ -908,43 +929,18 @@ class Marker_Transform:
                 for tf_list in marker_transforms:
                     # Convert flattened list to 4x4 matrix
                     camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                    
-                    if sampling_time == 0:
-                        try:
-                            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                            T5_to_tool_vec = T5_to_tool_tf.flatten()
-                            
-                            # Unit conversion if needed (mm -> m logic from original code)
-                            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
-                                T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
-                                T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
-                                T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
-                                
-                            # self.client.send_pose(T5_to_tool_vec)
-
-                            return T5_to_tool_vec
-                        except np.linalg.LinAlgError:
-                            print("Singular matrix, cannot invert")
-                            continue
-                    else:
-                        # Append the FORWARD transform, NOT the inverted one
-                        collected_transforms.append(tf_list)
+                    # Append the FORWARD transform, NOT the inverted one
+                    collected_transforms.append(tf_list)
+                
+                # Check timeout if sampling
+                if sampling_time == 0 or (sampling_time > 0 and (time.time() - start_time > sampling_time)):
+                    break
                         
             except KeyboardInterrupt:
                 raise
             
             # CPU 점유율을 낮추기 위한 미세한 대기
             time.sleep(0.01)
-            
-            # If not sampling, break after one attempt (handled by return above)
-            # If sampling, continue loop
-            if sampling_time == 0: 
-                break
-
-             
         # Post-processing for sampling
         if sampling_time > 0:
             if not collected_transforms:
@@ -982,25 +978,15 @@ class Marker_Transform:
             avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
             avg_cam_to_marker_tf[0:3, 0:3] = final_R
             avg_cam_to_marker_tf[0:3, 3] = final_translation
-            
-            # NOW compute the inversions and multiplication with stable values
-            try:
-                camera_to_marker_inv = np.linalg.inv(avg_cam_to_marker_tf)
-                tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                final_vec = T5_to_tool_tf.flatten()
-                # self.client.send_pose(final_vec)
-                # Unit conversion
-                if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
-                    final_vec[3] /= 1000
-                    final_vec[7] /= 1000
-                    final_vec[11] /= 1000
-                    
-                return final_vec
-            except np.linalg.LinAlgError:
-                return None
-            
-        return None
+            T5_to_tool_vec = self.calc_t5_to_tool(avg_cam_to_marker_tf)
+        elif sampling_time == 0:
+            T5_to_tool_vec = self.calc_t5_to_tool(camera_to_marker_tf)
+        
+        if T5_to_tool_vec is not None:
+            # self.client.send_pose(T5_to_tool_vec)
+            return T5_to_tool_vec
+        else:
+            return None
 
 
         
@@ -1013,6 +999,37 @@ import rby1_sdk as rby
 # ============================================================
 # Lie algebra utilities (그대로 유지)
 # ============================================================
+
+def make_transform(data):
+    # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
+    x, y, z = data[0]*1000, data[1]*1000, data[2]*1000 
+    roll = data[3] * math.pi / 180
+    pitch = data[4] * math.pi / 180
+    yaw = data[5] * math.pi / 180
+    
+    cr = math.cos(roll); sr = math.sin(roll)
+    cp = math.cos(pitch); sp = math.sin(pitch)
+    cy = math.cos(yaw); sy = math.sin(yaw)
+    
+    m = np.eye(4, dtype=np.float32)
+    m[0, 0] = cy * cp
+    m[0, 1] = sr * sp * cy - cr * sy
+    m[0, 2] = cr * sp * cy + sr * sy
+    m[0, 3] = x
+    
+    m[1, 0] = sy * cp
+    m[1, 1] = sr * sp * sy + cr * cy
+    m[1, 2] = cr * sp * sy - sr * cy
+    m[1, 3] = y
+    
+    m[2, 0] = -sp
+    m[2, 1] = cp * sr
+    m[2, 2] = cp * cr
+    m[2, 3] = z
+
+    # print(m)
+    
+    return m
 
 def so3_exp(w):
     theta = np.linalg.norm(w)
@@ -1132,7 +1149,7 @@ def capture_dataset(robot, dyn_model, ARM_IDX, marker_transform):
             q_full = state.position.copy()
             q_cmd = q_full[ARM_IDX[:7]].copy()
 
-            result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
+            result = marker_transform.get_marker_transform(sampling_time=2)
 
             if result is None:
                 print("Marker not detected.")
@@ -1211,7 +1228,7 @@ def update_optimization(q_cmd_list, T_meas_list):
 
 def optimize(robot, dyn_model,
              q_cmd_list, T_meas_list,
-             ARM_IDX, ndof, ee_link):
+             ARM_IDX, ndof, ee_link, tool_to_cam):
 
     q_nominal = robot.get_state().position.copy()
 
@@ -1223,9 +1240,11 @@ def optimize(robot, dyn_model,
     print("optimize_all ==",optimize_all)
     print("optimize_camera ==",optimize_camera)
     
+    
+    T_tool2cam_temp = make_transform(tool_to_cam)
     max_iter = 500
     eps = 1e-6
-
+    
     for it in range(max_iter):
 
         if optimize_all:
@@ -1261,7 +1280,7 @@ def optimize(robot, dyn_model,
             T_fk = dyn_model.compute_transformation(state, 0, 1)
 
             if optimize_all or optimize_camera:
-                T_model = T_fk @ se3_exp(xi_cam)
+                T_model = T_fk @ T_tool2cam_temp @ se3_exp(xi_cam)
             else:
                 T_model = T_fk
 
@@ -1345,7 +1364,7 @@ def main():
         # marker_transform는 기존 코드 그대로 사용
         # tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
         #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
-        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = False)
+        marker_transform = Marker_Transform(Stereo=True, serial_number= None, monitoring = False)
 
         q_cmd_list, T_meas_list = capture_dataset(
             robot, dyn_model,
@@ -1379,6 +1398,7 @@ def main():
     
     
     # q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
+
     
     q_offset, xi_cam = optimize(
         robot, dyn_model,
@@ -1386,7 +1406,8 @@ def main():
         T_meas_list,
         ARM_IDX,
         args.ndof,
-        ee_link
+        ee_link,
+        tool_to_cam
     )
 
     
