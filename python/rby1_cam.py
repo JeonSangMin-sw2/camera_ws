@@ -1026,7 +1026,7 @@ def main():
         marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = True)
         fps = 1/30
         while True:
-            raw_result = marker_transform.get_marker_transform(sampling_time=0)
+            raw_result = marker_transform.get_marker_transform(sampling_time=2)
             if raw_result is None:
                 continue
             
