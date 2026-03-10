@@ -12,7 +12,7 @@ import select
 import json
 
 recorded_data = []   # (q, marker) 같이 저장
-
+np.set_printoptions(suppress=True, precision=6) 
 def check_key_press():
     dr, dw, de = select.select([sys.stdin], [], [], 0)
     if dr:
@@ -1126,6 +1126,21 @@ def se3_log(T):
 
     return np.hstack([w, v])
 
+def rot_to_euler_zyx(R):
+
+    sy = math.sqrt(R[0,0]**2 + R[1,0]**2)
+    singular = sy < 1e-6
+
+    if not singular:
+        roll  = math.atan2(R[2,1], R[2,2])
+        pitch = math.atan2(-R[2,0], sy)
+        yaw   = math.atan2(R[1,0], R[0,0])
+    else:
+        roll  = math.atan2(-R[1,2], R[1,1])
+        pitch = math.atan2(-R[2,0], sy)
+        yaw   = 0
+
+    return np.array([roll, pitch, yaw])
 
 # ============================================================
 # Robot initialization
@@ -1397,13 +1412,15 @@ def main():
     if args.arm == "right":
         ARM_IDX = model.right_arm_idx
         ee_link = "ee_right"
-        tool_to_cam_nom = [0.009,-0.09,-0.085,144,0,180]
+        tool_to_cam_nom = [0.01079 ,   -0.094527 ,  -0.028914 , 154.992754 ,  -0.269972 ,-179.718444]       
+        # tool_to_cam_nom = [0.009,-0.09,-0.085,144,0,180]
+        
     else:
         ARM_IDX = model.left_arm_idx
         ee_link = "ee_left"
-        tool_to_cam_nom = [-0.009,0.09,-0.085,144,0,0]
-        
-
+        # tool_to_cam_nom = [-0.009,0.09,-0.085,144,0,0]
+        tool_to_cam_nom = [-0.009187 ,  0.094257 , -0.028313, 154.667827 , -0.320824 , -0.268186]
+    
 
     if args.mode == "live":
         # marker_transform는 기존 코드 그대로 사용
@@ -1457,20 +1474,26 @@ def main():
         tool_to_cam_nom
     )
 
-    
-    # q_offset, xi_cam = optimize(
-    #     robot, dyn_model,
-    #     q_cmd_list,
-    #     T_meas_list,
-    #     RIGHT_ARM_IDX,
-    #     args.ndof
-    # )
+    T_nom = make_transform(tool_to_cam_nom)
+    T_calib = T_nom @  se3_exp(xi_cam)
+    p = T_calib[:3,3]
+    rpy = rot_to_euler_zyx(T_calib[:3,:3])
+    tool_to_cam_new = [
+        p[0],
+        p[1],
+        p[2],
+        np.rad2deg(rpy[0]),
+        np.rad2deg(rpy[1]),
+        np.rad2deg(rpy[2])
+    ]
 
     print("\n===== RESULT =====")
     print("Joint offset (deg):")
     print(np.rad2deg(q_offset))
     print("Camera xi:")
     print(xi_cam)
+    # print("T_calib_nom_result:")
+    # print(np.round(tool_to_cam_new, 6)) 
 
     # ✅ JSON 저장
     result_dict = {
