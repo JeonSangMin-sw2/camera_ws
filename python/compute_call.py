@@ -999,11 +999,13 @@ class Marker_Transform:
 
         
 class CalibrationOptimizer:
-    def __init__(self, robot, arm_idx, ee_link, tool_to_cam_nom, ndof, max_iter=500, eps=1e-6):
+    def __init__(self, robot, arm_idx, ee_link, tool_to_cam_nom, ndof, use_sag=False, max_iter=500, eps=1e-6):
+            
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
-
+        
+        self.use_sag = use_sag  
         self.arm_idx = arm_idx
         self.ee_link = ee_link
         self.tool_to_cam_nom = tool_to_cam_nom
@@ -1018,23 +1020,101 @@ class CalibrationOptimizer:
         self.max_iter = max_iter
         self.eps = eps
         self.q_nominal = robot.get_state().position.copy()
+        
+        # stiffness [Nm/rad]
+        self.k_joint = np.array([14000, 14000, 14000, 6100, 6100, 6100, 6100], dtype=float)
 
-    def get_nominal_tool_to_cam(self):
-        return make_transform(self.tool_to_cam_nom)
+        # 부호
+        self.sag_sign = np.ones(7, dtype=float)
 
+        # sag 활성화 할 축 지정
+        self.sag_active = np.array([True, True, True, True, True, True, True])
+
+        # 너무 큰 보정 방지
+        self.sag_clip_rad = np.deg2rad(0.3)
+        
+    def compute_gravity_torque(self, q_full):
+        state = self.dyn_model.make_state(
+            ["link_torso_5", self.ee_link],
+            self.model.robot_joint_names
+        )
+        state.set_gravity(np.array([0, 0, 0, 0, 0, -9.81], dtype=float))
+        state.set_q(q_full)
+        state.set_qdot(np.zeros(self.model.robot_dof))
+        state.set_qddot(np.zeros(self.model.robot_dof))
+
+        self.dyn_model.compute_forward_kinematics(state)
+        self.dyn_model.compute_diff_forward_kinematics(state)
+        self.dyn_model.compute_2nd_diff_forward_kinematics(state)
+        self.dyn_model.compute_inverse_dynamics(state)
+
+        tau_full = state.get_tau().copy()
+        
+        return tau_full
+    
+    def estimate_sag(self, tau_arm):
+        delta_q = np.zeros(7, dtype=float)
+
+        for i in range(7):
+            if self.sag_active[i]:
+                delta_q[i] = self.sag_sign[i] * tau_arm[i] / self.k_joint[i]
+
+        delta_q = np.clip(delta_q, -self.sag_clip_rad, self.sag_clip_rad)
+        return delta_q
+    
     def evaluate_sample(self, q_cmd, q_offset, xi_cam):
         q_full = self.q_nominal.copy()
 
         if self.optimize_joint:
-            q_full[self.arm_idx[:7]] = q_cmd + q_offset
+            q_arm_real = q_cmd + q_offset
         else:
-            q_full[self.arm_idx[:7]] = q_cmd
+            q_arm_real = q_cmd.copy()
+
+        # sag OFF
+        if not self.use_sag:
+            q_full[self.arm_idx[:7]] = q_arm_real
+
+            state = self.dyn_model.make_state(
+                ["link_torso_5", self.ee_link],
+                self.model.robot_joint_names
+            )
+            state.set_q(q_full)
+            self.dyn_model.compute_forward_kinematics(state)
+            self.dyn_model.compute_diff_forward_kinematics(state)
+
+            T_fk = self.dyn_model.compute_transformation(state, 0, 1)
+            Jb = self.dyn_model.compute_body_jacobian(state, 0, 1)[:, self.arm_idx[:7]]
+
+            T_tool_to_cam_nom = self.get_nominal_tool_to_cam()
+            if self.optimize_camera:
+                T_tool_to_cam = T_tool_to_cam_nom @ se3_exp(xi_cam)
+            else:
+                T_tool_to_cam = T_tool_to_cam_nom
+
+            T_model = T_fk @ T_tool_to_cam
+            tau_arm = np.zeros(7)
+            delta_q_sag = np.zeros(7)
+            return T_fk, Jb, T_tool_to_cam, T_model, tau_arm, delta_q_sag
+
+        # sag ON
+        q_full_real = self.q_nominal.copy()
+        q_full_real[self.arm_idx[:7]] = q_arm_real
+
+        tau_full = self.compute_gravity_torque(q_full_real)
+        tau_arm = tau_full[self.arm_idx[:7]]
+        # print("tau_arm:", tau_arm)
+        delta_q_sag = self.estimate_sag(tau_arm)
+
+        q_arm_link = q_arm_real - delta_q_sag
+        
+        q_full_link = self.q_nominal.copy()
+        q_full_link[self.arm_idx[:7]] = q_arm_link
 
         state = self.dyn_model.make_state(
             ["link_torso_5", self.ee_link],
             self.model.robot_joint_names
         )
-        state.set_q(q_full)
+        state.set_q(q_full_link)
         self.dyn_model.compute_forward_kinematics(state)
         self.dyn_model.compute_diff_forward_kinematics(state)
 
@@ -1048,7 +1128,10 @@ class CalibrationOptimizer:
             T_tool_to_cam = T_tool_to_cam_nom
 
         T_model = T_fk @ T_tool_to_cam
-        return T_fk, Jb, T_tool_to_cam, T_model
+        return T_fk, Jb, T_tool_to_cam, T_model, tau_arm, delta_q_sag
+
+    def get_nominal_tool_to_cam(self):
+        return make_transform(self.tool_to_cam_nom)
         
     def build_jacobian(self, Jb, T_tool_to_cam):
         if self.optimize_joint and self.optimize_camera:
@@ -1067,9 +1150,8 @@ class CalibrationOptimizer:
         g = np.zeros(dim)
         total_err = 0.0
 
-        for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
-            _, Jb, T_tool_to_cam, T_model = self.evaluate_sample(q_cmd, q_offset, xi_cam)
-
+        for idx, (q_cmd, T_meas) in enumerate(zip(q_cmd_list, T_meas_list)):
+            _, Jb, T_tool_to_cam, T_model, tau_arm, delta_q_sag = self.evaluate_sample(q_cmd, q_offset, xi_cam)
             T_err = np.linalg.inv(T_model) @ T_meas
             xi = se3_log(T_err)
             J = self.build_jacobian(Jb, T_tool_to_cam)
@@ -1078,6 +1160,10 @@ class CalibrationOptimizer:
             g += J.T @ xi
             total_err += np.linalg.norm(xi)
 
+            if idx == 0:
+                self._debug_tau = tau_arm.copy()
+                self._debug_sag = delta_q_sag.copy()
+        
         dx = np.linalg.pinv(H) @ g
         return dx, total_err
         
@@ -1107,16 +1193,19 @@ class CalibrationOptimizer:
             np.rad2deg(rpy[2]),
         ]        
         
-    def optimize(self, q_cmd_list, T_meas_list):
-        q_offset = np.zeros(7)
-        xi_cam = np.zeros(6)
+    def optimize(self, q_cmd_list, T_meas_list, q_offset_init=None, xi_cam_init=None):
+        q_offset = np.zeros(7) if q_offset_init is None else q_offset_init.copy()
+        xi_cam = np.zeros(6) if xi_cam_init is None else xi_cam_init.copy()
 
         for it in range(self.max_iter):
             dx, total_err = self.compute_step(q_cmd_list, T_meas_list, q_offset, xi_cam)
             q_offset, xi_cam = self.apply_update(q_offset, xi_cam, dx)
 
             print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
-
+            if hasattr(self, "_debug_tau"):
+                print("  tau_arm [Nm]      =", np.round(self._debug_tau, 3))
+                print("  sag delta [deg]   =", np.round(np.rad2deg(self._debug_sag), 4))
+                
             if np.linalg.norm(dx) < self.eps:
                 print("Converged.")
                 break
@@ -1455,31 +1544,58 @@ def main():
     
     # q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
 
-    optimizer = CalibrationOptimizer(
+    # 1st stage: no sag
+    optimizer_stage1 = CalibrationOptimizer(
         robot=robot,
         arm_idx=ARM_IDX,
         ee_link=ee_link,
         tool_to_cam_nom=tool_to_cam_nom,
         ndof=args.ndof,
+        use_sag=False,
     )
 
-    q_offset, xi_cam, tool_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)    
-    
-    print("\n===== RESULT =====")
-    print("Joint offset (deg):")
-    print(np.rad2deg(q_offset))
-    print("Camera xi:")
-    print(xi_cam)
+    q_offset_1, xi_cam_1, _ = optimizer_stage1.optimize(q_cmd_list, T_meas_list)
+
+    print("\n===== STAGE 1 RESULT (NO SAG) =====")
+    print("Joint offset (deg):", np.rad2deg(q_offset_1))
+    print("Camera xi:", xi_cam_1)
+    # ✅ JSON 저장
+    result_dict = {
+        "joint_offset_deg": np.rad2deg(q_offset_1).tolist(),
+        "xi_cam": np.array(xi_cam_1).tolist()
+    }
+    with open("calibration_result_1.json", "w") as f:
+        json.dump(result_dict, f, indent=4)
+
+    # 2nd stage: with sag, initialized from stage1
+    optimizer_stage2 = CalibrationOptimizer(
+        robot=robot,
+        arm_idx=ARM_IDX,
+        ee_link=ee_link,
+        tool_to_cam_nom=tool_to_cam_nom,
+        ndof=args.ndof,
+        use_sag=True,
+    )
+
+    q_offset_2, xi_cam_2, tool_to_cam_new = optimizer_stage2.optimize(
+        q_cmd_list, T_meas_list,
+        q_offset_init=q_offset_1,
+        xi_cam_init=xi_cam_1
+    )
+
+    print("\n===== STAGE 2 RESULT (WITH SAG) =====")
+    print("Joint offset (deg):", np.rad2deg(q_offset_2))
+    print("Camera xi:", xi_cam_2)
     # print("T_calib_nom_result:")
     # print(np.round(tool_to_cam_new, 6)) 
 
     # ✅ JSON 저장
     result_dict = {
-        "joint_offset_deg": np.rad2deg(q_offset).tolist(),
-        "xi_cam": np.array(xi_cam).tolist()
+        "joint_offset_deg": np.rad2deg(q_offset_2).tolist(),
+        "xi_cam": np.array(xi_cam_2).tolist()
     }
 
-    with open("calibration_result.json", "w") as f:
+    with open("calibration_result_2.json", "w") as f:
         json.dump(result_dict, f, indent=4)
 
     print("Result saved to calibration_result.json")
