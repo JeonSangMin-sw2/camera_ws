@@ -7,6 +7,132 @@ import math
 import time
 import threading
 
+# 사용자 변경 파라미터
+T5_to_marker = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+# T5_to_marker = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+tool_to_cam = [0.009,-0.09,-0.085,159,0,180]
+# tool_to_cam = [0.009,-0.09,-0.085,159,0,180]
+
+
+
+
+#debugging flag : 실사용시 모두 false여야함
+imshow_when_detect = False
+
+
+# 유틸리티 클래스
+class TCPClient:
+    def __init__(self, ip, port):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.connected = False
+        try:
+            self.sock.connect((ip, port))
+            print("Connected to Python Server!")
+            self.connected = True
+        except ConnectionRefusedError:
+            print("Connection Failed. (Is Python Server running?)")
+        except Exception as e:
+            print(f"Connection Error: {e}")
+
+    def __del__(self):
+        if self.connected:
+            self.sock.close()
+
+    def send_pose(self, T):
+        if not self.connected:
+            return
+        
+        # T is expected to be a flat list or numpy array of 16 floats
+        if isinstance(T, np.ndarray):
+            T = T.flatten().tolist()
+            
+        # Pack 16 floats (4 bytes each) -> 64 bytes
+        try:
+            packed_data = struct.pack('16f', *T)
+            self.sock.send(packed_data)
+        except Exception as e:
+            print(f"Send Error: {e}")
+            self.connected = False
+
+# 데이터를 텍스트 파일로 저장하는 클래스. 디버깅을 위함
+class File_Logger:
+    def __init__(self, filepath="log.txt"):
+        self.filepath = filepath
+
+    def save(self, content):
+        with open(self.filepath, "a", encoding="utf-8") as f:
+            f.write(str(content) + "\n")
+
+class CubeMarker:
+    def __init__(self):
+        # Dictionary to store Cube to Marker (T_C_M) transformation matrices 
+        # for left arm (10~14) and right arm (30~34)
+        self.cube_to_marker_tf = {}
+        
+        # Id 10 / 30: +Y Face (Text is upright)
+        R_10 = np.array([
+            [ 0,  1,  0],
+            [ 0,  0, -1],
+            [-1,  0,  0]
+        ], dtype=np.float32)
+        t_10 = np.array([0, 30.0, 0], dtype=np.float32)
+        
+        # Id 11 / 31: +Z Face (Left, Text rotated 90 deg CCW -> Top points Right)
+        R_11 = np.array([
+            [ 1,  0,  0],
+            [ 0, -1,  0],
+            [ 0,  0, -1]
+        ], dtype=np.float32)
+        t_11 = np.array([0, 0, 30.0], dtype=np.float32)
+        
+        # Id 12 / 32: -X Face (Top, Text rotated 90 deg CCW -> Top points Right)
+        R_12 = np.array([
+            [ 0,  0,  1],
+            [ 1,  0,  0],
+            [ 0,  1,  0]
+        ], dtype=np.float32)
+        t_12 = np.array([-30.0, 0, 0], dtype=np.float32)
+        
+        # Id 13 / 33: -Z Face (Right, Text rotated 180 deg -> Top points Down)
+        R_13 = np.array([
+            [ 0, -1,  0],
+            [ 1,  0,  0],
+            [ 0,  0,  1]
+        ], dtype=np.float32)
+        t_13 = np.array([0, 0, -30.0], dtype=np.float32)
+        
+        # Id 14 / 34: +X Face (Bottom, Text rotated 90 deg CCW -> Top points Right)
+        R_14 = np.array([
+            [ 0,  0, -1],
+            [-1,  0,  0],
+            [ 0,  1,  0]
+        ], dtype=np.float32)
+        t_14 = np.array([30.0, 0, 0], dtype=np.float32)
+        
+        self.cube_to_marker_tf[10] = self._make_tf(R_10, t_10)
+        self.cube_to_marker_tf[11] = self._make_tf(R_11, t_11)
+        self.cube_to_marker_tf[12] = self._make_tf(R_12, t_12)
+        self.cube_to_marker_tf[13] = self._make_tf(R_13, t_13)
+        self.cube_to_marker_tf[14] = self._make_tf(R_14, t_14)
+        
+        # for right arm cube
+        self.cube_to_marker_tf[30] = self._make_tf(R_10, t_10)
+        self.cube_to_marker_tf[31] = self._make_tf(R_11, t_11)
+        self.cube_to_marker_tf[32] = self._make_tf(R_12, t_12)
+        self.cube_to_marker_tf[33] = self._make_tf(R_13, t_13)
+        self.cube_to_marker_tf[34] = self._make_tf(R_14, t_14)
+
+    def _make_tf(self, R, t):
+        tf = np.eye(4, dtype=np.float32)
+        tf[0:3, 0:3] = R
+        tf[0:3, 3] = t
+        return tf
+        
+    def get_transform(self, marker_id):
+        if marker_id in self.cube_to_marker_tf:
+            return self.cube_to_marker_tf[marker_id]
+        return None
+        
 # 카메라 클래스
 """
 해당 클래스는 realsense 카메라만 호환
@@ -368,6 +494,10 @@ class Marker_Detection:
         self.lpf_alpha = 0.3
         self.prev_pts_dict = {}
 
+        # 인식할 마커 타입과 ID
+        self.marker_type = None
+        self.marker_id = None
+
     # 연산에 필요한 카메라 파라미터 설정
     def set_intrinsics_param(self, param):
         self.principal_point = [param[0], param[1]]
@@ -636,6 +766,9 @@ class Marker_Detection:
         except np.linalg.LinAlgError:
             return None
 
+    def set_marker_type(self, marker_type, id):
+        self.marker_type = marker_type
+        self.marker_id = id
     # 마커들의 중심좌표(4*4행렬)
     def detect(self, color_image, depth_image, lpf = False, logging = False):# 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         depth_filtered = depth_image.copy()
@@ -643,10 +776,49 @@ class Marker_Detection:
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         marker_centers_result = []
         
+
+        # 등록된 마커만 필터링 (tuple과 ndarray는 pop()을 쓸 수 없으므로 새로 리스트를 만듭니다)
+        if ids is not None and len(ids) > 0 and self.marker_id is not None:
+            valid_indices = [i for i, mid in enumerate(ids) if mid[0] in self.marker_id]
+            if len(valid_indices) > 0:
+                corners = tuple(corners[i] for i in valid_indices)
+                ids = np.array([ids[i] for i in valid_indices])
+            else:
+                corners, ids = (), None
+
+        # debugging (필터링이 끝난 마커들만 화면에 표시되게 위치를 조정합니다)
+        if imshow_when_detect:
+            if ids is not None:
+                cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
+            cv2.imshow("Detected Markers", color_image)
+            cv2.waitKey(1)
         if ids is not None and len(ids) > 0:
+            ids_flat = ids.flatten()
+            unique_ids, counts = np.unique(ids_flat, return_counts=True)
+            duplicate_ids = unique_ids[counts > 1]
+            if len(duplicate_ids) > 0:
+                print(f"Warning: Duplicate marker IDs detected: {duplicate_ids}. Ignoring these duplicates in this frame.")
             
             for i in range(len(ids)):
+                marker_id = ids_flat[i]
+                if marker_id in duplicate_ids:
+                    continue  # 중복된 마커 ID는 건너뜀
+
                 c = corners[i][0] # 마커의 모서리
+
+                # --- [Raw Debug] 순수 2D 인식 기반 변환 전 마커 축 확인 ---
+                top_left, top_right = c[0], c[1]
+                # 2D 이미지 상에서 마커 윗변(Top edge)의 기울기 계산 (0도 근처면 정자체, 시계방향 회전시 +값)
+                yaw_raw = math.atan2(top_right[1] - top_left[1], top_right[0] - top_left[0]) * 180 / math.pi
+                axis_name = {
+                    10: "+Y", 30: "+Y",
+                    11: "+Z", 31: "+Z",
+                    12: "-X", 32: "-X",
+                    13: "-Z", 33: "-Z",
+                    14: "+X", 34: "+X",
+                }.get(marker_id, "Unknown")
+                # print(f"[Raw] ID: {marker_id:<2} ({axis_name:<2} Axis) | Untransformed 2D Yaw: {yaw_raw:>6.1f} deg")
+                # -------------------------------------------------------------
 
                 # 마커의 중심점 계산
                 xs = [pt[0] for pt in c]
@@ -702,16 +874,40 @@ class Marker_Detection:
                     0.0, 0.0, 0.0, 1.0
                 ]
                 
-                marker_centers_result.append(transform)
+                marker_centers_result.append((marker_id, transform))
                 
         return marker_centers_result
 
     def detect_stereo(self, main_img, ref_img, lpf = False): # 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
+        
+        # Stereo 카메라에서도 동일하게 등록된 마커만 필터링합니다
+        if main_ids is not None and len(main_ids) > 0 and self.marker_id is not None:
+            valid_indices = [i for i, mid in enumerate(main_ids) if mid[0] in self.marker_id]
+            if len(valid_indices) > 0:
+                main_corners = tuple(main_corners[i] for i in valid_indices)
+                main_ids = np.array([main_ids[i] for i in valid_indices])
+            else:
+                main_corners, main_ids = (), None
+
+        if ref_ids is not None and len(ref_ids) > 0 and self.marker_id is not None:
+            valid_indices = [i for i, mid in enumerate(ref_ids) if mid[0] in self.marker_id]
+            if len(valid_indices) > 0:
+                ref_corners = tuple(ref_corners[i] for i in valid_indices)
+                ref_ids = np.array([ref_ids[i] for i in valid_indices])
+            else:
+                ref_corners, ref_ids = (), None
+
         marker_centers_result = []
         
         if main_ids is not None and ref_ids is not None:
+            main_ids_flat = main_ids.flatten()
+            unique_ids, counts = np.unique(main_ids_flat, return_counts=True)
+            duplicate_ids = unique_ids[counts > 1]
+            if len(duplicate_ids) > 0:
+                print(f"Warning: Duplicate marker IDs detected: {duplicate_ids}. Ignoring these duplicates in this frame.")
+
             # 마커 순서가 헷갈리지 않도록 ref_dict에 저장
             ref_dict = {}
             for i, marker_id in enumerate(ref_ids):
@@ -722,10 +918,26 @@ class Marker_Detection:
 
             for i, marker_id in enumerate(main_ids):
                 mid = marker_id[0]
+                if mid in duplicate_ids:
+                    continue  # 중복된 마커 ID는 건너뜀
                 if mid not in ref_dict:
                     continue
 
                 main_corner = main_corners[i][0]
+                
+                # --- [Raw Debug] 순수 2D 인식 기반 변환 전 마커 축 확인 ---
+                top_left, top_right = main_corner[0], main_corner[1]
+                yaw_raw = math.atan2(top_right[1] - top_left[1], top_right[0] - top_left[0]) * 180 / math.pi
+                axis_name = {
+                    10: "+Y", 30: "+Y",
+                    11: "+Z", 31: "+Z",
+                    12: "-X", 32: "-X",
+                    13: "-Z", 33: "-Z",
+                    14: "+X", 34: "+X",
+                }.get(mid, "Unknown")
+                # print(f"[Raw] ID: {mid:<2} ({axis_name:<2} Axis) | Untransformed 2D Yaw: {yaw_raw:>6.1f} deg")
+                # -------------------------------------------------------------
+
                 candidates = ref_dict[mid]
                 
                
@@ -782,7 +994,7 @@ class Marker_Detection:
                 # print(f"Center [{transform[3]}, {transform[7]}, {transform[11]}]")
                 # print(f"rpy    [{self.rpy[0]*180/math.pi}, {self.rpy[1]*180/math.pi}, {self.rpy[2]*180/math.pi}]")
                 
-                marker_centers_result.append(transform)
+                marker_centers_result.append((mid, transform))
                 
         return marker_centers_result
         
@@ -793,20 +1005,17 @@ class Marker_Detection:
 
 
 class Marker_Transform:
-    def __init__(self, Stereo=False, tool_to_cam = [0,0,0,0,0,0], serial_number = None, monitoring = False):
+    def __init__(self, Stereo=False, serial_number = None, monitoring = False):
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        T5_to_marker_data = [0,0,0,0,0,0]
-        # tool_to_cam = [0,0,0,0,0,0]
-        tool_to_cam = [0.009,-0.09,-0.085,159,0,180]
-        self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
+        self.T5_to_marker_tf = self.make_transform(T5_to_marker)
         self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
         # Initialize
         self.camera = RealSenseCamera(serial_number=serial_number, Stereo=Stereo)
         self.marker_detection = Marker_Detection()
+        self.cube_marker = CubeMarker()
         
         self.width = 1280 # 848
         self.height = 720 # 480
@@ -814,7 +1023,7 @@ class Marker_Transform:
         
         print("Initializing Camera...")
         self.camera.initialize_camera(self.width, self.height, self.fps)
-        if monitoring:
+        if monitoring and not imshow_when_detect:
             self.camera.monitoring(Flag=True)
         
         intrinsics = self.camera.get_principal_point_and_focal_length()
@@ -825,7 +1034,10 @@ class Marker_Transform:
         if self.Stereo:
             baseline = self.camera.get_baseline()
             self.marker_detection.set_baseline(baseline)
-
+    def set_marker_type(self, marker_type="plate", id=[7]):
+        if marker_type == "cube" and len(id) != 5 or marker_type == "plate" and len(id) != 1:
+            raise ValueError(f"unmatched marker type and id : type {marker_type}, id {id}")
+        self.marker_detection.set_marker_type(marker_type, id)
     def make_transform(self, data):
         # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
         x, y, z = data[0]*1000, data[1]*1000, data[2]*1000 
@@ -877,11 +1089,9 @@ class Marker_Transform:
             return None
 
     def get_marker_transform(self, sampling_time=0):
-        T5_to_tool_vec = None
         lpf = False
-        # Collection list for sampling
-        camera_to_marker_tf = None
-        collected_transforms = []
+        # Collection array for sampling -> dict of lists
+        collected_transforms = {} # { marker_id: [tf_vectors...] }
         start_time = time.time()
 
         if sampling_time > 0:
@@ -909,11 +1119,33 @@ class Marker_Transform:
                         continue
                     marker_transforms = self.marker_detection.detect(color_img, depth_img, lpf = lpf)
                 
-                for tf_list in marker_transforms:
-                    # Convert flattened list to 4x4 matrix
-                    camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                    # Append the FORWARD transform, NOT the inverted one
-                    collected_transforms.append(tf_list)
+                for marker_id, tf_list in marker_transforms:
+                    if self.marker_detection.marker_type == "cube":
+                        T_C_M = self.cube_marker.get_transform(marker_id)
+                        if T_C_M is not None:
+                            camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
+                            # Compute T_cam_to_C = T_cam_to_M * inv(T_C_M)
+                            T_cam_to_C = camera_to_marker_tf @ np.linalg.inv(T_C_M)
+                            
+                            # --- Debugging Print for recognized axis and rotation ---
+                            R_m = camera_to_marker_tf[0:3, 0:3]
+                            # Depth 축(카메라 방향 축, 즉 마커 평면에서의 회전 = Yaw) 
+                            depth_rotation = math.atan2(R_m[1, 0], R_m[0, 0]) * 180 / math.pi
+
+                            group_id = "cube"
+                            if 10 <= marker_id <= 14:
+                                group_id = "cube_left"
+                            elif 30 <= marker_id <= 34:
+                                group_id = "cube_right"
+                            
+                            if group_id not in collected_transforms:
+                                collected_transforms[group_id] = []
+                            collected_transforms[group_id].append(T_cam_to_C.flatten().tolist())
+                    else:
+                        if marker_id not in collected_transforms:
+                            collected_transforms[marker_id] = []
+                        # Append the FORWARD transform
+                        collected_transforms[marker_id].append(tf_list)
                 
                 # Check timeout if sampling
                 if sampling_time == 0 or (sampling_time > 0 and (time.time() - start_time > sampling_time)):
@@ -924,49 +1156,58 @@ class Marker_Transform:
             
             # CPU 점유율을 낮추기 위한 미세한 대기
             time.sleep(0.01)
+            
+        final_results = {}
         # Post-processing for sampling
         if sampling_time > 0:
             if not collected_transforms:
                 return None
             
-            data = np.array(collected_transforms) # Shape (N, 16)
-            
-            # Separate translation and rotation for CAMERA_TO_MARKER (NOT inverted yet)
-            translations = data[:, [3, 7, 11]]
-            
-            # Median for translation is robust
-            final_translation = np.median(translations, axis=0)
-            
-            # Average rotations using SVD (chordal L2 mean) to maintain orthogonality
-            # Extract 3x3 rotation matrices
-            rotations = []
-            for vec in data:
-                R = np.array([
-                    [vec[0], vec[1], vec[2]],
-                    [vec[4], vec[5], vec[6]],
-                    [vec[8], vec[9], vec[10]]
-                ])
-                rotations.append(R)
-            
-            sum_R = np.sum(rotations, axis=0)
-            U, S, Vt = np.linalg.svd(sum_R)
-            final_R = U @ Vt
-            
-            # Ensure det(R) = 1 (proper rotation)
-            if np.linalg.det(final_R) < 0:
-                U[:, 2] *= -1
+            for marker_id, tfs in collected_transforms.items():
+                data = np.array(tfs) # Shape (N, 16)
+                
+                # Separate translation and rotation for CAMERA_TO_MARKER (NOT inverted yet)
+                translations = data[:, [3, 7, 11]]
+                
+                # Median for translation is robust
+                final_translation = np.median(translations, axis=0)
+                
+                # Average rotations using SVD (chordal L2 mean) to maintain orthogonality
+                rotations = []
+                for vec in data:
+                    R = np.array([
+                        [vec[0], vec[1], vec[2]],
+                        [vec[4], vec[5], vec[6]],
+                        [vec[8], vec[9], vec[10]]
+                    ])
+                    rotations.append(R)
+                
+                sum_R = np.sum(rotations, axis=0)
+                U, S, Vt = np.linalg.svd(sum_R)
                 final_R = U @ Vt
-            
-            # Reconstruct the averaged 4x4 camera_to_marker transform
-            avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
-            avg_cam_to_marker_tf[0:3, 0:3] = final_R
-            avg_cam_to_marker_tf[0:3, 3] = final_translation
-            T5_to_tool_vec = self.calc_t5_to_tool(avg_cam_to_marker_tf)
+                
+                # Ensure det(R) = 1 (proper rotation)
+                if np.linalg.det(final_R) < 0:
+                    U[:, 2] *= -1
+                    final_R = U @ Vt
+                
+                # Reconstruct the averaged 4x4 camera_to_marker transform
+                avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
+                avg_cam_to_marker_tf[0:3, 0:3] = final_R
+                avg_cam_to_marker_tf[0:3, 3] = final_translation
+                T5_to_tool_vec = self.calc_t5_to_tool(avg_cam_to_marker_tf)
+                if T5_to_tool_vec is not None:
+                    final_results[marker_id] = T5_to_tool_vec
         elif sampling_time == 0:
-            T5_to_tool_vec = self.calc_t5_to_tool(camera_to_marker_tf)
+            for marker_id, tfs in collected_transforms.items():
+                # For sampling_time == 0, there is only one frame of transforms
+                # and thus tfs should have only length 1
+                camera_to_marker_tf = np.array(tfs[-1], dtype=np.float32).reshape(4, 4)
+                T5_to_tool_vec = self.calc_t5_to_tool(camera_to_marker_tf)
+                if T5_to_tool_vec is not None:
+                    final_results[marker_id] = T5_to_tool_vec
         
-        if T5_to_tool_vec is not None:
-            # self.client.send_pose(T5_to_tool_vec)
-            return T5_to_tool_vec
+        if len(final_results) > 0:
+            return final_results
         else:
             return None
