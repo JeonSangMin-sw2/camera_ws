@@ -10,9 +10,13 @@ import threading
 import sys
 import select
 import json
+import argparse
+
+
+
 
 recorded_data = []   # (q, marker) 같이 저장
-
+np.set_printoptions(suppress=True, precision=6) 
 def check_key_press():
     dr, dw, de = select.select([sys.stdin], [], [], 0)
     if dr:
@@ -505,7 +509,7 @@ class Marker_Detection:
             # 너무 크게 튀는 값이 있다면 현재 입력값을 무시하고 이전 값을 반환
             #print("Spike detected")
             return prev_pts.tolist()
-            
+        
         new_pts = self.lpf_alpha * pts_arr + (1.0 - self.lpf_alpha) * prev_pts
         self.prev_pts_dict[marker_id] = new_pts
         
@@ -654,7 +658,7 @@ class Marker_Detection:
             return None
 
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, depth_image, lpf = False, logging = False):
+    def detect(self, color_image, depth_image, lpf = False, logging = False):# 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         depth_filtered = depth_image.copy()
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, rejected = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
@@ -694,9 +698,9 @@ class Marker_Detection:
                     pt_3d_mm = self.convert_pixel2mm([pt[0], pt[1], float(z_est)])
                     c_list.append(pt_3d_mm)
 
-                if logging:
-                    string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
-                    self.logger.save(string)
+                # if logging:
+                #     string = f"{c[0][0]},{c[0][1]},{c[1][0]},{c[1][1]},{c[2][0]},{c[2][1]},{c[3][0]},{c[3][1]}"
+                #     self.logger.save(string)
 
                 # 보정된 코너점들에 Point LPF 적용 (마커 ID 별로 추적)
                 marker_id = ids[i][0]
@@ -723,7 +727,7 @@ class Marker_Detection:
                 
         return marker_centers_result
 
-    def detect_stereo(self, main_img, ref_img, lpf = False):
+    def detect_stereo(self, main_img, ref_img, lpf = False): # 다면마커일 때의 큐브형식 인식기능도 추가해야함---------------------------------------------------------
         main_corners, main_ids, main_rejected = cv2.aruco.detectMarkers(main_img, self.dictionary, parameters=self.parameters)
         ref_corners, ref_ids, ref_rejected = cv2.aruco.detectMarkers(ref_img, self.dictionary, parameters=self.parameters)
         marker_centers_result = []
@@ -814,8 +818,12 @@ class Marker_Transform:
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        T5_to_marker_data = [0.022, 0.0, 0.121, 180, 0.0, -90.0]
+
+        #T5_to_marker_data = [0,0,0,0,0,0]
+
         # T5_to_marker_data = [0,0,0,0,0,0]
+
         # tool_to_cam = [0,0,0,0,0,0]
         #tool_to_cam = [0.009,-0.09,-0.085,144,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
@@ -874,20 +882,38 @@ class Marker_Transform:
         
         return m
 
-    def get_marker_transform(self, sampling_time=0, lpf = False):
+    def calc_t5_to_tool(self, camera_to_marker_tf):
+        try:
+            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
+            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
+            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv # @ tool_to_cam_inv
+            T5_to_tool_vec = T5_to_tool_tf.flatten()
+            
+            # Unit conversion if needed (mm -> m logic from original code)
+            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
+                T5_to_tool_vec[3] /= 1000
+                T5_to_tool_vec[7] /= 1000
+                T5_to_tool_vec[11] /= 1000
+                
+            return T5_to_tool_vec
+        except np.linalg.LinAlgError:
+            print("Singular matrix, cannot invert")
+            return None
+
+    def get_marker_transform(self, sampling_time=0):
         T5_to_tool_vec = None
+        lpf = False
         # Collection list for sampling
+        camera_to_marker_tf = None
         collected_transforms = []
         start_time = time.time()
 
-        if lpf and sampling_time > 0:
+        if sampling_time > 0:
             self.marker_detection.prev_pts_dict = {}
+            lpf = True
 
         while True:
-            # Check timeout if sampling
-            if sampling_time > 0 and (time.time() - start_time > sampling_time):
-                break
-                
             try:
                 if not self.camera.camera_monitoring:
                     self.camera.capture_image()
@@ -911,43 +937,18 @@ class Marker_Transform:
                 for tf_list in marker_transforms:
                     # Convert flattened list to 4x4 matrix
                     camera_to_marker_tf = np.array(tf_list, dtype=np.float32).reshape(4, 4)
-                    
-                    if sampling_time == 0:
-                        try:
-                            camera_to_marker_inv = np.linalg.inv(camera_to_marker_tf)
-                            tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
-                            T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                            T5_to_tool_vec = T5_to_tool_tf.flatten()
-                            
-                            # Unit conversion if needed (mm -> m logic from original code)
-                            if abs(T5_to_tool_vec[3]) > 4 or abs(T5_to_tool_vec[7]) > 4 or abs(T5_to_tool_vec[11]) > 4:
-                                T5_to_tool_vec[3] = T5_to_tool_vec[3]/1000
-                                T5_to_tool_vec[7] = T5_to_tool_vec[7]/1000
-                                T5_to_tool_vec[11] = T5_to_tool_vec[11]/1000
-                                
-                            # self.client.send_pose(T5_to_tool_vec)
-
-                            return T5_to_tool_vec
-                        except np.linalg.LinAlgError:
-                            print("Singular matrix, cannot invert")
-                            continue
-                    else:
-                        # Append the FORWARD transform, NOT the inverted one
-                        collected_transforms.append(tf_list)
+                    # Append the FORWARD transform, NOT the inverted one
+                    collected_transforms.append(tf_list)
+                
+                # Check timeout if sampling
+                if sampling_time == 0 or (sampling_time > 0 and (time.time() - start_time > sampling_time)):
+                    break
                         
             except KeyboardInterrupt:
                 raise
             
             # CPU 점유율을 낮추기 위한 미세한 대기
             time.sleep(0.01)
-            
-            # If not sampling, break after one attempt (handled by return above)
-            # If sampling, continue loop
-            if sampling_time == 0: 
-                break
-
-             
         # Post-processing for sampling
         if sampling_time > 0:
             if not collected_transforms:
@@ -985,37 +986,193 @@ class Marker_Transform:
             avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
             avg_cam_to_marker_tf[0:3, 0:3] = final_R
             avg_cam_to_marker_tf[0:3, 3] = final_translation
-            
-            # NOW compute the inversions and multiplication with stable values
-            try:
-                camera_to_marker_inv = np.linalg.inv(avg_cam_to_marker_tf)
-                tool_to_cam_inv = np.linalg.inv(self.tool_to_cam_tf)
-                T5_to_tool_tf = self.T5_to_marker_tf @ camera_to_marker_inv @ tool_to_cam_inv
-                final_vec = T5_to_tool_tf.flatten()
-                # self.client.send_pose(final_vec)
-                # Unit conversion
-                if abs(final_vec[3]) > 4 or abs(final_vec[7]) > 4 or abs(final_vec[11]) > 4:
-                    final_vec[3] /= 1000
-                    final_vec[7] /= 1000
-                    final_vec[11] /= 1000
-                    
-                return final_vec
-            except np.linalg.LinAlgError:
-                return None
-            
-        return None
+            T5_to_tool_vec = self.calc_t5_to_tool(avg_cam_to_marker_tf)
+        elif sampling_time == 0:
+            T5_to_tool_vec = self.calc_t5_to_tool(camera_to_marker_tf)
+        
+        if T5_to_tool_vec is not None:
+            # self.client.send_pose(T5_to_tool_vec)
+            return T5_to_tool_vec
+        else:
+            return None
 
 
         
-import argparse
-import numpy as np
-import time
-import rby1_sdk as rby
+class CalibrationOptimizer:
+    def __init__(self, robot, arm_idx, ee_link, tool_to_cam_nom, ndof, max_iter=500, eps=1e-6):
+        self.robot = robot
+        self.dyn_model = robot.get_dynamics()
+        self.model = robot.model()
+
+        self.arm_idx = arm_idx
+        self.ee_link = ee_link
+        self.tool_to_cam_nom = tool_to_cam_nom
+        # ndof meaning:
+        # 6  -> optimize camera extrinsic only
+        # 7  -> optimize joint offset only
+        # 13 -> optimize both joint offset and camera extrinsic
+        
+        self.optimize_joint = ndof in (7, 13)
+        self.optimize_camera = ndof in (6, 13)
+
+        self.max_iter = max_iter
+        self.eps = eps
+        self.q_nominal = robot.get_state().position.copy()
+
+    def get_nominal_tool_to_cam(self):
+        return make_transform(self.tool_to_cam_nom)
+
+    def evaluate_sample(self, q_cmd, q_offset, xi_cam):
+        q_full = self.q_nominal.copy()
+
+        if self.optimize_joint:
+            q_full[self.arm_idx[:7]] = q_cmd + q_offset
+        else:
+            q_full[self.arm_idx[:7]] = q_cmd
+
+        state = self.dyn_model.make_state(
+            ["link_torso_5", self.ee_link],
+            self.model.robot_joint_names
+        )
+        state.set_q(q_full)
+        self.dyn_model.compute_forward_kinematics(state)
+        self.dyn_model.compute_diff_forward_kinematics(state)
+
+        T_fk = self.dyn_model.compute_transformation(state, 0, 1)
+        Jb = self.dyn_model.compute_body_jacobian(state, 0, 1)[:, self.arm_idx[:7]]
+
+        T_tool_to_cam_nom = self.get_nominal_tool_to_cam()
+        if self.optimize_camera:
+            T_tool_to_cam = T_tool_to_cam_nom @ se3_exp(xi_cam)
+        else:
+            T_tool_to_cam = T_tool_to_cam_nom
+
+        T_model = T_fk @ T_tool_to_cam
+        return T_fk, Jb, T_tool_to_cam, T_model
+        
+    def build_jacobian(self, Jb, T_tool_to_cam):
+        if self.optimize_joint and self.optimize_camera:
+            J = np.zeros((6, 13))
+            J[:, :7] = adjoint(np.linalg.inv(T_tool_to_cam)) @ Jb
+            J[:, 7:] = np.eye(6)
+            return J
+        elif self.optimize_camera:
+            return np.eye(6)
+        else:
+            return adjoint(np.linalg.inv(T_tool_to_cam)) @ Jb
+        
+    def compute_step(self, q_cmd_list, T_meas_list, q_offset, xi_cam):
+        dim = 13 if (self.optimize_joint and self.optimize_camera) else (6 if self.optimize_camera else 7)
+        H = np.zeros((dim, dim))
+        g = np.zeros(dim)
+        total_err = 0.0
+
+        for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
+            _, Jb, T_tool_to_cam, T_model = self.evaluate_sample(q_cmd, q_offset, xi_cam)
+
+            T_err = np.linalg.inv(T_model) @ T_meas
+            xi = se3_log(T_err)
+            J = self.build_jacobian(Jb, T_tool_to_cam)
+
+            H += J.T @ J
+            g += J.T @ xi
+            total_err += np.linalg.norm(xi)
+
+        dx = np.linalg.pinv(H) @ g
+        return dx, total_err
+        
+    def apply_update(self, q_offset, xi_cam, dx):
+        if self.optimize_joint and self.optimize_camera:
+            q_offset += dx[:7]
+            xi_cam += dx[7:]
+        elif self.optimize_camera:
+            xi_cam += dx
+        else:
+            q_offset += dx
+        return q_offset, xi_cam
+        
+    def get_calibrated_tool_to_cam(self, xi_cam):
+        T_nom = self.get_nominal_tool_to_cam()
+        T_calib = T_nom @ se3_exp(xi_cam)
+
+        p = T_calib[:3, 3]
+        rpy = rot_to_euler_zyx(T_calib[:3, :3])
+
+        return [
+            p[0],
+            p[1],
+            p[2],
+            np.rad2deg(rpy[0]),
+            np.rad2deg(rpy[1]),
+            np.rad2deg(rpy[2]),
+        ]        
+        
+    def optimize(self, q_cmd_list, T_meas_list):
+        q_offset = np.zeros(7)
+        xi_cam = np.zeros(6)
+
+        for it in range(self.max_iter):
+            dx, total_err = self.compute_step(q_cmd_list, T_meas_list, q_offset, xi_cam)
+            q_offset, xi_cam = self.apply_update(q_offset, xi_cam, dx)
+
+            print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
+
+            if np.linalg.norm(dx) < self.eps:
+                print("Converged.")
+                break
+
+        tool_to_cam_new = self.get_calibrated_tool_to_cam(xi_cam)
+        return q_offset, xi_cam, tool_to_cam_new
+        
+# ============================================================
+# Lie algebra utilities 
+# ============================================================
+
+def adjoint(T):
+    R = T[:3,:3]
+    p = T[:3,3]
+    p_hat = np.array([
+        [0, -p[2], p[1]],
+        [p[2], 0, -p[0]],
+        [-p[1], p[0], 0]
+    ])
+    Ad = np.zeros((6,6))
+    Ad[:3,:3] = R
+    Ad[3:,3:] = R
+    Ad[3:,:3] = p_hat @ R
+    return Ad
 
 
-# ============================================================
-# Lie algebra utilities (그대로 유지)
-# ============================================================
+def make_transform(data):
+    # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
+    x, y, z = data[0], data[1], data[2] 
+    roll = data[3] * math.pi / 180
+    pitch = data[4] * math.pi / 180
+    yaw = data[5] * math.pi / 180
+    
+    cr = math.cos(roll); sr = math.sin(roll)
+    cp = math.cos(pitch); sp = math.sin(pitch)
+    cy = math.cos(yaw); sy = math.sin(yaw)
+    
+    m = np.eye(4, dtype=np.float32)
+    m[0, 0] = cy * cp
+    m[0, 1] = sr * sp * cy - cr * sy
+    m[0, 2] = cr * sp * cy + sr * sy
+    m[0, 3] = x
+    
+    m[1, 0] = sy * cp
+    m[1, 1] = sr * sp * sy + cr * cy
+    m[1, 2] = cr * sp * sy - sr * cy
+    m[1, 3] = y
+    
+    m[2, 0] = -sp
+    m[2, 1] = cp * sr
+    m[2, 2] = cp * cr
+    m[2, 3] = z
+
+    # print(m)
+    
+    return m
 
 def so3_exp(w):
     theta = np.linalg.norm(w)
@@ -1093,11 +1250,25 @@ def se3_log(T):
 
     return np.hstack([w, v])
 
+def rot_to_euler_zyx(R):
+
+    sy = math.sqrt(R[0,0]**2 + R[1,0]**2)
+    singular = sy < 1e-6
+
+    if not singular:
+        roll  = math.atan2(R[2,1], R[2,2])
+        pitch = math.atan2(-R[2,0], sy)
+        yaw   = math.atan2(R[1,0], R[0,0])
+    else:
+        roll  = math.atan2(-R[1,2], R[1,1])
+        pitch = math.atan2(-R[2,0], sy)
+        yaw   = 0
+
+    return np.array([roll, pitch, yaw])
 
 # ============================================================
 # Robot initialization
 # ============================================================
-
 
 def load_npz_dataset(path):
     data = np.load(path)
@@ -1118,7 +1289,8 @@ def create_robot(ip):
 # Capture dataset (기존 기능 유지)
 # ============================================================
 
-def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
+
+def capture_dataset(robot, dyn_model, ARM_IDX, marker_transform):
 
     q_cmd_list = []
     T_meas_list = []
@@ -1132,9 +1304,9 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
         if key == 'e':
             state = robot.get_state()
             q_full = state.position.copy()
-            q_cmd = q_full[RIGHT_ARM_IDX[:7]].copy()
+            q_cmd = q_full[ARM_IDX[:7]].copy()
 
-            result = marker_transform.get_marker_transform(sampling_time=2, lpf = True)
+            result = marker_transform.get_marker_transform(sampling_time=2)
 
             if result is None:
                 print("Marker not detected.")
@@ -1146,7 +1318,7 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
             T_meas_list.append(T_meas)
 
             print(f"Captured sample {len(q_cmd_list)}")
-            print("q =", np.round(q_full[RIGHT_ARM_IDX],3))
+            print("q =", np.round(q_full[ARM_IDX],3))
             T_print = np.array(result).reshape(4, 4)
             print("marker =", np.round(T_print,3))
         elif key == 'q':
@@ -1156,26 +1328,32 @@ def capture_dataset(robot, dyn_model, RIGHT_ARM_IDX, marker_transform):
 
     return np.array(q_cmd_list), np.array(T_meas_list)
 
-
 # ============================================================
 # Gauss Newton (기존 알고리즘 그대로)
 # ============================================================
 
 
 def generate_sim_measurements(robot, dyn_model,
-                              q_cmd_list, RIGHT_ARM_IDX,
-                              q_nominal, ndof):
+                              q_cmd_list, ARM_IDX,
+                              q_nominal, ndof, ee_link, tool_to_cam_nom):
     q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
-    xi_cam_true = np.array([0.02, -0.01, 0.015, 0.01, 0.02, -0.01])
+    xi_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
+    
+    T_tool_to_cam_nom = make_transform(tool_to_cam_nom)
+    T_tool_to_cam_true = T_tool_to_cam_nom @ se3_exp(xi_cam_true)
     
     T_list = []
 
     for q_cmd in q_cmd_list:
-        q_full = q_nominal.copy()
-        q_full[RIGHT_ARM_IDX] = q_cmd + q_offset_true
+        if ndof in (7,13):
+            q_full = q_nominal.copy()
+            q_full[ARM_IDX] = q_cmd + q_offset_true
+        else :
+            q_full = q_nominal.copy()
+            q_full[ARM_IDX] = q_cmd
 
         state = dyn_model.make_state(
-            ["link_torso_5", "ee_right"],
+            ["link_torso_5", ee_link],
             robot.model().robot_joint_names
         )
         state.set_q(q_full)
@@ -1183,127 +1361,16 @@ def generate_sim_measurements(robot, dyn_model,
 
         T_fk = dyn_model.compute_transformation(state, 0, 1)
 
-        # noise = np.array([-0.100956, 0.024401, 0.009073,
-        #                   -0.002027, 0.028192, 0.022449])
-
-        # T_meas = T_fk @ se3_exp(noise)
-        if ndof == 13:
-            T_meas = T_fk @ se3_exp(xi_cam_true)         
+        if ndof in (6,13):
+            # T_meas = T_fk @ T_tool2cam @ se3_exp(xi_cam_true)  
+            # T_meas = T_fk @ se3_exp(xi_cam_true)  
+            T_meas = T_fk @ T_tool_to_cam_true
         else :
-            T_meas = T_fk          
+            T_meas = T_fk @ T_tool_to_cam_nom
+            
         T_list.append(T_meas)
 
     return T_list
-
-def update_optimization(q_cmd_list, T_meas_list):
-     # 7자유도 최적화 해 역대입
-    q_offset_deg = np.array([-0.3833566 ,  0.15210911, -0.08483475 , 0.2933563 , -2.17410442 , 1.20850996  ,0.42705511])
-    q_offset_rad = np.deg2rad(q_offset_deg)
-    q_cmd_list = q_cmd_list + q_offset_rad        
-    # 6자유도 최적화 해 역대입
-    T_noise = se3_exp((np.array([-0.18633638 , 0.00041163 , 0.00745352 , 0.00289723 , 0.00718141 , 0.03564564])))
-    T_meas_list = np.array([
-        T @ np.linalg.inv(T_noise)
-        for T in T_meas_list
-    ])
-    return q_cmd_list, T_meas_list
-
-def optimize(robot, dyn_model,
-             q_cmd_list, T_meas_list,
-             RIGHT_ARM_IDX, ndof):
-
-    q_nominal = robot.get_state().position.copy()
-
-    q_offset = np.zeros(7)
-    xi_cam = np.zeros(6)
-
-    optimize_all = (ndof == 13)
-    optimize_camera = (ndof == 6)
-    print("optimize_all ==",optimize_all)
-    print("optimize_camera ==",optimize_camera)
-    
-    max_iter = 500
-    eps = 1e-6
-
-    for it in range(max_iter):
-
-        if optimize_all:
-            H = np.zeros((13, 13))
-            g = np.zeros(13)
-        elif optimize_camera:
-            H = np.zeros((6, 6))
-            g = np.zeros(6)
-        else:
-            H = np.zeros((7, 7))
-            g = np.zeros(7)
-            
-
-        total_err = 0
-
-        for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
-
-            q_full = q_nominal.copy()
-            if optimize_camera:
-                q_full[RIGHT_ARM_IDX[:7]] = q_cmd 
-            else:
-                q_full[RIGHT_ARM_IDX[:7]] = q_cmd + q_offset
-            
-            state = dyn_model.make_state(
-                ["link_torso_5", "ee_right"],
-                robot.model().robot_joint_names
-            )
-
-            state.set_q(q_full)
-            dyn_model.compute_forward_kinematics(state)
-            dyn_model.compute_diff_forward_kinematics(state)
-
-            T_fk = dyn_model.compute_transformation(state, 0, 1)
-
-            if optimize_all:
-                T_model = T_fk @ se3_exp(xi_cam)
-            elif optimize_camera:
-                T_model = T_fk @ se3_exp(xi_cam)
-            else:
-                T_model = T_fk
-
-            T_err = np.linalg.inv(T_model) @ T_meas
-            xi = se3_log(T_err)
-
-            Jb = dyn_model.compute_body_jacobian(state, 0, 1)
-
-            if optimize_all:
-                J = np.zeros((6, 13))
-                J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
-                J[:, 7:] = np.eye(6)
-            elif optimize_camera:
-                # J = np.zeros((6, 6))
-                # J[:, :7] = Jb[:, RIGHT_ARM_IDX[:7]]
-                J = np.eye(6)
-            else:
-                J = Jb[:, RIGHT_ARM_IDX[:7]]
-
-            H += J.T @ J
-            g += J.T @ xi
-            total_err += np.linalg.norm(xi)
-
-        dx = np.linalg.pinv(H) @ g
-
-
-        if optimize_all:    
-            q_offset += dx[:7]
-            xi_cam += dx[7:]
-        elif optimize_camera:
-            xi_cam += dx[:6]
-        else :
-            q_offset += dx[:7]
-            
-        print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
-
-        if np.linalg.norm(dx) < eps:
-            print("Converged.")
-            break
-
-    return q_offset, xi_cam
 
 
 # ============================================================
@@ -1322,7 +1389,8 @@ def main():
                         )
     parser.add_argument("--path", type=str, default="captured_dataset.npz",
         help="Path to npz dataset (default: captured_dataset.npz)")
-
+    parser.add_argument("--arm", type=str, default="right",
+                    choices=["right", "left"])
     
 
     args = parser.parse_args()
@@ -1332,18 +1400,29 @@ def main():
     robot = create_robot(args.ip)
     dyn_model = robot.get_dynamics()
     model = robot.model()
-    RIGHT_ARM_IDX = model.right_arm_idx
-
+    # RIGHT_ARM_IDX = model.right_arm_idx
+    if args.arm == "right":
+        ARM_IDX = model.right_arm_idx
+        ee_link = "ee_right"
+        tool_to_cam_nom = [0.01079 ,   -0.094527 ,  -0.028914 , 154.992754 ,  -0.269972 ,-179.718444]       
+        # tool_to_cam_nom = [0.009,-0.09,-0.085,144,0,180]
+        
+    else:
+        ARM_IDX = model.left_arm_idx
+        ee_link = "ee_left"
+        # tool_to_cam_nom = [-0.009,0.09,-0.085,144,0,0]
+        tool_to_cam_nom = [-0.009187 ,  0.094257 , -0.028313, 154.667827 , -0.320824 , -0.268186]
+    
 
     if args.mode == "live":
         # marker_transform는 기존 코드 그대로 사용
-        tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
+        # tool_to_cam = [0.009,-0.09,-0.085,144,0,180] # right
         #tool_to_cam = [0.009,0.09,-0.085,144,0,0] # left
-        marker_transform = Marker_Transform(Stereo=True, tool_to_cam=tool_to_cam, serial_number= None, monitoring = False)
+        marker_transform = Marker_Transform(Stereo=True, serial_number= None, monitoring = False)
 
         q_cmd_list, T_meas_list = capture_dataset(
             robot, dyn_model,
-            RIGHT_ARM_IDX,
+            ARM_IDX,
             marker_transform
         )
         np.savez_compressed(
@@ -1356,46 +1435,43 @@ def main():
         q_cmd_list, T_meas_list = load_npz_dataset(args.path)
         print("size=", np.size(q_cmd_list))
 
-    else :
-        q_cmd_list = np.random.uniform(-1, 1, (10, 7))
+    elif args.mode == "sim":
+        q_cmd_list = np.random.uniform(-5, 5, (100, 7))
         q_nominal = robot.get_state().position.copy()
-        print("q_nominal", q_nominal)
+        # print("q_nominal", q_nominal)
         T_meas_list = generate_sim_measurements(
             robot, dyn_model,
             q_cmd_list,
-            RIGHT_ARM_IDX,
+            ARM_IDX,
             q_nominal,
-            args.ndof
+            args.ndof,
+            ee_link,
+            tool_to_cam_nom
         )
         
 
     print("Dataset saved.")
     
     
-    q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
-    
-    q_offset, xi_cam = optimize(
-        robot, dyn_model,
-        q_cmd_list,
-        T_meas_list,
-        RIGHT_ARM_IDX,
-        args.ndof
+    # q_cmd_list, T_meas_list = update_optimization(q_cmd_list, T_meas_list)    
+
+    optimizer = CalibrationOptimizer(
+        robot=robot,
+        arm_idx=ARM_IDX,
+        ee_link=ee_link,
+        tool_to_cam_nom=tool_to_cam_nom,
+        ndof=args.ndof,
     )
 
+    q_offset, xi_cam, tool_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)    
     
-    # q_offset, xi_cam = optimize(
-    #     robot, dyn_model,
-    #     q_cmd_list,
-    #     T_meas_list,
-    #     RIGHT_ARM_IDX,
-    #     args.ndof
-    # )
-
     print("\n===== RESULT =====")
     print("Joint offset (deg):")
     print(np.rad2deg(q_offset))
     print("Camera xi:")
     print(xi_cam)
+    # print("T_calib_nom_result:")
+    # print(np.round(tool_to_cam_new, 6)) 
 
     # ✅ JSON 저장
     result_dict = {
