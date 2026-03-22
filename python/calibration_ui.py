@@ -165,7 +165,9 @@ class CalibrationUI:
         act.pack(fill="x", padx=10, pady=10)
 
         ttk.Button(act, text="1.Zero Pose Check", command=self.user_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="2.Record", command=self.user_record).grid(row=0, column=1, padx=5, pady=5)
+        # ttk.Button(act, text="2.Record", command=self.user_record).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="2.Record", command=self.user_record, padding=(80, 48)).grid(row=0, column=1, padx=5, pady=5)
+        
         ttk.Button(act, text="3.Calculate", command=self.user_calculate).grid(row=0, column=2, padx=5, pady=5)
         ttk.Button(act, text="4.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
 
