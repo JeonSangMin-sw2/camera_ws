@@ -277,7 +277,7 @@ def generate_sim_measurements(
     ee_link,
     tool_to_cam_nom
 ):
-    q_offset_true = np.deg2rad([3, -2, 1, 4, -3, 2, 1])
+    q_offset_true = np.deg2rad([3, 2, 1, 4, -3, 2, 1])
     xi_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
 
     optimize_joint = ndof in (7, 13)

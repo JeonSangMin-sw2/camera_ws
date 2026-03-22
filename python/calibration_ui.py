@@ -1,4 +1,5 @@
 import json
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
 
@@ -11,13 +12,14 @@ from calibration_core import (
     CalibrationOptimizer,
     Marker_Transform,
 )
+from homeoffset_core import apply_home_offset_from_json
 
 
 class CalibrationUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Calibration UI")
-        self.root.geometry("820x620")
+        self.root.geometry("900x680")
 
         self.robot = None
         self.dyn_model = None
@@ -29,6 +31,8 @@ class CalibrationUI:
 
         self.dev_q_list = []
         self.dev_T_list = []
+
+        self.warning_img = None
 
         self._build_ui()
 
@@ -87,9 +91,10 @@ class CalibrationUI:
 
         ttk.Button(act, text="Record", command=self.user_record).grid(row=0, column=0, padx=5, pady=5)
         ttk.Button(act, text="Calculate", command=self.user_calculate).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=2, padx=5, pady=5)
 
         self.user_count = tk.StringVar(value="Samples: 0")
-        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=2, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=3, padx=20, pady=5, sticky="w")
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
@@ -146,9 +151,10 @@ class CalibrationUI:
 
         ttk.Button(act, text="Record", command=self.dev_record).grid(row=0, column=0, padx=5, pady=5)
         ttk.Button(act, text="Calculate", command=self.dev_calculate).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=2, padx=5, pady=5)
 
         self.dev_count = tk.StringVar(value="Live Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=2, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=3, padx=20, pady=5, sticky="w")
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
@@ -242,6 +248,8 @@ class CalibrationUI:
 
         q_offset, xi_cam, tool_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)
 
+        tool_to_cam_new = [float(x) for x in tool_to_cam_new]
+
         self.log(text_widget, "\n===== RESULT =====")
         self.log(text_widget, "Joint offset (deg):")
         self.log(text_widget, str(np.rad2deg(q_offset)))
@@ -259,6 +267,81 @@ class CalibrationUI:
             json.dump(result_dict, f, indent=4)
 
         self.log(text_widget, "Result saved to calibration_result.json")
+
+    def confirm_home_offset_action(self):
+        popup = tk.Toplevel(self.root)
+        popup.title("Warning")
+        popup.geometry("650x620")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        result = {"ok": False}
+
+        msg = (
+            "Applying home offset will move the robot.\n"
+            "The robot may move toward zero pose first.\n\n"
+            "Before continuing, make sure:\n"
+            "- the workspace is clear\n"
+            "- there is no collision risk\n"
+            "- the robot is in a safe condition to move\n"
+        )
+
+        ttk.Label(
+            popup,
+            text=msg,
+            justify="left"
+        ).pack(padx=15, pady=15, anchor="w")
+
+        image_path = "warning_pose.png"
+        if os.path.exists(image_path):
+            try:
+                self.warning_img = tk.PhotoImage(file=image_path)
+                self.warning_img = self.warning_img.subsample(3, 3)   
+                ttk.Label(popup, image=self.warning_img).pack(padx=10, pady=10)
+            except Exception:
+                ttk.Label(popup, text=f"Failed to load image: {image_path}").pack(pady=10)
+        else:
+            ttk.Label(popup, text=f"Image not found: {image_path}").pack(pady=10)
+
+        btn_frame = ttk.Frame(popup)
+        btn_frame.pack(pady=15)
+
+        def do_continue():
+            result["ok"] = True
+            popup.destroy()
+
+        def do_cancel():
+            popup.destroy()
+
+        ttk.Button(btn_frame, text="Continue", command=do_continue).pack(side="left", padx=10)
+        ttk.Button(btn_frame, text="Cancel", command=do_cancel).pack(side="left", padx=10)
+
+        popup.wait_window()
+        return result["ok"]
+
+    def apply_home_offset_common(self, ip, arm, text_widget):
+        if not os.path.exists("calibration_result.json"):
+            raise RuntimeError("calibration_result.json not found.")
+
+        proceed = self.confirm_home_offset_action()
+        if not proceed:
+            self.log(text_widget, "Apply home offset cancelled.")
+            return
+
+        result = apply_home_offset_from_json(
+            address=ip,
+            model_name="m",
+            arm=arm,
+            json_path="calibration_result.json",
+            power=".*",
+            servo="^(?!.*head).*",
+        )
+
+        self.log(text_widget, "Home offset applied successfully.")
+        self.log(text_widget, f"Arm: {result['arm']}")
+        self.log(text_widget, f"Source: {result['source']}")
+        self.log(text_widget, f"JSON: {result['json_path']}")
+        self.log(text_widget, f"Offset (deg): {result['offset_deg']}")
 
     # ============================================================
     # User tab
@@ -305,6 +388,17 @@ class CalibrationUI:
         except Exception as e:
             messagebox.showerror("Calculate Error", str(e))
             self.log(self.user_text, f"Calculate failed: {e}")
+
+    def user_apply_home_offset(self):
+        try:
+            self.apply_home_offset_common(
+                ip=self.user_ip.get(),
+                arm=self.user_arm.get(),
+                text_widget=self.user_text,
+            )
+        except Exception as e:
+            messagebox.showerror("Apply Home Offset Error", str(e))
+            self.log(self.user_text, f"Apply home offset failed: {e}")
 
     # ============================================================
     # Developer tab
@@ -391,6 +485,17 @@ class CalibrationUI:
         except Exception as e:
             messagebox.showerror("Calculate Error", str(e))
             self.log(self.dev_text, f"Calculate failed: {e}")
+
+    def dev_apply_home_offset(self):
+        try:
+            self.apply_home_offset_common(
+                ip=self.dev_ip.get(),
+                arm=self.dev_arm.get(),
+                text_widget=self.dev_text,
+            )
+        except Exception as e:
+            messagebox.showerror("Apply Home Offset Error", str(e))
+            self.log(self.dev_text, f"Apply home offset failed: {e}")
 
     # ============================================================
     # cleanup
