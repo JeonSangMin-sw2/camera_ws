@@ -75,6 +75,28 @@ def initialize_robot(address, model, power=".*", servo="^(?!.*head).*"):
     robot.enable_control_manager()
     return robot
 
+def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo="^(?!.*head).*"):
+    robot = initialize_robot(address, model_name, power, servo)
+    model = robot.model()
+
+    if arm == "right":
+        arm_dof = len(model.right_arm_idx)
+    elif arm == "left":
+        arm_dof = len(model.left_arm_idx)
+    else:
+        raise ValueError("arm must be 'right' or 'left'")
+
+    zero_pose = np.zeros(arm_dof)
+
+    ok = movej(robot, right_arm=zero_pose, left_arm=zero_pose, minimum_time=5)
+    if not ok:
+        raise RuntimeError("Failed to move robot to zero pose")
+
+    return {
+        "status": "success",
+        "arm": arm,
+        "message": "Robot moved to zero pose. Please compare it with the reference image.",
+    }
 
 def apply_home_offset(
     address,

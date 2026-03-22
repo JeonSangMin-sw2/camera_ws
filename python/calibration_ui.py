@@ -12,8 +12,10 @@ from calibration_core import (
     CalibrationOptimizer,
     Marker_Transform,
 )
-from homeoffset_core import apply_home_offset_from_json
-
+from homeoffset_core import (
+    apply_home_offset_from_json,
+    move_robot_to_zero_pose,
+)
 
 class CalibrationUI:
     def __init__(self, root):
@@ -39,6 +41,79 @@ class CalibrationUI:
     # ============================================================
     # UI
     # ============================================================
+
+
+    def show_zero_pose_check_popup(self):
+        popup = tk.Toplevel(self.root)
+        popup.title("Zero Pose Check")
+        popup.geometry("760x860")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        msg = (
+            "The robot has moved to zero pose.\n\n"
+            "Please compare the actual robot posture with the reference image.\n\n"
+            "- If the posture matches the reference, you can proceed with data collection.\n"
+            "- If the posture does not match and the two target joints appear outside the recommended range,\n"
+            "  use direct teaching to move the robot to the recommended posture,\n"
+            "  perform reset first, and then start data collection."
+        )
+
+        ttk.Label(popup, text=msg, justify="left").pack(padx=15, pady=15, anchor="w")
+
+        image_paths = ["warning_pose_check.png", "warning_pose.png"]
+
+        for image_path in image_paths:
+            if os.path.exists(image_path):
+                try:
+                    img = tk.PhotoImage(file=image_path)
+                    img = img.subsample(3, 3)
+                    lbl = ttk.Label(popup, image=img)
+                    lbl.image = img
+                    lbl.pack(padx=10, pady=8)
+                except Exception:
+                    ttk.Label(popup, text=f"Failed to load image: {image_path}").pack(pady=5)
+
+        ttk.Button(popup, text="OK", command=popup.destroy).pack(pady=15)
+        popup.wait_window()
+
+    def zero_pose_check_common(self, ip, arm, text_widget):
+        result = move_robot_to_zero_pose(
+            address=ip,
+            model_name="m",
+            arm=arm,
+            power=".*",
+            servo="^(?!.*head).*",
+        )
+
+        self.log(text_widget, "\n===== ZERO POSE CHECK =====")
+        self.log(text_widget, f"Arm: {result['arm']}")
+        self.log(text_widget, result["message"])
+
+        self.show_zero_pose_check_popup()
+        
+    def user_zero_pose_check(self):
+        try:
+            self.zero_pose_check_common(
+                ip=self.user_ip.get(),
+                arm=self.user_arm.get(),
+                text_widget=self.user_text,
+            )
+        except Exception as e:
+            messagebox.showerror("Zero Pose Check Error", str(e))
+            self.log(self.user_text, f"Zero pose check failed: {e}")
+
+
+    def dev_zero_pose_check(self):
+        try:
+            self.zero_pose_check_common(
+                ip=self.dev_ip.get(),
+                arm=self.dev_arm.get(),
+                text_widget=self.dev_text,
+            )
+        except Exception as e:
+            messagebox.showerror("Zero Pose Check Error", str(e))
+            self.log(self.dev_text, f"Zero pose check failed: {e}")
 
     def _build_ui(self):
         notebook = ttk.Notebook(self.root)
@@ -89,12 +164,15 @@ class CalibrationUI:
         act = ttk.LabelFrame(frm, text="Actions")
         act.pack(fill="x", padx=10, pady=10)
 
-        ttk.Button(act, text="Record", command=self.user_record).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="Calculate", command=self.user_calculate).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="1.Zero Pose Check", command=self.user_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(act, text="2.Record", command=self.user_record).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="3.Calculate", command=self.user_calculate).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="4.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
 
         self.user_count = tk.StringVar(value="Samples: 0")
-        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=3, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=4, padx=20, pady=5, sticky="w")
+        
+        
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
@@ -149,12 +227,15 @@ class CalibrationUI:
         act = ttk.LabelFrame(frm, text="Actions")
         act.pack(fill="x", padx=10, pady=10)
 
-        ttk.Button(act, text="Record", command=self.dev_record).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="Calculate", command=self.dev_calculate).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="1.Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
+        ttk.Button(act, text="2.Record", command=self.dev_record).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="3.Calculate", command=self.dev_calculate).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="4.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
 
         self.dev_count = tk.StringVar(value="Live Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=3, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=4, padx=20, pady=5, sticky="w")
+
+
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
