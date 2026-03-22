@@ -303,7 +303,7 @@ def load_npz_dataset(path):
 
 
 def create_robot(ip):
-    robot = rby.create_robot_a(ip)
+    robot = rby.create_robot_m(ip)
     robot.connect()
     robot.power_on(".*")
     robot.servo_on("^(?!.*head).*")
