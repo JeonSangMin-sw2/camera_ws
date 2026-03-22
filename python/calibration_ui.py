@@ -57,7 +57,7 @@ class CalibrationUI:
         conn.pack(fill="x", padx=10, pady=10)
 
         ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.user_ip = tk.StringVar(value="192.168.30.1:50051")
+        self.user_ip = tk.StringVar(value="localhost:50051")
         ttk.Entry(conn, textvariable=self.user_ip, width=30).grid(row=0, column=1, padx=5, pady=5, sticky="w")
         ttk.Button(conn, text="Connect", command=self.user_connect).grid(row=0, column=2, padx=5, pady=5)
 
@@ -106,7 +106,7 @@ class CalibrationUI:
         conn.pack(fill="x", padx=10, pady=10)
 
         ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.dev_ip = tk.StringVar(value="192.168.30.1:50051")
+        self.dev_ip = tk.StringVar(value="localhost:50051")
         ttk.Entry(conn, textvariable=self.dev_ip, width=30).grid(row=0, column=1, padx=5, pady=5, sticky="w")
         ttk.Button(conn, text="Connect", command=self.dev_connect).grid(row=0, column=2, padx=5, pady=5)
 
@@ -409,4 +409,7 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = CalibrationUI(root)
     root.protocol("WM_DELETE_WINDOW", app.on_close)
-    root.mainloop()
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        app.on_close()
