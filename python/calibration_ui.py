@@ -80,7 +80,7 @@ class CalibrationUI:
     def zero_pose_check_common(self, ip, arm, text_widget):
         result = move_robot_to_zero_pose(
             address=ip,
-            model_name="m",
+            model_name="a",
             arm=arm,
             power=".*",
             servo="^(?!.*head).*",
@@ -413,7 +413,7 @@ class CalibrationUI:
 
         result = apply_home_offset_from_json(
             address=ip,
-            model_name="m",
+            model_name="a",
             arm=arm,
             json_path="calibration_result.json",
             power=".*",

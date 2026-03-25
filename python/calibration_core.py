@@ -176,7 +176,7 @@ def save_result(path, q_offset, xi_cam):
 
 
 def create_robot(ip):
-    robot = rby.create_robot_m(ip)
+    robot = rby.create_robot_a(ip)
     robot.connect()
     robot.power_on(".*")
     robot.servo_on("^(?!.*head).*")

@@ -797,10 +797,10 @@ class Marker_Transform:
         self.Stereo = Stereo
         # self.client = TCPClient("127.0.0.1", 5000)
         # Setup Transforms
-        # T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
-        T5_to_marker_data = [0,0,0,0,0,0]
-        # tool_to_cam = [0,0,0,0,0,0]
-        tool_to_cam = [0.009,-0.09,-0.085,159,0,180]
+        T5_to_marker_data = [0.022, 0.0, 0.18, 180, 0.0, -90.0]
+        # T5_to_marker_data = [0,0,0,0,0,0]
+        tool_to_cam = [0,0,0,0,0,0]
+        # tool_to_cam = [0.009,-0.09,-0.085,159,0,180]
         self.T5_to_marker_tf = self.make_transform(T5_to_marker_data)
         self.tool_to_cam_tf = self.make_transform(tool_to_cam)
         
