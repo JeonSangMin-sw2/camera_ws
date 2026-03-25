@@ -1,6 +1,7 @@
 import json
-import os
 import tkinter as tk
+from datetime import datetime
+from pathlib import Path
 from tkinter import ttk, messagebox
 
 import numpy as np
@@ -17,24 +18,28 @@ from homeoffset_core import (
     move_robot_to_zero_pose,
 )
 
+BASE_DIR = Path(__file__).resolve().parent
+RESULT_DIR = BASE_DIR / "result"
+WARNING_POSE_PATH = BASE_DIR / "warning_pose.png"
+WARNING_POSE_CHECK_PATH = BASE_DIR / "warning_pose_check.png"
+
 class CalibrationUI:
     def __init__(self, root):
         self.root = root
         self.root.title("Calibration UI")
-        self.root.geometry("900x680")
+        self.root.geometry("1200x680")
 
         self.robot = None
         self.dyn_model = None
         self.model = None
         self.marker_transform = None
 
-        self.user_q_list = []
-        self.user_T_list = []
-
-        self.dev_q_list = []
-        self.dev_T_list = []
+        self.shared_q_list = []
+        self.shared_T_list = []
 
         self.warning_img = None
+        self.last_result_path = None
+        self.last_dataset_path = None
 
         self._build_ui()
 
@@ -61,12 +66,12 @@ class CalibrationUI:
 
         ttk.Label(popup, text=msg, justify="left").pack(padx=15, pady=15, anchor="w")
 
-        image_paths = ["warning_pose_check.png", "warning_pose.png"]
+        image_paths = [WARNING_POSE_CHECK_PATH, WARNING_POSE_PATH]
 
         for image_path in image_paths:
-            if os.path.exists(image_path):
+            if image_path.exists():
                 try:
-                    img = tk.PhotoImage(file=image_path)
+                    img = tk.PhotoImage(file=str(image_path))
                     img = img.subsample(3, 3)
                     lbl = ttk.Label(popup, image=img)
                     lbl.image = img
@@ -170,9 +175,10 @@ class CalibrationUI:
         
         ttk.Button(act, text="3.Calculate", command=self.user_calculate).grid(row=0, column=2, padx=5, pady=5)
         ttk.Button(act, text="4.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
+        ttk.Button(act, text="5.Clear Samples", command=self.clear_samples).grid(row=0, column=4, padx=5, pady=5)
 
         self.user_count = tk.StringVar(value="Samples: 0")
-        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=4, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=5, padx=20, pady=5, sticky="w")
         
         
 
@@ -219,7 +225,7 @@ class CalibrationUI:
             .grid(row=0, column=5, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.dev_path = tk.StringVar(value="captured_dataset.npz")
+        self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
         ttk.Entry(cfg, textvariable=self.dev_path, width=40).grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
 
         self.dev_mode_info = tk.StringVar(value="Record button is used only in live mode.")
@@ -233,9 +239,10 @@ class CalibrationUI:
         ttk.Button(act, text="2.Record", command=self.dev_record).grid(row=0, column=1, padx=5, pady=5)
         ttk.Button(act, text="3.Calculate", command=self.dev_calculate).grid(row=0, column=2, padx=5, pady=5)
         ttk.Button(act, text="4.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
+        ttk.Button(act, text="5.Clear Samples", command=self.clear_samples).grid(row=0, column=4, padx=5, pady=5)
 
-        self.dev_count = tk.StringVar(value="Live Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=4, padx=20, pady=5, sticky="w")
+        self.dev_count = tk.StringVar(value="Shared Samples: 0")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=5, padx=20, pady=5, sticky="w")
 
 
 
@@ -254,6 +261,51 @@ class CalibrationUI:
         widget.insert("end", msg + "\n")
         widget.see("end")
         self.root.update_idletasks()
+
+    def ensure_result_dir(self):
+        RESULT_DIR.mkdir(parents=True, exist_ok=True)
+        return RESULT_DIR
+
+    def build_output_paths(self):
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result_dir = self.ensure_result_dir()
+        dataset_path = result_dir / f"dataset_{timestamp}.npz"
+        result_path = result_dir / f"result_{timestamp}.json"
+        return dataset_path, result_path
+
+    def get_latest_result_path(self):
+        if self.last_result_path is not None and self.last_result_path.exists():
+            return self.last_result_path
+
+        result_dir = self.ensure_result_dir()
+        result_files = sorted(
+            result_dir.glob("result_*.json"),
+            key=lambda file_path: file_path.stat().st_mtime,
+            reverse=True,
+        )
+        if not result_files:
+            raise RuntimeError(f"No calibration result JSON found in {result_dir}")
+
+        self.last_result_path = result_files[0]
+        return self.last_result_path
+
+    def update_sample_counts(self):
+        sample_count = len(self.shared_q_list)
+        self.user_count.set(f"Samples: {sample_count}")
+        self.dev_count.set(f"Shared Samples: {sample_count}")
+
+    def resolve_input_path(self, raw_path):
+        input_path = Path(raw_path).expanduser()
+        if input_path.is_absolute():
+            return input_path
+        return BASE_DIR / input_path
+
+    def clear_samples(self):
+        self.shared_q_list.clear()
+        self.shared_T_list.clear()
+        self.update_sample_counts()
+        self.log(self.user_text, "Shared samples cleared.")
+        self.log(self.dev_text, "Shared samples cleared.")
 
     def get_arm_config(self, arm):
         if self.model is None:
@@ -318,7 +370,7 @@ class CalibrationUI:
         self.log(text_widget, f"marker =\n{np.round(T_meas, 3)}")
         return q_cmd, T_meas
 
-    def run_optimizer(self, arm, ndof, q_cmd_list, T_meas_list, text_widget):
+    def run_optimizer(self, arm, ndof, q_cmd_list, T_meas_list, result_path, text_widget):
         cfg = self.get_arm_config(arm)
 
         optimizer = CalibrationOptimizer(
@@ -346,10 +398,11 @@ class CalibrationUI:
             "xi_cam": np.array(xi_cam).tolist()
         }
 
-        with open("calibration_result.json", "w") as f:
+        with open(result_path, "w") as f:
             json.dump(result_dict, f, indent=4)
 
-        self.log(text_widget, "Result saved to calibration_result.json")
+        self.last_result_path = result_path
+        self.log(text_widget, f"Result saved to {result_path}")
 
     def confirm_home_offset_action(self):
         popup = tk.Toplevel(self.root)
@@ -375,10 +428,10 @@ class CalibrationUI:
             justify="left"
         ).pack(padx=15, pady=15, anchor="w")
 
-        image_path = "warning_pose.png"
-        if os.path.exists(image_path):
+        image_path = WARNING_POSE_PATH
+        if image_path.exists():
             try:
-                self.warning_img = tk.PhotoImage(file=image_path)
+                self.warning_img = tk.PhotoImage(file=str(image_path))
                 self.warning_img = self.warning_img.subsample(3, 3)   
                 ttk.Label(popup, image=self.warning_img).pack(padx=10, pady=10)
             except Exception:
@@ -403,8 +456,7 @@ class CalibrationUI:
         return result["ok"]
 
     def apply_home_offset_common(self, ip, arm, text_widget):
-        if not os.path.exists("calibration_result.json"):
-            raise RuntimeError("calibration_result.json not found.")
+        result_path = self.get_latest_result_path()
 
         proceed = self.confirm_home_offset_action()
         if not proceed:
@@ -415,7 +467,7 @@ class CalibrationUI:
             address=ip,
             model_name="a",
             arm=arm,
-            json_path="calibration_result.json",
+            json_path=str(result_path),
             power=".*",
             servo="^(?!.*head).*",
         )
@@ -438,34 +490,37 @@ class CalibrationUI:
             q_cmd, T_meas = self.capture_one_sample(self.user_arm.get(), self.user_text)
             if q_cmd is None:
                 return
-            self.user_q_list.append(q_cmd)
-            self.user_T_list.append(T_meas)
-            self.user_count.set(f"Samples: {len(self.user_q_list)}")
+            self.shared_q_list.append(q_cmd)
+            self.shared_T_list.append(T_meas)
+            self.update_sample_counts()
         except Exception as e:
             messagebox.showerror("Record Error", str(e))
             self.log(self.user_text, f"Record failed: {e}")
 
     def user_calculate(self):
         try:
-            if len(self.user_q_list) == 0:
+            if len(self.shared_q_list) == 0:
                 messagebox.showwarning("Warning", "No recorded samples.")
                 return
 
-            q_cmd_list = np.array(self.user_q_list)
-            T_meas_list = np.array(self.user_T_list)
+            q_cmd_list = np.array(self.shared_q_list)
+            T_meas_list = np.array(self.shared_T_list)
+            dataset_path, result_path = self.build_output_paths()
 
             np.savez_compressed(
-                "captured_dataset.npz",
+                dataset_path,
                 q=q_cmd_list,
                 marker=T_meas_list
             )
-            self.log(self.user_text, "Dataset saved to captured_dataset.npz")
+            self.last_dataset_path = dataset_path
+            self.log(self.user_text, f"Dataset saved to {dataset_path}")
 
             self.run_optimizer(
                 arm=self.user_arm.get(),
                 ndof=13,
                 q_cmd_list=q_cmd_list,
                 T_meas_list=T_meas_list,
+                result_path=result_path,
                 text_widget=self.user_text,
             )
         except Exception as e:
@@ -508,9 +563,9 @@ class CalibrationUI:
             q_cmd, T_meas = self.capture_one_sample(self.dev_arm.get(), self.dev_text)
             if q_cmd is None:
                 return
-            self.dev_q_list.append(q_cmd)
-            self.dev_T_list.append(T_meas)
-            self.dev_count.set(f"Live Samples: {len(self.dev_q_list)}")
+            self.shared_q_list.append(q_cmd)
+            self.shared_T_list.append(T_meas)
+            self.update_sample_counts()
         except Exception as e:
             messagebox.showerror("Record Error", str(e))
             self.log(self.dev_text, f"Record failed: {e}")
@@ -523,24 +578,18 @@ class CalibrationUI:
             cfg = self.get_arm_config(arm)
 
             if mode == "live":
-                if len(self.dev_q_list) == 0:
+                if len(self.shared_q_list) == 0:
                     messagebox.showwarning("Warning", "No recorded samples.")
                     return
 
-                q_cmd_list = np.array(self.dev_q_list)
-                T_meas_list = np.array(self.dev_T_list)
-
-                np.savez_compressed(
-                    "captured_dataset.npz",
-                    q=q_cmd_list,
-                    marker=T_meas_list
-                )
-                self.log(self.dev_text, "Dataset saved to captured_dataset.npz")
+                q_cmd_list = np.array(self.shared_q_list)
+                T_meas_list = np.array(self.shared_T_list)
 
             elif mode == "npz":
-                q_cmd_list, T_meas_list = load_npz_dataset(self.dev_path.get())
-                self.log(self.dev_text, f"Loaded npz: {self.dev_path.get()}")
-                self.log(self.dev_text, f"size = {np.size(q_cmd_list)}")
+                npz_path = self.resolve_input_path(self.dev_path.get())
+                q_cmd_list, T_meas_list = load_npz_dataset(npz_path)
+                self.log(self.dev_text, f"Loaded npz: {npz_path}")
+                self.log(self.dev_text, f"samples = {len(q_cmd_list)}")
 
             else:  # sim
                 q_cmd_list = np.random.uniform(-5, 5, (100, 7))
@@ -557,11 +606,21 @@ class CalibrationUI:
                 )
                 self.log(self.dev_text, "Simulation dataset generated.")
 
+            dataset_path, result_path = self.build_output_paths()
+            np.savez_compressed(
+                dataset_path,
+                q=q_cmd_list,
+                marker=T_meas_list
+            )
+            self.last_dataset_path = dataset_path
+            self.log(self.dev_text, f"Dataset saved to {dataset_path}")
+
             self.run_optimizer(
                 arm=arm,
                 ndof=ndof,
                 q_cmd_list=q_cmd_list,
                 T_meas_list=T_meas_list,
+                result_path=result_path,
                 text_widget=self.dev_text,
             )
 
