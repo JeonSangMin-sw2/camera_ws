@@ -231,7 +231,6 @@ def prepare_q_full(q_nominal, arm_idx, q_cmd, q_offset=None):
 
 def create_live_marker_transform():
     marker_transform = Marker_Transform(
-        Stereo=True,
         serial_number=None,
         monitoring=False
     )
