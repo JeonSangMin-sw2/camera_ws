@@ -166,10 +166,11 @@ def load_npz_dataset(path):
     return data["q"], data["marker"]
 
 
-def save_result(path, q_offset, xi_cam):
+def save_result(path, q_offset, xi_t5_cam):
     result_dict = {
         "joint_offset_deg": np.rad2deg(q_offset).tolist(),
-        "xi_cam": np.asarray(xi_cam).tolist(),
+        "xi_t5_cam": np.asarray(xi_t5_cam).tolist(),
+        "xi_cam": np.asarray(xi_t5_cam).tolist(),
     }
     with open(path, "w") as f:
         json.dump(result_dict, f, indent=4)
@@ -190,19 +191,21 @@ def get_arm_config(model, arm):
         return {
             "arm_idx": model.right_arm_idx[:7],
             "ee_link": "ee_right",
-            "tool_to_cam_nom": [
+            "t5_to_cam_nom": [
                 0.01079, -0.094527, -0.028914,
                 154.992754, -0.269972, -179.718444
             ],
+            "ee_to_marker_nom": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
         }
 
     return {
         "arm_idx": model.left_arm_idx[:7],
         "ee_link": "ee_left",
-        "tool_to_cam_nom": [
+        "t5_to_cam_nom": [
             -0.009187, 0.094257, -0.028313,
             154.667827, -0.320824, -0.268186
         ],
+        "ee_to_marker_nom": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     }
 
 
@@ -275,16 +278,18 @@ def generate_sim_measurements(
     q_nominal,
     ndof,
     ee_link,
-    tool_to_cam_nom
+    t5_to_cam_nom,
+    ee_to_marker_nom,
 ):
     q_offset_true = np.deg2rad([3, 0, 1, 4, -3, 2, 1])
-    xi_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
+    xi_t5_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
 
     optimize_joint = ndof in (7, 13)
     optimize_camera = ndof in (6, 13)
 
-    T_tool_to_cam_nom = make_transform(tool_to_cam_nom)
-    T_tool_to_cam_true = T_tool_to_cam_nom @ se3_exp(xi_cam_true)
+    T_t5_to_cam_nom = make_transform(t5_to_cam_nom)
+    T_t5_to_cam_true = T_t5_to_cam_nom @ se3_exp(xi_t5_cam_true)
+    T_ee_to_marker = make_transform(ee_to_marker_nom)
 
     T_list = []
 
@@ -297,7 +302,8 @@ def generate_sim_measurements(
         )
 
         _, T_fk = compute_fk(robot, dyn_model, q_full, ee_link)
-        T_meas = T_fk @ (T_tool_to_cam_true if optimize_camera else T_tool_to_cam_nom)
+        T_t5_to_cam = T_t5_to_cam_true if optimize_camera else T_t5_to_cam_nom
+        T_meas = np.linalg.inv(T_t5_to_cam) @ T_fk @ T_ee_to_marker
         T_list.append(T_meas)
 
     return np.array(T_list)
@@ -308,14 +314,15 @@ def generate_sim_measurements(
 # ============================================================
 
 class CalibrationOptimizer:
-    def __init__(self, robot, arm_idx, ee_link, tool_to_cam_nom, ndof, max_iter=500, eps=1e-6):
+    def __init__(self, robot, arm_idx, ee_link, t5_to_cam_nom, ee_to_marker_nom, ndof, max_iter=500, eps=1e-6):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
 
         self.arm_idx = arm_idx
         self.ee_link = ee_link
-        self.tool_to_cam_nom = tool_to_cam_nom
+        self.t5_to_cam_nom = t5_to_cam_nom
+        self.ee_to_marker_nom = ee_to_marker_nom
 
         self.optimize_joint = ndof in (7, 13)
         self.optimize_camera = ndof in (6, 13)
@@ -323,11 +330,15 @@ class CalibrationOptimizer:
         self.max_iter = max_iter
         self.eps = eps
         self.q_nominal = robot.get_state().position.copy()
+        self.numeric_jac_eps = 1e-7
 
-    def get_nominal_tool_to_cam(self):
-        return make_transform(self.tool_to_cam_nom)
+    def get_nominal_t5_to_cam(self):
+        return make_transform(self.t5_to_cam_nom)
 
-    def evaluate_sample(self, q_cmd, q_offset, xi_cam):
+    def get_nominal_ee_to_marker(self):
+        return make_transform(self.ee_to_marker_nom)
+
+    def evaluate_sample(self, q_cmd, q_offset, xi_t5_cam):
         q_full = prepare_q_full(
             q_nominal=self.q_nominal,
             arm_idx=self.arm_idx,
@@ -346,39 +357,58 @@ class CalibrationOptimizer:
         T_fk = self.dyn_model.compute_transformation(state, 0, 1)
         Jb = self.dyn_model.compute_body_jacobian(state, 0, 1)[:, self.arm_idx]
 
-        T_tool_to_cam_nom = self.get_nominal_tool_to_cam()
-        T_tool_to_cam = (
-            T_tool_to_cam_nom @ se3_exp(xi_cam)
-            if self.optimize_camera else T_tool_to_cam_nom
+        T_t5_to_cam_nom = self.get_nominal_t5_to_cam()
+        T_t5_to_cam = (
+            T_t5_to_cam_nom @ se3_exp(xi_t5_cam)
+            if self.optimize_camera else T_t5_to_cam_nom
         )
+        T_ee_to_marker = self.get_nominal_ee_to_marker()
 
-        T_model = T_fk @ T_tool_to_cam
-        return Jb, T_tool_to_cam, T_model
+        T_model = np.linalg.inv(T_t5_to_cam) @ T_fk @ T_ee_to_marker
+        return Jb, T_t5_to_cam, T_ee_to_marker, T_model
 
-    def build_jacobian(self, Jb, T_tool_to_cam):
+    def build_camera_jacobian_numeric(self, q_cmd, q_offset, xi_t5_cam, T_model_ref):
+        J_cam = np.zeros((6, 6))
+
+        for i in range(6):
+            delta = np.zeros(6)
+            delta[i] = self.numeric_jac_eps
+
+            _, _, _, T_model_plus = self.evaluate_sample(q_cmd, q_offset, xi_t5_cam + delta)
+            _, _, _, T_model_minus = self.evaluate_sample(q_cmd, q_offset, xi_t5_cam - delta)
+
+            xi_plus = se3_log(np.linalg.inv(T_model_ref) @ T_model_plus)
+            xi_minus = se3_log(np.linalg.inv(T_model_ref) @ T_model_minus)
+            J_cam[:, i] = (xi_plus - xi_minus) / (2 * self.numeric_jac_eps)
+
+        return J_cam
+
+    def build_jacobian(self, q_cmd, q_offset, xi_t5_cam, Jb, T_ee_to_marker, T_model):
+        J_joint = adjoint(np.linalg.inv(T_ee_to_marker)) @ Jb
+
         if self.optimize_joint and self.optimize_camera:
             J = np.zeros((6, 13))
-            J[:, :7] = adjoint(np.linalg.inv(T_tool_to_cam)) @ Jb
-            J[:, 7:] = np.eye(6)
+            J[:, :7] = J_joint
+            J[:, 7:] = self.build_camera_jacobian_numeric(q_cmd, q_offset, xi_t5_cam, T_model)
             return J
 
         if self.optimize_camera:
-            return np.eye(6)
+            return self.build_camera_jacobian_numeric(q_cmd, q_offset, xi_t5_cam, T_model)
 
-        return adjoint(np.linalg.inv(T_tool_to_cam)) @ Jb
+        return J_joint
 
-    def compute_step(self, q_cmd_list, T_meas_list, q_offset, xi_cam):
+    def compute_step(self, q_cmd_list, T_meas_list, q_offset, xi_t5_cam):
         dim = 13 if (self.optimize_joint and self.optimize_camera) else (6 if self.optimize_camera else 7)
         H = np.zeros((dim, dim))
         g = np.zeros(dim)
         total_err = 0.0
 
         for q_cmd, T_meas in zip(q_cmd_list, T_meas_list):
-            Jb, T_tool_to_cam, T_model = self.evaluate_sample(q_cmd, q_offset, xi_cam)
+            Jb, _, T_ee_to_marker, T_model = self.evaluate_sample(q_cmd, q_offset, xi_t5_cam)
 
             T_err = np.linalg.inv(T_model) @ T_meas
             xi = se3_log(T_err)
-            J = self.build_jacobian(Jb, T_tool_to_cam)
+            J = self.build_jacobian(q_cmd, q_offset, xi_t5_cam, Jb, T_ee_to_marker, T_model)
 
             H += J.T @ J
             g += J.T @ xi
@@ -387,19 +417,19 @@ class CalibrationOptimizer:
         dx = np.linalg.pinv(H) @ g
         return dx, total_err
 
-    def apply_update(self, q_offset, xi_cam, dx):
+    def apply_update(self, q_offset, xi_t5_cam, dx):
         if self.optimize_joint and self.optimize_camera:
             q_offset += dx[:7]
-            xi_cam += dx[7:]
+            xi_t5_cam += dx[7:]
         elif self.optimize_camera:
-            xi_cam += dx
+            xi_t5_cam += dx
         else:
             q_offset += dx
-        return q_offset, xi_cam
+        return q_offset, xi_t5_cam
 
-    def get_calibrated_tool_to_cam(self, xi_cam):
-        T_nom = self.get_nominal_tool_to_cam()
-        T_calib = T_nom @ se3_exp(xi_cam)
+    def get_calibrated_t5_to_cam(self, xi_t5_cam):
+        T_nom = self.get_nominal_t5_to_cam()
+        T_calib = T_nom @ se3_exp(xi_t5_cam)
 
         p = T_calib[:3, 3]
         rpy = rot_to_euler_zyx(T_calib[:3, :3])
@@ -413,11 +443,11 @@ class CalibrationOptimizer:
 
     def optimize(self, q_cmd_list, T_meas_list):
         q_offset = np.zeros(7)
-        xi_cam = np.zeros(6)
+        xi_t5_cam = np.zeros(6)
 
         for it in range(self.max_iter):
-            dx, total_err = self.compute_step(q_cmd_list, T_meas_list, q_offset, xi_cam)
-            q_offset, xi_cam = self.apply_update(q_offset, xi_cam, dx)
+            dx, total_err = self.compute_step(q_cmd_list, T_meas_list, q_offset, xi_t5_cam)
+            q_offset, xi_t5_cam = self.apply_update(q_offset, xi_t5_cam, dx)
 
             print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
 
@@ -425,8 +455,8 @@ class CalibrationOptimizer:
                 print("Converged.")
                 break
 
-        tool_to_cam_new = self.get_calibrated_tool_to_cam(xi_cam)
-        return q_offset, xi_cam, tool_to_cam_new
+        t5_to_cam_new = self.get_calibrated_t5_to_cam(xi_t5_cam)
+        return q_offset, xi_t5_cam, t5_to_cam_new
 
 
 # ============================================================
@@ -464,7 +494,8 @@ def prepare_dataset(args, robot, dyn_model, config):
             q_nominal=q_nominal,
             ndof=args.ndof,
             ee_link=config["ee_link"],
-            tool_to_cam_nom=config["tool_to_cam_nom"],
+            t5_to_cam_nom=config["t5_to_cam_nom"],
+        ee_to_marker_nom=config["ee_to_marker_nom"],
         )
 
     return q_cmd_list, T_meas_list, marker_transform
@@ -507,21 +538,22 @@ def main():
         robot=robot,
         arm_idx=config["arm_idx"],
         ee_link=config["ee_link"],
-        tool_to_cam_nom=config["tool_to_cam_nom"],
+        t5_to_cam_nom=config["t5_to_cam_nom"],
+        ee_to_marker_nom=config["ee_to_marker_nom"],
         ndof=args.ndof,
     )
 
-    q_offset, xi_cam, tool_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)
+    q_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)
 
     print("\n===== RESULT =====")
     print("Joint offset (deg):")
     print(np.rad2deg(q_offset))
-    print("Camera xi:")
-    print(xi_cam)
-    print("Calibrated tool_to_cam:")
-    print(tool_to_cam_new)
+    print("T5-to-camera xi:")
+    print(xi_t5_cam)
+    print("Calibrated t5_to_cam:")
+    print(t5_to_cam_new)
 
-    save_result("calibration_result.json", q_offset, xi_cam)
+    save_result("calibration_result.json", q_offset, xi_t5_cam)
     print("Result saved to calibration_result.json")
 
     if marker_transform is not None:

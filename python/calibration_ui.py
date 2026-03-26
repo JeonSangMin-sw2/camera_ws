@@ -8,6 +8,7 @@ import numpy as np
 
 from calibration_core import (
     create_robot,
+    get_arm_config,
     load_npz_dataset,
     generate_sim_measurements,
     CalibrationOptimizer,
@@ -307,29 +308,6 @@ class CalibrationUI:
         self.log(self.user_text, "Shared samples cleared.")
         self.log(self.dev_text, "Shared samples cleared.")
 
-    def get_arm_config(self, arm):
-        if self.model is None:
-            raise RuntimeError("Robot is not connected.")
-
-        if arm == "right":
-            return {
-                "ARM_IDX": self.model.right_arm_idx,
-                "ee_link": "ee_right",
-                "tool_to_cam_nom": [
-                    0.01079, -0.094527, -0.028914,
-                    154.992754, -0.269972, -179.718444
-                ],
-            }
-        else:
-            return {
-                "ARM_IDX": self.model.left_arm_idx,
-                "ee_link": "ee_left",
-                "tool_to_cam_nom": [
-                    -0.009187, 0.094257, -0.028313,
-                    154.667827, -0.320824, -0.268186
-                ],
-            }
-
     def connect_robot(self, ip, status_var, text_widget):
         try:
             self.robot = create_robot(ip)
@@ -353,11 +331,14 @@ class CalibrationUI:
                 monitoring=False
             )
 
-        cfg = self.get_arm_config(arm)
+        if self.model is None:
+            raise RuntimeError("Robot is not connected.")
+
+        cfg = get_arm_config(self.model, arm)
 
         state = self.robot.get_state()
         q_full = state.position.copy()
-        q_cmd = q_full[cfg["ARM_IDX"][:7]].copy()
+        q_cmd = q_full[cfg["arm_idx"]].copy()
 
         result = self.marker_transform.get_marker_transform(sampling_time=2)
         if result is None:
@@ -371,31 +352,36 @@ class CalibrationUI:
         return q_cmd, T_meas
 
     def run_optimizer(self, arm, ndof, q_cmd_list, T_meas_list, result_path, text_widget):
-        cfg = self.get_arm_config(arm)
+        if self.model is None:
+            raise RuntimeError("Robot is not connected.")
+
+        cfg = get_arm_config(self.model, arm)
 
         optimizer = CalibrationOptimizer(
             robot=self.robot,
-            arm_idx=cfg["ARM_IDX"],
+            arm_idx=cfg["arm_idx"],
             ee_link=cfg["ee_link"],
-            tool_to_cam_nom=cfg["tool_to_cam_nom"],
+            t5_to_cam_nom=cfg["t5_to_cam_nom"],
+            ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
         )
 
-        q_offset, xi_cam, tool_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)
+        q_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)
 
-        tool_to_cam_new = [float(x) for x in tool_to_cam_new]
+        t5_to_cam_new = [float(x) for x in t5_to_cam_new]
 
         self.log(text_widget, "\n===== RESULT =====")
         self.log(text_widget, "Joint offset (deg):")
         self.log(text_widget, str(np.rad2deg(q_offset)))
-        self.log(text_widget, "Camera xi:")
-        self.log(text_widget, str(xi_cam))
-        self.log(text_widget, "tool_to_cam_new:")
-        self.log(text_widget, str(tool_to_cam_new))
+        self.log(text_widget, "T5-to-camera xi:")
+        self.log(text_widget, str(xi_t5_cam))
+        self.log(text_widget, "t5_to_cam_new:")
+        self.log(text_widget, str(t5_to_cam_new))
 
         result_dict = {
             "joint_offset_deg": np.rad2deg(q_offset).tolist(),
-            "xi_cam": np.array(xi_cam).tolist()
+            "xi_t5_cam": np.array(xi_t5_cam).tolist(),
+            "xi_cam": np.array(xi_t5_cam).tolist()
         }
 
         with open(result_path, "w") as f:
@@ -575,7 +561,10 @@ class CalibrationUI:
             mode = self.dev_mode.get()
             ndof = int(self.dev_ndof.get())
             arm = self.dev_arm.get()
-            cfg = self.get_arm_config(arm)
+            if self.model is None:
+                raise RuntimeError("Robot is not connected.")
+
+            cfg = get_arm_config(self.model, arm)
 
             if mode == "live":
                 if len(self.shared_q_list) == 0:
@@ -598,11 +587,12 @@ class CalibrationUI:
                     self.robot,
                     self.dyn_model,
                     q_cmd_list,
-                    cfg["ARM_IDX"],
+                    cfg["arm_idx"],
                     q_nominal,
                     ndof,
                     cfg["ee_link"],
-                    cfg["tool_to_cam_nom"],
+                    cfg["t5_to_cam_nom"],
+                    cfg["ee_to_marker_nom"],
                 )
                 self.log(self.dev_text, "Simulation dataset generated.")
 
