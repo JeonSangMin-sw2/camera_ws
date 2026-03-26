@@ -201,11 +201,8 @@ def get_arm_config(model, arm):
     return {
         "arm_idx": model.left_arm_idx[:7],
         "ee_link": "ee_left",
-        "t5_to_cam_nom": [
-            -0.009187, 0.094257, -0.028313,
-            154.667827, -0.320824, -0.268186
-        ],
-        "ee_to_marker_nom": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        "t5_to_cam_nom": [0.112, 0.0, 0.174, 180.0, 0.0, -90.0],
+        "ee_to_marker_nom": [0.0, 0.09, -0.05317, 90.0, 0.0, 0.0],
     }
 
 
