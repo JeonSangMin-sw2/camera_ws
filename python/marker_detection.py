@@ -683,8 +683,8 @@ class Marker_Detection:
                                 0.0, 0.0, 0.0, 1.0
                             ]
                             marker_centers_result.append((group_id, transform_m))
-                            if tcpip_send:
-                                self.tcp_client.send_pose(transform_m)
+                            # if tcpip_send:
+                            #     self.tcp_client.send_pose(transform_m)
                 return marker_centers_result
 
             # NON-CUBE logic (e.g. Plate)
@@ -718,8 +718,8 @@ class Marker_Detection:
                     marker_centers_result.append(("plate_right", transform))
                 else:
                     marker_centers_result.append((marker_id, transform))
-                if tcpip_send:
-                    self.tcp_client.send_pose(transform)
+                # if tcpip_send:
+                #     self.tcp_client.send_pose(transform)
                 
         return marker_centers_result
 
@@ -736,6 +736,7 @@ class Marker_Transform:
         tf_vec_l = self.camera_config.get("Tf_to_marker_left", self.camera_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
         tf_vec_r = self.camera_config.get("Tf_to_marker_right", self.camera_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
         t5_vec = self.camera_config.get("T5_to_cam", [0.009, -0.09, -0.085, 159.0, 0.0, 180.0])
+        print(tf_vec_l)
         
         self.Tf_to_marker_tf_left = self.make_transform(tf_vec_l)
         self.Tf_to_marker_tf_right = self.make_transform(tf_vec_r)
@@ -833,7 +834,8 @@ class Marker_Transform:
         try:
             target_tf = self.Tf_to_marker_tf_left if side == "left" else self.Tf_to_marker_tf_right
             tf_to_marker_inv = np.linalg.inv(target_tf)
-            # base_to_tool = base_to_marker * camera_to_marker^-1 * camera_to_tool
+            
+            # T5_to_tool = T5_to_cam * cam_to_marker * tool_to_marker^-1
             cam_to_tool_tf = camera_to_marker_tf @ tf_to_marker_inv
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
@@ -842,7 +844,8 @@ class Marker_Transform:
                 cam_to_tool_vec[3] /= 1000
                 cam_to_tool_vec[7] /= 1000
                 cam_to_tool_vec[11] /= 1000
-                
+            if tcpip_send and len(cam_to_tool_vec) > 0:
+                self.marker_detection.tcp_client.send_pose(cam_to_tool_vec) 
             return cam_to_tool_vec
         except np.linalg.LinAlgError:
             print("Singular matrix, cannot invert")
@@ -950,18 +953,19 @@ class Marker_Transform:
                 # Determine side for transform selection
                 calc_side = "left" if "left" in str(marker_id) else "right"
                 
-                T5_to_tool_vec = self.calc_cam_to_tool(avg_cam_to_marker_tf, side=calc_side)
-                if T5_to_tool_vec is not None:
-                    final_results[marker_id] = T5_to_tool_vec
+                cam_to_tool_vec = self.calc_cam_to_tool(avg_cam_to_marker_tf, side=calc_side)
+                if cam_to_tool_vec is not None:
+                    final_results[marker_id] = cam_to_tool_vec
         elif sampling_time == 0:
+            for marker_id, tfs in collected_transforms.items():
                 # For sampling_time == 0, there is only one frame of transforms
                 # and thus tfs should have only length 1
                 camera_to_marker_tf = np.array(tfs[-1], dtype=np.float32).reshape(4, 4)
                 
                 calc_side = "left" if "left" in str(marker_id) else "right"
-                T5_to_tool_vec = self.calc_cam_to_tool(camera_to_marker_tf, side=calc_side)
-                if T5_to_tool_vec is not None:
-                    final_results[marker_id] = T5_to_tool_vec
+                cam_to_tool_vec = self.calc_cam_to_tool(camera_to_marker_tf, side=calc_side)
+                if cam_to_tool_vec is not None:
+                    final_results[marker_id] = cam_to_tool_vec
         
         if len(final_results) > 0:
             if self.marker_detection.marker_type == "cube":
@@ -992,7 +996,6 @@ class Marker_Transform:
                     if res_r is not None: out.append(res_r)
                     if res_l is not None: out.append(res_l)
                     return out if out else None
-                    
             return final_results
         else:
             return None
