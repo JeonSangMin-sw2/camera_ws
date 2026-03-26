@@ -162,17 +162,17 @@ def get_base_rotation(direction: str):
 
     raise ValueError(f"unsupported direction: {direction}")
 
-def compute_target_T(pivot, tip_offset, tilt_x_deg, tilt_y_deg, yaw_deg, direction):
-    tilt_x = np.deg2rad(tilt_x_deg)
-    tilt_y = np.deg2rad(tilt_y_deg)
+def compute_target_T(pivot, tip_offset, roll_deg, pitch_deg, yaw_deg, direction):
+    roll = np.deg2rad(roll_deg)
+    pitch = np.deg2rad(pitch_deg)
     yaw = np.deg2rad(yaw_deg)
 
     R_base = get_base_rotation(direction)
 
     if direction == "x":
-        R = rot_z(yaw) @ rot_y(tilt_y) @ rot_x(tilt_x) @ R_base
+        R = rot_z(yaw) @ rot_y(pitch) @ rot_x(roll) @ R_base
     else:
-        R = rot_y(tilt_y) @ rot_x(tilt_x) @ R_base
+        R = rot_z(yaw) @ rot_y(pitch) @ rot_x(roll) @ R_base
 
     p_ee = pivot - R @ tip_offset
     return make_T(R, p_ee)
@@ -190,21 +190,19 @@ def main():
     parser.add_argument("--direction", type=str, default="down", choices=["down", "x"])
 
     # right pivot
-    parser.add_argument("--pivot_x", type=float, default=0.58)
+    parser.add_argument("--pivot_x", type=float, default=0.28)
     parser.add_argument("--pivot_y", type=float, default=-0.40)
-    parser.add_argument("--pivot_z", type=float, default=-0.0)
+    parser.add_argument("--pivot_z", type=float, default=-0.1)
 
     # ee -> tip offset (ee frame)
     parser.add_argument("--tip_offset_x", type=float, default=0.0)
     parser.add_argument("--tip_offset_y", type=float, default=0.0)
-    parser.add_argument("--tip_offset_z", type=float, default=-0.191)
+    parser.add_argument("--tip_offset_z", type=float, default=-0.09191)
+    parser.add_argument("--axis", type=str, default="roll", choices=["roll", "pitch", "yaw"])
+    parser.add_argument("--max_roll_deg", type=float, default=15.0)
+    parser.add_argument("--max_pitch_deg", type=float, default=15.0)
     parser.add_argument("--max_yaw_deg", type=float, default=15.0)
-    parser.add_argument("--max_tilt_deg", type=float, default=15.0)
-
-    # sine frequencies
-    parser.add_argument("--freq_roll", type=float, default=0.1)
-    parser.add_argument("--freq_pitch", type=float, default=0.05)
-    parser.add_argument("--freq_yaw", type=float, default=0.03)
+    parser.add_argument("--freq", type=float, default=0.1)
 
     # streaming
     parser.add_argument("--dt", type=float, default=0.05)  # 20 Hz
@@ -231,6 +229,7 @@ def main():
 
     print(f"mode       : {args.mode}")
     print(f"direction  : {args.direction}")
+    print(f"axis       : {args.axis}")
     print(f"pivot_right: {pivot_right}")
     print(f"pivot_left : {pivot_left}")
     print(f"tip_offset : {tip_offset}")
@@ -255,27 +254,30 @@ def main():
         if args.duration > 0.0 and t > args.duration:
             break
 
-        # -1 ~ 1
-        sx = np.sin(2 * np.pi * args.freq_roll * t)
-        sy = np.sin(2 * np.pi * args.freq_pitch * t + 1.0)
-        sz = np.sin(2 * np.pi * args.freq_yaw * t + 0.5)
-        yaw_deg = args.max_yaw_deg * sz
-        
-        # cone 내부에 들어오도록 제한
-        tilt_x = args.max_tilt_deg * sx / np.sqrt(2.0)
-        tilt_y = args.max_tilt_deg * sy / np.sqrt(2.0)
+        s = np.sin(2 * np.pi * args.freq * t)
+
+        roll_deg = 0.0
+        pitch_deg = 0.0
+        yaw_deg = 0.0
+
+        if args.axis == "roll":
+            roll_deg = args.max_roll_deg * s
+        elif args.axis == "pitch":
+            pitch_deg = args.max_pitch_deg * s
+        else:
+            yaw_deg = args.max_yaw_deg * s
 
         T_right = None
         T_left = None
 
         if args.mode in ["right", "both"]:
             T_right = compute_target_T(
-                pivot_right, tip_offset, tilt_x, tilt_y, yaw_deg, args.direction
+                pivot_right, tip_offset, roll_deg, pitch_deg, yaw_deg, args.direction
             )
 
         if args.mode in ["left", "both"]:
             T_left = compute_target_T(
-                pivot_left, tip_offset, tilt_x, -tilt_y, -yaw_deg, args.direction
+                pivot_left, tip_offset, roll_deg, pitch_deg, -yaw_deg, args.direction
             )
 
         cmd = make_cartesian_cmd(T_right=T_right, T_left=T_left)
