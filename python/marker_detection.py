@@ -848,7 +848,7 @@ class Marker_Transform:
             print("Singular matrix, cannot invert")
             return None
 
-    def get_marker_transform(self, sampling_time=0, side="all"):
+    def get_marker_transform(self, sampling_time=0, side="left"):
         lpf = False
         # Collection array for sampling -> dict of lists
         collected_transforms = {} # { marker_id: [tf_vectors...] }
