@@ -19,7 +19,7 @@ def get_rpy_from_matrix(R):
 
 
 def main():
-    logger = File_Logger()
+    # logger = File_Logger()
     marker_transform = None
     fps = 1/30
     check_marker_side = "left"
@@ -50,7 +50,7 @@ def main():
                 ])
                 rpy = get_rpy_from_matrix(R)
                 string = f"{check_marker_side},{temp},{result[3]*1000},{result[7]*1000},{result[11]*1000},{rpy[0]},{rpy[1]},{rpy[2]}"
-                logger.save(string)
+                # logger.save(string)
                 print("===========================")
             time.sleep(fps) # Removed sleep for better responsiveness
     except RuntimeError as e:
