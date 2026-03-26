@@ -836,7 +836,7 @@ class Marker_Transform:
             tf_to_marker_inv = np.linalg.inv(target_tf)
             
             # T5_to_tool = T5_to_cam * cam_to_marker * tool_to_marker^-1
-            cam_to_tool_tf = camera_to_marker_tf @ tf_to_marker_inv
+            cam_to_tool_tf = camera_to_marker_tf # @ tf_to_marker_inv
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
             # Unit conversion if needed (mm -> m logic from original code)
