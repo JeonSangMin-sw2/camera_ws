@@ -1,0 +1,37 @@
+camera:
+  Tf_to_marker_left: [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]
+  Tf_to_marker_right: [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]
+  # T5_to_cam: [0.009, -0.09, -0.085, 159.0, 0.0, 180.0]
+  T5_to_cam: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+  width: 1280
+  height: 720
+  fps: 30
+
+thermal_compensation:
+  enabled: false
+  baseline_temp: 32.0
+  focal_scale_per_deg: 0.00028
+  pp_x_shift_per_deg: 0.035
+  pp_y_shift_per_deg: -0.142
+
+marker:
+  cube:
+    cube_size_mm: 40.0
+    left_ids:
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    right_ids:
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+  plate:
+    left_ids:
+    - 7
+    right_ids:
+    - 8
+    plate_size_mm: 80.0
