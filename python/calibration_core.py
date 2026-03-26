@@ -244,7 +244,7 @@ def capture_dataset(robot, arm_idx, marker_transform):
             q_full = state.position.copy()
             q_cmd = q_full[arm_idx].copy()
 
-            result = marker_transform.get_marker_transform(sampling_time=2)
+            result = marker_transform.get_marker_transform(sampling_time=2, side="left")#------------------------------------
             if result is None:
                 print("Marker not detected.")
                 continue
@@ -472,6 +472,7 @@ def prepare_dataset(args, robot, dyn_model, config):
             serial_number=None,
             monitoring=False
         )
+        marker_transform.marker_detection.set_marker_type("plate")# ---------------------------------------------
         q_cmd_list, T_meas_list = capture_dataset(
             robot=robot,
             arm_idx=config["arm_idx"],
