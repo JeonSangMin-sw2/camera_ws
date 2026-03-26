@@ -229,6 +229,29 @@ def prepare_q_full(q_nominal, arm_idx, q_cmd, q_offset=None):
 # Capture dataset
 # ============================================================
 
+def create_live_marker_transform():
+    marker_transform = Marker_Transform(
+        Stereo=True,
+        serial_number=None,
+        monitoring=False
+    )
+    marker_transform.marker_detection.set_marker_type("plate")
+    return marker_transform
+
+
+def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="left"):
+    state = robot.get_state()
+    q_full = state.position.copy()
+    q_cmd = q_full[arm_idx].copy()
+
+    result = marker_transform.get_marker_transform(sampling_time=sampling_time, side=side)
+    if result is None:
+        return None, None
+
+    T_meas = np.array(result).reshape(4, 4)
+    return q_cmd, T_meas
+
+
 def capture_dataset(robot, arm_idx, marker_transform):
     q_cmd_list = []
     T_meas_list = []
@@ -240,16 +263,14 @@ def capture_dataset(robot, arm_idx, marker_transform):
         key = input().strip()
 
         if key == "e":
-            state = robot.get_state()
-            q_full = state.position.copy()
-            q_cmd = q_full[arm_idx].copy()
-
-            result = marker_transform.get_marker_transform(sampling_time=2, side="left")#------------------------------------
-            if result is None:
+            q_cmd, T_meas = capture_one_sample(
+                robot=robot,
+                arm_idx=arm_idx,
+                marker_transform=marker_transform,
+            )
+            if T_meas is None:
                 print("Marker not detected.")
                 continue
-
-            T_meas = np.array(result).reshape(4, 4)
 
             q_cmd_list.append(q_cmd)
             T_meas_list.append(T_meas)
@@ -467,12 +488,7 @@ def prepare_dataset(args, robot, dyn_model, config):
     marker_transform = None
 
     if args.mode == "live":
-        marker_transform = Marker_Transform(
-            Stereo=True,
-            serial_number=None,
-            monitoring=False
-        )
-        marker_transform.marker_detection.set_marker_type("plate")# ---------------------------------------------
+        marker_transform = create_live_marker_transform()
         q_cmd_list, T_meas_list = capture_dataset(
             robot=robot,
             arm_idx=config["arm_idx"],

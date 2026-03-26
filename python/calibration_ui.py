@@ -8,11 +8,12 @@ import numpy as np
 
 from calibration_core import (
     create_robot,
+    create_live_marker_transform,
+    capture_one_sample as capture_robot_sample,
     get_arm_config,
     load_npz_dataset,
     generate_sim_measurements,
     CalibrationOptimizer,
-    Marker_Transform,
 )
 from homeoffset_core import (
     apply_home_offset_from_json,
@@ -325,27 +326,21 @@ class CalibrationUI:
             raise RuntimeError("Robot is not connected.")
 
         if self.marker_transform is None:
-            self.marker_transform = Marker_Transform(
-                Stereo=True,
-                serial_number=None,
-                monitoring=False
-            )
+            self.marker_transform = create_live_marker_transform()
 
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
         cfg = get_arm_config(self.model, arm)
-
-        state = self.robot.get_state()
-        q_full = state.position.copy()
-        q_cmd = q_full[cfg["arm_idx"]].copy()
-
-        result = self.marker_transform.get_marker_transform(sampling_time=2)
-        if result is None:
+        q_cmd, T_meas = capture_robot_sample(
+            robot=self.robot,
+            arm_idx=cfg["arm_idx"],
+            marker_transform=self.marker_transform,
+        )
+        if T_meas is None:
             self.log(text_widget, "Marker not detected.")
             return None, None
 
-        T_meas = np.array(result).reshape(4, 4)
         self.log(text_widget, f"Captured sample")
         self.log(text_widget, f"q = {np.round(q_cmd, 3)}")
         self.log(text_widget, f"marker =\n{np.round(T_meas, 3)}")
