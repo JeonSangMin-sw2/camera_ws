@@ -73,15 +73,15 @@ def init_robot(address, model, power, servo):
 
 
 def go_ready(robot):
-    q_torso = np.array([0, 30, -60, 30, 0, 0]) * D2R
+    q_torso = np.array([0, 60, -120, 60, 0, 0]) * D2R
 
     # 필요하면 여기만 수정
     # q_right = np.array([-1.368 ,-0.837,  1.110 ,-0.994 ,-1.745 , 1.782, -0.509])
-    q_right = np.array([-0.606 ,-1.634, 0.960, -2.410,  0.410 , 1.047 ,-2.196])
-    
-    
+    q_right = np.array([-0.880, -1.726, 1.136, -1.948, -1.714, 1.285, -0.466])
+
     # q_left = np.array([-45, 30, 0, -90, 0, 45, 0]) * D2R
-    q_left =  np.array([-0.606 ,1.634, -0.960, -2.410,  -0.410 , 1.047 ,2.196])
+    q_left = np.array([-0.880, 1.726, -1.136, -1.948, 1.714, 1.285, 0.466])
+
     q = np.concatenate([q_torso, q_right, q_left])
 
     cmd = (
@@ -182,7 +182,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--address", type=str, required=True)
-    parser.add_argument("--model", type=str, default="m")
+    parser.add_argument("--model", type=str, default="a")
     parser.add_argument("--power", type=str, default=".*")
     parser.add_argument("--servo", type=str, default="torso_.*|right_arm_.*|left_arm_.*")
 
@@ -192,16 +192,16 @@ def main():
     # right pivot
     parser.add_argument("--pivot_x", type=float, default=0.28)
     parser.add_argument("--pivot_y", type=float, default=-0.40)
-    parser.add_argument("--pivot_z", type=float, default=-0.1)
+    parser.add_argument("--pivot_z", type=float, default=-0.2)
 
     # ee -> tip offset (ee frame)
     parser.add_argument("--tip_offset_x", type=float, default=0.0)
     parser.add_argument("--tip_offset_y", type=float, default=0.0)
     parser.add_argument("--tip_offset_z", type=float, default=-0.09191)
     parser.add_argument("--axis", type=str, default="roll", choices=["roll", "pitch", "yaw"])
-    parser.add_argument("--max_roll_deg", type=float, default=20.0)
-    parser.add_argument("--max_pitch_deg", type=float, default=20.0)
-    parser.add_argument("--max_yaw_deg", type=float, default=20.0)
+    parser.add_argument("--max_roll_deg", type=float, default=15.0)
+    parser.add_argument("--max_pitch_deg", type=float, default=15.0)
+    parser.add_argument("--max_yaw_deg", type=float, default=15.0)
     parser.add_argument("--freq", type=float, default=0.1)
 
     # streaming
