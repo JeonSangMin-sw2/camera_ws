@@ -10,7 +10,7 @@ import os, yaml
 from datetime import datetime
 
 #debugging flag : 실사용시 모두 false여야함
-imshow_when_detect = False
+imshow_when_detect = True
 check_cube_marker_data = False
 tcpip_send = True
 
@@ -509,8 +509,7 @@ class Marker_Detection:
         else:
             self.marker_id = []
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, depth_image, lpf = False, logging = False, current_temp = None):
-        depth_filtered = depth_image.copy()
+    def detect(self, color_image, lpf = False, logging = False, current_temp = None):
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         marker_centers_result = []
@@ -607,40 +606,56 @@ class Marker_Detection:
                                 'corners': c
                             }
                 
-                cube_marker_ids = list(current_frame_cube_info.keys())
+                # 인식된 마커들을 그룹(예: cube_left, cube_right)별로 분류
+                markers_by_group = {}
+                for m_id, info in current_frame_cube_info.items():
+                    g_id = info['group_id']
+                    if g_id not in markers_by_group:
+                        markers_by_group[g_id] = []
+                    markers_by_group[g_id].append(m_id)
+
                 valid_ids = set()
-                # 마커가 2개이상 인식되면 다중마커에 의한 보정기능 실행
-                if len(cube_marker_ids) >= 2:
-                    good_connections = {m: 0 for m in cube_marker_ids}
-                    for i in range(len(cube_marker_ids)):
-                        for j in range(i+1, len(cube_marker_ids)):
-                            id1, id2 = cube_marker_ids[i], cube_marker_ids[j]
-                            info1, info2 = current_frame_cube_info[id1], current_frame_cube_info[id2]
-                            
-                            # 인식된 마커들 중 valid한 마커만 사용
-                            n1 = info1['T_cam_to_M'][0:3, 2]
-                            n2 = info2['T_cam_to_M'][0:3, 2]
-                            n1 = n1 / np.linalg.norm(n1)
-                            n2 = n2 / np.linalg.norm(n2)
-                            dot_val = np.dot(n1, n2)
-                            angle_deg = math.degrees(math.acos(np.clip(dot_val, -1.0, 1.0)))
-                            angle_error = abs(angle_deg - 90.0)
-                            
-                            center1 = info1['T_cam_to_M'][0:3, 3]
-                            center2 = info2['T_cam_to_M'][0:3, 3]
-                            actual_dist = np.linalg.norm(center1 - center2)
-                            
-                            CUBE_TO_MARKER_1 = self.cube_markers[info1['group_id']].get_transform(id1)
-                            CUBE_TO_MARKER_2 = self.cube_markers[info2['group_id']].get_transform(id2)
-                            expected_dist = np.linalg.norm(CUBE_TO_MARKER_1[0:3, 3] - CUBE_TO_MARKER_2[0:3, 3])
-                            dist_error = abs(actual_dist - expected_dist)
-                            
-                            if angle_error <= 1.8 and dist_error <= 1.2:
-                                good_connections[id1] += 1
-                                good_connections[id2] += 1
-                    valid_ids = {m for m, count in good_connections.items() if count > 0}
-                elif len(cube_marker_ids) == 1:
-                    valid_ids.add(cube_marker_ids[0])
+                # 각 그룹별로 독립적으로 유효성 검사 수행
+                for g_id, m_ids in markers_by_group.items():
+                    if len(m_ids) == 1:
+                        # 마커가 하나만 인식되면 즉시 유효한 것으로 간주
+                        valid_ids.add(m_ids[0])
+                    else:
+                        # 마커가 2개 이상 인식되면 다중마커 기하학적 검증(각도, 거리) 실행
+                        good_connections = {m: 0 for m in m_ids}
+                        for i in range(len(m_ids)):
+                            for j in range(i+1, len(m_ids)):
+                                id1, id2 = m_ids[i], m_ids[j]
+                                info1, info2 = current_frame_cube_info[id1], current_frame_cube_info[id2]
+                                
+                                # 각도 검증 (인접한 면은 서로 수직이어야 함)
+                                n1 = info1['T_cam_to_M'][0:3, 2]
+                                n2 = info2['T_cam_to_M'][0:3, 2]
+                                n1 = n1 / np.linalg.norm(n1)
+                                n2 = n2 / np.linalg.norm(n2)
+                                dot_val = np.dot(n1, n2)
+                                angle_deg = math.degrees(math.acos(np.clip(dot_val, -1.0, 1.0)))
+                                angle_error = abs(angle_deg - 90.0)
+                                
+                                # 거리 검증 (카메라에서 측정된 거리 vs 큐브 모델상의 예상 거리)
+                                center1 = info1['T_cam_to_M'][0:3, 3]
+                                center2 = info2['T_cam_to_M'][0:3, 3]
+                                actual_dist = np.linalg.norm(center1 - center2)
+                                
+                                CUBE_TO_MARKER_1 = self.cube_markers[g_id].get_transform(id1)
+                                CUBE_TO_MARKER_2 = self.cube_markers[g_id].get_transform(id2)
+                                expected_dist = np.linalg.norm(CUBE_TO_MARKER_1[0:3, 3] - CUBE_TO_MARKER_2[0:3, 3])
+                                dist_error = abs(actual_dist - expected_dist)
+                                
+                                # 임계치 이내일 경우 연결성 부여
+                                if angle_error <= 1.8 and dist_error <= 1.2:
+                                    good_connections[id1] += 1
+                                    good_connections[id2] += 1
+                        
+                        # 최소 하나 이상의 'good_connection'이 있는 마커만 유효한 것으로 간주
+                        for m_id in m_ids:
+                            if good_connections[m_id] > 0:
+                                valid_ids.add(m_id)
                     
                 valid_group_ids = set()
                 obj_pts_by_group = {}
@@ -836,7 +851,7 @@ class Marker_Transform:
             tf_to_marker_inv = np.linalg.inv(target_tf)
             
             # T5_to_tool = T5_to_cam * cam_to_marker * tool_to_marker^-1
-            cam_to_tool_tf = camera_to_marker_tf # @ tf_to_marker_inv
+            cam_to_tool_tf = camera_to_marker_tf @ tf_to_marker_inv
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
             # Unit conversion if needed (mm -> m logic from original code)
@@ -867,8 +882,7 @@ class Marker_Transform:
                 if not self.camera.camera_monitoring:
                     self.camera.capture_image()
                 color_img = self.camera.get_color_image()
-                depth_img = self.camera.get_depth_image()
-                if color_img is None or depth_img is None:
+                if color_img is None:
                     time.sleep(0.01)
                     if sampling_time == 0 : return None
                     continue
@@ -890,7 +904,7 @@ class Marker_Transform:
                 if smoothed_temp is not None:
                     sampled_temps.append(smoothed_temp)
                         
-                marker_transforms = self.marker_detection.detect(color_img, depth_img, lpf=lpf, current_temp=smoothed_temp)
+                marker_transforms = self.marker_detection.detect(color_img, lpf=lpf, current_temp=smoothed_temp)
                 for marker_id_or_group, tf_list in marker_transforms:
                     if marker_id_or_group not in collected_transforms:
                         collected_transforms[marker_id_or_group] = []

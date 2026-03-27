@@ -25,9 +25,9 @@ def main():
     check_marker_side = "left"
     try:
         marker_transform = Marker_Transform(serial_number= None, monitoring = False)
-        marker_transform.marker_detection.set_marker_type("plate")
+        marker_transform.marker_detection.set_marker_type("cube")
         while True:
-            raw_results = marker_transform.get_marker_transform(sampling_time=0, side=check_marker_side)
+            raw_results = marker_transform.get_marker_transform(sampling_time=2, side=check_marker_side)
             if raw_results is None or len(raw_results) == 0:
                 continue
             
