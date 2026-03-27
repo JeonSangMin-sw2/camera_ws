@@ -2,16 +2,21 @@ import argparse
 import json
 import math
 import time
+from pathlib import Path
 
 import cv2
 import numpy as np
 import pyrealsense2 as rs
 import rby1_sdk as rby
+import yaml
 
 from marker_detection import Marker_Transform
 
 
 np.set_printoptions(suppress=True, precision=6)
+
+BASE_DIR = Path(__file__).resolve().parent
+SETTING_PATH = BASE_DIR / "config" / "setting.yaml"
 
 
 # ============================================================
@@ -186,20 +191,34 @@ def create_robot(ip):
     return robot
 
 
+def load_camera_nominals():
+    with open(SETTING_PATH, "r") as f:
+        config = yaml.safe_load(f) or {}
+
+    camera_cfg = config.get("camera", {})
+    return {
+        "t5_to_cam_nom": camera_cfg["T5_to_cam"],
+        "ee_to_marker_left": camera_cfg["Tf_to_marker_left"],
+        "ee_to_marker_right": camera_cfg["Tf_to_marker_right"],
+    }
+
+
 def get_arm_config(model, arm):
+    camera_nominals = load_camera_nominals()
+
     if arm == "right":
         return {
             "arm_idx": model.right_arm_idx[:7],
             "ee_link": "ee_right",
-            "t5_to_cam_nom": [0.112, 0.009, 0.174, 90.0, 180.0, 90.0],
-            "ee_to_marker_nom": [0.0,-0.09, -0.05317,90.0, 0.0, 180.0]
+            "t5_to_cam_nom": camera_nominals["t5_to_cam_nom"],
+            "ee_to_marker_nom": camera_nominals["ee_to_marker_right"],
         }
 
     return {
         "arm_idx": model.left_arm_idx[:7],
         "ee_link": "ee_left",
-        "t5_to_cam_nom": [0.112, 0.009, 0.174, 90.0, 180.0, 90.0],
-        "ee_to_marker_nom": [0.0, 0.09, -0.05317, 90.0, 0.0, 0.0],
+        "t5_to_cam_nom": camera_nominals["t5_to_cam_nom"],
+        "ee_to_marker_nom": camera_nominals["ee_to_marker_left"],
     }
 
 
