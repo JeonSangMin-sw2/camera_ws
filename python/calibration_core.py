@@ -201,7 +201,7 @@ def get_arm_config(model, arm):
     return {
         "arm_idx": model.left_arm_idx[:7],
         "ee_link": "ee_left",
-        "t5_to_cam_nom": [0.112, 0.0, 0.174, 180.0, 0.0, -90.0],
+        "t5_to_cam_nom": [0.112, 0.009, 0.174, 90.0, 180.0, 90.0],
         "ee_to_marker_nom": [0.0, 0.09, -0.05317, 90.0, 0.0, 0.0],
     }
 
@@ -331,7 +331,7 @@ def generate_sim_measurements(
 # ============================================================
 
 class CalibrationOptimizer:
-    def __init__(self, robot, arm_idx, ee_link, t5_to_cam_nom, ee_to_marker_nom, ndof, max_iter=500, eps=1e-6):
+    def __init__(self, robot, arm_idx, ee_link, t5_to_cam_nom, ee_to_marker_nom, ndof, max_iter=500, eps=1e-6, lambda_cam=10.0):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
@@ -346,6 +346,7 @@ class CalibrationOptimizer:
 
         self.max_iter = max_iter
         self.eps = eps
+        self.lambda_cam = lambda_cam
         self.q_nominal = robot.get_state().position.copy()
         self.numeric_jac_eps = 1e-7
 
@@ -430,6 +431,14 @@ class CalibrationOptimizer:
             H += J.T @ J
             g += J.T @ xi
             total_err += np.linalg.norm(xi)
+
+        if self.optimize_camera and self.lambda_cam > 0.0:
+            if self.optimize_joint:
+                cam_slice = slice(7, 13)
+            else:
+                cam_slice = slice(0, 6)
+            H[cam_slice, cam_slice] += self.lambda_cam * np.eye(6)
+            g[cam_slice] += -self.lambda_cam * xi_t5_cam
 
         dx = np.linalg.pinv(H) @ g
         return dx, total_err
@@ -530,6 +539,7 @@ def main():
         help="Path to npz dataset (default: captured_dataset.npz)"
     )
     parser.add_argument("--arm", type=str, default="right", choices=["right", "left"])
+    parser.add_argument("--lambda-cam", type=float, default=100.0)
     args = parser.parse_args()
 
     marker_transform = None
@@ -554,6 +564,7 @@ def main():
         t5_to_cam_nom=config["t5_to_cam_nom"],
         ee_to_marker_nom=config["ee_to_marker_nom"],
         ndof=args.ndof,
+        lambda_cam=args.lambda_cam,
     )
 
     q_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)

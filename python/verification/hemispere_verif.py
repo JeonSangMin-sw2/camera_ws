@@ -199,9 +199,9 @@ def main():
     parser.add_argument("--tip_offset_y", type=float, default=0.0)
     parser.add_argument("--tip_offset_z", type=float, default=-0.09191)
     parser.add_argument("--axis", type=str, default="roll", choices=["roll", "pitch", "yaw"])
-    parser.add_argument("--max_roll_deg", type=float, default=15.0)
-    parser.add_argument("--max_pitch_deg", type=float, default=15.0)
-    parser.add_argument("--max_yaw_deg", type=float, default=15.0)
+    parser.add_argument("--max_roll_deg", type=float, default=20.0)
+    parser.add_argument("--max_pitch_deg", type=float, default=20.0)
+    parser.add_argument("--max_yaw_deg", type=float, default=20.0)
     parser.add_argument("--freq", type=float, default=0.1)
 
     # streaming
