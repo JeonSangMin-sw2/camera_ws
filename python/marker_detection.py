@@ -10,9 +10,9 @@ import os, yaml
 from datetime import datetime
 
 #debugging flag : 실사용시 모두 false여야함
-imshow_when_detect = True
+imshow_when_detect = False
 check_cube_marker_data = False
-tcpip_send = True
+tcpip_send = False
 
 # 유틸리티 클래스
 class TCPClient:
@@ -851,7 +851,7 @@ class Marker_Transform:
             tf_to_marker_inv = np.linalg.inv(target_tf)
             
             # T5_to_tool = T5_to_cam * cam_to_marker * tool_to_marker^-1
-            cam_to_tool_tf = camera_to_marker_tf @ tf_to_marker_inv
+            cam_to_tool_tf = camera_to_marker_tf # @ tf_to_marker_inv
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
             # Unit conversion if needed (mm -> m logic from original code)
