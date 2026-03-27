@@ -12,7 +12,7 @@ from datetime import datetime
 #debugging flag : 실사용시 모두 false여야함
 imshow_when_detect = False
 check_cube_marker_data = False
-tcpip_send = False
+tcpip_send = True
 
 # 유틸리티 클래스
 class TCPClient:
