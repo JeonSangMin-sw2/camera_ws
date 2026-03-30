@@ -173,6 +173,23 @@ def load_npz_dataset(path):
     return q_arm, q_head, data["marker"]
 
 
+def validate_dataset_for_ndof(ndof, q_arm, q_head, T_meas):
+    if len(q_arm) != len(T_meas):
+        raise RuntimeError(
+            f"Dataset size mismatch: q_arm={len(q_arm)}, marker={len(T_meas)}"
+        )
+
+    if q_head is not None and len(q_head) != len(q_arm):
+        raise RuntimeError(
+            f"Dataset size mismatch: q_head={len(q_head)}, q_arm={len(q_arm)}"
+        )
+
+    if ndof in (2, 15) and q_head is None:
+        raise RuntimeError(
+            "This ndof requires head data, but the loaded npz does not contain `q_head`."
+        )
+
+
 def save_npz_dataset(path, q_arm, T_meas, q_head=None):
     save_kwargs = {
         "q": q_arm,
@@ -198,8 +215,8 @@ def save_result(path, q_offset, xi_t5_cam, q_head_offset=None):
         json.dump(result_dict, f, indent=4)
 
 
-def create_robot(ip):
-    robot = rby.create_robot_a(ip)
+def create_robot(ip, model_name="a"):
+    robot = rby.create_robot(ip, model_name)
     robot.connect()
     robot.power_on(".*")
     robot.servo_on(".*")
@@ -717,6 +734,7 @@ def prepare_dataset(args, robot, dyn_model, config):
 
     elif args.mode == "npz":
         q_arm_list, q_head_list, T_meas_list = load_npz_dataset(args.path)
+        validate_dataset_for_ndof(args.ndof, q_arm_list, q_head_list, T_meas_list)
         print("size =", np.size(q_arm_list))
 
     else:  # sim
@@ -749,6 +767,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--ndof", type=int, default=7, choices=[2, 6, 7, 13, 15])
     parser.add_argument("--ip", type=str, default="192.168.30.1:50051")
+    parser.add_argument("--model", type=str, default="a", choices=["a", "m"])
     parser.add_argument("--mode", type=str, required=True, choices=["live", "npz", "sim"])
     parser.add_argument(
         "--path",
@@ -762,7 +781,7 @@ def main():
 
     marker_transform = None
 
-    robot = create_robot(args.ip)
+    robot = create_robot(args.ip, args.model)
     dyn_model = robot.get_dynamics()
     config = get_arm_config(robot.model(), args.arm)
 

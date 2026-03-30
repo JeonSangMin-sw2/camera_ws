@@ -15,6 +15,7 @@ from calibration_core import (
     get_head_config,
     load_npz_dataset,
     save_npz_dataset,
+    validate_dataset_for_ndof,
     generate_sim_measurements,
     CalibrationOptimizer,
 )
@@ -29,8 +30,8 @@ WARNING_POSE_PATH = BASE_DIR / "warning_pose.png"
 WARNING_POSE_CHECK_PATH = BASE_DIR / "warning_pose_check.png"
 HEAD_SWEEP_COUNT_TARGET = 20
 HEAD_SWEEP_RANGE_DEG = {
-    "head0": (-20.0, 20.0),
-    "head1": (-20.0, 20.0),
+    "head0": (-15.0, 15.0),
+    "head1": (-15.0, 15.0),
 }
 
 class CalibrationUI:
@@ -96,10 +97,10 @@ class CalibrationUI:
         ttk.Button(popup, text="OK", command=popup.destroy).pack(pady=15)
         popup.wait_window()
 
-    def zero_pose_check_common(self, ip, arm, text_widget):
+    def zero_pose_check_common(self, ip, model_name, arm, text_widget):
         result = move_robot_to_zero_pose(
             address=ip,
-            model_name="a",
+            model_name=model_name,
             arm=arm,
             power=".*",
             servo="^(?!.*head).*",
@@ -115,6 +116,7 @@ class CalibrationUI:
         try:
             self.zero_pose_check_common(
                 ip=self.user_ip.get(),
+                model_name=self.user_model.get(),
                 arm=self.user_arm.get(),
                 text_widget=self.user_text,
             )
@@ -127,6 +129,7 @@ class CalibrationUI:
         try:
             self.zero_pose_check_common(
                 ip=self.dev_ip.get(),
+                model_name=self.dev_model.get(),
                 arm=self.dev_arm.get(),
                 text_widget=self.dev_text,
             )
@@ -157,10 +160,19 @@ class CalibrationUI:
         ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.user_ip = tk.StringVar(value="localhost:50051")
         ttk.Entry(conn, textvariable=self.user_ip, width=30).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        ttk.Button(conn, text="Connect", command=self.user_connect).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(conn, text="Model").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.user_model = tk.StringVar(value="a")
+        ttk.Combobox(
+            conn,
+            textvariable=self.user_model,
+            values=["a", "m"],
+            state="readonly",
+            width=8
+        ).grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        ttk.Button(conn, text="Connect", command=self.user_connect).grid(row=0, column=4, padx=5, pady=5)
 
         self.user_status = tk.StringVar(value="Disconnected")
-        ttk.Label(conn, textvariable=self.user_status).grid(row=0, column=3, padx=10, pady=5, sticky="w")
+        ttk.Label(conn, textvariable=self.user_status).grid(row=0, column=5, padx=10, pady=5, sticky="w")
 
         # setup
         setup = ttk.LabelFrame(frm, text="Setup")
@@ -214,10 +226,14 @@ class CalibrationUI:
         ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.dev_ip = tk.StringVar(value="localhost:50051")
         ttk.Entry(conn, textvariable=self.dev_ip, width=30).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        ttk.Button(conn, text="Connect", command=self.dev_connect).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Label(conn, text="Model").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        self.dev_model = tk.StringVar(value="a")
+        ttk.Combobox(conn, textvariable=self.dev_model, values=["a", "m"], state="readonly", width=8)\
+            .grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        ttk.Button(conn, text="Connect", command=self.dev_connect).grid(row=0, column=4, padx=5, pady=5)
 
         self.dev_status = tk.StringVar(value="Disconnected")
-        ttk.Label(conn, textvariable=self.dev_status).grid(row=0, column=3, padx=10, pady=5, sticky="w")
+        ttk.Label(conn, textvariable=self.dev_status).grid(row=0, column=5, padx=10, pady=5, sticky="w")
 
         # config
         cfg = ttk.LabelFrame(frm, text="Config")
@@ -336,13 +352,13 @@ class CalibrationUI:
         self.log(self.user_text, "Shared samples cleared.")
         self.log(self.dev_text, "Shared samples cleared.")
 
-    def connect_robot(self, ip, status_var, text_widget):
+    def connect_robot(self, ip, model_name, status_var, text_widget):
         try:
-            self.robot = create_robot(ip)
+            self.robot = create_robot(ip, model_name)
             self.dyn_model = self.robot.get_dynamics()
             self.model = self.robot.model()
             status_var.set("Connected")
-            self.log(text_widget, f"Connected: {ip}")
+            self.log(text_widget, f"Connected: {ip} (model={model_name})")
             self.update_head_pose_status()
         except Exception as e:
             status_var.set("Disconnected")
@@ -504,7 +520,7 @@ class CalibrationUI:
         popup.wait_window()
         return result["ok"]
 
-    def apply_home_offset_common(self, ip, arm, text_widget):
+    def apply_home_offset_common(self, ip, model_name, arm, text_widget):
         result_path = self.get_latest_result_path()
 
         proceed = self.confirm_home_offset_action()
@@ -514,7 +530,7 @@ class CalibrationUI:
 
         result = apply_home_offset_from_json(
             address=ip,
-            model_name="a",
+            model_name=model_name,
             arm=arm,
             json_path=str(result_path),
             power=".*",
@@ -532,7 +548,7 @@ class CalibrationUI:
     # ============================================================
 
     def user_connect(self):
-        self.connect_robot(self.user_ip.get(), self.user_status, self.user_text)
+        self.connect_robot(self.user_ip.get(), self.user_model.get(), self.user_status, self.user_text)
 
     def user_next_head_pose(self):
         try:
@@ -588,6 +604,7 @@ class CalibrationUI:
         try:
             self.apply_home_offset_common(
                 ip=self.user_ip.get(),
+                model_name=self.user_model.get(),
                 arm=self.user_arm.get(),
                 text_widget=self.user_text,
             )
@@ -612,7 +629,7 @@ class CalibrationUI:
                 self.dev_mode_info.set("sim mode uses default random arm samples.")
 
     def dev_connect(self):
-        self.connect_robot(self.dev_ip.get(), self.dev_status, self.dev_text)
+        self.connect_robot(self.dev_ip.get(), self.dev_model.get(), self.dev_status, self.dev_text)
 
     def dev_next_head_pose(self):
         try:
@@ -661,6 +678,7 @@ class CalibrationUI:
             elif mode == "npz":
                 npz_path = self.resolve_input_path(self.dev_path.get())
                 q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
+                validate_dataset_for_ndof(ndof, q_arm_list, q_head_list, T_meas_list)
                 self.log(self.dev_text, f"Loaded npz: {npz_path}")
                 self.log(self.dev_text, f"samples = {len(q_arm_list)}")
 
@@ -714,6 +732,7 @@ class CalibrationUI:
         try:
             self.apply_home_offset_common(
                 ip=self.dev_ip.get(),
+                model_name=self.dev_model.get(),
                 arm=self.dev_arm.get(),
                 text_widget=self.dev_text,
             )
