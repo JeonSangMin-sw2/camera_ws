@@ -5,13 +5,16 @@ from pathlib import Path
 from tkinter import ttk, messagebox
 
 import numpy as np
+import rby1_sdk as rby
 
 from calibration_core import (
     create_robot,
     create_live_marker_transform,
     capture_one_sample as capture_robot_sample,
     get_arm_config,
+    get_head_config,
     load_npz_dataset,
+    save_npz_dataset,
     generate_sim_measurements,
     CalibrationOptimizer,
 )
@@ -24,6 +27,11 @@ BASE_DIR = Path(__file__).resolve().parent
 RESULT_DIR = BASE_DIR / "result"
 WARNING_POSE_PATH = BASE_DIR / "warning_pose.png"
 WARNING_POSE_CHECK_PATH = BASE_DIR / "warning_pose_check.png"
+HEAD_SWEEP_COUNT_TARGET = 20
+HEAD_SWEEP_RANGE_DEG = {
+    "head0": (-20.0, 20.0),
+    "head1": (-20.0, 20.0),
+}
 
 class CalibrationUI:
     def __init__(self, root):
@@ -36,14 +44,18 @@ class CalibrationUI:
         self.model = None
         self.marker_transform = None
 
-        self.shared_q_list = []
+        self.shared_arm_q_list = []
+        self.shared_head_q_list = []
         self.shared_T_list = []
+        self.head_move_count = 0
 
         self.warning_img = None
         self.last_result_path = None
         self.last_dataset_path = None
 
         self._build_ui()
+        self.update_head_pose_status()
+        self._update_dev_mode_label()
 
     # ============================================================
     # UI
@@ -165,22 +177,23 @@ class CalibrationUI:
         ).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         ttk.Label(setup, text="Mode: live").grid(row=0, column=2, padx=20, pady=5, sticky="w")
-        ttk.Label(setup, text="ndof: 13").grid(row=0, column=3, padx=20, pady=5, sticky="w")
+        ttk.Label(setup, text="ndof: auto (13 / 15)").grid(row=0, column=3, padx=20, pady=5, sticky="w")
+        self.user_head_status = tk.StringVar(value="Head Move: 0/20")
+        ttk.Label(setup, textvariable=self.user_head_status).grid(row=1, column=0, columnspan=4, padx=5, pady=5, sticky="w")
 
         # actions
         act = ttk.LabelFrame(frm, text="Actions")
         act.pack(fill="x", padx=10, pady=10)
 
         ttk.Button(act, text="1.Zero Pose Check", command=self.user_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        # ttk.Button(act, text="2.Record", command=self.user_record).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="2.Record", command=self.user_record, padding=(80, 48)).grid(row=0, column=1, padx=5, pady=5)
-        
-        ttk.Button(act, text="3.Calculate", command=self.user_calculate).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(act, text="4.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
-        ttk.Button(act, text="5.Clear Samples", command=self.clear_samples).grid(row=0, column=4, padx=5, pady=5)
+        ttk.Button(act, text="2.Next Head Pose", command=self.user_next_head_pose).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="3.Record", command=self.user_record, padding=(80, 48)).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="4.Calculate", command=self.user_calculate).grid(row=0, column=3, padx=5, pady=5)
+        ttk.Button(act, text="5.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=4, padx=5, pady=5)
+        ttk.Button(act, text="6.Clear Samples", command=self.clear_samples).grid(row=0, column=5, padx=5, pady=5)
 
         self.user_count = tk.StringVar(value="Samples: 0")
-        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=5, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.user_count).grid(row=0, column=6, padx=20, pady=5, sticky="w")
         
         
 
@@ -223,8 +236,9 @@ class CalibrationUI:
 
         ttk.Label(cfg, text="ndof").grid(row=0, column=4, padx=5, pady=5, sticky="w")
         self.dev_ndof = tk.IntVar(value=13)
-        ttk.Combobox(cfg, textvariable=self.dev_ndof, values=[6, 7, 13], state="readonly", width=10)\
-            .grid(row=0, column=5, padx=5, pady=5, sticky="w")
+        ndof_box = ttk.Combobox(cfg, textvariable=self.dev_ndof, values=[2, 6, 7, 13, 15], state="readonly", width=10)
+        ndof_box.grid(row=0, column=5, padx=5, pady=5, sticky="w")
+        ndof_box.bind("<<ComboboxSelected>>", self._update_dev_mode_label)
 
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
@@ -233,18 +247,22 @@ class CalibrationUI:
         self.dev_mode_info = tk.StringVar(value="Record button is used only in live mode.")
         ttk.Label(cfg, textvariable=self.dev_mode_info).grid(row=1, column=4, columnspan=2, padx=5, pady=5, sticky="w")
 
+        self.dev_head_status = tk.StringVar(value="Head Move: 0/20")
+        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=2, column=0, columnspan=6, padx=5, pady=5, sticky="w")
+
         # actions
         act = ttk.LabelFrame(frm, text="Actions")
         act.pack(fill="x", padx=10, pady=10)
 
         ttk.Button(act, text="1.Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="2.Record", command=self.dev_record).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="3.Calculate", command=self.dev_calculate).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(act, text="4.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=3, padx=5, pady=5)
-        ttk.Button(act, text="5.Clear Samples", command=self.clear_samples).grid(row=0, column=4, padx=5, pady=5)
+        ttk.Button(act, text="2.Next Head Pose", command=self.dev_next_head_pose).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="3.Record", command=self.dev_record).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="4.Calculate", command=self.dev_calculate).grid(row=0, column=3, padx=5, pady=5)
+        ttk.Button(act, text="5.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=4, padx=5, pady=5)
+        ttk.Button(act, text="6.Clear Samples", command=self.clear_samples).grid(row=0, column=5, padx=5, pady=5)
 
         self.dev_count = tk.StringVar(value="Shared Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=5, padx=20, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=0, column=6, padx=20, pady=5, sticky="w")
 
 
 
@@ -292,9 +310,15 @@ class CalibrationUI:
         return self.last_result_path
 
     def update_sample_counts(self):
-        sample_count = len(self.shared_q_list)
+        sample_count = len(self.shared_arm_q_list)
         self.user_count.set(f"Samples: {sample_count}")
         self.dev_count.set(f"Shared Samples: {sample_count}")
+
+    def update_head_pose_status(self):
+        pose_idx = min(self.head_move_count, HEAD_SWEEP_COUNT_TARGET)
+        label = f"Head Move: {pose_idx}/{HEAD_SWEEP_COUNT_TARGET}"
+        self.user_head_status.set(label)
+        self.dev_head_status.set(label)
 
     def resolve_input_path(self, raw_path):
         input_path = Path(raw_path).expanduser()
@@ -303,9 +327,12 @@ class CalibrationUI:
         return BASE_DIR / input_path
 
     def clear_samples(self):
-        self.shared_q_list.clear()
+        self.shared_arm_q_list.clear()
+        self.shared_head_q_list.clear()
         self.shared_T_list.clear()
+        self.head_move_count = 0
         self.update_sample_counts()
+        self.update_head_pose_status()
         self.log(self.user_text, "Shared samples cleared.")
         self.log(self.dev_text, "Shared samples cleared.")
 
@@ -316,10 +343,41 @@ class CalibrationUI:
             self.model = self.robot.model()
             status_var.set("Connected")
             self.log(text_widget, f"Connected: {ip}")
+            self.update_head_pose_status()
         except Exception as e:
             status_var.set("Disconnected")
             messagebox.showerror("Connection Error", str(e))
             self.log(text_widget, f"Connection failed: {e}")
+
+    def move_head_to_pose(self, pose_deg, text_widget):
+        if self.robot is None:
+            raise RuntimeError("Robot is not connected.")
+
+        pose_rad = np.deg2rad(np.array(pose_deg, dtype=np.float64))
+        cmd = (
+            rby.RobotCommandBuilder()
+            .set_command(
+                rby.ComponentBasedCommandBuilder().set_head_command(
+                    rby.JointPositionCommandBuilder()
+                    .set_position(pose_rad)
+                    .set_minimum_time(2.0)
+                )
+            )
+        )
+        rv = self.robot.send_command(cmd, 5).get()
+        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError("Failed to move head to the requested pose.")
+
+        self.log(text_widget, f"Head moved to {pose_deg} deg")
+
+    def move_head_to_next_pose(self, text_widget):
+        pose_deg = (
+            float(np.random.uniform(*HEAD_SWEEP_RANGE_DEG["head0"])),
+            float(np.random.uniform(*HEAD_SWEEP_RANGE_DEG["head1"])),
+        )
+        self.move_head_to_pose(pose_deg, text_widget)
+        self.head_move_count += 1
+        self.update_head_pose_status()
 
     def capture_one_sample(self, arm, text_widget):
         if self.robot is None:
@@ -332,25 +390,30 @@ class CalibrationUI:
             raise RuntimeError("Robot is not connected.")
 
         cfg = get_arm_config(self.model, arm)
-        q_cmd, T_meas = capture_robot_sample(
+        head_cfg = get_head_config(self.model)
+        q_arm, q_head, T_meas = capture_robot_sample(
             robot=self.robot,
             arm_idx=cfg["arm_idx"],
             marker_transform=self.marker_transform,
+            head_idx=head_cfg["head_idx"],
+            side=arm,
         )
         if T_meas is None:
             self.log(text_widget, "Marker not detected.")
-            return None, None
+            return None, None, None
 
         self.log(text_widget, f"Captured sample")
-        self.log(text_widget, f"q = {np.round(q_cmd, 3)}")
+        self.log(text_widget, f"q_arm = {np.round(q_arm, 3)}")
+        self.log(text_widget, f"q_head = {np.round(q_head, 3)}")
         self.log(text_widget, f"marker =\n{np.round(T_meas, 3)}")
-        return q_cmd, T_meas
+        return q_arm, q_head, T_meas
 
-    def run_optimizer(self, arm, ndof, q_cmd_list, T_meas_list, result_path, text_widget):
+    def run_optimizer(self, arm, ndof, q_arm_list, q_head_list, T_meas_list, result_path, text_widget):
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
         cfg = get_arm_config(self.model, arm)
+        head_cfg = get_head_config(self.model)
 
         optimizer = CalibrationOptimizer(
             robot=self.robot,
@@ -359,22 +422,27 @@ class CalibrationUI:
             t5_to_cam_nom=cfg["t5_to_cam_nom"],
             ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
+            head_idx=head_cfg["head_idx"] if ndof in (2, 15) else None,
         )
 
-        q_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_cmd_list, T_meas_list)
+        q_arm_offset, q_head_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
 
         t5_to_cam_new = [float(x) for x in t5_to_cam_new]
 
         self.log(text_widget, "\n===== RESULT =====")
-        self.log(text_widget, "Joint offset (deg):")
-        self.log(text_widget, str(np.rad2deg(q_offset)))
+        self.log(text_widget, "Arm joint offset (deg):")
+        self.log(text_widget, str(np.rad2deg(q_arm_offset)))
+        if q_head_offset is not None:
+            self.log(text_widget, "Head joint offset (deg):")
+            self.log(text_widget, str(np.rad2deg(q_head_offset)))
         self.log(text_widget, "T5-to-camera xi:")
         self.log(text_widget, str(xi_t5_cam))
         self.log(text_widget, "t5_to_cam_new:")
         self.log(text_widget, str(t5_to_cam_new))
 
         result_dict = {
-            "joint_offset_deg": np.rad2deg(q_offset).tolist(),
+            "joint_offset_deg": np.rad2deg(q_arm_offset).tolist(),
+            "head_joint_offset_deg": np.rad2deg(q_head_offset).tolist() if q_head_offset is not None else None,
             "xi_t5_cam": np.array(xi_t5_cam).tolist(),
             "xi_cam": np.array(xi_t5_cam).tolist()
         }
@@ -466,12 +534,20 @@ class CalibrationUI:
     def user_connect(self):
         self.connect_robot(self.user_ip.get(), self.user_status, self.user_text)
 
+    def user_next_head_pose(self):
+        try:
+            self.move_head_to_next_pose(self.user_text)
+        except Exception as e:
+            messagebox.showerror("Head Move Error", str(e))
+            self.log(self.user_text, f"Head move failed: {e}")
+
     def user_record(self):
         try:
-            q_cmd, T_meas = self.capture_one_sample(self.user_arm.get(), self.user_text)
-            if q_cmd is None:
+            q_arm, q_head, T_meas = self.capture_one_sample(self.user_arm.get(), self.user_text)
+            if q_arm is None:
                 return
-            self.shared_q_list.append(q_cmd)
+            self.shared_arm_q_list.append(q_arm)
+            self.shared_head_q_list.append(q_head)
             self.shared_T_list.append(T_meas)
             self.update_sample_counts()
         except Exception as e:
@@ -480,26 +556,26 @@ class CalibrationUI:
 
     def user_calculate(self):
         try:
-            if len(self.shared_q_list) == 0:
+            if len(self.shared_arm_q_list) == 0:
                 messagebox.showwarning("Warning", "No recorded samples.")
                 return
 
-            q_cmd_list = np.array(self.shared_q_list)
+            q_arm_list = np.array(self.shared_arm_q_list)
+            q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
             T_meas_list = np.array(self.shared_T_list)
             dataset_path, result_path = self.build_output_paths()
+            ndof = 15 if q_head_list is not None and np.ptp(q_head_list, axis=0).max() > np.deg2rad(1.0) else 13
 
-            np.savez_compressed(
-                dataset_path,
-                q=q_cmd_list,
-                marker=T_meas_list
-            )
+            save_npz_dataset(dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
             self.last_dataset_path = dataset_path
             self.log(self.user_text, f"Dataset saved to {dataset_path}")
+            self.log(self.user_text, f"Optimization ndof = {ndof}")
 
             self.run_optimizer(
                 arm=self.user_arm.get(),
-                ndof=13,
-                q_cmd_list=q_cmd_list,
+                ndof=ndof,
+                q_arm_list=q_arm_list,
+                q_head_list=q_head_list,
                 T_meas_list=T_meas_list,
                 result_path=result_path,
                 text_widget=self.user_text,
@@ -530,10 +606,20 @@ class CalibrationUI:
         elif mode == "npz":
             self.dev_mode_info.set("Path is used in npz mode.")
         else:
-            self.dev_mode_info.set("sim mode uses random q_cmd_list with size 100.")
+            if int(self.dev_ndof.get()) in (2, 15):
+                self.dev_mode_info.set("sim mode uses default random arm + head samples.")
+            else:
+                self.dev_mode_info.set("sim mode uses default random arm samples.")
 
     def dev_connect(self):
         self.connect_robot(self.dev_ip.get(), self.dev_status, self.dev_text)
+
+    def dev_next_head_pose(self):
+        try:
+            self.move_head_to_next_pose(self.dev_text)
+        except Exception as e:
+            messagebox.showerror("Head Move Error", str(e))
+            self.log(self.dev_text, f"Head move failed: {e}")
 
     def dev_record(self):
         try:
@@ -541,10 +627,11 @@ class CalibrationUI:
                 messagebox.showwarning("Warning", "Record is available only in live mode.")
                 return
 
-            q_cmd, T_meas = self.capture_one_sample(self.dev_arm.get(), self.dev_text)
-            if q_cmd is None:
+            q_arm, q_head, T_meas = self.capture_one_sample(self.dev_arm.get(), self.dev_text)
+            if q_arm is None:
                 return
-            self.shared_q_list.append(q_cmd)
+            self.shared_arm_q_list.append(q_arm)
+            self.shared_head_q_list.append(q_head)
             self.shared_T_list.append(T_meas)
             self.update_sample_counts()
         except Exception as e:
@@ -560,50 +647,60 @@ class CalibrationUI:
                 raise RuntimeError("Robot is not connected.")
 
             cfg = get_arm_config(self.model, arm)
+            head_cfg = get_head_config(self.model)
 
             if mode == "live":
-                if len(self.shared_q_list) == 0:
+                if len(self.shared_arm_q_list) == 0:
                     messagebox.showwarning("Warning", "No recorded samples.")
                     return
 
-                q_cmd_list = np.array(self.shared_q_list)
+                q_arm_list = np.array(self.shared_arm_q_list)
+                q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
                 T_meas_list = np.array(self.shared_T_list)
 
             elif mode == "npz":
                 npz_path = self.resolve_input_path(self.dev_path.get())
-                q_cmd_list, T_meas_list = load_npz_dataset(npz_path)
+                q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
                 self.log(self.dev_text, f"Loaded npz: {npz_path}")
-                self.log(self.dev_text, f"samples = {len(q_cmd_list)}")
+                self.log(self.dev_text, f"samples = {len(q_arm_list)}")
 
             else:  # sim
-                q_cmd_list = np.random.uniform(-5, 5, (100, 7))
+                sample_count = 100
+                q_arm_list = np.random.uniform(-5, 5, (sample_count, 7))
+                if ndof in (2, 15):
+                    q_head_list = np.column_stack([
+                        np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
+                        np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
+                    ])
+                else:
+                    q_head_list = None
                 q_nominal = self.robot.get_state().position.copy()
                 T_meas_list = generate_sim_measurements(
                     self.robot,
                     self.dyn_model,
-                    q_cmd_list,
+                    q_arm_list,
+                    q_head_list,
                     cfg["arm_idx"],
+                    head_cfg["head_idx"],
                     q_nominal,
                     ndof,
                     cfg["ee_link"],
                     cfg["t5_to_cam_nom"],
                     cfg["ee_to_marker_nom"],
+                    camera_link=head_cfg["camera_link"],
                 )
-                self.log(self.dev_text, "Simulation dataset generated.")
+                self.log(self.dev_text, f"Simulation dataset generated. samples = {sample_count}, ndof = {ndof}")
 
             dataset_path, result_path = self.build_output_paths()
-            np.savez_compressed(
-                dataset_path,
-                q=q_cmd_list,
-                marker=T_meas_list
-            )
+            save_npz_dataset(dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
             self.last_dataset_path = dataset_path
             self.log(self.dev_text, f"Dataset saved to {dataset_path}")
 
             self.run_optimizer(
                 arm=arm,
                 ndof=ndof,
-                q_cmd_list=q_cmd_list,
+                q_arm_list=q_arm_list,
+                q_head_list=q_head_list,
                 T_meas_list=T_meas_list,
                 result_path=result_path,
                 text_widget=self.dev_text,
