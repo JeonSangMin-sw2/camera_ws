@@ -95,14 +95,14 @@ def main(address, model_name, power, servo):
         time.sleep(1)
 
         print("Reinitialize robot")
-        robot = initialize_robot(address, model_name, power=".*", servo="^(?!.*head).*")
+        robot = initialize_robot(address, model_name, power=".*", servo=".*")
         
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Zero + Offset Move")
     parser.add_argument("--address", type=str, required=True)
     parser.add_argument("--model", type=str, default="a")
     parser.add_argument("--power", type=str, default=".*")
-    parser.add_argument("--servo", type=str, default="^(?!.*head).*")
+    parser.add_argument("--servo", type=str, default=".*")
     args = parser.parse_args()
 
     main(

@@ -14,7 +14,7 @@ def load_offset_from_json(filename="calibration_result.json"):
     return np.deg2rad(offset_deg)
 
 
-def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=5):
+def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=5):
     rc = rby.BodyComponentBasedCommandBuilder()
 
     if right_arm is not None:
@@ -36,10 +36,16 @@ def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=5):
         .set_position(np.zeros(6))
     )
 
+    cmd = rby.ComponentBasedCommandBuilder().set_body_command(rc)
+    if head is not None:
+        cmd.set_head_command(
+            rby.JointPositionCommandBuilder()
+            .set_minimum_time(minimum_time)
+            .set_position(head)
+        )
+
     rv = robot.send_command(
-        rby.RobotCommandBuilder().set_command(
-            rby.ComponentBasedCommandBuilder().set_body_command(rc)
-        ),
+        rby.RobotCommandBuilder().set_command(cmd),
         1,
     ).get()
 
@@ -90,6 +96,7 @@ def main(address, model_name, power, servo, arm):
         arm_dof = len(model.left_arm_idx)
         zero_pose = np.zeros(arm_dof)
         arm_prefix = "left_arm"
+    head_zero_pose = np.zeros(len(model.head_idx))
 
     # 1️⃣ zero pose
     print(f"Moving {arm} arm to zero pose...")
@@ -97,7 +104,7 @@ def main(address, model_name, power, servo, arm):
     #     movej(robot, right_arm=zero_pose, minimum_time=5)
     # else:
     #     movej(robot, left_arm=zero_pose, minimum_time=5)
-    movej(robot, right_arm=zero_pose, left_arm=zero_pose, minimum_time=5)
+    movej(robot, right_arm=zero_pose, left_arm=zero_pose, head=head_zero_pose, minimum_time=5)
     
     print("\nSelect offset mode:")
     print("u → User input")
@@ -154,9 +161,9 @@ def main(address, model_name, power, servo, arm):
     print("Offset (deg):", offset_deg)
 
     if arm == "right":
-        movej(robot, right_arm=target_pose, minimum_time=10)
+        movej(robot, right_arm=target_pose, head=head_zero_pose, minimum_time=10)
     else:
-        movej(robot, left_arm=target_pose, minimum_time=10)
+        movej(robot, left_arm=target_pose, head=head_zero_pose, minimum_time=10)
 
     time.sleep(1)
 
@@ -180,14 +187,14 @@ def main(address, model_name, power, servo, arm):
         time.sleep(1)
 
         print("init")
-        robot = initialize_robot(address, model_name, power=".*", servo="^(?!.*head).*")
+        robot = initialize_robot(address, model_name, power=".*", servo=".*")
 
         print("======================move_j======================")
         # if arm == "right":
         #     movej(robot, right_arm=zero_pose, minimum_time=5)
         # else:
         #     movej(robot, left_arm=zero_pose, minimum_time=5)
-        movej(robot, right_arm=zero_pose, left_arm=zero_pose, minimum_time=5)
+        movej(robot, right_arm=zero_pose, left_arm=zero_pose, head=head_zero_pose, minimum_time=5)
 
 
 if __name__ == "__main__":
@@ -195,7 +202,7 @@ if __name__ == "__main__":
     parser.add_argument("--address", type=str, required=True)
     parser.add_argument("--model", type=str, default="a")
     parser.add_argument("--power", type=str, default=".*")
-    parser.add_argument("--servo", type=str, default="^(?!.*head).*")
+    parser.add_argument("--servo", type=str, default=".*")
     parser.add_argument("--arm", type=str, required=True, choices=["right", "left"])
     args = parser.parse_args()
 

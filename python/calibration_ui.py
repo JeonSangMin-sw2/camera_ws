@@ -103,7 +103,7 @@ class CalibrationUI:
             model_name=model_name,
             arm=arm,
             power=".*",
-            servo="^(?!.*head).*",
+            servo=".*",
         )
 
         self.log(text_widget, "\n===== ZERO POSE CHECK =====")
@@ -252,7 +252,7 @@ class CalibrationUI:
 
         ttk.Label(cfg, text="ndof").grid(row=0, column=4, padx=5, pady=5, sticky="w")
         self.dev_ndof = tk.IntVar(value=13)
-        ndof_box = ttk.Combobox(cfg, textvariable=self.dev_ndof, values=[2, 6, 7, 13, 15], state="readonly", width=10)
+        ndof_box = ttk.Combobox(cfg, textvariable=self.dev_ndof, values=[2, 6, 7, 9, 13, 15], state="readonly", width=10)
         ndof_box.grid(row=0, column=5, padx=5, pady=5, sticky="w")
         ndof_box.bind("<<ComboboxSelected>>", self._update_dev_mode_label)
 
@@ -534,7 +534,7 @@ class CalibrationUI:
             arm=arm,
             json_path=str(result_path),
             power=".*",
-            servo="^(?!.*head).*",
+            servo=".*",
         )
 
         self.log(text_widget, "Home offset applied successfully.")
@@ -623,7 +623,7 @@ class CalibrationUI:
         elif mode == "npz":
             self.dev_mode_info.set("Path is used in npz mode.")
         else:
-            if int(self.dev_ndof.get()) in (2, 15):
+            if int(self.dev_ndof.get()) in (2, 9, 15):
                 self.dev_mode_info.set("sim mode uses default random arm + head samples.")
             else:
                 self.dev_mode_info.set("sim mode uses default random arm samples.")
@@ -685,7 +685,7 @@ class CalibrationUI:
             else:  # sim
                 sample_count = 100
                 q_arm_list = np.random.uniform(-5, 5, (sample_count, 7))
-                if ndof in (2, 15):
+                if ndof in (2, 9, 15):
                     q_head_list = np.column_stack([
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),

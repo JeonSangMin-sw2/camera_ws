@@ -380,8 +380,8 @@ def generate_sim_measurements(
     q_head_offset_true = np.deg2rad([2.0, -1.5])
     xi_t5_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
 
-    optimize_arm = ndof in (7, 13, 15)
-    optimize_head = ndof in (2, 15) and q_head_list is not None and head_idx is not None
+    optimize_arm = ndof in (7, 9, 13, 15)
+    optimize_head = ndof in (2, 9, 15) and q_head_list is not None and head_idx is not None
     use_head_kinematics = q_head_list is not None and head_idx is not None
     optimize_camera = ndof in (6, 13, 15)
 
@@ -458,8 +458,8 @@ class CalibrationOptimizer:
         self.ee_to_marker_nom = ee_to_marker_nom
         self.camera_link = camera_link
 
-        self.optimize_arm = ndof in (7, 13, 15)
-        self.optimize_head = ndof in (2, 15) and self.head_idx is not None
+        self.optimize_arm = ndof in (7, 9, 13, 15)
+        self.optimize_head = ndof in (2, 9, 15) and self.head_idx is not None
         self.use_head_kinematics = self.head_idx is not None
         self.optimize_camera = ndof in (6, 13, 15)
 
@@ -732,7 +732,7 @@ def prepare_dataset(args, robot, dyn_model, config):
 
     else:  # sim
         q_arm_list = np.random.uniform(-5, 5, (100, 7))
-        if args.ndof in (2, 15):
+        if args.ndof in (2, 9, 15):
             q_head_list = np.random.uniform(-0.2, 0.2, (100, 2))
         else:
             q_head_ref = robot.get_state().position[head_config["head_idx"]].copy()
@@ -762,7 +762,7 @@ def prepare_dataset(args, robot, dyn_model, config):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ndof", type=int, default=7, choices=[2, 6, 7, 13, 15])
+    parser.add_argument("--ndof", type=int, default=7, choices=[2, 6, 7, 9, 13, 15])
     parser.add_argument("--ip", type=str, default="192.168.30.1:50051")
     parser.add_argument("--model", type=str, default="a", choices=["a", "m"])
     parser.add_argument("--mode", type=str, required=True, choices=["live", "npz", "sim"])

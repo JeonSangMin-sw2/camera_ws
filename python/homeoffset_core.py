@@ -14,7 +14,7 @@ def load_offset_from_json(filename="calibration_result.json"):
     return np.deg2rad(offset_deg)
 
 
-def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=5):
+def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=5):
     rc = rby.BodyComponentBasedCommandBuilder()
 
     if right_arm is not None:
@@ -37,10 +37,16 @@ def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=5):
         .set_position(np.zeros(6))
     )
 
+    cmd = rby.ComponentBasedCommandBuilder().set_body_command(rc)
+    if head is not None:
+        cmd.set_head_command(
+            rby.JointPositionCommandBuilder()
+            .set_minimum_time(minimum_time)
+            .set_position(head)
+        )
+
     rv = robot.send_command(
-        rby.RobotCommandBuilder().set_command(
-            rby.ComponentBasedCommandBuilder().set_body_command(rc)
-        ),
+        rby.RobotCommandBuilder().set_command(cmd),
         1,
     ).get()
 
@@ -51,7 +57,7 @@ def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=5):
     return True
 
 
-def initialize_robot(address, model, power=".*", servo="^(?!.*head).*"):
+def initialize_robot(address, model, power=".*", servo=".*"):
     robot = rby.create_robot(address, model)
 
     if not robot.connect():
@@ -75,7 +81,7 @@ def initialize_robot(address, model, power=".*", servo="^(?!.*head).*"):
     robot.enable_control_manager()
     return robot
 
-def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo="^(?!.*head).*"):
+def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo=".*"):
     robot = initialize_robot(address, model_name, power, servo)
     model = robot.model()
 
@@ -87,8 +93,15 @@ def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo="^(?!.*h
         raise ValueError("arm must be 'right' or 'left'")
 
     zero_pose = np.zeros(arm_dof)
+    head_zero_pose = np.zeros(len(model.head_idx))
 
-    ok = movej(robot, right_arm=zero_pose, left_arm=zero_pose, minimum_time=5)
+    ok = movej(
+        robot,
+        right_arm=zero_pose,
+        left_arm=zero_pose,
+        head=head_zero_pose,
+        minimum_time=5,
+    )
     if not ok:
         raise RuntimeError("Failed to move robot to zero pose")
 
@@ -104,7 +117,7 @@ def apply_home_offset(
     arm,
     offset_rad,
     power=".*",
-    servo="^(?!.*head).*",
+    servo=".*",
 ):
     robot = initialize_robot(address, model_name, power, servo)
     model = robot.model()
@@ -121,6 +134,7 @@ def apply_home_offset(
         raise ValueError("arm must be 'right' or 'left'")
 
     offset_rad = np.array(offset_rad, dtype=np.float64).reshape(-1)
+    head_zero_pose = np.zeros(len(model.head_idx))
 
     if len(offset_rad) != arm_dof:
         raise RuntimeError(
@@ -132,7 +146,13 @@ def apply_home_offset(
     offset_deg = np.rad2deg(offset_to_apply)
 
     # 1) zero pose 이동
-    ok = movej(robot, right_arm=zero_pose, left_arm=zero_pose, minimum_time=5)
+    ok = movej(
+        robot,
+        right_arm=zero_pose,
+        left_arm=zero_pose,
+        head=head_zero_pose,
+        minimum_time=5,
+    )
     if not ok:
         raise RuntimeError("Failed to move robot to zero pose")
 
@@ -140,9 +160,9 @@ def apply_home_offset(
     # 2) offset pose 이동
     target_pose = zero_pose + offset_to_apply
     if arm == "right":
-        ok = movej(robot, right_arm=target_pose, minimum_time=10)
+        ok = movej(robot, right_arm=target_pose, head=head_zero_pose, minimum_time=10)
     else:
-        ok = movej(robot, left_arm=target_pose, minimum_time=10)
+        ok = movej(robot, left_arm=target_pose, head=head_zero_pose, minimum_time=10)
 
     if not ok:
         raise RuntimeError("Failed to move robot with offset pose")
@@ -167,10 +187,16 @@ def apply_home_offset(
     robot.power_off("48v")
     time.sleep(2)
 
-    robot = initialize_robot(address, model_name, power=".*", servo="^(?!.*head).*")
+    robot = initialize_robot(address, model_name, power=".*", servo=".*")
 
     # 5) 다시 zero pose 이동
-    ok = movej(robot, right_arm=zero_pose, left_arm=zero_pose, minimum_time=5)
+    ok = movej(
+        robot,
+        right_arm=zero_pose,
+        left_arm=zero_pose,
+        head=head_zero_pose,
+        minimum_time=5,
+    )
     if not ok:
         raise RuntimeError("Failed to move robot to zero pose after reset")
 
@@ -187,7 +213,7 @@ def apply_home_offset_from_json(
     arm="right",
     json_path="calibration_result.json",
     power=".*",
-    servo="^(?!.*head).*",
+    servo=".*",
 ):
     offset_rad = load_offset_from_json(json_path)
 
