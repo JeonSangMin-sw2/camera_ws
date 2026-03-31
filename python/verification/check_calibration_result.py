@@ -16,7 +16,7 @@ import threading
 # Robot initialization
 # ============================================================
 D2R = np.pi / 180  # Degree to Radian conversion factor
-MINIMUM_TIME = 2
+MINIMUM_TIME = 5
 LINEAR_VELOCITY_LIMIT = 1.5
 ANGULAR_VELOCITY_LIMIT = np.pi * 1.5
 ACCELERATION_LIMIT = 1.0
