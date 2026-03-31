@@ -435,10 +435,10 @@ class CalibrationUI:
             robot=self.robot,
             arm_idx=cfg["arm_idx"],
             ee_link=cfg["ee_link"],
-            t5_to_cam_nom=cfg["t5_to_cam_nom"],
+            mount_to_cam_nom=cfg["mount_to_cam_nom"],
             ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
-            head_idx=head_cfg["head_idx"] if ndof in (2, 15) else None,
+            head_idx=head_cfg["head_idx"],
         )
 
         q_arm_offset, q_head_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
@@ -691,7 +691,8 @@ class CalibrationUI:
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                     ])
                 else:
-                    q_head_list = None
+                    q_head_ref = self.robot.get_state().position[head_cfg["head_idx"]].copy()
+                    q_head_list = np.tile(q_head_ref, (sample_count, 1))
                 q_nominal = self.robot.get_state().position.copy()
                 T_meas_list = generate_sim_measurements(
                     self.robot,
@@ -703,7 +704,7 @@ class CalibrationUI:
                     q_nominal,
                     ndof,
                     cfg["ee_link"],
-                    cfg["t5_to_cam_nom"],
+                    cfg["mount_to_cam_nom"],
                     cfg["ee_to_marker_nom"],
                     camera_link=head_cfg["camera_link"],
                 )

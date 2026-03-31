@@ -184,9 +184,9 @@ def validate_dataset_for_ndof(ndof, q_arm, q_head, T_meas):
             f"Dataset size mismatch: q_head={len(q_head)}, q_arm={len(q_arm)}"
         )
 
-    if ndof in (2, 15) and q_head is None:
+    if q_head is None:
         raise RuntimeError(
-            "This ndof requires head data, but the loaded npz does not contain `q_head`."
+            "Head-mounted camera calibration requires `q_head`, but the loaded npz does not contain it."
         )
 
 
@@ -230,8 +230,15 @@ def load_camera_nominals():
         config = yaml.safe_load(f) or {}
 
     camera_cfg = config.get("camera", {})
+    mount_to_cam_nom = camera_cfg.get("mount_to_cam", camera_cfg.get("T5_to_cam"))
+    if mount_to_cam_nom is None:
+        raise KeyError(
+            "camera.mount_to_cam (or legacy camera.T5_to_cam) is required in setting.yaml"
+        )
+
     return {
-        "t5_to_cam_nom": camera_cfg["T5_to_cam"],
+        "mount_to_cam_nom": mount_to_cam_nom,
+        "camera_mount_link": camera_cfg.get("camera_mount_link", "link_head_2"),
         "ee_to_marker_left": camera_cfg["Tf_to_marker_left"],
         "ee_to_marker_right": camera_cfg["Tf_to_marker_right"],
     }
@@ -244,22 +251,23 @@ def get_arm_config(model, arm):
         return {
             "arm_idx": model.right_arm_idx[:7],
             "ee_link": "ee_right",
-            "t5_to_cam_nom": camera_nominals["t5_to_cam_nom"],
+            "mount_to_cam_nom": camera_nominals["mount_to_cam_nom"],
             "ee_to_marker_nom": camera_nominals["ee_to_marker_right"],
         }
 
     return {
         "arm_idx": model.left_arm_idx[:7],
         "ee_link": "ee_left",
-        "t5_to_cam_nom": camera_nominals["t5_to_cam_nom"],
+        "mount_to_cam_nom": camera_nominals["mount_to_cam_nom"],
         "ee_to_marker_nom": camera_nominals["ee_to_marker_left"],
     }
 
 
 def get_head_config(model):
+    camera_nominals = load_camera_nominals()
     return {
         "head_idx": model.head_idx[:2],
-        "camera_link": "link_head_2",
+        "camera_link": camera_nominals["camera_mount_link"],
     }
 
 
@@ -279,20 +287,6 @@ def prepare_q_full(q_nominal, arm_idx, q_cmd, q_offset=None, head_idx=None, q_he
     if head_idx is not None and q_head is not None:
         q_full[head_idx] = q_head if q_head_offset is None else (q_head + q_head_offset)
     return q_full
-
-
-def infer_camera_mount_to_cam(robot, q_ref, t5_to_cam_nom, camera_link="link_head_2"):
-    dyn_model = robot.get_dynamics()
-    state, T_t5_to_camera_mount = compute_fk(
-        robot=robot,
-        dyn_model=dyn_model,
-        q_full=q_ref,
-        ee_link=camera_link,
-        base_link="link_torso_5",
-    )
-    _ = state
-    T_t5_to_cam = make_transform(t5_to_cam_nom)
-    return np.linalg.inv(T_t5_to_camera_mount) @ T_t5_to_cam
 
 
 # ============================================================
@@ -378,7 +372,7 @@ def generate_sim_measurements(
     q_nominal,
     ndof,
     ee_link,
-    t5_to_cam_nom,
+    mount_to_cam_nom,
     ee_to_marker_nom,
     camera_link="link_head_2",
 ):
@@ -388,23 +382,21 @@ def generate_sim_measurements(
 
     optimize_arm = ndof in (7, 13, 15)
     optimize_head = ndof in (2, 15) and q_head_list is not None and head_idx is not None
+    use_head_kinematics = q_head_list is not None and head_idx is not None
     optimize_camera = ndof in (6, 13, 15)
 
-    if optimize_head:
+    if use_head_kinematics:
         base_link = camera_link
-        T_mount_to_cam_nom = infer_camera_mount_to_cam(
-            robot=robot,
-            q_ref=q_nominal,
-            t5_to_cam_nom=t5_to_cam_nom,
-            camera_link=camera_link,
-        )
+        # In head mode, the camera extrinsic is a static transform from the
+        # head mount link to the camera, so it must not depend on the current q.
+        T_mount_to_cam_nom = make_transform(mount_to_cam_nom)
         T_mount_to_cam_true = (
             T_mount_to_cam_nom @ se3_exp(xi_t5_cam_true)
             if optimize_camera else T_mount_to_cam_nom
         )
     else:
         base_link = "link_torso_5"
-        T_mount_to_cam_nom = make_transform(t5_to_cam_nom)
+        T_mount_to_cam_nom = make_transform(mount_to_cam_nom)
         T_mount_to_cam_true = (
             T_mount_to_cam_nom @ se3_exp(xi_t5_cam_true)
             if optimize_camera else T_mount_to_cam_nom
@@ -424,7 +416,7 @@ def generate_sim_measurements(
             arm_idx=arm_idx,
             q_cmd=q_arm,
             q_offset=q_offset_true if optimize_arm else None,
-            head_idx=head_idx if optimize_head else None,
+            head_idx=head_idx if use_head_kinematics else None,
             q_head=q_head,
             q_head_offset=q_head_offset_true if optimize_head else None,
         )
@@ -446,7 +438,7 @@ class CalibrationOptimizer:
         robot,
         arm_idx,
         ee_link,
-        t5_to_cam_nom,
+        mount_to_cam_nom,
         ee_to_marker_nom,
         ndof,
         head_idx=None,
@@ -462,12 +454,13 @@ class CalibrationOptimizer:
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
         self.ee_link = ee_link
-        self.t5_to_cam_nom = t5_to_cam_nom
+        self.mount_to_cam_nom = mount_to_cam_nom
         self.ee_to_marker_nom = ee_to_marker_nom
         self.camera_link = camera_link
 
         self.optimize_arm = ndof in (7, 13, 15)
         self.optimize_head = ndof in (2, 15) and self.head_idx is not None
+        self.use_head_kinematics = self.head_idx is not None
         self.optimize_camera = ndof in (6, 13, 15)
 
         self.max_iter = max_iter
@@ -476,17 +469,12 @@ class CalibrationOptimizer:
         self.q_nominal = robot.get_state().position.copy()
         self.numeric_jac_eps = 1e-7
 
-        if self.optimize_head:
+        if self.use_head_kinematics:
             self.base_link = self.camera_link
-            self.T_mount_to_cam_nom = infer_camera_mount_to_cam(
-                robot=robot,
-                q_ref=self.q_nominal,
-                t5_to_cam_nom=self.t5_to_cam_nom,
-                camera_link=self.camera_link,
-            )
+            self.T_mount_to_cam_nom = make_transform(self.mount_to_cam_nom)
         else:
             self.base_link = "link_torso_5"
-            self.T_mount_to_cam_nom = make_transform(self.t5_to_cam_nom)
+            self.T_mount_to_cam_nom = make_transform(self.mount_to_cam_nom)
 
     def joint_param_dim(self):
         dim = 0
@@ -661,7 +649,7 @@ class CalibrationOptimizer:
 
     def get_calibrated_t5_to_cam(self, xi_mount_cam):
         T_mount_to_cam = self.get_nominal_mount_to_cam() @ se3_exp(xi_mount_cam)
-        if self.optimize_head:
+        if self.use_head_kinematics:
             _, T_t5_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,
@@ -684,6 +672,11 @@ class CalibrationOptimizer:
         ]
 
     def optimize(self, q_arm_list, q_head_list, T_meas_list):
+        if self.use_head_kinematics and q_head_list is None:
+            raise RuntimeError(
+                "Head kinematics are enabled for this ndof, but q_head_list is missing."
+            )
+
         q_arm_offset = np.zeros(len(self.arm_idx))
         q_head_offset = np.zeros(len(self.head_idx)) if self.optimize_head else None
         xi_mount_cam = np.zeros(6)
@@ -728,7 +721,7 @@ def prepare_dataset(args, robot, dyn_model, config):
             robot=robot,
             arm_idx=config["arm_idx"],
             marker_transform=marker_transform,
-            head_idx=head_config["head_idx"] if args.ndof in (2, 15) else None,
+            head_idx=head_config["head_idx"],
         )
         save_npz_dataset(args.path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
 
@@ -739,7 +732,11 @@ def prepare_dataset(args, robot, dyn_model, config):
 
     else:  # sim
         q_arm_list = np.random.uniform(-5, 5, (100, 7))
-        q_head_list = np.random.uniform(-0.2, 0.2, (100, 2)) if args.ndof in (2, 15) else None
+        if args.ndof in (2, 15):
+            q_head_list = np.random.uniform(-0.2, 0.2, (100, 2))
+        else:
+            q_head_ref = robot.get_state().position[head_config["head_idx"]].copy()
+            q_head_list = np.tile(q_head_ref, (len(q_arm_list), 1))
         q_nominal = robot.get_state().position.copy()
         T_meas_list = generate_sim_measurements(
             robot=robot,
@@ -751,7 +748,7 @@ def prepare_dataset(args, robot, dyn_model, config):
             q_nominal=q_nominal,
             ndof=args.ndof,
             ee_link=config["ee_link"],
-            t5_to_cam_nom=config["t5_to_cam_nom"],
+            mount_to_cam_nom=config["mount_to_cam_nom"],
             ee_to_marker_nom=config["ee_to_marker_nom"],
             camera_link=head_config["camera_link"],
         )
@@ -798,10 +795,10 @@ def main():
         robot=robot,
         arm_idx=config["arm_idx"],
         ee_link=config["ee_link"],
-        t5_to_cam_nom=config["t5_to_cam_nom"],
+        mount_to_cam_nom=config["mount_to_cam_nom"],
         ee_to_marker_nom=config["ee_to_marker_nom"],
         ndof=args.ndof,
-        head_idx=get_head_config(robot.model())["head_idx"] if args.ndof in (2, 15) else None,
+        head_idx=get_head_config(robot.model())["head_idx"],
         lambda_cam=args.lambda_cam,
     )
 
