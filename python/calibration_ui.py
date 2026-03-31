@@ -542,6 +542,8 @@ class CalibrationUI:
         self.log(text_widget, f"Source: {result['source']}")
         self.log(text_widget, f"JSON: {result['json_path']}")
         self.log(text_widget, f"Offset (deg): {result['offset_deg']}")
+        if result.get("head_offset_deg") is not None:
+            self.log(text_widget, f"Head Offset (deg): {result['head_offset_deg']}")
 
     # ============================================================
     # User tab

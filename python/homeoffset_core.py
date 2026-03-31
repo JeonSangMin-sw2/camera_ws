@@ -10,8 +10,12 @@ def load_offset_from_json(filename="calibration_result.json"):
     with open(filename, "r") as f:
         data = json.load(f)
 
-    offset_deg = np.array(data["joint_offset_deg"], dtype=np.float64)
-    return np.deg2rad(offset_deg)
+    arm_offset_deg = np.array(data["joint_offset_deg"], dtype=np.float64)
+    head_offset_deg = data.get("head_joint_offset_deg")
+    head_offset_rad = None
+    if head_offset_deg is not None:
+        head_offset_rad = np.deg2rad(np.array(head_offset_deg, dtype=np.float64))
+    return np.deg2rad(arm_offset_deg), head_offset_rad
 
 
 def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=5):
@@ -116,6 +120,7 @@ def apply_home_offset(
     model_name,
     arm,
     offset_rad,
+    head_offset_rad=None,
     power=".*",
     servo=".*",
 ):
@@ -135,6 +140,12 @@ def apply_home_offset(
 
     offset_rad = np.array(offset_rad, dtype=np.float64).reshape(-1)
     head_zero_pose = np.zeros(len(model.head_idx))
+    if head_offset_rad is not None:
+        head_offset_rad = np.array(head_offset_rad, dtype=np.float64).reshape(-1)
+        if len(head_offset_rad) != len(model.head_idx):
+            raise RuntimeError(
+                f"Head offset size mismatch: expected {len(model.head_idx)}, got {len(head_offset_rad)}"
+            )
 
     if len(offset_rad) != arm_dof:
         raise RuntimeError(
@@ -144,6 +155,8 @@ def apply_home_offset(
     # 기존 CLI 로직 유지
     offset_to_apply = -offset_rad
     offset_deg = np.rad2deg(offset_to_apply)
+    head_offset_to_apply = None if head_offset_rad is None else -head_offset_rad
+    head_offset_deg = None if head_offset_to_apply is None else np.rad2deg(head_offset_to_apply)
 
     # 1) zero pose 이동
     ok = movej(
@@ -159,10 +172,11 @@ def apply_home_offset(
     time.sleep(2)
     # 2) offset pose 이동
     target_pose = zero_pose + offset_to_apply
+    head_target_pose = head_zero_pose if head_offset_to_apply is None else (head_zero_pose + head_offset_to_apply)
     if arm == "right":
-        ok = movej(robot, right_arm=target_pose, head=head_zero_pose, minimum_time=10)
+        ok = movej(robot, right_arm=target_pose, head=head_target_pose, minimum_time=10)
     else:
-        ok = movej(robot, left_arm=target_pose, head=head_zero_pose, minimum_time=10)
+        ok = movej(robot, left_arm=target_pose, head=head_target_pose, minimum_time=10)
 
     if not ok:
         raise RuntimeError("Failed to move robot with offset pose")
@@ -176,6 +190,13 @@ def apply_home_offset(
         success = robot.home_offset_reset(joint_name)
         if not success:
             failed_joints.append(joint_name)
+
+    if head_offset_to_apply is not None:
+        for i in range(len(model.head_idx)):
+            joint_name = f"head_{i}"
+            success = robot.home_offset_reset(joint_name)
+            if not success:
+                failed_joints.append(joint_name)
 
     if failed_joints:
         raise RuntimeError(f"Failed to reset joints: {failed_joints}")
@@ -204,6 +225,7 @@ def apply_home_offset(
         "status": "success",
         "arm": arm,
         "offset_deg": offset_deg.tolist(),
+        "head_offset_deg": None if head_offset_deg is None else head_offset_deg.tolist(),
     }
 
 
@@ -215,13 +237,14 @@ def apply_home_offset_from_json(
     power=".*",
     servo=".*",
 ):
-    offset_rad = load_offset_from_json(json_path)
+    offset_rad, head_offset_rad = load_offset_from_json(json_path)
 
     result = apply_home_offset(
         address=address,
         model_name=model_name,
         arm=arm,
         offset_rad=offset_rad,
+        head_offset_rad=head_offset_rad,
         power=power,
         servo=servo,
     )
