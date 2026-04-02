@@ -8,6 +8,7 @@ import numpy as np
 import rby1_sdk as rby
 
 from calibration_core import (
+    DEFAULT_LAMBDA_CAM,
     create_robot,
     create_live_marker_transform,
     capture_one_sample as capture_robot_sample,
@@ -263,8 +264,15 @@ class CalibrationUI:
         self.dev_mode_info = tk.StringVar(value="Record button is used only in live mode.")
         ttk.Label(cfg, textvariable=self.dev_mode_info).grid(row=1, column=4, columnspan=2, padx=5, pady=5, sticky="w")
 
+        ttk.Label(cfg, text="lambda_cam").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.dev_lambda_cam = tk.StringVar(value=str(DEFAULT_LAMBDA_CAM))
+        ttk.Entry(cfg, textvariable=self.dev_lambda_cam, width=12).grid(row=2, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, text="Camera regularization used only for Developer Calculate.").grid(
+            row=2, column=2, columnspan=4, padx=5, pady=5, sticky="w"
+        )
+
         self.dev_head_status = tk.StringVar(value="Head Move: 0/20")
-        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=2, column=0, columnspan=6, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=3, column=0, columnspan=6, padx=5, pady=5, sticky="w")
 
         # actions
         act = ttk.LabelFrame(frm, text="Actions")
@@ -424,7 +432,17 @@ class CalibrationUI:
         self.log(text_widget, f"marker =\n{np.round(T_meas, 3)}")
         return q_arm, q_head, T_meas
 
-    def run_optimizer(self, arm, ndof, q_arm_list, q_head_list, T_meas_list, result_path, text_widget):
+    def run_optimizer(
+        self,
+        arm,
+        ndof,
+        q_arm_list,
+        q_head_list,
+        T_meas_list,
+        result_path,
+        text_widget,
+        lambda_cam=DEFAULT_LAMBDA_CAM,
+    ):
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
@@ -439,6 +457,7 @@ class CalibrationUI:
             ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
             head_idx=head_cfg["head_idx"],
+            lambda_cam=lambda_cam,
         )
 
         q_arm_offset, q_head_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
@@ -446,6 +465,7 @@ class CalibrationUI:
         t5_to_cam_new = [float(x) for x in t5_to_cam_new]
 
         self.log(text_widget, "\n===== RESULT =====")
+        self.log(text_widget, f"lambda_cam = {lambda_cam}")
         self.log(text_widget, "Arm joint offset (deg):")
         self.log(text_widget, str(np.rad2deg(q_arm_offset)))
         if q_head_offset is not None:
@@ -468,6 +488,17 @@ class CalibrationUI:
 
         self.last_result_path = result_path
         self.log(text_widget, f"Result saved to {result_path}")
+
+    def get_dev_lambda_cam(self):
+        raw_value = self.dev_lambda_cam.get().strip()
+        if not raw_value:
+            raise ValueError("lambda_cam is empty.")
+
+        lambda_cam = float(raw_value)
+        if lambda_cam < 0.0:
+            raise ValueError("lambda_cam must be greater than or equal to 0.")
+
+        return lambda_cam
 
     def confirm_home_offset_action(self):
         popup = tk.Toplevel(self.root)
@@ -662,6 +693,7 @@ class CalibrationUI:
             mode = self.dev_mode.get()
             ndof = int(self.dev_ndof.get())
             arm = self.dev_arm.get()
+            lambda_cam = self.get_dev_lambda_cam()
             if self.model is None:
                 raise RuntimeError("Robot is not connected.")
 
@@ -725,6 +757,7 @@ class CalibrationUI:
                 T_meas_list=T_meas_list,
                 result_path=result_path,
                 text_widget=self.dev_text,
+                lambda_cam=lambda_cam,
             )
 
         except Exception as e:

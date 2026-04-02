@@ -17,6 +17,7 @@ np.set_printoptions(suppress=True, precision=6)
 
 BASE_DIR = Path(__file__).resolve().parent
 SETTING_PATH = BASE_DIR / "config" / "setting.yaml"
+DEFAULT_LAMBDA_CAM = 1.0
 
 
 # ============================================================
@@ -445,7 +446,7 @@ class CalibrationOptimizer:
         camera_link="link_head_2",
         max_iter=500,
         eps=1e-6,
-        lambda_cam=10.0,
+        lambda_cam=DEFAULT_LAMBDA_CAM,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
