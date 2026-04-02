@@ -3,4 +3,5 @@
 *.npz
 *.json
 *.txt
-
+__pycache__/
+*.pyc
