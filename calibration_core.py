@@ -671,6 +671,19 @@ class CalibrationOptimizer:
             np.rad2deg(rpy[1]),
             np.rad2deg(rpy[2]),
         ]
+        
+    def get_calibrated_mount_to_cam(self, xi_mount_cam):
+        T_mount_to_cam = self.get_nominal_mount_to_cam() @ se3_exp(xi_mount_cam)
+
+        p = T_mount_to_cam[:3, 3]
+        rpy = rot_to_euler_zyx(T_mount_to_cam[:3, :3])
+
+        return [
+            p[0], p[1], p[2],
+            np.rad2deg(rpy[0]),
+            np.rad2deg(rpy[1]),
+            np.rad2deg(rpy[2]),
+        ]
 
     def optimize(self, q_arm_list, q_head_list, T_meas_list):
         if self.use_head_kinematics and q_head_list is None:
@@ -704,8 +717,11 @@ class CalibrationOptimizer:
                 print("Converged.")
                 break
 
+        # t5_to_cam_new = self.get_calibrated_t5_to_cam(xi_mount_cam)
+        # return q_arm_offset, q_head_offset, xi_mount_cam, t5_to_cam_new
+        mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_mount_cam)
         t5_to_cam_new = self.get_calibrated_t5_to_cam(xi_mount_cam)
-        return q_arm_offset, q_head_offset, xi_mount_cam, t5_to_cam_new
+        return q_arm_offset, q_head_offset, xi_mount_cam, mount_to_cam_new, t5_to_cam_new
 
 
 # ============================================================

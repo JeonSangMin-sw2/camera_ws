@@ -460,9 +460,10 @@ class CalibrationUI:
             lambda_cam=lambda_cam,
         )
 
-        q_arm_offset, q_head_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
+        q_arm_offset, q_head_offset, xi_t5_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
 
         t5_to_cam_new = [float(x) for x in t5_to_cam_new]
+        mount_to_cam_new = [float(x) for x in mount_to_cam_new]
 
         self.log(text_widget, "\n===== RESULT =====")
         self.log(text_widget, f"lambda_cam = {lambda_cam}")
@@ -471,10 +472,14 @@ class CalibrationUI:
         if q_head_offset is not None:
             self.log(text_widget, "Head joint offset (deg):")
             self.log(text_widget, str(np.rad2deg(q_head_offset)))
-        self.log(text_widget, "T5-to-camera xi:")
+        # self.log(text_widget, "T5-to-camera xi:")
+        # self.log(text_widget, str(xi_t5_cam))
+        self.log(text_widget, "mount_to_cam xi:")
         self.log(text_widget, str(xi_t5_cam))
-        self.log(text_widget, "t5_to_cam_new:")
-        self.log(text_widget, str(t5_to_cam_new))
+        self.log(text_widget, "mount_to_cam_new:")
+        self.log(text_widget, str(mount_to_cam_new))
+        # self.log(text_widget, "t5_to_cam_new:")
+        # self.log(text_widget, str(t5_to_cam_new))
 
         result_dict = {
             "joint_offset_deg": np.rad2deg(q_arm_offset).tolist(),
