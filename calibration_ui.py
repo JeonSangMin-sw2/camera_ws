@@ -12,10 +12,11 @@ from calibration_core import (
     create_robot,
     create_live_marker_transform,
     capture_one_sample as capture_robot_sample,
-    get_arm_config,
+    get_both_arm_config,
     get_head_config,
     load_npz_dataset,
     save_npz_dataset,
+    split_arm_offsets,
     validate_dataset_for_ndof,
     generate_sim_measurements,
     CalibrationOptimizer,
@@ -34,6 +35,7 @@ HEAD_SWEEP_RANGE_DEG = {
     "head0": (-15.0, 15.0),
     "head1": (-15.0, 15.0),
 }
+FIXED_CALIB_ARM = "both"
 
 class CalibrationUI:
     def __init__(self, root):
@@ -118,7 +120,7 @@ class CalibrationUI:
             self.zero_pose_check_common(
                 ip=self.user_ip.get(),
                 model_name=self.user_model.get(),
-                arm=self.user_arm.get(),
+                arm=FIXED_CALIB_ARM,
                 text_widget=self.user_text,
             )
         except Exception as e:
@@ -131,7 +133,7 @@ class CalibrationUI:
             self.zero_pose_check_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
-                arm=self.dev_arm.get(),
+                arm=FIXED_CALIB_ARM,
                 text_widget=self.dev_text,
             )
         except Exception as e:
@@ -179,18 +181,11 @@ class CalibrationUI:
         setup = ttk.LabelFrame(frm, text="Setup")
         setup.pack(fill="x", padx=10, pady=10)
 
-        ttk.Label(setup, text="Arm").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.user_arm = tk.StringVar(value="right")
-        ttk.Combobox(
-            setup,
-            textvariable=self.user_arm,
-            values=["right", "left"],
-            state="readonly",
-            width=10
-        ).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(setup, text="Arm (Zero/Apply)").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(setup, text=FIXED_CALIB_ARM).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         ttk.Label(setup, text="Mode: live").grid(row=0, column=2, padx=20, pady=5, sticky="w")
-        ttk.Label(setup, text="ndof: auto (13 / 15)").grid(row=0, column=3, padx=20, pady=5, sticky="w")
+        ttk.Label(setup, text="ndof: auto (20 / 22)").grid(row=0, column=3, padx=20, pady=5, sticky="w")
         self.user_head_status = tk.StringVar(value="Head Move: 0/20")
         ttk.Label(setup, textvariable=self.user_head_status).grid(row=1, column=0, columnspan=4, padx=5, pady=5, sticky="w")
 
@@ -240,10 +235,8 @@ class CalibrationUI:
         cfg = ttk.LabelFrame(frm, text="Config")
         cfg.pack(fill="x", padx=10, pady=10)
 
-        ttk.Label(cfg, text="Arm").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.dev_arm = tk.StringVar(value="right")
-        ttk.Combobox(cfg, textvariable=self.dev_arm, values=["right", "left"], state="readonly", width=10)\
-            .grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, text="Arm (Zero/Apply)").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, text=FIXED_CALIB_ARM).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="Mode").grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.dev_mode = tk.StringVar(value="live")
@@ -252,8 +245,8 @@ class CalibrationUI:
         mode_box.bind("<<ComboboxSelected>>", self._update_dev_mode_label)
 
         ttk.Label(cfg, text="ndof").grid(row=0, column=4, padx=5, pady=5, sticky="w")
-        self.dev_ndof = tk.IntVar(value=15)
-        ndof_box = ttk.Combobox(cfg, textvariable=self.dev_ndof, values=[2, 6, 7, 9, 13, 15], state="readonly", width=10)
+        self.dev_ndof = tk.IntVar(value=22)
+        ndof_box = ttk.Combobox(cfg, textvariable=self.dev_ndof, values=[2, 6, 14, 16, 20, 22], state="readonly", width=10)
         ndof_box.grid(row=0, column=5, padx=5, pady=5, sticky="w")
         ndof_box.bind("<<ComboboxSelected>>", self._update_dev_mode_label)
 
@@ -403,7 +396,7 @@ class CalibrationUI:
         self.head_move_count += 1
         self.update_head_pose_status()
 
-    def capture_one_sample(self, arm, text_widget):
+    def capture_one_sample(self, text_widget):
         if self.robot is None:
             raise RuntimeError("Robot is not connected.")
 
@@ -413,14 +406,14 @@ class CalibrationUI:
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
-        cfg = get_arm_config(self.model, arm)
+        cfg = get_both_arm_config(self.model)
         head_cfg = get_head_config(self.model)
         q_arm, q_head, T_meas = capture_robot_sample(
             robot=self.robot,
             arm_idx=cfg["arm_idx"],
             marker_transform=self.marker_transform,
             head_idx=head_cfg["head_idx"],
-            side=arm,
+            side="all",
         )
         if T_meas is None:
             self.log(text_widget, "Marker not detected.")
@@ -429,12 +422,12 @@ class CalibrationUI:
         self.log(text_widget, f"Captured sample")
         self.log(text_widget, f"q_arm = {np.round(q_arm, 3)}")
         self.log(text_widget, f"q_head = {np.round(q_head, 3)}")
-        self.log(text_widget, f"marker =\n{np.round(T_meas, 3)}")
+        self.log(text_widget, f"marker_right =\n{np.round(T_meas[0], 3)}")
+        self.log(text_widget, f"marker_left =\n{np.round(T_meas[1], 3)}")
         return q_arm, q_head, T_meas
 
     def run_optimizer(
         self,
-        arm,
         ndof,
         q_arm_list,
         q_head_list,
@@ -446,13 +439,13 @@ class CalibrationUI:
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
-        cfg = get_arm_config(self.model, arm)
+        cfg = get_both_arm_config(self.model)
         head_cfg = get_head_config(self.model)
 
         optimizer = CalibrationOptimizer(
             robot=self.robot,
             arm_idx=cfg["arm_idx"],
-            ee_link=cfg["ee_link"],
+            ee_links=cfg["ee_links"],
             mount_to_cam_nom=cfg["mount_to_cam_nom"],
             ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
@@ -460,15 +453,23 @@ class CalibrationUI:
             lambda_cam=lambda_cam,
         )
 
-        q_arm_offset, q_head_offset, xi_t5_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
+        q_arm_offset, q_head_offset, xi_t5_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(
+            q_arm_list,
+            q_head_list,
+            T_meas_list,
+        )
+        right_arm_offset, left_arm_offset = split_arm_offsets(q_arm_offset)
 
         t5_to_cam_new = [float(x) for x in t5_to_cam_new]
         mount_to_cam_new = [float(x) for x in mount_to_cam_new]
 
         self.log(text_widget, "\n===== RESULT =====")
         self.log(text_widget, f"lambda_cam = {lambda_cam}")
-        self.log(text_widget, "Arm joint offset (deg):")
-        self.log(text_widget, str(np.rad2deg(q_arm_offset)))
+        self.log(text_widget, "Right arm joint offset (deg):")
+        self.log(text_widget, str(np.rad2deg(right_arm_offset)))
+        if left_arm_offset is not None:
+            self.log(text_widget, "Left arm joint offset (deg):")
+            self.log(text_widget, str(np.rad2deg(left_arm_offset)))
         if q_head_offset is not None:
             self.log(text_widget, "Head joint offset (deg):")
             self.log(text_widget, str(np.rad2deg(q_head_offset)))
@@ -483,6 +484,8 @@ class CalibrationUI:
 
         result_dict = {
             "joint_offset_deg": np.rad2deg(q_arm_offset).tolist(),
+            "right_arm_joint_offset_deg": np.rad2deg(right_arm_offset).tolist(),
+            "left_arm_joint_offset_deg": np.rad2deg(left_arm_offset).tolist() if left_arm_offset is not None else None,
             "head_joint_offset_deg": np.rad2deg(q_head_offset).tolist() if q_head_offset is not None else None,
             "xi_t5_cam": np.array(xi_t5_cam).tolist(),
             "xi_cam": np.array(xi_t5_cam).tolist()
@@ -577,6 +580,10 @@ class CalibrationUI:
         self.log(text_widget, f"Arm: {result['arm']}")
         self.log(text_widget, f"Source: {result['source']}")
         self.log(text_widget, f"JSON: {result['json_path']}")
+        if result.get("right_offset_deg") is not None:
+            self.log(text_widget, f"Right Offset (deg): {result['right_offset_deg']}")
+        if result.get("left_offset_deg") is not None:
+            self.log(text_widget, f"Left Offset (deg): {result['left_offset_deg']}")
         self.log(text_widget, f"Offset (deg): {result['offset_deg']}")
         if result.get("head_offset_deg") is not None:
             self.log(text_widget, f"Head Offset (deg): {result['head_offset_deg']}")
@@ -597,7 +604,7 @@ class CalibrationUI:
 
     def user_record(self):
         try:
-            q_arm, q_head, T_meas = self.capture_one_sample(self.user_arm.get(), self.user_text)
+            q_arm, q_head, T_meas = self.capture_one_sample(self.user_text)
             if q_arm is None:
                 return
             self.shared_arm_q_list.append(q_arm)
@@ -618,15 +625,15 @@ class CalibrationUI:
             q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
             T_meas_list = np.array(self.shared_T_list)
             dataset_path, result_path = self.build_output_paths()
-            ndof = 15 if q_head_list is not None and np.ptp(q_head_list, axis=0).max() > np.deg2rad(1.0) else 13
+            ndof = 22 if q_head_list is not None and np.ptp(q_head_list, axis=0).max() > np.deg2rad(1.0) else 20
 
+            validate_dataset_for_ndof(ndof, q_arm_list, q_head_list, T_meas_list)
             save_npz_dataset(dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
             self.last_dataset_path = dataset_path
             self.log(self.user_text, f"Dataset saved to {dataset_path}")
             self.log(self.user_text, f"Optimization ndof = {ndof}")
 
             self.run_optimizer(
-                arm=self.user_arm.get(),
                 ndof=ndof,
                 q_arm_list=q_arm_list,
                 q_head_list=q_head_list,
@@ -643,7 +650,7 @@ class CalibrationUI:
             self.apply_home_offset_common(
                 ip=self.user_ip.get(),
                 model_name=self.user_model.get(),
-                arm=self.user_arm.get(),
+                arm=FIXED_CALIB_ARM,
                 text_widget=self.user_text,
             )
         except Exception as e:
@@ -661,10 +668,10 @@ class CalibrationUI:
         elif mode == "npz":
             self.dev_mode_info.set("Path is used in npz mode.")
         else:
-            if int(self.dev_ndof.get()) in (2, 9, 15):
-                self.dev_mode_info.set("sim mode uses default random arm + head samples.")
+            if int(self.dev_ndof.get()) in (2, 16, 22):
+                self.dev_mode_info.set("sim mode uses simultaneous dual-arm samples with head sweep.")
             else:
-                self.dev_mode_info.set("sim mode uses default random arm samples.")
+                self.dev_mode_info.set("sim mode uses simultaneous dual-arm samples.")
 
     def dev_connect(self):
         self.connect_robot(self.dev_ip.get(), self.dev_model.get(), self.dev_status, self.dev_text)
@@ -682,7 +689,7 @@ class CalibrationUI:
                 messagebox.showwarning("Warning", "Record is available only in live mode.")
                 return
 
-            q_arm, q_head, T_meas = self.capture_one_sample(self.dev_arm.get(), self.dev_text)
+            q_arm, q_head, T_meas = self.capture_one_sample(self.dev_text)
             if q_arm is None:
                 return
             self.shared_arm_q_list.append(q_arm)
@@ -697,12 +704,11 @@ class CalibrationUI:
         try:
             mode = self.dev_mode.get()
             ndof = int(self.dev_ndof.get())
-            arm = self.dev_arm.get()
             lambda_cam = self.get_dev_lambda_cam()
             if self.model is None:
                 raise RuntimeError("Robot is not connected.")
 
-            cfg = get_arm_config(self.model, arm)
+            cfg = get_both_arm_config(self.model)
             head_cfg = get_head_config(self.model)
 
             if mode == "live":
@@ -723,8 +729,8 @@ class CalibrationUI:
 
             else:  # sim
                 sample_count = 100
-                q_arm_list = np.random.uniform(-5, 5, (sample_count, 7))
-                if ndof in (2, 9, 15):
+                q_arm_list = np.random.uniform(-5, 5, (sample_count, 14))
+                if ndof in (2, 16, 22):
                     q_head_list = np.column_stack([
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
@@ -742,7 +748,7 @@ class CalibrationUI:
                     head_cfg["head_idx"],
                     q_nominal,
                     ndof,
-                    cfg["ee_link"],
+                    cfg["ee_links"],
                     cfg["mount_to_cam_nom"],
                     cfg["ee_to_marker_nom"],
                     camera_link=head_cfg["camera_link"],
@@ -750,12 +756,12 @@ class CalibrationUI:
                 self.log(self.dev_text, f"Simulation dataset generated. samples = {sample_count}, ndof = {ndof}")
 
             dataset_path, result_path = self.build_output_paths()
+            validate_dataset_for_ndof(ndof, q_arm_list, q_head_list, T_meas_list)
             save_npz_dataset(dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
             self.last_dataset_path = dataset_path
             self.log(self.dev_text, f"Dataset saved to {dataset_path}")
 
             self.run_optimizer(
-                arm=arm,
                 ndof=ndof,
                 q_arm_list=q_arm_list,
                 q_head_list=q_head_list,
@@ -774,7 +780,7 @@ class CalibrationUI:
             self.apply_home_offset_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
-                arm=self.dev_arm.get(),
+                arm=FIXED_CALIB_ARM,
                 text_widget=self.dev_text,
             )
         except Exception as e:

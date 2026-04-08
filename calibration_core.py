@@ -18,6 +18,10 @@ np.set_printoptions(suppress=True, precision=6)
 BASE_DIR = Path(__file__).resolve().parent
 SETTING_PATH = BASE_DIR / "config" / "setting.yaml"
 DEFAULT_LAMBDA_CAM = 1.0
+ARM_SIDES = ("right", "left")
+ARM_OPTIMIZATION_NDOF = {14, 16, 20, 22}
+HEAD_OPTIMIZATION_NDOF = {2, 16, 22}
+CAMERA_OPTIMIZATION_NDOF = {6, 20, 22}
 
 
 # ============================================================
@@ -190,6 +194,26 @@ def validate_dataset_for_ndof(ndof, q_arm, q_head, T_meas):
             "Head-mounted camera calibration requires `q_head`, but the loaded npz does not contain it."
         )
 
+    if q_arm.ndim != 2:
+        raise RuntimeError(f"Expected q_arm to be a 2D array, got shape {q_arm.shape}")
+
+    if q_arm.shape[1] != 14:
+        raise RuntimeError(
+            f"Unsupported q_arm width {q_arm.shape[1]}. Expected 14 (right+left arms)."
+        )
+
+    if T_meas.ndim != 4 or T_meas.shape[1:] != (2, 4, 4):
+        raise RuntimeError(
+            f"Expected marker measurements with shape (N, 2, 4, 4), got {T_meas.shape}"
+        )
+
+
+def split_arm_offsets(q_offset):
+    q_offset = np.asarray(q_offset, dtype=np.float64).reshape(-1)
+    if len(q_offset) == 14:
+        return q_offset[:7], q_offset[7:]
+    return q_offset, None
+
 
 def save_npz_dataset(path, q_arm, T_meas, q_head=None):
     save_kwargs = {
@@ -203,8 +227,14 @@ def save_npz_dataset(path, q_arm, T_meas, q_head=None):
 
 
 def save_result(path, q_offset, xi_t5_cam, q_head_offset=None):
+    right_arm_offset, left_arm_offset = split_arm_offsets(q_offset)
     result_dict = {
         "joint_offset_deg": np.rad2deg(q_offset).tolist(),
+        "right_arm_joint_offset_deg": np.rad2deg(right_arm_offset).tolist(),
+        "left_arm_joint_offset_deg": (
+            np.rad2deg(left_arm_offset).tolist()
+            if left_arm_offset is not None else None
+        ),
         "head_joint_offset_deg": (
             np.rad2deg(q_head_offset).tolist()
             if q_head_offset is not None else None
@@ -264,6 +294,22 @@ def get_arm_config(model, arm):
     }
 
 
+def get_both_arm_config(model):
+    camera_nominals = load_camera_nominals()
+    return {
+        "arm_idx": np.concatenate([model.right_arm_idx[:7], model.left_arm_idx[:7]]),
+        "ee_links": {
+            "right": "ee_right",
+            "left": "ee_left",
+        },
+        "mount_to_cam_nom": camera_nominals["mount_to_cam_nom"],
+        "ee_to_marker_nom": {
+            "right": camera_nominals["ee_to_marker_right"],
+            "left": camera_nominals["ee_to_marker_left"],
+        },
+    }
+
+
 def get_head_config(model):
     camera_nominals = load_camera_nominals()
     return {
@@ -303,7 +349,7 @@ def create_live_marker_transform():
     return marker_transform
 
 
-def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="left", head_idx=None):
+def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="all", head_idx=None):
     state = robot.get_state()
     q_full = state.position.copy()
     q_arm = q_full[arm_idx].copy()
@@ -313,8 +359,17 @@ def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="
     if result is None:
         return None, None, None
 
-    T_meas = np.array(result).reshape(4, 4)
-    return q_arm, q_head, T_meas
+    # side="all" returns [right(4x4), left(4x4)]
+    T_meas_pair = np.asarray(result, dtype=np.float64)
+    if T_meas_pair.shape != (2, 4, 4):
+        if T_meas_pair.size == 32:
+            T_meas_pair = T_meas_pair.reshape(2, 4, 4)
+        else:
+            raise RuntimeError(
+                f"Expected marker result shape (2,4,4) for side='all', got {T_meas_pair.shape}"
+            )
+
+    return q_arm, q_head, T_meas_pair
 
 
 def capture_dataset(robot, arm_idx, marker_transform, head_idx=None):
@@ -322,7 +377,7 @@ def capture_dataset(robot, arm_idx, marker_transform, head_idx=None):
     q_head_list = []
     T_meas_list = []
 
-    print("\nPress 'e' + Enter to capture")
+    print("\nPress 'e' + Enter to capture both arms")
     print("Press 'q' + Enter to quit\n")
 
     while True:
@@ -333,6 +388,7 @@ def capture_dataset(robot, arm_idx, marker_transform, head_idx=None):
                 robot=robot,
                 arm_idx=arm_idx,
                 marker_transform=marker_transform,
+                side="all",
                 head_idx=head_idx,
             )
             if T_meas is None:
@@ -348,7 +404,8 @@ def capture_dataset(robot, arm_idx, marker_transform, head_idx=None):
             print("q_arm =", np.round(q_arm, 3))
             if q_head is not None:
                 print("q_head =", np.round(q_head, 3))
-            print("marker =", np.round(T_meas, 3))
+            print("marker_right =", np.round(T_meas[0], 3))
+            print("marker_left =", np.round(T_meas[1], 3))
 
         elif key == "q":
             break
@@ -372,19 +429,19 @@ def generate_sim_measurements(
     head_idx,
     q_nominal,
     ndof,
-    ee_link,
+    ee_links,
     mount_to_cam_nom,
     ee_to_marker_nom,
     camera_link="link_head_2",
 ):
-    q_offset_true = np.deg2rad([3, 0, 1, 4, -3, 2, 1])
+    q_offset_true = np.deg2rad([3, 0, 1, 4, -3, 2, 1, -2, 1, -1, 3, -4, 2, -2])
     q_head_offset_true = np.deg2rad([2.0, -1.5])
     xi_t5_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
 
-    optimize_arm = ndof in (7, 9, 13, 15)
-    optimize_head = ndof in (2, 9, 15) and q_head_list is not None and head_idx is not None
+    optimize_arm = ndof in ARM_OPTIMIZATION_NDOF
+    optimize_head = ndof in HEAD_OPTIMIZATION_NDOF and q_head_list is not None and head_idx is not None
     use_head_kinematics = q_head_list is not None and head_idx is not None
-    optimize_camera = ndof in (6, 13, 15)
+    optimize_camera = ndof in CAMERA_OPTIMIZATION_NDOF
 
     if use_head_kinematics:
         base_link = camera_link
@@ -402,8 +459,6 @@ def generate_sim_measurements(
             T_mount_to_cam_nom @ se3_exp(xi_t5_cam_true)
             if optimize_camera else T_mount_to_cam_nom
         )
-    T_ee_to_marker = make_transform(ee_to_marker_nom)
-
     T_list = []
 
     if q_head_list is None:
@@ -422,9 +477,13 @@ def generate_sim_measurements(
             q_head_offset=q_head_offset_true if optimize_head else None,
         )
 
-        _, T_fk = compute_fk(robot, dyn_model, q_full, ee_link, base_link=base_link)
-        T_meas = np.linalg.inv(T_mount_to_cam_true) @ T_fk @ T_ee_to_marker
-        T_list.append(T_meas)
+        T_pair = []
+        for arm_side in ARM_SIDES:
+            _, T_fk = compute_fk(robot, dyn_model, q_full, ee_links[arm_side], base_link=base_link)
+            T_ee_to_marker = make_transform(ee_to_marker_nom[arm_side])
+            T_meas = np.linalg.inv(T_mount_to_cam_true) @ T_fk @ T_ee_to_marker
+            T_pair.append(T_meas)
+        T_list.append(np.stack(T_pair, axis=0))
 
     return np.array(T_list)
 
@@ -438,7 +497,7 @@ class CalibrationOptimizer:
         self,
         robot,
         arm_idx,
-        ee_link,
+        ee_links,
         mount_to_cam_nom,
         ee_to_marker_nom,
         ndof,
@@ -454,15 +513,15 @@ class CalibrationOptimizer:
 
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
-        self.ee_link = ee_link
+        self.ee_links = dict(ee_links)
         self.mount_to_cam_nom = mount_to_cam_nom
-        self.ee_to_marker_nom = ee_to_marker_nom
+        self.ee_to_marker_nom = dict(ee_to_marker_nom)
         self.camera_link = camera_link
 
-        self.optimize_arm = ndof in (7, 9, 13, 15)
-        self.optimize_head = ndof in (2, 9, 15) and self.head_idx is not None
+        self.optimize_arm = ndof in ARM_OPTIMIZATION_NDOF
+        self.optimize_head = ndof in HEAD_OPTIMIZATION_NDOF and self.head_idx is not None
         self.use_head_kinematics = self.head_idx is not None
-        self.optimize_camera = ndof in (6, 13, 15)
+        self.optimize_camera = ndof in CAMERA_OPTIMIZATION_NDOF
 
         self.max_iter = max_iter
         self.eps = eps
@@ -494,8 +553,8 @@ class CalibrationOptimizer:
     def get_nominal_mount_to_cam(self):
         return self.T_mount_to_cam_nom.copy()
 
-    def get_nominal_ee_to_marker(self):
-        return make_transform(self.ee_to_marker_nom)
+    def get_nominal_ee_to_marker(self, arm_side):
+        return make_transform(self.ee_to_marker_nom[str(arm_side)])
 
     def unpack_params(self, dx):
         cursor = 0
@@ -524,7 +583,7 @@ class CalibrationOptimizer:
             return np.zeros((6, 0))
         return np.concatenate(parts, axis=1)
 
-    def evaluate_sample(self, q_arm, q_head, q_arm_offset, q_head_offset, xi_mount_cam):
+    def evaluate_sample(self, q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam):
         q_full = prepare_q_full(
             q_nominal=self.q_nominal,
             arm_idx=self.arm_idx,
@@ -536,7 +595,7 @@ class CalibrationOptimizer:
         )
 
         state = self.dyn_model.make_state(
-            [self.base_link, self.ee_link],
+            [self.base_link, self.ee_links[str(arm_side)]],
             self.model.robot_joint_names
         )
         state.set_q(q_full)
@@ -552,20 +611,20 @@ class CalibrationOptimizer:
             T_mount_to_cam_nom @ se3_exp(xi_mount_cam)
             if self.optimize_camera else T_mount_to_cam_nom
         )
-        T_ee_to_marker = self.get_nominal_ee_to_marker()
+        T_ee_to_marker = self.get_nominal_ee_to_marker(arm_side)
 
         T_model = np.linalg.inv(T_mount_to_cam) @ T_fk @ T_ee_to_marker
         return Jb_joint, T_mount_to_cam, T_ee_to_marker, T_model
 
-    def build_camera_jacobian_numeric(self, q_arm, q_head, q_arm_offset, q_head_offset, xi_mount_cam, T_model_ref):
+    def build_camera_jacobian_numeric(self, q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam, T_model_ref):
         J_cam = np.zeros((6, 6))
 
         for i in range(6):
             delta = np.zeros(6)
             delta[i] = self.numeric_jac_eps
 
-            _, _, _, T_model_plus = self.evaluate_sample(q_arm, q_head, q_arm_offset, q_head_offset, xi_mount_cam + delta)
-            _, _, _, T_model_minus = self.evaluate_sample(q_arm, q_head, q_arm_offset, q_head_offset, xi_mount_cam - delta)
+            _, _, _, T_model_plus = self.evaluate_sample(q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam + delta)
+            _, _, _, T_model_minus = self.evaluate_sample(q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam - delta)
 
             xi_plus = se3_log(np.linalg.inv(T_model_ref) @ T_model_plus)
             xi_minus = se3_log(np.linalg.inv(T_model_ref) @ T_model_minus)
@@ -573,7 +632,7 @@ class CalibrationOptimizer:
 
         return J_cam
 
-    def build_jacobian(self, q_arm, q_head, q_arm_offset, q_head_offset, xi_mount_cam, Jb_joint, T_ee_to_marker, T_model):
+    def build_jacobian(self, q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam, Jb_joint, T_ee_to_marker, T_model):
         joint_dim = self.joint_param_dim()
         J_joint = adjoint(np.linalg.inv(T_ee_to_marker)) @ Jb_joint if joint_dim > 0 else np.zeros((6, 0))
 
@@ -583,6 +642,7 @@ class CalibrationOptimizer:
             J[:, joint_dim:] = self.build_camera_jacobian_numeric(
                 q_arm,
                 q_head,
+                arm_side,
                 q_arm_offset,
                 q_head_offset,
                 xi_mount_cam,
@@ -594,6 +654,7 @@ class CalibrationOptimizer:
             return self.build_camera_jacobian_numeric(
                 q_arm,
                 q_head,
+                arm_side,
                 q_arm_offset,
                 q_head_offset,
                 xi_mount_cam,
@@ -613,22 +674,36 @@ class CalibrationOptimizer:
         else:
             q_head_iter = q_head_list
 
-        for q_arm, q_head, T_meas in zip(q_arm_list, q_head_iter, T_meas_list):
-            Jb_joint, _, T_ee_to_marker, T_model = self.evaluate_sample(
-                q_arm,
-                q_head,
-                q_arm_offset,
-                q_head_offset,
-                xi_mount_cam,
-            )
+        for q_arm, q_head, T_meas_pair in zip(q_arm_list, q_head_iter, T_meas_list):
+            for side_idx, arm_side in enumerate(ARM_SIDES):
+                T_meas = T_meas_pair[side_idx]
 
-            T_err = np.linalg.inv(T_model) @ T_meas
-            xi = se3_log(T_err)
-            J = self.build_jacobian(q_arm, q_head, q_arm_offset, q_head_offset, xi_mount_cam, Jb_joint, T_ee_to_marker, T_model)
+                Jb_joint, _, T_ee_to_marker, T_model = self.evaluate_sample(
+                    q_arm,
+                    q_head,
+                    arm_side,
+                    q_arm_offset,
+                    q_head_offset,
+                    xi_mount_cam,
+                )
 
-            H += J.T @ J
-            g += J.T @ xi
-            total_err += np.linalg.norm(xi)
+                T_err = np.linalg.inv(T_model) @ T_meas
+                xi = se3_log(T_err)
+                J = self.build_jacobian(
+                    q_arm,
+                    q_head,
+                    arm_side,
+                    q_arm_offset,
+                    q_head_offset,
+                    xi_mount_cam,
+                    Jb_joint,
+                    T_ee_to_marker,
+                    T_model,
+                )
+
+                H += J.T @ J
+                g += J.T @ xi
+                total_err += np.linalg.norm(xi)
 
         if self.optimize_camera and self.lambda_cam > 0.0:
             cam_slice = slice(dim - 6, dim)
@@ -748,9 +823,10 @@ def prepare_dataset(args, robot, dyn_model, config):
         print("size =", np.size(q_arm_list))
 
     else:  # sim
-        q_arm_list = np.random.uniform(-5, 5, (100, 7))
-        if args.ndof in (2, 9, 15):
-            q_head_list = np.random.uniform(-0.2, 0.2, (100, 2))
+        sample_count = 100
+        q_arm_list = np.random.uniform(-5, 5, (sample_count, 14))
+        if args.ndof in HEAD_OPTIMIZATION_NDOF:
+            q_head_list = np.random.uniform(-0.2, 0.2, (sample_count, 2))
         else:
             q_head_ref = robot.get_state().position[head_config["head_idx"]].copy()
             q_head_list = np.tile(q_head_ref, (len(q_arm_list), 1))
@@ -764,7 +840,7 @@ def prepare_dataset(args, robot, dyn_model, config):
             head_idx=head_config["head_idx"],
             q_nominal=q_nominal,
             ndof=args.ndof,
-            ee_link=config["ee_link"],
+            ee_links=config["ee_links"],
             mount_to_cam_nom=config["mount_to_cam_nom"],
             ee_to_marker_nom=config["ee_to_marker_nom"],
             camera_link=head_config["camera_link"],
@@ -779,7 +855,7 @@ def prepare_dataset(args, robot, dyn_model, config):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--ndof", type=int, default=7, choices=[2, 6, 7, 9, 13, 15])
+    parser.add_argument("--ndof", type=int, default=14, choices=[2, 6, 14, 16, 20, 22])
     parser.add_argument("--ip", type=str, default="192.168.30.1:50051")
     parser.add_argument("--model", type=str, default="a", choices=["a", "m"])
     parser.add_argument("--mode", type=str, required=True, choices=["live", "npz", "sim"])
@@ -789,7 +865,6 @@ def main():
         default="captured_dataset.npz",
         help="Path to npz dataset (default: captured_dataset.npz)"
     )
-    parser.add_argument("--arm", type=str, default="right", choices=["right", "left"])
     parser.add_argument("--lambda-cam", type=float, default=100.0)
     args = parser.parse_args()
 
@@ -797,7 +872,7 @@ def main():
 
     robot = create_robot(args.ip, args.model)
     dyn_model = robot.get_dynamics()
-    config = get_arm_config(robot.model(), args.arm)
+    config = get_both_arm_config(robot.model())
 
     q_arm_list, q_head_list, T_meas_list, marker_transform = prepare_dataset(
         args=args,
@@ -811,7 +886,7 @@ def main():
     optimizer = CalibrationOptimizer(
         robot=robot,
         arm_idx=config["arm_idx"],
-        ee_link=config["ee_link"],
+        ee_links=config["ee_links"],
         mount_to_cam_nom=config["mount_to_cam_nom"],
         ee_to_marker_nom=config["ee_to_marker_nom"],
         ndof=args.ndof,
@@ -819,16 +894,26 @@ def main():
         lambda_cam=args.lambda_cam,
     )
 
-    q_arm_offset, q_head_offset, xi_t5_cam, t5_to_cam_new = optimizer.optimize(q_arm_list, q_head_list, T_meas_list)
+    q_arm_offset, q_head_offset, xi_t5_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(
+        q_arm_list,
+        q_head_list,
+        T_meas_list,
+    )
+    right_arm_offset, left_arm_offset = split_arm_offsets(q_arm_offset)
 
     print("\n===== RESULT =====")
-    print("Arm joint offset (deg):")
-    print(np.rad2deg(q_arm_offset))
+    print("Right arm joint offset (deg):")
+    print(np.rad2deg(right_arm_offset))
+    if left_arm_offset is not None:
+        print("Left arm joint offset (deg):")
+        print(np.rad2deg(left_arm_offset))
     if q_head_offset is not None:
         print("Head joint offset (deg):")
         print(np.rad2deg(q_head_offset))
     print("T5-to-camera xi:")
     print(xi_t5_cam)
+    print("Calibrated mount_to_cam:")
+    print(mount_to_cam_new)
     print("Calibrated t5_to_cam:")
     print(t5_to_cam_new)
 
