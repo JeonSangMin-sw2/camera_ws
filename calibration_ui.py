@@ -5,13 +5,16 @@ from pathlib import Path
 from tkinter import ttk, messagebox
 
 import numpy as np
-import rby1_sdk as rby
 
 from calibration_core import (
     DEFAULT_LAMBDA_CAM,
+    AutoCollectionConfig,
+    build_auto_motion_plan,
     create_robot,
     create_live_marker_transform,
     capture_one_sample as capture_robot_sample,
+    execute_auto_motion_step,
+    move_to_auto_ready_pose,
     get_both_arm_config,
     get_head_config,
     load_npz_dataset,
@@ -30,11 +33,6 @@ BASE_DIR = Path(__file__).resolve().parent
 RESULT_DIR = BASE_DIR / "result"
 WARNING_POSE_PATH = BASE_DIR / "warning_pose.png"
 WARNING_POSE_CHECK_PATH = BASE_DIR / "warning_pose_check.png"
-HEAD_SWEEP_COUNT_TARGET = 20
-HEAD_SWEEP_RANGE_DEG = {
-    "head0": (-15.0, 15.0),
-    "head1": (-15.0, 15.0),
-}
 FIXED_CALIB_ARM = "both"
 
 class CalibrationUI:
@@ -52,6 +50,10 @@ class CalibrationUI:
         self.shared_head_q_list = []
         self.shared_T_list = []
         self.head_move_count = 0
+        self.auto_config = AutoCollectionConfig()
+        self.auto_motion_plan = build_auto_motion_plan(self.auto_config)
+        self.auto_base_head_q = None
+        self.auto_ready_done = False
 
         self.warning_img = None
         self.last_result_path = None
@@ -186,7 +188,7 @@ class CalibrationUI:
 
         ttk.Label(setup, text="Mode: live").grid(row=0, column=2, padx=20, pady=5, sticky="w")
         ttk.Label(setup, text="ndof: auto (20 / 22)").grid(row=0, column=3, padx=20, pady=5, sticky="w")
-        self.user_head_status = tk.StringVar(value="Head Move: 0/20")
+        self.user_head_status = tk.StringVar(value="Auto Move: 0/0")
         ttk.Label(setup, textvariable=self.user_head_status).grid(row=1, column=0, columnspan=4, padx=5, pady=5, sticky="w")
 
         # actions
@@ -194,8 +196,8 @@ class CalibrationUI:
         act.pack(fill="x", padx=10, pady=10)
 
         ttk.Button(act, text="1.Zero Pose Check", command=self.user_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="2.Next Head Pose", command=self.user_next_head_pose).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="3.Record", command=self.user_record, padding=(80, 48)).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="2.Next Auto Pose", command=self.user_next_head_pose).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="3.Record(Current)", command=self.user_record, padding=(80, 48)).grid(row=0, column=2, padx=5, pady=5)
         ttk.Button(act, text="4.Calculate", command=self.user_calculate).grid(row=0, column=3, padx=5, pady=5)
         ttk.Button(act, text="5.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=4, padx=5, pady=5)
         ttk.Button(act, text="6.Clear Samples", command=self.clear_samples).grid(row=0, column=5, padx=5, pady=5)
@@ -254,7 +256,7 @@ class CalibrationUI:
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
         ttk.Entry(cfg, textvariable=self.dev_path, width=40).grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
 
-        self.dev_mode_info = tk.StringVar(value="Record button is used only in live mode.")
+        self.dev_mode_info = tk.StringVar(value="In live mode, Next Auto Pose moves both arms/head and records automatically.")
         ttk.Label(cfg, textvariable=self.dev_mode_info).grid(row=1, column=4, columnspan=2, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="lambda_cam").grid(row=2, column=0, padx=5, pady=5, sticky="w")
@@ -264,7 +266,7 @@ class CalibrationUI:
             row=2, column=2, columnspan=4, padx=5, pady=5, sticky="w"
         )
 
-        self.dev_head_status = tk.StringVar(value="Head Move: 0/20")
+        self.dev_head_status = tk.StringVar(value="Auto Move: 0/0")
         ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=3, column=0, columnspan=6, padx=5, pady=5, sticky="w")
 
         # actions
@@ -272,8 +274,8 @@ class CalibrationUI:
         act.pack(fill="x", padx=10, pady=10)
 
         ttk.Button(act, text="1.Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="2.Next Head Pose", command=self.dev_next_head_pose).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="3.Record", command=self.dev_record).grid(row=0, column=2, padx=5, pady=5)
+        ttk.Button(act, text="2.Next Auto Pose", command=self.dev_next_head_pose).grid(row=0, column=1, padx=5, pady=5)
+        ttk.Button(act, text="3.Record(Current)", command=self.dev_record).grid(row=0, column=2, padx=5, pady=5)
         ttk.Button(act, text="4.Calculate", command=self.dev_calculate).grid(row=0, column=3, padx=5, pady=5)
         ttk.Button(act, text="5.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=4, padx=5, pady=5)
         ttk.Button(act, text="6.Clear Samples", command=self.clear_samples).grid(row=0, column=5, padx=5, pady=5)
@@ -331,9 +333,13 @@ class CalibrationUI:
         self.user_count.set(f"Samples: {sample_count}")
         self.dev_count.set(f"Shared Samples: {sample_count}")
 
+    def get_auto_pose_target_count(self):
+        return len(self.auto_motion_plan.get("rpy_samples", []))
+
     def update_head_pose_status(self):
-        pose_idx = min(self.head_move_count, HEAD_SWEEP_COUNT_TARGET)
-        label = f"Head Move: {pose_idx}/{HEAD_SWEEP_COUNT_TARGET}"
+        pose_target = self.get_auto_pose_target_count()
+        pose_idx = min(self.head_move_count, pose_target)
+        label = f"Auto Move: {pose_idx}/{pose_target}"
         self.user_head_status.set(label)
         self.dev_head_status.set(label)
 
@@ -348,6 +354,8 @@ class CalibrationUI:
         self.shared_head_q_list.clear()
         self.shared_T_list.clear()
         self.head_move_count = 0
+        self.auto_base_head_q = None
+        self.auto_ready_done = False
         self.update_sample_counts()
         self.update_head_pose_status()
         self.log(self.user_text, "Shared samples cleared.")
@@ -358,6 +366,8 @@ class CalibrationUI:
             self.robot = create_robot(ip, model_name)
             self.dyn_model = self.robot.get_dynamics()
             self.model = self.robot.model()
+            self.auto_base_head_q = None
+            self.auto_ready_done = False
             status_var.set("Connected")
             self.log(text_widget, f"Connected: {ip} (model={model_name})")
             self.update_head_pose_status()
@@ -366,34 +376,63 @@ class CalibrationUI:
             messagebox.showerror("Connection Error", str(e))
             self.log(text_widget, f"Connection failed: {e}")
 
-    def move_head_to_pose(self, pose_deg, text_widget):
+    def move_to_next_auto_pose_and_record(self, text_widget):
         if self.robot is None:
             raise RuntimeError("Robot is not connected.")
+        if self.model is None:
+            raise RuntimeError("Robot is not connected.")
 
-        pose_rad = np.deg2rad(np.array(pose_deg, dtype=np.float64))
-        cmd = (
-            rby.RobotCommandBuilder()
-            .set_command(
-                rby.ComponentBasedCommandBuilder().set_head_command(
-                    rby.JointPositionCommandBuilder()
-                    .set_position(pose_rad)
-                    .set_minimum_time(2.0)
-                )
+        if self.marker_transform is None:
+            self.marker_transform = create_live_marker_transform()
+
+        pose_target = self.get_auto_pose_target_count()
+        if self.head_move_count >= pose_target:
+            self.log(text_widget, "All auto poses have already been executed.")
+            return
+
+        if not self.auto_ready_done:
+            self.log(text_widget, "Moving to auto ready pose (same as auto_data_collecting.py)...")
+            move_to_auto_ready_pose(
+                robot=self.robot,
+                minimum_time=3.0,
+                priority=self.auto_config.priority,
             )
-        )
-        rv = self.robot.send_command(cmd, 5).get()
-        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError("Failed to move head to the requested pose.")
+            self.auto_ready_done = True
+            self.auto_base_head_q = None
+            self.log(text_widget, "Auto ready pose reached.")
 
-        self.log(text_widget, f"Head moved to {pose_deg} deg")
+        head_cfg = get_head_config(self.model)
+        if self.auto_base_head_q is None:
+            self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
+            self.log(text_widget, f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
 
-    def move_head_to_next_pose(self, text_widget):
-        pose_deg = (
-            float(np.random.uniform(*HEAD_SWEEP_RANGE_DEG["head0"])),
-            float(np.random.uniform(*HEAD_SWEEP_RANGE_DEG["head1"])),
+        rpy_delta_deg = self.auto_motion_plan["rpy_samples"][self.head_move_count]
+        motion_info = execute_auto_motion_step(
+            robot=self.robot,
+            config=self.auto_config,
+            motion_plan=self.auto_motion_plan,
+            base_head_q=self.auto_base_head_q,
+            rpy_delta_deg=rpy_delta_deg,
         )
-        self.move_head_to_pose(pose_deg, text_widget)
+        roll_deg, pitch_deg, yaw_deg = motion_info["rpy_deg"]
+        self.log(
+            text_widget,
+            f"Auto motion done: rpy=({roll_deg:.2f}, {pitch_deg:.2f}, {yaw_deg:.2f}) deg",
+        )
+
+        q_arm, q_head, T_meas = self.capture_one_sample(text_widget)
+        if q_arm is None:
+            self.head_move_count += 1
+            self.update_head_pose_status()
+            self.log(text_widget, "Capture failed after motion. This pose is skipped.")
+            self.log(text_widget, "Next Auto Pose will move to a different pose.")
+            return
+
+        self.shared_arm_q_list.append(q_arm)
+        self.shared_head_q_list.append(q_head)
+        self.shared_T_list.append(T_meas)
         self.head_move_count += 1
+        self.update_sample_counts()
         self.update_head_pose_status()
 
     def capture_one_sample(self, text_widget):
@@ -597,10 +636,10 @@ class CalibrationUI:
 
     def user_next_head_pose(self):
         try:
-            self.move_head_to_next_pose(self.user_text)
+            self.move_to_next_auto_pose_and_record(self.user_text)
         except Exception as e:
-            messagebox.showerror("Head Move Error", str(e))
-            self.log(self.user_text, f"Head move failed: {e}")
+            messagebox.showerror("Auto Move Error", str(e))
+            self.log(self.user_text, f"Auto move failed: {e}")
 
     def user_record(self):
         try:
@@ -664,7 +703,7 @@ class CalibrationUI:
     def _update_dev_mode_label(self, event=None):
         mode = self.dev_mode.get()
         if mode == "live":
-            self.dev_mode_info.set("Record button is used only in live mode.")
+            self.dev_mode_info.set("In live mode, Next Auto Pose moves both arms/head and records automatically.")
         elif mode == "npz":
             self.dev_mode_info.set("Path is used in npz mode.")
         else:
@@ -678,10 +717,10 @@ class CalibrationUI:
 
     def dev_next_head_pose(self):
         try:
-            self.move_head_to_next_pose(self.dev_text)
+            self.move_to_next_auto_pose_and_record(self.dev_text)
         except Exception as e:
-            messagebox.showerror("Head Move Error", str(e))
-            self.log(self.dev_text, f"Head move failed: {e}")
+            messagebox.showerror("Auto Move Error", str(e))
+            self.log(self.dev_text, f"Auto move failed: {e}")
 
     def dev_record(self):
         try:

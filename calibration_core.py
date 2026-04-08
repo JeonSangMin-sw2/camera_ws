@@ -1,7 +1,9 @@
 import argparse
+import itertools
 import json
 import math
 import time
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -22,6 +24,236 @@ ARM_SIDES = ("right", "left")
 ARM_OPTIMIZATION_NDOF = {14, 16, 20, 22}
 HEAD_OPTIMIZATION_NDOF = {2, 16, 22}
 CAMERA_OPTIMIZATION_NDOF = {6, 20, 22}
+D2R = np.pi / 180.0
+
+
+# ============================================================
+# Auto data-collection motion
+# ============================================================
+
+@dataclass
+class AutoCollectionConfig:
+    sampling_mode: str = "axis"
+    pivot_x: float = 0.35
+    pivot_y: float = 0.0
+    arm_gap_y: float = 0.16
+    arm_gap_z: float = 0.2
+    head_height_z: float = 0.2
+    tip_offset_x: float = 0.0
+    tip_offset_y: float = 0.0
+    tip_offset_z: float = 0.0
+    max_roll_deg: float = 15.0
+    max_pitch_deg: float = 15.0
+    max_yaw_deg: float = 15.0
+    init_roll_deg: float = 0.0
+    init_pitch_deg: float = 90.0
+    init_yaw_deg: float = -90.0
+    roll_steps: int = 5
+    pitch_steps: int = 5
+    yaw_steps: int = 5
+    move_time: float = 1.2
+    settle_time: float = 0.6
+    hold_time: float = 3.0
+    priority: int = 10
+    head_max_deg: float = 5.0
+
+
+def rot_x(rad):
+    c, s = np.cos(rad), np.sin(rad)
+    return np.array([[1, 0, 0], [0, c, -s], [0, s, c]], dtype=np.float64)
+
+
+def rot_y(rad):
+    c, s = np.cos(rad), np.sin(rad)
+    return np.array([[c, 0, s], [0, 1, 0], [-s, 0, c]], dtype=np.float64)
+
+
+def rot_z(rad):
+    c, s = np.cos(rad), np.sin(rad)
+    return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float64)
+
+
+def make_T(R, p):
+    T = np.eye(4, dtype=np.float64)
+    T[:3, :3] = R
+    T[:3, 3] = p
+    return T
+
+
+def compute_target_T(pivot, tip_offset, roll_deg, pitch_deg, yaw_deg):
+    roll = np.deg2rad(roll_deg)
+    pitch = np.deg2rad(pitch_deg)
+    yaw = np.deg2rad(yaw_deg)
+    R = rot_z(yaw) @ rot_y(pitch) @ rot_x(roll)
+    p_ee = pivot - R @ tip_offset
+    return make_T(R, p_ee)
+
+
+def linspace_symmetric(max_abs_deg, steps):
+    if steps <= 1:
+        return np.array([0.0], dtype=np.float64)
+    return np.linspace(-max_abs_deg, max_abs_deg, steps, dtype=np.float64)
+
+
+def build_rpy_samples(mode, roll_vals, pitch_vals, yaw_vals):
+    if mode == "grid":
+        return [
+            (float(r), float(p), float(y))
+            for r, p, y in itertools.product(roll_vals, pitch_vals, yaw_vals)
+        ]
+
+    samples = [(0.0, 0.0, 0.0)]
+    for v in roll_vals:
+        if abs(v) < 1e-12:
+            continue
+        samples.append((float(v), 0.0, 0.0))
+    for v in pitch_vals:
+        if abs(v) < 1e-12:
+            continue
+        samples.append((0.0, float(v), 0.0))
+    for v in yaw_vals:
+        if abs(v) < 1e-12:
+            continue
+        samples.append((0.0, 0.0, float(v)))
+    return samples
+
+
+def build_auto_motion_plan(config):
+    pivot_z = config.head_height_z
+    half_gap = max(float(config.arm_gap_y), 0.0) * 0.5
+    half_gap_z = max(float(config.arm_gap_z), 0.0) * 0.5
+    center_y = config.pivot_y
+    pivot_right = np.array(
+        [config.pivot_x, center_y - half_gap, pivot_z - half_gap_z],
+        dtype=np.float64,
+    )
+    pivot_left = np.array(
+        [config.pivot_x, center_y + half_gap, pivot_z + half_gap_z],
+        dtype=np.float64,
+    )
+    tip_offset = np.array(
+        [config.tip_offset_x, config.tip_offset_y, config.tip_offset_z],
+        dtype=np.float64,
+    )
+    roll_vals = linspace_symmetric(config.max_roll_deg, config.roll_steps)
+    pitch_vals = linspace_symmetric(config.max_pitch_deg, config.pitch_steps)
+    yaw_vals = linspace_symmetric(config.max_yaw_deg, config.yaw_steps)
+    rpy_samples = build_rpy_samples(config.sampling_mode, roll_vals, pitch_vals, yaw_vals)
+    return {
+        "pivot_right": pivot_right,
+        "pivot_left": pivot_left,
+        "tip_offset": tip_offset,
+        "rpy_samples": rpy_samples,
+    }
+
+
+def compute_auto_head_target(base_head_q, roll_delta_deg, pitch_delta_deg, yaw_delta_deg, head_max_deg):
+    yaw_cmd_deg = float(np.clip(roll_delta_deg + yaw_delta_deg, -head_max_deg, head_max_deg))
+    pitch_cmd_deg = float(np.clip(pitch_delta_deg, -head_max_deg, head_max_deg))
+    return base_head_q + np.deg2rad(np.array([yaw_cmd_deg, pitch_cmd_deg], dtype=np.float64))
+
+
+def make_dual_arm_head_cmd(T_right, T_left, head_position, min_time=1.2, hold_time=3.0):
+    body = rby.BodyComponentBasedCommandBuilder()
+
+    if T_right is not None:
+        body.set_right_arm_command(
+            rby.CartesianCommandBuilder()
+            .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            .set_minimum_time(min_time)
+        )
+
+    if T_left is not None:
+        body.set_left_arm_command(
+            rby.CartesianCommandBuilder()
+            .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            .set_minimum_time(min_time)
+        )
+
+    cmd = rby.ComponentBasedCommandBuilder().set_body_command(body)
+    if head_position is not None:
+        cmd.set_head_command(
+            rby.JointPositionCommandBuilder()
+            .set_position(np.asarray(head_position, dtype=np.float64))
+            .set_minimum_time(min_time)
+        )
+
+    return rby.RobotCommandBuilder().set_command(cmd)
+
+
+def execute_auto_motion_step(robot, config, motion_plan, base_head_q, rpy_delta_deg):
+    roll_delta_deg, pitch_delta_deg, yaw_delta_deg = rpy_delta_deg
+    roll_deg = config.init_roll_deg + roll_delta_deg
+    pitch_deg = config.init_pitch_deg + pitch_delta_deg
+    yaw_deg = config.init_yaw_deg + yaw_delta_deg
+
+    T_right = compute_target_T(
+        motion_plan["pivot_right"],
+        motion_plan["tip_offset"],
+        roll_deg,
+        pitch_deg,
+        yaw_deg,
+    )
+    T_left = compute_target_T(
+        motion_plan["pivot_left"],
+        motion_plan["tip_offset"],
+        roll_deg,
+        pitch_deg,
+        -yaw_deg,
+    )
+    head_target = compute_auto_head_target(
+        base_head_q=base_head_q,
+        roll_delta_deg=roll_delta_deg,
+        pitch_delta_deg=pitch_delta_deg,
+        yaw_delta_deg=yaw_delta_deg,
+        head_max_deg=config.head_max_deg,
+    )
+
+    cmd = make_dual_arm_head_cmd(
+        T_right=T_right,
+        T_left=T_left,
+        head_position=head_target,
+        min_time=config.move_time,
+        hold_time=config.hold_time,
+    )
+    rv = robot.send_command(cmd, config.priority).get()
+    if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+        raise RuntimeError("Auto motion command failed.")
+
+    time.sleep(config.settle_time)
+    return {
+        "rpy_deg": (roll_deg, pitch_deg, yaw_deg),
+        "rpy_delta_deg": (roll_delta_deg, pitch_delta_deg, yaw_delta_deg),
+        "head_target_rad": np.asarray(head_target, dtype=np.float64),
+    }
+
+
+def move_to_auto_ready_pose(robot, minimum_time=3.0, priority=10):
+    # Match the ready pose from developer/auto_data_collecting.py (go_ready).
+    q_torso = np.array([0, 60, -120, 60, 0, 0], dtype=np.float64) * D2R
+    q_right = np.deg2rad(
+        np.array([-43.975, -21.385, -20.251, -104.030, 83.705, -62.694, 33.967], dtype=np.float64)
+    )
+    q_left = np.deg2rad(
+        np.array([-63.975, 21.385, 20.251, -104.030, -83.705, -62.694, -33.967], dtype=np.float64)
+    )
+    q = np.concatenate([q_torso, q_right, q_left])
+
+    cmd = (
+        rby.RobotCommandBuilder()
+        .set_command(
+            rby.ComponentBasedCommandBuilder().set_body_command(
+                rby.JointPositionCommandBuilder()
+                .set_position(q)
+                .set_minimum_time(minimum_time)
+            )
+        )
+    )
+    rv = robot.send_command(cmd, priority).get()
+    if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+        raise RuntimeError("Failed to move to auto ready pose.")
 
 
 # ============================================================
