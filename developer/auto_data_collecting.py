@@ -99,7 +99,7 @@ def go_ready(robot):
         sys.exit(1)
 
 
-def make_cartesian_cmd(T_right=None, T_left=None, min_time=0.8, hold_time=5.0):
+def make_cartesian_cmd(T_right=None, T_left=None, head_position=None, min_time=0.8, hold_time=5.0):
     body = rby.BodyComponentBasedCommandBuilder()
 
     if T_right is not None:
@@ -136,12 +136,15 @@ def make_cartesian_cmd(T_right=None, T_left=None, min_time=0.8, hold_time=5.0):
             .set_minimum_time(min_time)
         )
 
-    return (
-        rby.RobotCommandBuilder()
-        .set_command(
-            rby.ComponentBasedCommandBuilder().set_body_command(body)
+    cmd = rby.ComponentBasedCommandBuilder().set_body_command(body)
+    if head_position is not None:
+        cmd.set_head_command(
+            rby.JointPositionCommandBuilder()
+            .set_minimum_time(min_time)
+            .set_position(head_position)
         )
-    )
+
+    return rby.RobotCommandBuilder().set_command(cmd)
 
 
 def compute_target_T(pivot, tip_offset, roll_deg, pitch_deg, yaw_deg):
@@ -179,6 +182,13 @@ def build_rpy_samples(mode, roll_vals, pitch_vals, yaw_vals):
             continue
         samples.append((0.0, 0.0, float(v)))
     return samples
+
+
+def compute_head_target(base_head_q, roll_delta_deg, pitch_delta_deg, yaw_delta_deg, head_max_deg):
+    # Head has 2-DoF(yaw/pitch), so roll is merged into yaw tracking.
+    yaw_cmd_deg = float(np.clip(roll_delta_deg + yaw_delta_deg, -head_max_deg, head_max_deg))
+    pitch_cmd_deg = float(np.clip(pitch_delta_deg, -head_max_deg, head_max_deg))
+    return base_head_q + np.deg2rad(np.array([yaw_cmd_deg, pitch_cmd_deg], dtype=np.float64))
 
 
 def get_output_path(out_arg):
@@ -245,7 +255,7 @@ def main():
     parser.add_argument("--mode", type=str, default="both", choices=["right", "left", "both"])
     parser.add_argument("--sampling_mode", type=str, default="axis", choices=["axis", "grid"])
 
-    parser.add_argument("--pivot_x", type=float, default=0.28)
+    parser.add_argument("--pivot_x", type=float, default=0.35)
     parser.add_argument("--pivot_y", type=float, default=0.0)
     parser.add_argument("--arm_gap_y", type=float, default=0.16, help="left-right y spacing in meters")
     parser.add_argument("--arm_gap_z", type=float, default=0.2, help="left-right z spacing in meters")
@@ -262,14 +272,15 @@ def main():
     parser.add_argument("--init_roll_deg", type=float, default=0.0)
     parser.add_argument("--init_pitch_deg", type=float, default=90.0)
     parser.add_argument("--init_yaw_deg", type=float, default=-90.0)
-    parser.add_argument("--roll_steps", type=int, default=10)
-    parser.add_argument("--pitch_steps", type=int, default=10)
-    parser.add_argument("--yaw_steps", type=int, default=10)
+    parser.add_argument("--roll_steps", type=int, default=5)
+    parser.add_argument("--pitch_steps", type=int, default=5)
+    parser.add_argument("--yaw_steps", type=int, default=5)
 
     parser.add_argument("--move_time", type=float, default=1.2)
     parser.add_argument("--settle_time", type=float, default=0.6)
-    parser.add_argument("--hold_time", type=float, default=1.0)
+    parser.add_argument("--hold_time", type=float, default=3.0)
     parser.add_argument("--priority", type=int, default=10)
+    parser.add_argument("--head_max_deg", type=float, default=3.0)
 
     parser.add_argument("--out", type=str, default="")
     args = parser.parse_args()
@@ -282,6 +293,7 @@ def main():
     right_idx = np.array(model.right_arm_idx[:7], dtype=int)
     left_idx = np.array(model.left_arm_idx[:7], dtype=int)
     head_idx = np.array(model.head_idx[:2], dtype=int)
+    base_head_q = robot.get_state().position[head_idx].copy()
 
     pivot_z = args.head_height_z if args.pivot_z is None else args.pivot_z
     half_gap = max(float(args.arm_gap_y), 0.0) * 0.5
@@ -306,6 +318,7 @@ def main():
     print(f"init_rpy_deg : ({args.init_roll_deg}, {args.init_pitch_deg}, {args.init_yaw_deg})")
     print(f"tip_offset   : {tip_offset}")
     print(f"num_samples  : {len(rpy_samples)}")
+    print(f"head_max_deg : {args.head_max_deg}")
 
     q_arm_samples = []
     q_right_samples = []
@@ -334,9 +347,18 @@ def main():
                 pivot_left, tip_offset, roll_deg, pitch_deg, -yaw_deg
             )
 
+        head_target = compute_head_target(
+            base_head_q=base_head_q,
+            roll_delta_deg=roll_delta_deg,
+            pitch_delta_deg=pitch_delta_deg,
+            yaw_delta_deg=yaw_delta_deg,
+            head_max_deg=args.head_max_deg,
+        )
+
         cmd = make_cartesian_cmd(
             T_right=T_right,
             T_left=T_left,
+            head_position=head_target,
             min_time=args.move_time,
             hold_time=args.hold_time,
         )
