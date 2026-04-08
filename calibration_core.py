@@ -359,17 +359,30 @@ def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="
     if result is None:
         return None, None, None
 
-    # side="all" returns [right(4x4), left(4x4)]
-    T_meas_pair = np.asarray(result, dtype=np.float64)
-    if T_meas_pair.shape != (2, 4, 4):
-        if T_meas_pair.size == 32:
-            T_meas_pair = T_meas_pair.reshape(2, 4, 4)
-        else:
-            raise RuntimeError(
-                f"Expected marker result shape (2,4,4) for side='all', got {T_meas_pair.shape}"
-            )
+    # side="all" returns [right, left] where each entry is a flattened 4x4.
+    # If either side is missing, skip this sample gracefully.
+    if side == "all":
+        if len(result) < 2 or result[0] is None or result[1] is None:
+            return None, None, None
 
-    return q_arm, q_head, T_meas_pair
+        def _to_tf(flat_tf):
+            arr = np.asarray(flat_tf, dtype=np.float64).reshape(-1)
+            if arr.size != 16:
+                raise RuntimeError(
+                    f"Expected one marker transform to contain 16 values, got shape {np.asarray(flat_tf).shape}"
+                )
+            return arr.reshape(4, 4)
+
+        T_right = _to_tf(result[0])
+        T_left = _to_tf(result[1])
+        return q_arm, q_head, np.stack([T_right, T_left], axis=0)
+
+    T_meas = np.asarray(result, dtype=np.float64).reshape(-1)
+    if T_meas.size != 16:
+        raise RuntimeError(
+            f"Expected marker transform with 16 values for side='{side}', got shape {np.asarray(result).shape}"
+        )
+    return q_arm, q_head, T_meas.reshape(4, 4)
 
 
 def capture_dataset(robot, arm_idx, marker_transform, head_idx=None):
