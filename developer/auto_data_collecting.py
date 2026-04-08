@@ -264,11 +264,11 @@ def main():
 
     parser.add_argument("--tip_offset_x", type=float, default=0.0)
     parser.add_argument("--tip_offset_y", type=float, default=0.0)
-    parser.add_argument("--tip_offset_z", type=float, default=0.0)
+    parser.add_argument("--tip_offset_z", type=float, default=-0.075)
 
-    parser.add_argument("--max_roll_deg", type=float, default=15.0)
-    parser.add_argument("--max_pitch_deg", type=float, default=15.0)
-    parser.add_argument("--max_yaw_deg", type=float, default=15.0)
+    parser.add_argument("--max_roll_deg", type=float, default=10.0)
+    parser.add_argument("--max_pitch_deg", type=float, default=10.0)
+    parser.add_argument("--max_yaw_deg", type=float, default=10.0)
     parser.add_argument("--init_roll_deg", type=float, default=0.0)
     parser.add_argument("--init_pitch_deg", type=float, default=90.0)
     parser.add_argument("--init_yaw_deg", type=float, default=-90.0)
@@ -278,7 +278,7 @@ def main():
 
     parser.add_argument("--move_time", type=float, default=1.2)
     parser.add_argument("--settle_time", type=float, default=0.6)
-    parser.add_argument("--hold_time", type=float, default=3.0)
+    parser.add_argument("--hold_time", type=float, default=0.0)
     parser.add_argument("--priority", type=int, default=10)
     parser.add_argument("--head_max_deg", type=float, default=3.0)
 
