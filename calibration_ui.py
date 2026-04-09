@@ -57,6 +57,8 @@ class CalibrationUI:
         self.auto_motion_running = False
         self.auto_stop_requested = False
         self.auto_motion_after_id = None
+        self.include_head_motion = True
+        self.connected_servo_mode = "all"
 
         self.warning_img = None
         self.last_result_path = None
@@ -105,13 +107,14 @@ class CalibrationUI:
         ttk.Button(popup, text="OK", command=popup.destroy).pack(pady=15)
         popup.wait_window()
 
-    def zero_pose_check_common(self, ip, model_name, arm, text_widget):
+    def zero_pose_check_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
         result = move_robot_to_zero_pose(
             address=ip,
             model_name=model_name,
             arm=arm,
             power=".*",
-            servo=".*",
+            servo=servo_regex,
+            include_head=include_head,
         )
 
         self.log(text_widget, "\n===== ZERO POSE CHECK =====")
@@ -122,10 +125,13 @@ class CalibrationUI:
         
     def user_zero_pose_check(self):
         try:
+            servo_mode = self.user_servo_mode.get()
             self.zero_pose_check_common(
                 ip=self.user_ip.get(),
                 model_name=self.user_model.get(),
                 arm=FIXED_CALIB_ARM,
+                servo_regex=self.servo_mode_to_regex(servo_mode),
+                include_head=self.servo_mode_includes_head(servo_mode),
                 text_widget=self.user_text,
             )
         except Exception as e:
@@ -135,10 +141,13 @@ class CalibrationUI:
 
     def dev_zero_pose_check(self):
         try:
+            servo_mode = self.dev_servo_mode.get()
             self.zero_pose_check_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
                 arm=FIXED_CALIB_ARM,
+                servo_regex=self.servo_mode_to_regex(servo_mode),
+                include_head=self.servo_mode_includes_head(servo_mode),
                 text_widget=self.dev_text,
             )
         except Exception as e:
@@ -178,6 +187,11 @@ class CalibrationUI:
             width=8
         ).grid(row=0, column=3, padx=5, pady=5, sticky="w")
         ttk.Button(conn, text="Connect", command=self.user_connect).grid(row=0, column=4, padx=5, pady=5)
+
+        ttk.Label(conn, text="Servo On").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.user_servo_mode = tk.StringVar(value="all")
+        ttk.Radiobutton(conn, text="All", variable=self.user_servo_mode, value="all").grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Radiobutton(conn, text="No Head", variable=self.user_servo_mode, value="no_head").grid(row=1, column=2, padx=5, pady=5, sticky="w")
 
         self.user_status = tk.StringVar(value="Disconnected")
         ttk.Label(conn, textvariable=self.user_status).grid(row=0, column=5, padx=10, pady=5, sticky="w")
@@ -235,6 +249,11 @@ class CalibrationUI:
         ttk.Combobox(conn, textvariable=self.dev_model, values=["a", "m"], state="readonly", width=8)\
             .grid(row=0, column=3, padx=5, pady=5, sticky="w")
         ttk.Button(conn, text="Connect", command=self.dev_connect).grid(row=0, column=4, padx=5, pady=5)
+
+        ttk.Label(conn, text="Servo On").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.dev_servo_mode = tk.StringVar(value="all")
+        ttk.Radiobutton(conn, text="All", variable=self.dev_servo_mode, value="all").grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Radiobutton(conn, text="No Head", variable=self.dev_servo_mode, value="no_head").grid(row=1, column=2, padx=5, pady=5, sticky="w")
 
         self.dev_status = tk.StringVar(value="Disconnected")
         ttk.Label(conn, textvariable=self.dev_status).grid(row=0, column=5, padx=10, pady=5, sticky="w")
@@ -349,6 +368,8 @@ class CalibrationUI:
         pose_target = self.get_auto_pose_target_count()
         pose_idx = min(self.head_move_count, pose_target)
         label = f"Auto Motion: {pose_idx}/{pose_target}"
+        if not self.include_head_motion:
+            label += " (headless)"
         self.user_head_status.set(label)
         self.dev_head_status.set(label)
 
@@ -357,6 +378,19 @@ class CalibrationUI:
         if input_path.is_absolute():
             return input_path
         return BASE_DIR / input_path
+
+    def servo_mode_to_regex(self, servo_mode):
+        if servo_mode == "no_head":
+            return r"torso_.*|right_arm_.*|left_arm_.*"
+        return r".*"
+
+    def servo_mode_includes_head(self, servo_mode):
+        return servo_mode != "no_head"
+
+    def get_capture_head_idx(self):
+        if not self.include_head_motion or self.model is None:
+            return None
+        return get_head_config(self.model)["head_idx"]
 
     def clear_samples(self):
         self._stop_all_auto_motion_internal(cancel_robot=True)
@@ -373,7 +407,13 @@ class CalibrationUI:
 
     def connect_robot(self, ip, model_name, status_var, text_widget):
         try:
-            self.robot = create_robot(ip, model_name)
+            self.include_head_motion = self.servo_mode_includes_head(self.connected_servo_mode)
+            self.robot = create_robot(
+                ip,
+                model_name,
+                power_regex=".*",
+                servo_regex=self.servo_mode_to_regex(self.connected_servo_mode),
+            )
             self.dyn_model = self.robot.get_dynamics()
             self.model = self.robot.model()
             self.auto_motion_running = False
@@ -382,7 +422,7 @@ class CalibrationUI:
             self.auto_base_head_q = None
             self.auto_ready_done = False
             status_var.set("Connected")
-            self.log(text_widget, f"Connected: {ip} (model={model_name})")
+            self.log(text_widget, f"Connected: {ip} (model={model_name}, servo={self.connected_servo_mode})")
             self.update_head_pose_status()
         except Exception as e:
             status_var.set("Disconnected")
@@ -404,10 +444,11 @@ class CalibrationUI:
         self.auto_ready_done = True
         self.auto_base_head_q = None
 
-        head_cfg = get_head_config(self.model)
-        self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
         self.log(text_widget, "Auto init pose reached.")
-        self.log(text_widget, f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+        if self.include_head_motion:
+            head_cfg = get_head_config(self.model)
+            self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
+            self.log(text_widget, f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
 
     def _run_auto_motion_step(self, text_widget):
         if self.robot is None:
@@ -426,7 +467,7 @@ class CalibrationUI:
         if not self.auto_ready_done:
             raise RuntimeError("Please move to Init Pose first.")
 
-        if self.auto_base_head_q is None:
+        if self.include_head_motion and self.auto_base_head_q is None:
             head_cfg = get_head_config(self.model)
             self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
             self.log(text_widget, f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
@@ -438,6 +479,7 @@ class CalibrationUI:
             motion_plan=self.auto_motion_plan,
             base_head_q=self.auto_base_head_q,
             rpy_delta_deg=rpy_delta_deg,
+            head_enabled=self.include_head_motion,
         )
         roll_deg, pitch_deg, yaw_deg = motion_info["rpy_deg"]
         self.log(
@@ -453,7 +495,8 @@ class CalibrationUI:
             return False
 
         self.shared_arm_q_list.append(q_arm)
-        self.shared_head_q_list.append(q_head)
+        if q_head is not None:
+            self.shared_head_q_list.append(q_head)
         self.shared_T_list.append(T_meas)
         self.head_move_count += 1
         self.update_sample_counts()
@@ -558,12 +601,12 @@ class CalibrationUI:
             raise RuntimeError("Robot is not connected.")
 
         cfg = get_both_arm_config(self.model)
-        head_cfg = get_head_config(self.model)
+        head_idx = self.get_capture_head_idx()
         q_arm, q_head, T_meas = capture_robot_sample(
             robot=self.robot,
             arm_idx=cfg["arm_idx"],
             marker_transform=self.marker_transform,
-            head_idx=head_cfg["head_idx"],
+            head_idx=head_idx,
             side="all",
         )
         if T_meas is None:
@@ -710,7 +753,7 @@ class CalibrationUI:
         popup.wait_window()
         return result["ok"]
 
-    def apply_home_offset_common(self, ip, model_name, arm, text_widget):
+    def apply_home_offset_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
         result_path = self.get_latest_result_path()
 
         proceed = self.confirm_home_offset_action()
@@ -724,7 +767,8 @@ class CalibrationUI:
             arm=arm,
             json_path=str(result_path),
             power=".*",
-            servo=".*",
+            servo=servo_regex,
+            include_head=include_head,
         )
 
         self.log(text_widget, "Home offset applied successfully.")
@@ -744,6 +788,8 @@ class CalibrationUI:
     # ============================================================
 
     def user_connect(self):
+        self.connected_servo_mode = self.user_servo_mode.get()
+        self.include_head_motion = self.servo_mode_includes_head(self.connected_servo_mode)
         self.connect_robot(self.user_ip.get(), self.user_model.get(), self.user_status, self.user_text)
 
     def user_init_pose(self):
@@ -780,7 +826,8 @@ class CalibrationUI:
             if q_arm is None:
                 return
             self.shared_arm_q_list.append(q_arm)
-            self.shared_head_q_list.append(q_head)
+            if q_head is not None:
+                self.shared_head_q_list.append(q_head)
             self.shared_T_list.append(T_meas)
             self.update_sample_counts()
         except Exception as e:
@@ -794,7 +841,7 @@ class CalibrationUI:
                 return
 
             q_arm_list = np.array(self.shared_arm_q_list)
-            q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
+            q_head_list = np.array(self.shared_head_q_list) if (self.include_head_motion and self.shared_head_q_list) else None
             T_meas_list = np.array(self.shared_T_list)
             dataset_path, result_path = self.build_output_paths()
             ndof = 22 if q_head_list is not None and np.ptp(q_head_list, axis=0).max() > np.deg2rad(1.0) else 20
@@ -819,10 +866,13 @@ class CalibrationUI:
 
     def user_apply_home_offset(self):
         try:
+            servo_mode = self.user_servo_mode.get()
             self.apply_home_offset_common(
                 ip=self.user_ip.get(),
                 model_name=self.user_model.get(),
                 arm=FIXED_CALIB_ARM,
+                servo_regex=self.servo_mode_to_regex(servo_mode),
+                include_head=self.servo_mode_includes_head(servo_mode),
                 text_widget=self.user_text,
             )
         except Exception as e:
@@ -846,6 +896,8 @@ class CalibrationUI:
                 self.dev_mode_info.set("sim mode uses simultaneous dual-arm samples.")
 
     def dev_connect(self):
+        self.connected_servo_mode = self.dev_servo_mode.get()
+        self.include_head_motion = self.servo_mode_includes_head(self.connected_servo_mode)
         self.connect_robot(self.dev_ip.get(), self.dev_model.get(), self.dev_status, self.dev_text)
 
     def dev_init_pose(self):
@@ -886,7 +938,8 @@ class CalibrationUI:
             if q_arm is None:
                 return
             self.shared_arm_q_list.append(q_arm)
-            self.shared_head_q_list.append(q_head)
+            if q_head is not None:
+                self.shared_head_q_list.append(q_head)
             self.shared_T_list.append(T_meas)
             self.update_sample_counts()
         except Exception as e:
@@ -901,6 +954,10 @@ class CalibrationUI:
             if self.model is None:
                 raise RuntimeError("Robot is not connected.")
 
+            if not self.include_head_motion and ndof in (2, 16, 22):
+                ndof = 20
+                self.log(self.dev_text, "Headless mode selected; ndof changed to 20.")
+
             cfg = get_both_arm_config(self.model)
             head_cfg = get_head_config(self.model)
 
@@ -910,12 +967,14 @@ class CalibrationUI:
                     return
 
                 q_arm_list = np.array(self.shared_arm_q_list)
-                q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
+                q_head_list = np.array(self.shared_head_q_list) if (self.include_head_motion and self.shared_head_q_list) else None
                 T_meas_list = np.array(self.shared_T_list)
 
             elif mode == "npz":
                 npz_path = self.resolve_input_path(self.dev_path.get())
                 q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
+                if not self.include_head_motion:
+                    q_head_list = None
                 validate_dataset_for_ndof(ndof, q_arm_list, q_head_list, T_meas_list)
                 self.log(self.dev_text, f"Loaded npz: {npz_path}")
                 self.log(self.dev_text, f"samples = {len(q_arm_list)}")
@@ -923,14 +982,19 @@ class CalibrationUI:
             else:  # sim
                 sample_count = 100
                 q_arm_list = np.random.uniform(-5, 5, (sample_count, 14))
-                if ndof in (2, 16, 22):
+                if self.include_head_motion and ndof in (2, 16, 22):
                     q_head_list = np.column_stack([
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                     ])
-                else:
+                elif self.include_head_motion:
                     q_head_ref = self.robot.get_state().position[head_cfg["head_idx"]].copy()
                     q_head_list = np.tile(q_head_ref, (sample_count, 1))
+                else:
+                    q_head_list = None
+                    if ndof in (2, 16, 22):
+                        ndof = 20
+                        self.log(self.dev_text, "Headless mode selected; sim ndof changed to 20.")
                 q_nominal = self.robot.get_state().position.copy()
                 T_meas_list = generate_sim_measurements(
                     self.robot,
@@ -970,10 +1034,13 @@ class CalibrationUI:
 
     def dev_apply_home_offset(self):
         try:
+            servo_mode = self.dev_servo_mode.get()
             self.apply_home_offset_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
                 arm=FIXED_CALIB_ARM,
+                servo_regex=self.servo_mode_to_regex(servo_mode),
+                include_head=self.servo_mode_includes_head(servo_mode),
                 text_widget=self.dev_text,
             )
         except Exception as e:

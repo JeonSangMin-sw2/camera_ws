@@ -97,7 +97,7 @@ def initialize_robot(address, model, power=".*", servo=".*"):
     robot.enable_control_manager()
     return robot
 
-def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo=".*"):
+def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo=".*", include_head=True):
     robot = initialize_robot(address, model_name, power, servo)
     model = robot.model()
 
@@ -112,7 +112,7 @@ def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo=".*"):
         robot,
         right_arm=right_zero_pose,
         left_arm=left_zero_pose,
-        head=head_zero_pose,
+        head=head_zero_pose if include_head else None,
         minimum_time=5,
     )
     if not ok:
@@ -132,6 +132,7 @@ def apply_home_offset(
     head_offset_rad=None,
     power=".*",
     servo=".*",
+    include_head=True,
 ):
     robot = initialize_robot(address, model_name, power, servo)
     model = robot.model()
@@ -146,6 +147,8 @@ def apply_home_offset(
     right_zero_pose = np.zeros(right_arm_dof)
     left_zero_pose = np.zeros(left_arm_dof)
     head_zero_pose = np.zeros(len(model.head_idx))
+    if not include_head:
+        head_offset_rad = None
     if head_offset_rad is not None:
         head_offset_rad = np.array(head_offset_rad, dtype=np.float64).reshape(-1)
         if len(head_offset_rad) != len(model.head_idx):
@@ -198,12 +201,14 @@ def apply_home_offset(
 
     time.sleep(2)
     # 2) offset pose 이동
-    head_target_pose = head_zero_pose if head_offset_to_apply is None else (head_zero_pose + head_offset_to_apply)
+    head_target_pose = None
+    if include_head:
+        head_target_pose = head_zero_pose if head_offset_to_apply is None else (head_zero_pose + head_offset_to_apply)
     ok = movej(
         robot,
         right_arm=right_zero_pose + right_offset_to_apply,
         left_arm=left_zero_pose + left_offset_to_apply,
-        head=head_target_pose,
+        head=head_target_pose if include_head else None,
         minimum_time=10,
     )
 
@@ -252,7 +257,7 @@ def apply_home_offset(
         robot,
         right_arm=right_zero_pose,
         left_arm=left_zero_pose,
-        head=head_zero_pose,
+        head=head_zero_pose if include_head else None,
         minimum_time=5,
     )
     if not ok:
@@ -275,6 +280,7 @@ def apply_home_offset_from_json(
     json_path="calibration_result.json",
     power=".*",
     servo=".*",
+    include_head=True,
 ):
     offset_rad, head_offset_rad = load_offset_from_json(json_path)
 
@@ -286,6 +292,7 @@ def apply_home_offset_from_json(
         head_offset_rad=head_offset_rad,
         power=power,
         servo=servo,
+        include_head=include_head,
     )
 
     result["source"] = "json"

@@ -183,7 +183,7 @@ def make_dual_arm_head_cmd(T_right, T_left, head_position, min_time=1.2, hold_ti
     return rby.RobotCommandBuilder().set_command(cmd)
 
 
-def execute_auto_motion_step(robot, config, motion_plan, base_head_q, rpy_delta_deg):
+def execute_auto_motion_step(robot, config, motion_plan, base_head_q, rpy_delta_deg, head_enabled=True):
     roll_delta_deg, pitch_delta_deg, yaw_delta_deg = rpy_delta_deg
     roll_deg = config.init_roll_deg + roll_delta_deg
     pitch_deg = config.init_pitch_deg + pitch_delta_deg
@@ -203,13 +203,15 @@ def execute_auto_motion_step(robot, config, motion_plan, base_head_q, rpy_delta_
         pitch_deg,
         -yaw_deg,
     )
-    head_target = compute_auto_head_target(
-        base_head_q=base_head_q,
-        roll_delta_deg=roll_delta_deg,
-        pitch_delta_deg=pitch_delta_deg,
-        yaw_delta_deg=yaw_delta_deg,
-        head_max_deg=config.head_max_deg,
-    )
+    head_target = None
+    if head_enabled and base_head_q is not None:
+        head_target = compute_auto_head_target(
+            base_head_q=base_head_q,
+            roll_delta_deg=roll_delta_deg,
+            pitch_delta_deg=pitch_delta_deg,
+            yaw_delta_deg=yaw_delta_deg,
+            head_max_deg=config.head_max_deg,
+        )
 
     cmd = make_dual_arm_head_cmd(
         T_right=T_right,
@@ -226,7 +228,7 @@ def execute_auto_motion_step(robot, config, motion_plan, base_head_q, rpy_delta_
     return {
         "rpy_deg": (roll_deg, pitch_deg, yaw_deg),
         "rpy_delta_deg": (roll_delta_deg, pitch_delta_deg, yaw_delta_deg),
-        "head_target_rad": np.asarray(head_target, dtype=np.float64),
+        "head_target_rad": None if head_target is None else np.asarray(head_target, dtype=np.float64),
     }
 
 
@@ -421,7 +423,7 @@ def validate_dataset_for_ndof(ndof, q_arm, q_head, T_meas):
             f"Dataset size mismatch: q_head={len(q_head)}, q_arm={len(q_arm)}"
         )
 
-    if q_head is None:
+    if q_head is None and ndof in HEAD_OPTIMIZATION_NDOF:
         raise RuntimeError(
             "Head-mounted camera calibration requires `q_head`, but the loaded npz does not contain it."
         )
@@ -478,13 +480,13 @@ def save_result(path, q_offset, xi_t5_cam, q_head_offset=None):
         json.dump(result_dict, f, indent=4)
 
 
-def create_robot(ip, model_name="a"):
+def create_robot(ip, model_name="a", power_regex=".*", servo_regex=".*"):
     robot = rby.create_robot(ip, model_name)
     robot.connect()
     time.sleep(1)
-    robot.power_on(".*")
+    robot.power_on(power_regex)
     time.sleep(1)
-    robot.servo_on(".*")
+    robot.servo_on(servo_regex)
     time.sleep(2) 
     robot.reset_fault_control_manager()
     robot.enable_control_manager(False)
