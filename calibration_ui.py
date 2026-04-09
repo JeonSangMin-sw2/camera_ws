@@ -638,6 +638,7 @@ class CalibrationUI:
 
         cfg = get_both_arm_config(self.model)
         head_cfg = get_head_config(self.model)
+        head_idx = head_cfg["head_idx"] if q_head_list is not None else None
 
         optimizer = CalibrationOptimizer(
             robot=self.robot,
@@ -646,7 +647,7 @@ class CalibrationUI:
             mount_to_cam_nom=cfg["mount_to_cam_nom"],
             ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
-            head_idx=head_cfg["head_idx"],
+            head_idx=head_idx,
             lambda_cam=lambda_cam,
         )
 
