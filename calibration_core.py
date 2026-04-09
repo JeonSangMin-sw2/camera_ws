@@ -34,28 +34,28 @@ D2R = np.pi / 180.0
 @dataclass
 class AutoCollectionConfig:
     sampling_mode: str = "axis"
-    pivot_x: float = 0.35
+    pivot_x: float = 0.40
     pivot_y: float = 0.0
-    arm_gap_y: float = 0.16
-    arm_gap_z: float = 0.2
-    head_height_z: float = 0.2
+    arm_gap_y: float = 0.35
+    arm_gap_z: float = 0.0
+    head_height_z: float = 0.27
     tip_offset_x: float = 0.0
     tip_offset_y: float = 0.0
     tip_offset_z: float = 0.0
-    max_roll_deg: float = 15.0
-    max_pitch_deg: float = 15.0
-    max_yaw_deg: float = 15.0
+    max_roll_deg: float = 10.0
+    max_pitch_deg: float = 10.0
+    max_yaw_deg: float = 10.0
     init_roll_deg: float = 0.0
     init_pitch_deg: float = 90.0
     init_yaw_deg: float = -90.0
-    roll_steps: int = 5
-    pitch_steps: int = 5
-    yaw_steps: int = 5
+    roll_steps: int = 10
+    pitch_steps: int = 10
+    yaw_steps: int = 10
     move_time: float = 1.2
     settle_time: float = 0.6
     hold_time: float = 3.0
     priority: int = 10
-    head_max_deg: float = 5.0
+    head_max_deg: float = 3.0
 
 
 def rot_x(rad):
@@ -481,8 +481,11 @@ def save_result(path, q_offset, xi_t5_cam, q_head_offset=None):
 def create_robot(ip, model_name="a"):
     robot = rby.create_robot(ip, model_name)
     robot.connect()
+    time.sleep(1)
     robot.power_on(".*")
+    time.sleep(1)
     robot.servo_on(".*")
+    time.sleep(2) 
     robot.reset_fault_control_manager()
     robot.enable_control_manager(False)
     return robot
