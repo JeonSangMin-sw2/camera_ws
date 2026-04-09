@@ -615,7 +615,10 @@ class CalibrationUI:
 
         self.log(text_widget, f"Captured sample")
         self.log(text_widget, f"q_arm = {np.round(q_arm, 3)}")
-        self.log(text_widget, f"q_head = {np.round(q_head, 3)}")
+        if q_head is not None:
+            self.log(text_widget, f"q_head = {np.round(q_head, 3)}")
+        else:
+            self.log(text_widget, "q_head = None (headless mode)")
         self.log(text_widget, f"marker_right =\n{np.round(T_meas[0], 3)}")
         self.log(text_widget, f"marker_left =\n{np.round(T_meas[1], 3)}")
         return q_arm, q_head, T_meas
