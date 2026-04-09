@@ -394,7 +394,7 @@ class CalibrationUI:
             self.log(text_widget, "Moving to auto ready pose (same as auto_data_collecting.py)...")
             move_to_auto_ready_pose(
                 robot=self.robot,
-                minimum_time=3.0,
+                minimum_time=10.0,
                 priority=self.auto_config.priority,
             )
             self.auto_ready_done = True
