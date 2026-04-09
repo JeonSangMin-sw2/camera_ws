@@ -237,7 +237,7 @@ def move_to_auto_ready_pose(robot, minimum_time=3.0, priority=10):
         np.array([-43.975, -21.385, -20.251, -104.030, 83.705, -62.694, 33.967], dtype=np.float64)
     )
     q_left = np.deg2rad(
-        np.array([-63.975, 21.385, 20.251, -104.030, -83.705, -62.694, -33.967], dtype=np.float64)
+        np.array([-43.975, 21.385, 20.251, -104.030, -83.705, -62.694, -33.967], dtype=np.float64)
     )
     q = np.concatenate([q_torso, q_right, q_left])
 
