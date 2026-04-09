@@ -106,13 +106,13 @@ def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo=".*", in
 
     right_zero_pose = np.zeros(len(model.right_arm_idx))
     left_zero_pose = np.zeros(len(model.left_arm_idx))
-    head_zero_pose = np.zeros(len(model.head_idx))
+    head_zero_pose = np.zeros(len(model.head_idx)) if include_head else None
 
     ok = movej(
         robot,
         right_arm=right_zero_pose,
         left_arm=left_zero_pose,
-        head=head_zero_pose if include_head else None,
+        head=head_zero_pose,
         minimum_time=5,
     )
     if not ok:
@@ -146,7 +146,7 @@ def apply_home_offset(
     offset_rad = np.array(offset_rad, dtype=np.float64).reshape(-1)
     right_zero_pose = np.zeros(right_arm_dof)
     left_zero_pose = np.zeros(left_arm_dof)
-    head_zero_pose = np.zeros(len(model.head_idx))
+    head_zero_pose = np.zeros(len(model.head_idx)) if include_head else None
     if not include_head:
         head_offset_rad = None
     if head_offset_rad is not None:
@@ -250,14 +250,14 @@ def apply_home_offset(
     robot.power_off("48v")
     time.sleep(2)
 
-    robot = initialize_robot(address, model_name, power=".*", servo=".*")
+    robot = initialize_robot(address, model_name, power=power, servo=servo)
 
     # 5) 다시 zero pose 이동
     ok = movej(
         robot,
         right_arm=right_zero_pose,
         left_arm=left_zero_pose,
-        head=head_zero_pose if include_head else None,
+        head=head_zero_pose,
         minimum_time=5,
     )
     if not ok:
