@@ -361,7 +361,7 @@ def main(address, model_name, power, servo):
     time.sleep(1)
     # example_cartesian_command_1(robot, model_name)
     # print("move test position")
-    go_to_calibration_checking_pose(robot, model_name, [0.4,0,0.0], 0.15)
+    go_to_calibration_checking_pose(robot, model_name, [0.3,-0.1,-0.1], 0.14)
 
     print("t5 to ee=")
     compute_T_fk(robot.get_state().position)
