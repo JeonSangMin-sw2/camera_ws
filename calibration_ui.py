@@ -388,7 +388,7 @@ class CalibrationUI:
         return servo_mode != "no_head"
 
     def get_capture_head_idx(self):
-        if not self.include_head_motion or self.model is None:
+        if self.model is None:
             return None
         return get_head_config(self.model)["head_idx"]
 
@@ -618,7 +618,7 @@ class CalibrationUI:
         if q_head is not None:
             self.log(text_widget, f"q_head = {np.round(q_head, 3)}")
         else:
-            self.log(text_widget, "q_head = None (headless mode)")
+            self.log(text_widget, "q_head = None")
         self.log(text_widget, f"marker_right =\n{np.round(T_meas[0], 3)}")
         self.log(text_widget, f"marker_left =\n{np.round(T_meas[1], 3)}")
         return q_arm, q_head, T_meas
@@ -638,7 +638,6 @@ class CalibrationUI:
 
         cfg = get_both_arm_config(self.model)
         head_cfg = get_head_config(self.model)
-        head_idx = head_cfg["head_idx"] if q_head_list is not None else None
 
         optimizer = CalibrationOptimizer(
             robot=self.robot,
@@ -647,7 +646,7 @@ class CalibrationUI:
             mount_to_cam_nom=cfg["mount_to_cam_nom"],
             ee_to_marker_nom=cfg["ee_to_marker_nom"],
             ndof=ndof,
-            head_idx=head_idx,
+            head_idx=head_cfg["head_idx"],
             lambda_cam=lambda_cam,
         )
 
@@ -845,7 +844,7 @@ class CalibrationUI:
                 return
 
             q_arm_list = np.array(self.shared_arm_q_list)
-            q_head_list = np.array(self.shared_head_q_list) if (self.include_head_motion and self.shared_head_q_list) else None
+            q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
             T_meas_list = np.array(self.shared_T_list)
             dataset_path, result_path = self.build_output_paths()
             ndof = 22 if q_head_list is not None and np.ptp(q_head_list, axis=0).max() > np.deg2rad(1.0) else 20
@@ -971,14 +970,12 @@ class CalibrationUI:
                     return
 
                 q_arm_list = np.array(self.shared_arm_q_list)
-                q_head_list = np.array(self.shared_head_q_list) if (self.include_head_motion and self.shared_head_q_list) else None
+                q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
                 T_meas_list = np.array(self.shared_T_list)
 
             elif mode == "npz":
                 npz_path = self.resolve_input_path(self.dev_path.get())
                 q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
-                if not self.include_head_motion:
-                    q_head_list = None
                 validate_dataset_for_ndof(ndof, q_arm_list, q_head_list, T_meas_list)
                 self.log(self.dev_text, f"Loaded npz: {npz_path}")
                 self.log(self.dev_text, f"samples = {len(q_arm_list)}")
@@ -986,19 +983,14 @@ class CalibrationUI:
             else:  # sim
                 sample_count = 100
                 q_arm_list = np.random.uniform(-5, 5, (sample_count, 14))
-                if self.include_head_motion and ndof in (2, 16, 22):
+                if ndof in (2, 16, 22):
                     q_head_list = np.column_stack([
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                         np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                     ])
-                elif self.include_head_motion:
+                else:
                     q_head_ref = self.robot.get_state().position[head_cfg["head_idx"]].copy()
                     q_head_list = np.tile(q_head_ref, (sample_count, 1))
-                else:
-                    q_head_list = None
-                    if ndof in (2, 16, 22):
-                        ndof = 20
-                        self.log(self.dev_text, "Headless mode selected; sim ndof changed to 20.")
                 q_nominal = self.robot.get_state().position.copy()
                 T_meas_list = generate_sim_measurements(
                     self.robot,
