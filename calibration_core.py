@@ -579,8 +579,7 @@ def prepare_q_full(q_nominal, arm_idx, q_cmd, q_offset=None, head_idx=None, q_he
 
 def create_live_marker_transform():
     marker_transform = Marker_Transform(
-        serial_number=None,
-        monitoring=False
+        serial_number=None
     )
     marker_transform.marker_detection.set_marker_type("plate")
     return marker_transform

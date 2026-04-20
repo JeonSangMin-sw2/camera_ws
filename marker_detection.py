@@ -7,12 +7,14 @@ import math
 import time
 import threading
 import os, yaml
-from datetime import datetime
 
 #debugging flag : 실사용시 모두 false여야함
-imshow_when_detect = False
+imshow_when_detect = True
 check_cube_marker_data = False
 tcpip_send = False
+use_calib_int = True # 세밀하게 보정된 파일(camera_intrinsics.yaml)을 사용할지 여부
+# see_depth_sensors_depth = False
+# see_stereo_depth = False
 
 # 유틸리티 클래스
 class TCPClient:
@@ -48,92 +50,53 @@ class TCPClient:
             print(f"Send Error: {e}")
             self.connected = False
 
-# 데이터를 텍스트 파일로 저장하는 클래스. 디버깅을 위함
-class File_Logger:
-    def __init__(self, filepath=None):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        log_dir = os.path.join(base_dir, "log", "marker_log")
-        
-        if filepath is None or filepath == "log.txt":
-            now_str = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            self.filepath = os.path.join(log_dir, f"{now_str}.txt")
-        else:
-            self.filepath = os.path.join(log_dir, filepath)
-
-    def save(self, content):
-        with open(self.filepath, "a", encoding="utf-8") as f:
-            f.write(str(content) + "\n")
-
 class CubeMarker:
     def __init__(self, cube_size_mm=60.0, side="left"):
-        # Dictionary to store Cube to Marker (CUBE_TO_MARKER) transformation matrices 
-        # for left arm (10~14) and right arm (30~34)
+        if side not in ["left", "right"]:
+            raise ValueError("side must be 'left' or 'right'")
+
         self.cube_to_marker_tf = {}
         half_c = cube_size_mm / 2.0
-        
-        # Id 10 / 30: +Y Face (Physical orientation derived from photo: bottom corner is c[0])
-        R_10 = np.array([
-            [-1,  0,  0],
-            [ 0,  0, -1],
-            [ 0, -1,  0]
-        ], dtype=np.float32)
-        t_10 = np.array([0, half_c, 0], dtype=np.float32)
-        
-        # Id 11 / 31: -X Face
-        R_11 = np.array([
-            [ 0,  0,  1],
-            [-1,  0,  0],
-            [ 0, -1,  0]
-        ], dtype=np.float32)
-        t_11 = np.array([-half_c, 0, 0], dtype=np.float32)
-        
-        # Id 12 / 32: -Z Face
-        R_12 = np.array([
-            [ 0, -1,  0],
-            [ 1,  0,  0],
-            [ 0,  0,  1]
-        ], dtype=np.float32)
-        t_12 = np.array([0, 0, -half_c], dtype=np.float32)
-        
-        # Id 13 / 33: +X Face (Physical orientation derived from photo)
-        R_13 = np.array([
-            [ 0,  0, -1],
-            [ 1,  0,  0],
-            [ 0, -1,  0]
-        ], dtype=np.float32)
-        t_13 = np.array([half_c, 0, 0], dtype=np.float32)
-        
-        # Id 14 / 34: +Z Face (Physical orientation derived from photo)
-        R_14 = np.array([
-            [ 0,  1,  0],
-            [ 1,  0,  0],
-            [ 0,  0, -1]
-        ], dtype=np.float32)
-        t_14 = np.array([0, 0, half_c], dtype=np.float32)
 
-        if side == "left":
-            self.cube_to_marker_tf[10] = self._make_tf(R_10, t_10)
-            self.cube_to_marker_tf[11] = self._make_tf(R_11, t_11)
-            self.cube_to_marker_tf[12] = self._make_tf(R_12, t_12)
-            self.cube_to_marker_tf[13] = self._make_tf(R_13, t_13)
-            self.cube_to_marker_tf[14] = self._make_tf(R_14, t_14)
-        elif side == "right":
-            self.cube_to_marker_tf[30] = self._make_tf(R_10, t_10)
-            self.cube_to_marker_tf[31] = self._make_tf(R_11, t_11)
-            self.cube_to_marker_tf[32] = self._make_tf(R_12, t_12)
-            self.cube_to_marker_tf[33] = self._make_tf(R_13, t_13)
-            self.cube_to_marker_tf[34] = self._make_tf(R_14, t_14)
-        else:
-            raise ValueError("side must be 'left' or 'right'")
+        # 모든 마커 면이 바깥쪽(Outward)을 향하고 반시계방향(CCW) 순서를 갖는 '오른손 좌표계(Det=1)' 회전 행렬
+        R_dict = {
+            # 마커의 x축은 오른쪽, y축은 아래, z축은 들어가는 방향
+            # 모든 면에 부착된 마커들의 z축이 안쪽을 향하고 반시계방향(CCW) 순서를 갖는 '오른손 좌표계(Det=1)' 회전 행렬
+            # ID 10: +Y. Xm=x-, Ym=z-, Zm=y-
+            10: np.array([[ -1,  0,  0], [ 0,  0,  -1], [ 0,  -1,  0]]),
+            # ID 11: -X (Left).  Xm=y-, Ym=z-, Zm=x+
+            11: np.array([[ 0,  0,  1], [ -1,  0,  0], [ 0,  -1,  0]]),
+            # ID 12: -Z (Bottom).Xm=y+, Ym=x-, Zm=z+
+            12: np.array([[ 0,  -1,  0], [ 1, 0,  0], [ 0,  0, 1]]),
+            # ID 13: +X (Right). Xm=y+, Ym=z-, Zm=x-
+            13: np.array([[ 0,  0,  -1], [ 1, 0,  0], [ 0,  -1,  0]]),
+            # ID 14: +Z (Top).   Xm=y+, Ym=x+, Zm=Z-
+            14: np.array([[ 0,  1,  0], [ 1,  0,  0], [ 0,  0, -1]])
+        }
+        
+        t_dict = {
+            10: np.array([0, half_c, 0]),
+            11: np.array([-half_c, 0, 0]),
+            12: np.array([0, 0, -half_c]),
+            13: np.array([half_c, 0, 0]),
+            14: np.array([0, 0, half_c])
+        }
+
+        # side에 따라 ID 변환 및 TF 적용
+        ids = [10,11,12,13,14] if side=="left" else [30,31,32,33,34]
+        for i, m_id in enumerate(ids):
+            base_id = 10 + i
+            self.cube_to_marker_tf[m_id] = self._make_tf(R_dict[base_id], t_dict[base_id])
 
     def load_calibration_data(self, calib_data, marker_size_mm=64.0):
         try:
             half_m = marker_size_mm / 2.0
+            # 반시계 방향(CCW) 기준점 정의 (X right, Y down)
             local_corners = np.array([
-                [-half_m, -half_m, 0],
-                [ half_m, -half_m, 0],
-                [ half_m,  half_m, 0],
-                [-half_m,  half_m, 0]
+                [-half_m, -half_m, 0], # Top-Left
+                [-half_m,  half_m, 0], # Bottom-Left
+                [ half_m,  half_m, 0], # Bottom-Right
+                [ half_m, -half_m, 0]  # Top-Right
             ], dtype=np.float32)
             c_local = np.mean(local_corners, axis=0)
             local_centered = local_corners - c_local
@@ -145,6 +108,8 @@ class CubeMarker:
                 c_opt = np.mean(opt_corners, axis=0)
                 opt_centered = opt_corners - c_opt
                 
+                # Note: Calibration file should already be in CCW order if re-calibrated.
+                # If using old data, we let SVD handle the best fit or orientation.
                 H = local_centered.T @ opt_centered
                 U, S, Vt = np.linalg.svd(H)
                 R = Vt.T @ U.T
@@ -228,6 +193,7 @@ class RealSenseCamera:
         # 상태 flag
         self.camera_running = False                             # 카메라 구동상태 flag
         self.camera_monitoring = False                          # 카메라 모니터링 상태 flag
+        self.Infrared = True                                    # 적외선 카메라 사용 flag
 
         #이미지 저장 변수
         self.color_image = None
@@ -244,6 +210,7 @@ class RealSenseCamera:
         self.intrinsics = None                                  # 내부 파라미터 행렬
         self.profile = None                                     # 카메라 프로파일
         self.baseline = 0.065                                   # 스테레오 카메라 베이스라인(m)
+        self.dist_coeffs = None                                 # 카메라 왜곡 계수
 
         # 스레드 동기화를 위한 Lock
         self.lock = threading.Lock()
@@ -260,29 +227,61 @@ class RealSenseCamera:
             # cpu 부하를 줄이기 위해 적외선 사용 시 ir1, ir2 를, 사용하지 않을 경우 color만 추가로 스트리밍 진행
             self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
             self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
+            if self.Infrared:
+                self.config.enable_stream(rs.stream.infrared, 1, self.width, self.height, rs.format.y8, self.fps)
+                self.config.enable_stream(rs.stream.infrared, 2, self.width, self.height, rs.format.y8, self.fps)
             
             # 파이프라인 시작
             self.profile = self.pipeline.start(self.config)
+        except Exception as e:
+            print(f"Failed to start pipeline with {self.width}x{self.height}@{self.fps}. Error: {e}")
+            print("Attempting fallback resolution (848x480 @ 30fps)...")
+            try:
+                self.config = rs.config() # Reset config
+                self.config.enable_device(self.serial_number)
+                self.width, self.height, self.fps = 848, 480, 30
+                self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+                self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
+                self.profile = self.pipeline.start(self.config)
+            except Exception as e2:
+                print(f"Fallback 1 failed: {e2}. Attempting 640x480 @ 30fps...")
+                try:
+                    self.config = rs.config()
+                    self.config.enable_device(self.serial_number)
+                    self.width, self.height, self.fps = 640, 480, 30
+                    self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+                    self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
+                    self.profile = self.pipeline.start(self.config)
+                except Exception as e3:
+                    print(f"All profile attempts failed: {e3}")
+                    raise e3
 
+        try:
             # 구동 후 카메라 안정화를 위해 10프레임 정도는 버리고 사용
             for i in range(10):
                 self.pipeline.wait_for_frames()
             
             # depth 카메라 내부 파라미터 얻기 : baseline, fx, fy, principal_point 를 위해 사용
-            # depth_stream = self.profile.get_stream(rs.stream.depth).as_video_stream_profile()
-            # self.depth_intrinsics = depth_stream.get_intrinsics()
-
             color_stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
+
+            left_ir_stream = self.profile.get_stream(rs.stream.infrared, 1).as_video_stream_profile()
+            right_ir_stream = self.profile.get_stream(rs.stream.infrared, 2).as_video_stream_profile()
+            
+            extrinsics = left_ir_stream.get_extrinsics_to(right_ir_stream)
+            self.baseline = abs(extrinsics.translation[0]) # m
             self.intrinsics = color_stream.get_intrinsics()
             self.fx = self.intrinsics.fx
             self.fy = self.intrinsics.fy
             self.principal_point = [self.intrinsics.ppx, self.intrinsics.ppy] #pixel
+            self.dist_coeffs = np.array(self.intrinsics.coeffs)
 
+            print(f"Successfully initialized: {self.width}x{self.height} @ {self.fps}fps")
             print(f"Focal Length: fx={self.fx}, fy={self.fy}")
             print(f"Principal Point: {self.principal_point[0]}, {self.principal_point[1]}")
+            print("Baseline: ", self.baseline)
             self.camera_running = True
         except Exception as e:
-            print(f"Camera didn't initialize: {e}")
+            print(f"Camera didn't initialize post-start: {e}")
             raise e
 
     # Monitoring 함수로 스트리밍을 켜고 끔
@@ -392,6 +391,12 @@ class RealSenseCamera:
             with self.lock:
                 self.color_image = color_data
                 self.depth_image = depth_data
+                if self.Infrared:
+                    ir_frame_left = frames.get_infrared_frame(1)
+                    ir_frame_right = frames.get_infrared_frame(2)
+                    if ir_frame_left and ir_frame_right:
+                        self.left_ir_image = np.asanyarray(ir_frame_left.get_data())
+                        self.right_ir_image = np.asanyarray(ir_frame_right.get_data())
         except Exception as e:
             pass # 간헐적인 프레임 드랍 무시
 
@@ -408,6 +413,12 @@ class RealSenseCamera:
             if self.depth_image is None:
                 return None
             return self.depth_image.copy()
+
+    def get_infrared_images(self):
+        with self.lock:
+            if not hasattr(self, 'left_ir_image') or not hasattr(self, 'right_ir_image'):
+                return None, None
+            return self.left_ir_image.copy(), self.right_ir_image.copy()
 
     def get_principal_point_and_focal_length(self):
         return [self.principal_point[0], self.principal_point[1], self.fx, self.fy]
@@ -435,6 +446,9 @@ class RealSenseCamera:
             print(f"Failed to get temperature: {e}")
             return None
         return None
+
+    def get_dist_coeffs(self):
+        return self.dist_coeffs
 
 
 class Marker_Detection:
@@ -467,11 +481,14 @@ class Marker_Detection:
         self.principal_point = [0, 0]
         self.fx = 0
         self.fy = 0
+        self.dist_coeffs = None
         self.depth_resolution = 1
         self.rpy = [0, 0, 0]
         
         self.lpf_alpha = 0.3
         self.prev_pts_dict = {}
+
+        self.focal_scale = 0.99 # Focal length scaling factor for fine-tuning
 
         # 인식할 마커 타입과 ID
         self.marker_type = None
@@ -481,6 +498,39 @@ class Marker_Detection:
         self.markers_config = {}
         if tcpip_send:
             self.tcp_client = TCPClient("127.0.0.1", 5000)
+
+        self.marker_depth = 0
+        self.stereo_depth = 0
+        self.kalman_filters = {}
+
+    def get_kalman_filter(self, marker_id, initial_meas=None):
+        if marker_id not in self.kalman_filters:
+            # 12-state (6 params + 6 velocities), 6-measurement (x, y, z, rx, ry, rz)
+            kf = cv2.KalmanFilter(12, 6)
+            
+            # Transition Matrix (12x12) - constant velocity model
+            transition_matrix = np.eye(12, dtype=np.float32)
+            for i in range(6):
+                transition_matrix[i, i+6] = 1.0
+            kf.transitionMatrix = transition_matrix
+
+            # Measurement Matrix (6x12)
+            measurement_matrix = np.zeros((6, 12), dtype=np.float32)
+            for i in range(6):
+                measurement_matrix[i, i] = 1.0
+            kf.measurementMatrix = measurement_matrix
+
+            kf.processNoiseCov = np.eye(12, dtype=np.float32) * 1e-4
+            kf.measurementNoiseCov = np.eye(6, dtype=np.float32) * 1e-2
+            kf.errorCovPost = np.eye(12, dtype=np.float32)
+            
+            if initial_meas is not None and len(initial_meas) == 6:
+                statePost = np.zeros((12, 1), dtype=np.float32)
+                for i in range(6):
+                    statePost[i, 0] = initial_meas[i]
+                kf.statePost = statePost
+            self.kalman_filters[marker_id] = kf
+        return self.kalman_filters[marker_id]
 
     # 연산에 필요한 카메라 파라미터 설정
     def set_intrinsics_param(self, param):
@@ -493,6 +543,9 @@ class Marker_Detection:
 
     def set_baseline(self, baseline):
         self.baseline = baseline
+
+    def set_dist_coeffs(self, dist_coeffs):
+        self.dist_coeffs = dist_coeffs
 
     def set_marker_type(self, marker_type="plate"):
         self.marker_type = marker_type
@@ -508,10 +561,42 @@ class Marker_Detection:
             self.marker_size_mm = self.markers_config.get("plate", {}).get("plate_size_mm", 100.0) * 0.8
         else:
             self.marker_id = []
+
+    def get_depth_from_depth_img(self, depth_image, center_pixel):
+        x, y = int(center_pixel[0]), int(center_pixel[1])
+        if 0 <= x < depth_image.shape[1] and 0 <= y < depth_image.shape[0]:
+            # Use a small window (e.g., 3x3) to get a more stable depth value
+            roi = depth_image[max(0, y-1):min(depth_image.shape[0], y+2),
+                              max(0, x-1):min(depth_image.shape[1], x+2)]
+            valid_depths = roi[roi > 0]
+            if len(valid_depths) > 0:
+                return float(np.median(valid_depths))*self.depth_resolution
+            return float(depth_image[y, x])*self.depth_resolution
+        return 0.0
+
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, lpf = False, logging = False, current_temp = None):
+    def detect(self, color_image, lpf = False, logging = False, depth_image = None):
+        pnp_dist_coeffs = self.dist_coeffs
+        if self.dist_coeffs is not None and np.any(self.dist_coeffs != 0):
+            base_cam_mat = np.array([
+                [self.fx, 0, self.principal_point[0]],
+                [0, self.fy, self.principal_point[1]],
+                [0, 0, 1]
+            ], dtype=np.float32)
+            # 이미지 전체 렌즈 왜곡 펴기 (마커 모서리 직선 복원)
+            color_image = cv2.undistort(color_image, base_cam_mat, self.dist_coeffs, None, base_cam_mat)
+            # 이미 왜곡을 폈으므로, 이후 solvePnP에서는 왜곡 파라미터 무시 (이중 보정 방지)
+            pnp_dist_coeffs = None
+            
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
         corners, ids, _ = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
+        
+        # Step 2: 서브픽셀 정밀도 강제화
+        if corners is not None and len(corners) > 0:
+            criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
+            for i in range(len(corners)):
+                cv2.cornerSubPix(gray, corners[i], (5, 5), (-1, -1), criteria)
+                
         marker_centers_result = []
         
 
@@ -538,34 +623,13 @@ class Marker_Detection:
             if len(duplicate_ids) > 0:
                 print(f"Warning: Duplicate marker IDs detected: {duplicate_ids}. Ignoring these duplicates in this frame.")
                 
-            comp_fx = self.fx
-            comp_fy = self.fy
-            
-            if current_temp is not None and hasattr(self, 'thermal_config') and self.thermal_config.get("enabled", False):
-                baseline_temp = self.thermal_config.get("baseline_temp", 32.0)
-                alpha = self.thermal_config.get("focal_scale_per_deg", 0.00016)
-                pp_x_alpha = self.thermal_config.get("pp_x_shift_per_deg", 0.0)
-                pp_y_alpha = self.thermal_config.get("pp_y_shift_per_deg", 0.0)
-                
-                delta_t = (current_temp - baseline_temp)
-                scale_factor = 1.0 + alpha * delta_t
-                comp_fx = self.fx * scale_factor
-                comp_fy = self.fy * scale_factor
-                
-                comp_cx = self.principal_point[0] + pp_x_alpha * delta_t
-                comp_cy = self.principal_point[1] + pp_y_alpha * delta_t
-                
-                cam_mat = np.array([
-                    [comp_fx, 0, comp_cx],
-                    [0, comp_fy, comp_cy],
-                    [0, 0, 1]
-                ], dtype=np.float32)
-            else:
-                cam_mat = np.array([
-                    [comp_fx, 0, self.principal_point[0]],
-                    [0, comp_fy, self.principal_point[1]],
-                    [0, 0, 1]
-                ], dtype=np.float32)
+            comp_fx = self.fx * self.focal_scale
+            comp_fy = self.fy * self.focal_scale
+            cam_mat = np.array([
+                [comp_fx, 0, self.principal_point[0]],
+                [0, comp_fy, self.principal_point[1]],
+                [0, 0, 1]
+            ], dtype=np.float32)
             half_m = self.marker_size_mm / 2.0
             
             if self.marker_type == "cube" and hasattr(self, 'cube_markers'):
@@ -575,7 +639,10 @@ class Marker_Detection:
                     marker_id = ids_flat[i]
                     if marker_id in duplicate_ids:
                         continue
-                    c = corners[i][0]
+                    c_cw = corners[i][0]
+                    # Aruco (CW: 0,1,2,3) -> CCW (0,3,2,1) 로 순서 변경
+                    c_ccw = c_cw[[0, 3, 2, 1], :]
+                    
                     group_id = "cube"
                     if 10 <= marker_id <= 14: group_id = "cube_left"
                     elif 30 <= marker_id <= 34: group_id = "cube_right"
@@ -585,25 +652,22 @@ class Marker_Detection:
                         CUBE_TO_MARKER = self.cube_markers[group_id].get_transform(marker_id)
                         
                     if CUBE_TO_MARKER is not None:
+                        # 반시계 방향(CCW) 객체 좌표계 정의
                         obj_pts = np.array([
-                            [-half_m, -half_m, 0], [ half_m, -half_m, 0],
-                            [ half_m,  half_m, 0], [-half_m,  half_m, 0]
+                            [-half_m, -half_m, 0], [-half_m,  half_m, 0],
+                            [ half_m,  half_m, 0], [ half_m, -half_m, 0]
                         ], dtype=np.float32)
-                        success, rvec, tvec = cv2.solvePnP(obj_pts, c, cam_mat, np.zeros(4))
+                        success, rvec, tvec = cv2.solvePnP(obj_pts, c_ccw, cam_mat, pnp_dist_coeffs, flags=cv2.SOLVEPNP_IPPE)
                         if success:
                             rot_matrix, _ = cv2.Rodrigues(rvec)
                             camera_to_marker_tf = np.eye(4, dtype=np.float32)
                             camera_to_marker_tf[0:3, 0:3] = rot_matrix
                             camera_to_marker_tf[0:3, 3] = tvec.flatten()
                             
-                            group_id = "cube"
-                            if 10 <= marker_id <= 14: group_id = "cube_left"
-                            elif 30 <= marker_id <= 34: group_id = "cube_right"
-                                
                             current_frame_cube_info[marker_id] = {
                                 'group_id': group_id,
                                 'T_cam_to_M': camera_to_marker_tf,
-                                'corners': c
+                                'corners': c_ccw
                             }
                 
                 # 인식된 마커들을 그룹(예: cube_left, cube_right)별로 분류
@@ -617,6 +681,32 @@ class Marker_Detection:
                 valid_ids = set()
                 # 각 그룹별로 독립적으로 유효성 검사 수행
                 for g_id, m_ids in markers_by_group.items():
+                    if check_cube_marker_data and len(m_ids) > 0:
+                        print(f"\n--- [check_cube_marker_data] Group: {g_id} ---")
+                        # 1. 각 마커면 기준 큐브 중심 계산 
+                        for m_id in m_ids:
+                            T_cam_to_marker = current_frame_cube_info[m_id]['T_cam_to_M']
+                            CUBE_TO_MARKER_TF = self.cube_markers[g_id].get_transform(m_id)
+                            MARKER_TO_CUBE_TF = np.linalg.inv(CUBE_TO_MARKER_TF)
+                            T_cam_to_cube = T_cam_to_marker @ MARKER_TO_CUBE_TF
+                            cx, cy, cz = T_cam_to_cube[0:3, 3]
+                            print(f"  Marker {m_id:2d} estimated Cube Center (mm): X={cx:6.1f}, Y={cy:6.1f}, Z={cz:6.1f}")
+                        # 2. 인접 마커간 직교성(각도) 계산 (마커 Z축 법선 벡터 기준)
+                        for i in range(len(m_ids)):
+                            for j in range(i+1, len(m_ids)):
+                                id1, id2 = m_ids[i], m_ids[j]
+                                T1 = current_frame_cube_info[id1]['T_cam_to_M']
+                                T2 = current_frame_cube_info[id2]['T_cam_to_M']
+                                
+                                n1 = T1[0:3, 2]
+                                n2 = T2[0:3, 2]
+                                n1 = n1 / np.linalg.norm(n1)
+                                n2 = n2 / np.linalg.norm(n2)
+                                dot_val = np.dot(n1, n2)
+                                face_angle = math.degrees(math.acos(np.clip(dot_val, -1.0, 1.0)))
+                                
+                                print(f"  Pair ({id1:2d}, {id2:2d}) Face Normal Angle: {face_angle:5.1f} deg")
+
                     if len(m_ids) == 1:
                         # 마커가 하나만 인식되면 즉시 유효한 것으로 간주
                         valid_ids.add(m_ids[0])
@@ -671,33 +761,93 @@ class Marker_Detection:
                         
                     CUBE_TO_MARKER = self.cube_markers[group_id].get_transform(m_id)
                     local_corners = np.array([
-                        [-half_m, -half_m, 0, 1], [ half_m, -half_m, 0, 1],
-                        [ half_m,  half_m, 0, 1], [-half_m,  half_m, 0, 1]
+                        [-half_m, -half_m, 0, 1], [-half_m,  half_m, 0, 1],
+                        [ half_m,  half_m, 0, 1], [ half_m, -half_m, 0, 1]
                     ], dtype=np.float32)
                     
                     for pts in local_corners:
                         obj_pts_by_group[group_id].append((CUBE_TO_MARKER @ pts)[0:3])
+                    # info['corners']는 이미 위에서 CCW로 뒤집힌 상태임
                     for pt_2d in info['corners']:
                         img_pts_by_group[group_id].append(pt_2d)
                         
                 for group_id in valid_group_ids:
-                    obj_pts_all = np.array(obj_pts_by_group[group_id], dtype=np.float32)
-                    img_pts_all = np.array(img_pts_by_group[group_id], dtype=np.float32)
-                    if len(obj_pts_all) >= 4:
-                        flags = cv2.SOLVEPNP_EPNP if len(obj_pts_all) >= 8 else cv2.SOLVEPNP_IPPE_SQUARE
-                        success_m, rvec_m, tvec_m = cv2.solvePnP(obj_pts_all, img_pts_all, cam_mat, np.zeros(4), flags=flags)
-                        if success_m:
-                            success_m, rvec_m, tvec_m = cv2.solvePnP(obj_pts_all, img_pts_all, cam_mat, np.zeros(4), rvec_m, tvec_m, useExtrinsicGuess=True)
-                            rot_matrix_m, _ = cv2.Rodrigues(rvec_m)
-                            center_pos_m = tvec_m.flatten().tolist()
+                    # 해당 그룹(큐브)에 속한 유효한 마커 ID 필터링
+                    m_ids_in_group = [m for m in valid_ids if current_frame_cube_info[m]['group_id'] == group_id]
+                    
+                    if len(m_ids_in_group) == 1:
+                        # 1. 마커가 하나만 인식된 경우: 단일 마커 PnP 결과를 기반으로 큐브 중심 계산 (기하학적 합성)
+                        m_id = m_ids_in_group[0]
+                        info = current_frame_cube_info[m_id]
+                        
+                        T_cam_to_marker = info['T_cam_to_M']
+                        CUBE_TO_MARKER_TF = self.cube_markers[group_id].get_transform(m_id)
+                        
+                        # 카메라에서 큐브 중심까지의 변환: T_cam_to_cube = T_cam_to_marker * inv(CUBE_TO_MARKER)
+                        try:
+                            # 큐브 중심 -> 마커 변환의 역행렬 계산
+                            MARKER_TO_CUBE_TF = np.linalg.inv(CUBE_TO_MARKER_TF)
+                            T_cam_to_cube = T_cam_to_marker @ MARKER_TO_CUBE_TF
+                            
+                            rot_matrix_m = T_cam_to_cube[0:3, 0:3]
+                            rvec_m_cal, _ = cv2.Rodrigues(rot_matrix_m)
+                            rvec_m_list = rvec_m_cal.flatten().tolist()
+                            center_pos_m = T_cam_to_cube[0:3, 3].tolist() if isinstance(T_cam_to_cube[0:3, 3], np.ndarray) else T_cam_to_cube[0:3, 3]
+                            
+                            meas_array = center_pos_m + rvec_m_list
+                            
+                            # Step 3: 칼만 필터(Kalman Filter) 6D 도입
+                            kf = self.get_kalman_filter(group_id, initial_meas=meas_array)
+                            kf.predict()
+                            meas = np.array([[m] for m in meas_array], dtype=np.float32)
+                            est = kf.correct(meas)
+                            
+                            center_pos_m = [est[0,0], est[1,0], est[2,0]]
+                            smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
+                            rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
                             
                             transform_m = [
-                                rot_matrix_m[0][0], rot_matrix_m[0][1], rot_matrix_m[0][2], center_pos_m[0],
-                                rot_matrix_m[1][0], rot_matrix_m[1][1], rot_matrix_m[1][2], center_pos_m[1],
-                                rot_matrix_m[2][0], rot_matrix_m[2][1], rot_matrix_m[2][2], center_pos_m[2],
+                                rot_matrix_smoothed[0,0], rot_matrix_smoothed[0,1], rot_matrix_smoothed[0,2], center_pos_m[0],
+                                rot_matrix_smoothed[1,0], rot_matrix_smoothed[1,1], rot_matrix_smoothed[1,2], center_pos_m[1],
+                                rot_matrix_smoothed[2,0], rot_matrix_smoothed[2,1], rot_matrix_smoothed[2,2], center_pos_m[2],
                                 0.0, 0.0, 0.0, 1.0
                             ]
                             marker_centers_result.append((group_id, transform_m))
+                        except Exception as e:
+                            print(f"Error calculating analytical pose: {e}")
+                    
+                    elif len(m_ids_in_group) >= 2:
+                        # 2. 마커가 2개 이상 인식된 경우: 모든 코너를 사용한 통합 PnP 연산 (정밀도 향상)
+                        obj_pts_all = np.array(obj_pts_by_group[group_id], dtype=np.float32)
+                        img_pts_all = np.array(img_pts_by_group[group_id], dtype=np.float32)
+                        
+                        if len(obj_pts_all) >= 4:
+                            # 큐브 중심 기준 좌표계에서는 IPPE_SQUARE를 사용할 수 없으므로 ITERATIVE 또는 EPNP 사용
+                            flags = cv2.SOLVEPNP_EPNP if len(obj_pts_all) >= 8 else cv2.SOLVEPNP_ITERATIVE
+                            
+                            success_m, rvec_m, tvec_m = cv2.solvePnP(obj_pts_all, img_pts_all, cam_mat, pnp_dist_coeffs, flags=flags)
+                            if success_m:
+                                # 정밀 최적화 및 결과 행렬 구성
+                                success_m, rvec_m, tvec_m = cv2.solvePnP(obj_pts_all, img_pts_all, cam_mat, pnp_dist_coeffs, 
+                                                                         rvec_m, tvec_m, useExtrinsicGuess=True)
+                                rot_matrix_m, _ = cv2.Rodrigues(rvec_m)
+                                center_pos_m = tvec_m.flatten().tolist()
+                                
+                                # Step 3: 칼만 필터(Kalman Filter) 도입
+                                kf = self.get_kalman_filter(group_id, initial_meas=center_pos_m)
+                                kf.predict()
+                                meas = np.array([[center_pos_m[0]], [center_pos_m[1]], [center_pos_m[2]]], dtype=np.float32)
+                                est = kf.correct(meas)
+                                center_pos_m = [est[0,0], est[1,0], est[2,0]]
+                                
+                                transform_m = [
+                                    rot_matrix_m[0,0], rot_matrix_m[0,1], rot_matrix_m[0,2], center_pos_m[0],
+                                    rot_matrix_m[1,0], rot_matrix_m[1,1], rot_matrix_m[1,2], center_pos_m[1],
+                                    rot_matrix_m[2,0], rot_matrix_m[2,1], rot_matrix_m[2,2], center_pos_m[2],
+                                    0.0, 0.0, 0.0, 1.0
+
+                                ]
+                                marker_centers_result.append((group_id, transform_m))
                             # if tcpip_send:
                             #     self.tcp_client.send_pose(transform_m)
                 return marker_centers_result
@@ -714,15 +864,36 @@ class Marker_Detection:
                     continue
                 c = corners[i][0]
                 
-                success, rvec, tvec = cv2.solvePnP(obj_pts, c, cam_mat, np.zeros(4))
+                # # Check depth if see_depth_sensors_depth is True and it's a plate
+                # if see_depth_sensors_depth and self.marker_type == "plate" and depth_image is not None:
+                #     center_px = np.mean(c, axis=0)
+                #     self.marker_depth = self.get_depth_from_depth_img(depth_image, center_px)
+                #     print(f"[Depth] Marker ID {marker_id} Center Depth: {self.marker_depth:.1f} mm")
+
+                success, rvec, tvec = cv2.solvePnP(obj_pts, c, cam_mat, pnp_dist_coeffs, flags=cv2.SOLVEPNP_IPPE)
                 if not success:
                     continue
                 rot_matrix, _ = cv2.Rodrigues(rvec)
+                rvec_list = rvec.flatten().tolist()
                 center_pos = tvec.flatten().tolist()
+                
+                # Plate group ID 결정 및 Kalman Filter 6D 도입
+                kf_id = "plate_left" if marker_id in getattr(self, 'plate_left_ids', []) else ("plate_right" if marker_id in getattr(self, 'plate_right_ids', []) else f"plate_{marker_id}")
+                
+                meas_array = center_pos + rvec_list
+                kf = self.get_kalman_filter(kf_id, initial_meas=meas_array)
+                kf.predict()
+                meas = np.array([[m] for m in meas_array], dtype=np.float32)
+                est = kf.correct(meas)
+                
+                center_pos = [est[0,0], est[1,0], est[2,0]]
+                smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
+                rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
+                
                 transform = [
-                    rot_matrix[0][0], rot_matrix[0][1], rot_matrix[0][2], center_pos[0],
-                    rot_matrix[1][0], rot_matrix[1][1], rot_matrix[1][2], center_pos[1],
-                    rot_matrix[2][0], rot_matrix[2][1], rot_matrix[2][2], center_pos[2],
+                    rot_matrix_smoothed[0][0], rot_matrix_smoothed[0][1], rot_matrix_smoothed[0][2], center_pos[0],
+                    rot_matrix_smoothed[1][0], rot_matrix_smoothed[1][1], rot_matrix_smoothed[1][2], center_pos[1],
+                    rot_matrix_smoothed[2][0], rot_matrix_smoothed[2][1], rot_matrix_smoothed[2][2], center_pos[2],
                     0.0, 0.0, 0.0, 1.0
                 ]
                 
@@ -738,8 +909,10 @@ class Marker_Detection:
                 
         return marker_centers_result
 
+
+
 class Marker_Transform:
-    def __init__(self, serial_number = None, monitoring = False):
+    def __init__(self, serial_number = None):
         # Initialize
         self.camera = RealSenseCamera(serial_number=serial_number)
         self.marker_detection = Marker_Detection()
@@ -750,7 +923,7 @@ class Marker_Transform:
         # Setup Transforms
         tf_vec_l = self.camera_config.get("Tf_to_marker_left", self.camera_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
         tf_vec_r = self.camera_config.get("Tf_to_marker_right", self.camera_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
-        t5_vec = self.camera_config.get("mount_to_cam", [0.035, 0.009, 0.057, -90.0, 0.0, -90.0])
+        t5_vec = self.camera_config.get("T5_to_cam", [0.009, -0.09, -0.085, 159.0, 0.0, 180.0])
         print(tf_vec_l)
         
         self.Tf_to_marker_tf_left = self.make_transform(tf_vec_l)
@@ -763,14 +936,59 @@ class Marker_Transform:
         
         print("Initializing Camera...")
         self.camera.initialize_camera(self.width, self.height, self.fps)
-        if monitoring and not imshow_when_detect:
-            self.camera.monitoring(Flag=True)
         
         intrinsics = self.camera.get_principal_point_and_focal_length()
         self.marker_detection.set_intrinsics_param(intrinsics)
 
         depth_resolution = self.camera.get_depth_resolution()
         self.marker_detection.set_depth_resolution(depth_resolution)
+
+        dist_coeffs = self.camera.get_dist_coeffs()
+        self.marker_detection.set_dist_coeffs(dist_coeffs)
+
+        self.marker_detection.set_baseline(self.camera.baseline)
+        
+        # [NEW] 내부 파라미터 보정 파일(camera_intrinsics.yaml) 사용 설정
+        if use_calib_int:
+            calib_file = os.path.join(os.path.dirname(__file__), "config", "camera_intrinsics.yaml")
+            if os.path.exists(calib_file):
+                try:
+                    with open(calib_file, "r") as f:
+                        calib_data = yaml.safe_load(f)
+                    
+                    mtx = np.array(calib_data["camera_matrix"])
+                    dist = np.array(calib_data["dist_coeffs"])
+                    
+                    calib_w = calib_data.get("width")
+                    calib_h = calib_data.get("height")
+                    
+                    # 해상도가 다를 경우 비례적으로 스케일 조정
+                    if calib_w and calib_h and (calib_w != self.width or calib_h != self.height):
+                        scale_x = self.width / calib_w
+                        scale_y = self.height / calib_h
+                        
+                        if abs(scale_x - scale_y) > 0.03:
+                            print(f"\n[WARNING] Aspect ratio mismatch! Calibration: {calib_w}x{calib_h}, Current: {self.width}x{self.height}")
+                        
+                        mtx[0,0] *= scale_x # fx
+                        mtx[1,1] *= scale_y # fy
+                        mtx[0,2] *= scale_x # ppx
+                        mtx[1,2] *= scale_y # ppy
+                        print(f"\n[INFO] Scaled intrinsics from {calib_w}x{calib_h} to {self.width}x{self.height} (Scale X:{scale_x:.2f}, Y:{scale_y:.2f})")
+
+                    # Marker_Detection에 보정된 파라미터 주입
+                    # 신규 인터페이스 [ppx, ppy, fx, fy]
+                    new_intrinsics = [mtx[0,2], mtx[1,2], mtx[0,0], mtx[1,1]]
+                    self.marker_detection.set_intrinsics_param(new_intrinsics)
+                    self.marker_detection.set_dist_coeffs(dist)
+                    
+                    print(f"[INFO] --- Loaded Calibrated Intrinsics from {calib_file} ---")
+                    print(f"       fx: {mtx[0,0]:.2f}, fy: {mtx[1,1]:.2f}, ppx: {mtx[0,2]:.2f}, ppy: {mtx[1,2]:.2f}")
+                    print(f"       dist: {dist}")
+                except Exception as e:
+                    print(f"\n[ERROR] Failed to load {calib_file}: {e}")
+            else:
+                print(f"\n[WARNING] Calibrated Intrinsics file {calib_file} NOT FOUND. Using factory defaults.")
         
         self.temp_history = []
 
@@ -783,7 +1001,7 @@ class Marker_Transform:
                 self.camera_config = config_data.get("camera", {})
                 self.markers_config = config_data.get("marker", config_data) # fallback
                 self.marker_detection.markers_config = self.markers_config
-                self.marker_detection.thermal_config = config_data.get("thermal_compensation", {})
+                
                 print(f"- Loaded Setting Config from {os.path.basename(setting_config_path)}")
         except Exception as e:
             print(f"- Warning: Could not load {setting_config_path}: {e}")
@@ -840,18 +1058,19 @@ class Marker_Transform:
         m[2, 1] = cp * sr
         m[2, 2] = cp * cr
         m[2, 3] = z
-
-        # print(m)
         
         return m
 
     def calc_cam_to_tool(self, camera_to_marker_tf, side="left"):
         try:
             target_tf = self.Tf_to_marker_tf_left if side == "left" else self.Tf_to_marker_tf_right
+            # target_tf is in meters now. camera_to_marker_tf is also in meters.
             tf_to_marker_inv = np.linalg.inv(target_tf)
-            
-            # T5_to_tool = T5_to_cam * cam_to_marker * tool_to_marker^-1
-            cam_to_tool_tf = camera_to_marker_tf # @ tf_to_marker_inv
+        
+            if tcpip_send:
+                cam_to_tool_tf = camera_to_marker_tf @ tf_to_marker_inv
+            else:
+                cam_to_tool_tf = camera_to_marker_tf
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
             # Unit conversion if needed (mm -> m logic from original code)
@@ -882,29 +1101,13 @@ class Marker_Transform:
                 if not self.camera.camera_monitoring:
                     self.camera.capture_image()
                 color_img = self.camera.get_color_image()
+                depth_img = self.camera.get_depth_image()
                 if color_img is None:
                     time.sleep(0.01)
                     if sampling_time == 0 : return None
                     continue
                 
-                raw_temp = self.camera.get_camera_temperature() if hasattr(self.camera, 'get_camera_temperature') else None
-                smoothed_temp = None
-                # 온도에 대한 지수이동평균필터 적용
-                if raw_temp is not None:
-                    self.temp_history.append(raw_temp)
-                    if len(self.temp_history) > 7:
-                        self.temp_history.pop(0)
-                        
-                    if len(self.temp_history) < 7:
-                        smoothed_temp = sum(self.temp_history) / len(self.temp_history)
-                    else:
-                        sorted_hist = sorted(self.temp_history)
-                        smoothed_temp = sum(sorted_hist[2:5]) / 3.0
-                
-                if smoothed_temp is not None:
-                    sampled_temps.append(smoothed_temp)
-                        
-                marker_transforms = self.marker_detection.detect(color_img, lpf=lpf, current_temp=smoothed_temp)
+                marker_transforms = self.marker_detection.detect(color_img, lpf=lpf, depth_image=depth_img)
                 for marker_id_or_group, tf_list in marker_transforms:
                     if marker_id_or_group not in collected_transforms:
                         collected_transforms[marker_id_or_group] = []
@@ -920,11 +1123,6 @@ class Marker_Transform:
             
             # CPU 점유율을 낮추기 위한 미세한 대기
             time.sleep(0.01)
-            
-        if sampled_temps:
-            self.current_smoothed_temp = sum(sampled_temps) / len(sampled_temps)
-        else:
-            self.current_smoothed_temp = None
             
         final_results = {}
         # Post-processing for sampling
@@ -964,7 +1162,6 @@ class Marker_Transform:
                 avg_cam_to_marker_tf[0:3, 0:3] = final_R
                 avg_cam_to_marker_tf[0:3, 3] = final_translation
                 
-                # Determine side for transform selection
                 calc_side = "left" if "left" in str(marker_id) else "right"
                 
                 cam_to_tool_vec = self.calc_cam_to_tool(avg_cam_to_marker_tf, side=calc_side)

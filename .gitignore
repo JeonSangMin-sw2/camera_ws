@@ -1,8 +1,7 @@
 .venv/
-*.txt
+log/
 *.npz
 *.json
-
-# Python cache artifacts
 __pycache__/
 *.pyc
+rby1_camera_utils.egg-info/

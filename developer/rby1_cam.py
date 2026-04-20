@@ -1,7 +1,27 @@
-from marker_detection import Marker_Transform, File_Logger
+from marker_detection import Marker_Transform
 import math
 import time
 import numpy as np
+import os
+import datetime
+
+
+# 데이터를 텍스트 파일로 저장하는 클래스. 디버깅을 위함
+class File_Logger:
+    def __init__(self, filepath=None):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        log_dir = os.path.join(base_dir, "log")
+        os.makedirs(log_dir, exist_ok=True)
+        
+        if filepath is None or filepath == "leader_arm_qc_log.txt":
+            now_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            self.filepath = os.path.join(log_dir, f"{now_str}_{filepath if filepath else 'log'}.txt")
+        else:
+            self.filepath = os.path.join(log_dir, filepath)
+
+    def save(self, content):
+        with open(self.filepath, "a", encoding="utf-8") as f:
+            f.write(str(content) + "\n")
 
 # 디버깅용 유틸리티: 회전행렬에서 RPY(Roll, Pitch, Yaw) 추출 (단위: degree)
 def get_rpy_from_matrix(R):
@@ -19,15 +39,15 @@ def get_rpy_from_matrix(R):
 
 
 def main():
-    # logger = File_Logger()
+    logger = File_Logger()
     marker_transform = None
     fps = 1/30
-    check_marker_side = "left"
+    check_marker_side = "right"
     try:
-        marker_transform = Marker_Transform(serial_number= None, monitoring = False)
-        marker_transform.marker_detection.set_marker_type("cube")
+        marker_transform = Marker_Transform(serial_number=None)
+        marker_transform.marker_detection.set_marker_type("plate")
         while True:
-            raw_results = marker_transform.get_marker_transform(sampling_time=2, side=check_marker_side)
+            raw_results = marker_transform.get_marker_transform(sampling_time=0, side=check_marker_side)
             if raw_results is None or len(raw_results) == 0:
                 continue
             
@@ -50,7 +70,7 @@ def main():
                 ])
                 rpy = get_rpy_from_matrix(R)
                 string = f"{check_marker_side},{temp},{result[3]*1000},{result[7]*1000},{result[11]*1000},{rpy[0]},{rpy[1]},{rpy[2]}"
-                # logger.save(string)
+                logger.save(string)
                 print(string)
             time.sleep(fps) # Removed sleep for better responsiveness
             
