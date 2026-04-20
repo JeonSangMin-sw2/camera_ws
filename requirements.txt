@@ -1,0 +1,7 @@
+opencv-python
+opencv-contrib-python
+numpy
+pyrealsense2
+scipy
+pyyaml
+rby1_sdk
