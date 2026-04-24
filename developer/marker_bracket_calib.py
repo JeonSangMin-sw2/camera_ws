@@ -10,7 +10,8 @@ import rby1_sdk as rby
 from scipy.optimize import least_squares
 
 # --- Configuration ---
-MAX_POINTS = 11 # Total points for -25 to +25 sweep (5 deg steps)
+MAX_POINTS = 11 # Total points for -20 to +20 sweep (4 deg steps)
+SHOW_IMAGE = False # Flag to show marker detection image
 # ---------------------
 
 # Robot Helper Functions (Copied from 00_helper.py)
@@ -159,7 +160,7 @@ def main():
     parser.add_argument("--model", type=str, default="a", help="Robot model (default: rby1_a)")
     parser.add_argument("--side", type=str, default="right", choices=["left", "right"], help="Side of the arm/marker (left or right, default: right)")
     args = parser.parse_args()
-
+    
     print("\n" + "="*50)
     print("   Marker Bracket Calibration Tool")
     print("="*50)
@@ -235,23 +236,25 @@ def main():
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
             
             if current_pose is not None:
-                cv2.putText(display_img, "MARKER DETECTED", (20, 80), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 255), 2)
-            else:
-                cv2.putText(display_img, "NO MARKER", (20, 80), 
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-
-            cv2.imshow("Marker Bracket Calibration", display_img)
-            key = cv2.waitKey(1) & 0xFF
-
-            # Handle 'c' key for capture (now with Auto-Loop if robot is connected)
+                 key = cv2.waitKey(1) & 0xFF
             if key == ord('c'):
+                # Reset for new run
+                captured_poses = []
+                initial_joint_pos = None
+
                 print("\n" + "="*40)
                 print("   STARTING AUTOMATED CALIBRATION")
                 print("="*40)
                 
-                # Get initial robot pose if not already done
-                if robot and initial_joint_pos is None:
+                # 0. Pre-check Marker Presence
+                print(f"  - Checking if marker is visible before starting...")
+                initial_check = marker_st.get_marker_transform(sampling_time=1.0, side=args.side)
+                if not initial_check:
+                    print("\n[ERROR] 마커가 위치해 있지 않습니다. 시작할 수 없습니다.")
+                    continue
+
+                # Get initial robot pose
+                if robot:
                     state = robot.get_state()
                     model = robot.model()
                     arm_idx = model.left_arm_idx if args.side == "left" else model.right_arm_idx
@@ -262,8 +265,8 @@ def main():
                     print(f"\n[STEP {len(captured_poses) + 1}/{MAX_POINTS}]")
                     
                     # 1. Step Target Calculation
-                    # Sweep: -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25 (11 points)
-                    target_offset_deg = -25 + (len(captured_poses) * 5)
+                    # Sweep: -20, -16, -12, -8, -4, 0, 4, 8, 12, 16, 20 (11 points, 4 deg steps)
+                    target_offset_deg = -20 + (len(captured_poses) * 4)
                     
                     # 2. Move Robot to next position
                     if robot and initial_joint_pos:
@@ -271,7 +274,7 @@ def main():
                         target_joint_pos[6] = initial_joint_pos[6] + np.radians(target_offset_deg)
                         
                         if target_offset_deg == 0:
-                            print(f"  - Moving to Initial Pose (0 deg) for capture...")
+                            print(f"  - Moving to Center Pose (0 deg) for capture...")
                         else:
                             print(f"  - Moving {args.side}_arm_6 to offset {target_offset_deg:.1f} deg...")
                         
@@ -288,10 +291,8 @@ def main():
                             print(f"  [ERROR] {args.side.capitalize()} arm movement failed.")
                             break
                     else:
-                        print(f"\n[MANUAL MODE] Please move {args.side} to {target_offset_deg} deg offset and press 'c'.")
-                        # In manual mode, we wait for user input for each step if needed
-                        # But to simplify, let's keep the manual 'c' for one capture at a time
-                        break 
+                        print(f"\n[MANUAL MODE] Please move {args.side} to {target_offset_deg} deg offset and press any key to continue.")
+                        time.sleep(2.0)
 
                     # 3. Capture Marker
                     print(f"  - Waiting for stability (1.0s)...")
@@ -329,7 +330,7 @@ def main():
                     print("="*40)
                     
                     # 1. Coordinate Setup
-                    T_cam_ref = captured_poses[0] # Note: This is the -25 deg point
+                    T_cam_ref = captured_poses[0] # Note: This is the -20 deg point
                     T_ref_cam = np.linalg.inv(T_cam_ref)
                     relative_poses = [T_ref_cam @ T for T in captured_poses]
                     points = [T[:3, 3] for T in relative_poses]
