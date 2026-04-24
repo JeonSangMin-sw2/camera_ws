@@ -9,12 +9,12 @@ import rby1_sdk as rby
 from scipy.optimize import least_squares
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QTextEdit, QLabel, QGroupBox, QFrame)
+                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont
 
 # --- Configuration ---
-MAX_POINTS = 11 # Total points for -20 to +20 sweep (4 deg steps)
+# 6-Axis: ±20, 4 steps | 5-Axis: ±10, 2 steps
 # ---------------------
 
 def initialize_robot(address, model, power=".*", servo=".*"):
@@ -143,25 +143,25 @@ class IndicatorWidget(QWidget):
 class CalibrationWorker(QThread):
     log_signal = Signal(str)
     status_signal = Signal(bool)
-    finished_signal = Signal()
+    finished_signal = Signal(dict)
     
-    def __init__(self, marker_st, robot, arm_side):
+    def __init__(self, marker_st, robot, arm_side, axis_mode):
         super().__init__()
         self.marker_st = marker_st
         self.robot = robot
         self.arm_side = arm_side
+        self.axis_mode = axis_mode # 6 or 5
         
     def run(self):
         try:
             self._calibrate()
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Worker exception: {e}")
-        finally:
-            self.finished_signal.emit()
+            self.finished_signal.emit(None)
 
     def _calibrate(self):
         self.log_signal.emit("\n" + "="*40)
-        self.log_signal.emit("   STARTING AUTOMATED CALIBRATION")
+        self.log_signal.emit(f"   STARTING {self.axis_mode}-AXIS CALIBRATION SWEEP")
         self.log_signal.emit("="*40)
 
         # Pre-check Marker Presence
@@ -170,6 +170,7 @@ class CalibrationWorker(QThread):
         if not initial_check:
             self.log_signal.emit("\n[ERROR] 마커가 위치해 있지 않습니다. 시작할 수 없습니다.")
             self.status_signal.emit(False)
+            self.finished_signal.emit(None)
             return
         
         self.status_signal.emit(True)
@@ -177,25 +178,39 @@ class CalibrationWorker(QThread):
 
         if not self.robot:
             self.log_signal.emit("[ERROR] Robot not connected. Cannot perform automated sweep.")
+            self.finished_signal.emit(None)
             return
 
         state = self.robot.get_state()
         model = self.robot.model()
         arm_idx = model.left_arm_idx if self.arm_side == "left" else model.right_arm_idx
         initial_joint_pos = list(state.position[arm_idx])
-        self.log_signal.emit(f"[INFO] Recorded Center Joint Pose: {np.round(initial_joint_pos, 2)}")
+        
+        # Configure Sweep based on Axis Mode
+        if self.axis_mode == 6:
+            max_points = 11
+            start_deg = -20
+            step_deg = 4
+            joint_i = 6
+        else:
+            max_points = 11
+            start_deg = -10
+            step_deg = 2
+            joint_i = 5
 
-        for i in range(MAX_POINTS):
-            self.log_signal.emit(f"\n[STEP {i + 1}/{MAX_POINTS}]")
+        self.log_signal.emit(f"[INFO] Initial Joint Pose: {np.round(initial_joint_pos, 2)}")
+        
+        for i in range(max_points):
+            self.log_signal.emit(f"\n[STEP {i + 1}/{max_points}]")
             
-            target_offset_deg = -20 + (i * 4)
+            target_offset_deg = start_deg + (i * step_deg)
             target_joint_pos = list(initial_joint_pos)
-            target_joint_pos[6] = initial_joint_pos[6] + np.radians(target_offset_deg)
+            target_joint_pos[joint_i] = initial_joint_pos[joint_i] + np.radians(target_offset_deg)
             
             if target_offset_deg == 0:
                 self.log_signal.emit(f"  - Moving to Center Pose (0 deg)...")
             else:
-                self.log_signal.emit(f"  - Moving arm to {target_offset_deg:.1f} deg offset...")
+                self.log_signal.emit(f"  - Moving axis {self.axis_mode} to {target_offset_deg:.1f} deg offset...")
             
             if self.arm_side == "left":
                 move_status = movej(self.robot, left_arm=target_joint_pos, minimum_time=1.5)
@@ -238,12 +253,13 @@ class CalibrationWorker(QThread):
             movej(self.robot, right_arm=initial_joint_pos, minimum_time=2.0)
 
         # Math Review: Median Averaging
-        if len(captured_poses) >= MAX_POINTS:
+        result_dict = None
+        if len(captured_poses) >= max_points:
             self.log_signal.emit("\n" + "="*40)
-            self.log_signal.emit("   BRACKET ALIGNMENT ANALYSIS (FINAL - MEDIAN AVERAGED)")
+            self.log_signal.emit(f"   {self.axis_mode}-AXIS BRACKET ANALYSIS (MEDIAN AVERAGED)")
             self.log_signal.emit("="*40)
             
-            T_cam_ref = captured_poses[0] # The -20 deg point
+            T_cam_ref = captured_poses[0]
             T_ref_cam = np.linalg.inv(T_cam_ref)
             relative_poses = [T_ref_cam @ T for T in captured_poses]
             points = [T[:3, 3] for T in relative_poses]
@@ -251,18 +267,18 @@ class CalibrationWorker(QThread):
             center, axis, radius, rmse = fit_circle_3d_robust(points)
             fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
             
-            roll_list = []
+            tilt_list = []
             yaw_list = []
             
             for T_i in relative_poses:
                 R_i = T_i[:3, :3]
                 
-                # Roll
+                # Main Tilt (Roll for 6-axis, Pitch for 5-axis)
                 axis_m_i = R_i.T @ axis
-                roll_i = np.degrees(np.arcsin(min(1.0, max(-1.0, axis_m_i[2]))))
-                roll_list.append(roll_i)
+                tilt_i = np.degrees(np.arcsin(min(1.0, max(-1.0, axis_m_i[2]))))
+                tilt_list.append(tilt_i)
                 
-                # Yaw
+                # Twist/Yaw
                 vec_c_to_mi = T_i[:3, 3] - center
                 radial_vec = vec_c_to_mi - np.dot(vec_c_to_mi, axis) * axis
                 ideal_tangent = np.cross(axis, radial_vec)
@@ -286,19 +302,32 @@ class CalibrationWorker(QThread):
                 
                 yaw_list.append(twist_angle)
 
-            robust_roll = np.median(roll_list)
+            robust_tilt = np.median(tilt_list)
             robust_yaw = np.median(yaw_list)
 
             self.log_signal.emit(f"  [1] Geometric Tracking Stability:")
             self.log_signal.emit(f"      Radius (Center-to-Axis): {radius:.2f} mm")
             self.log_signal.emit(f"      Quality Score (FIT): {fitting_score:.1f}%")
-            self.log_signal.emit(f"      Roll Jitter (StdDev): {np.std(roll_list):.2f} deg")
+            self.log_signal.emit(f"      Jitter (StdDev): {np.std(tilt_list):.2f} deg")
             self.log_signal.emit("-" * 30)
-            self.log_signal.emit(f"  [2] Robust Bracket Misalignment (Median of 11 pts):")
-            self.log_signal.emit(f"      Roll (상하 기울기): {robust_roll:.2f} deg")
-            self.log_signal.emit(f"      Yaw  (좌우 비틀림): {robust_yaw:.2f} deg")
+            
+            res_tilt_name = "Roll (상하 기울기)" if self.axis_mode == 6 else "Pitch (좌우 기울기)"
+            self.log_signal.emit(f"  [2] Robust Axis Alignment (Median):")
+            self.log_signal.emit(f"      {res_tilt_name}: {robust_tilt:.2f} deg")
+            if self.axis_mode == 6:
+                self.log_signal.emit(f"      Yaw  (비틀림): {robust_yaw:.2f} deg")
             self.log_signal.emit("="*40)
-            self.log_signal.emit("\n[CALIBRATION SUCCESSFUL]")
+            self.log_signal.emit("\n[SWEEP SUCCESSFUL]\n")
+            
+            result_dict = {
+                'axis_mode': self.axis_mode,
+                'radius': radius,
+                'tilt': robust_tilt,
+                'yaw': robust_yaw
+            }
+        
+        self.finished_signal.emit(result_dict)
+
 
 class CalibrationApp(QWidget):
     def __init__(self, marker_st, robot, arm_side):
@@ -307,8 +336,12 @@ class CalibrationApp(QWidget):
         self.robot = robot
         self.arm_side = arm_side
         
-        self.setWindowTitle("RBY1 Marker Bracket Calibration")
-        self.resize(800, 500)
+        # Unified tracking Data
+        self.data_5 = None
+        self.data_6 = None
+        
+        self.setWindowTitle("Unified 5/6 Axis Bracket Calibration")
+        self.resize(900, 600)
         
         self.init_ui()
         
@@ -324,6 +357,7 @@ class CalibrationApp(QWidget):
         
         # Left Panel
         left_panel = QVBoxLayout()
+        left_panel.setContentsMargins(10, 10, 10, 10)
         
         status_box = QGroupBox("Camera & Marker Status")
         status_layout = QVBoxLayout()
@@ -338,6 +372,13 @@ class CalibrationApp(QWidget):
         ind_layout.addStretch()
         status_layout.addLayout(ind_layout)
         
+        # Monitoring Toggle
+        self.btn_monitor = QPushButton("Marker Monitor: OFF")
+        self.btn_monitor.setCheckable(True)
+        self.btn_monitor.toggled.connect(self.on_monitor_toggled)
+        self.btn_monitor.setStyleSheet("font-weight: bold;")
+        status_layout.addWidget(self.btn_monitor)
+        
         # Temp
         self.temp_label = QLabel("Camera Temp: -- °C")
         self.temp_label.setFont(QFont("Arial", 10))
@@ -348,14 +389,19 @@ class CalibrationApp(QWidget):
         controls_box = QGroupBox("Calibration Controls")
         controls_layout = QVBoxLayout()
         
-        self.btn_start = QPushButton("START CALIBRATION")
+        self.axis_sel = QComboBox()
+        self.axis_sel.addItems(["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"])
+        controls_layout.addWidget(self.axis_sel)
+        
+        self.btn_start = QPushButton("START SWEEP")
         self.btn_start.setMinimumHeight(40)
-        self.btn_start.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        self.btn_start.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
         self.btn_start.clicked.connect(self.start_calibration)
         
-        self.btn_retry = QPushButton("RETRY")
-        self.btn_retry.setMinimumHeight(30)
-        self.btn_retry.clicked.connect(self.start_calibration)
+        self.btn_result = QPushButton("UNIFIED RESULT")
+        self.btn_result.setMinimumHeight(40)
+        self.btn_result.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+        self.btn_result.clicked.connect(self.show_unified_result)
         
         self.btn_quit = QPushButton("QUIT")
         self.btn_quit.setMinimumHeight(30)
@@ -363,7 +409,7 @@ class CalibrationApp(QWidget):
         self.btn_quit.clicked.connect(self.close)
         
         controls_layout.addWidget(self.btn_start)
-        controls_layout.addWidget(self.btn_retry)
+        controls_layout.addWidget(self.btn_result)
         controls_layout.addWidget(self.btn_quit)
         controls_box.setLayout(controls_layout)
         
@@ -383,11 +429,19 @@ class CalibrationApp(QWidget):
         main_layout.addLayout(right_panel, 3)
         self.setLayout(main_layout)
         
-        self.log_msg("Calibration App Ready.\nCheck marker status and click START.")
+        self.log_msg("Unified 5/6 Axis Calibration App Ready.\nCenter the marker physically before starting sweeps.")
 
     def log_msg(self, msg):
         self.log_text.append(msg)
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+    def on_monitor_toggled(self, checked):
+        if checked:
+            self.btn_monitor.setText("Marker Monitor: ON")
+            self.btn_monitor.setStyleSheet("background-color: #ffc107; color: black; font-weight: bold;")
+        else:
+            self.btn_monitor.setText("Marker Monitor: OFF")
+            self.btn_monitor.setStyleSheet("font-weight: bold;")
 
     def update_marker_indicator(self, detected):
         self.indicator.set_detected(detected)
@@ -400,10 +454,19 @@ class CalibrationApp(QWidget):
 
     def poll_camera_status(self):
         try:
-            # Poll marker quickly
-            results = self.marker_st.get_marker_transform(sampling_time=0, side="all")
+            results = self.marker_st.get_marker_transform(sampling_time=0, side=self.arm_side)
             detected = bool(results and len(results) > 0)
             self.update_marker_indicator(detected)
+            
+            if self.btn_monitor.isChecked() and detected:
+                if isinstance(results, list):
+                    pose = np.array(results[0]).reshape(4, 4)
+                elif isinstance(results, dict):
+                    k = list(results.keys())[0]
+                    pose = np.array(results[k]).reshape(4, 4)
+                # Print real-time coordinate to log
+                x, y, z = pose[:3, 3] * 1000.0
+                self.log_msg(f"[LIVE] Marker X:{x:.1f} Y:{y:.1f} Z:{z:.1f} mm")
             
             # Flush pipeline to keep it fresh
             self.marker_st.camera.get_color_image()
@@ -416,25 +479,87 @@ class CalibrationApp(QWidget):
             pass
 
     def start_calibration(self):
+        axis_mode = 6 if "6" in self.axis_sel.currentText() else 5
         self.btn_start.setEnabled(False)
-        self.btn_retry.setEnabled(False)
-        self.poll_timer.stop() # Stop UI polling during heavy worker ops
+        self.btn_result.setEnabled(False)
+        self.poll_timer.stop()
         
         self.log_text.clear()
         
-        self.worker = CalibrationWorker(self.marker_st, self.robot, self.arm_side)
+        self.worker = CalibrationWorker(self.marker_st, self.robot, self.arm_side, axis_mode)
         self.worker.log_signal.connect(self.log_msg)
         self.worker.status_signal.connect(self.update_marker_indicator)
         self.worker.finished_signal.connect(self.on_calibration_finished)
         self.worker.start()
 
-    def on_calibration_finished(self):
+    def on_calibration_finished(self, result_dict):
         self.btn_start.setEnabled(True)
-        self.btn_retry.setEnabled(True)
-        self.poll_timer.start(200) # Resume UI polling
+        self.btn_result.setEnabled(True)
+        self.poll_timer.start(200)
+        
+        if result_dict:
+            if result_dict['axis_mode'] == 6:
+                self.data_6 = result_dict
+            else:
+                self.data_5 = result_dict
+
+    def get_link_length(self):
+        if not self.robot: return 0.0
+        try:
+            dyn_model = self.robot.get_dynamics()
+            names = self.robot.model().robot_joint_names
+            # Request kinematics from 5th arm link down to EE
+            state = dyn_model.make_state(
+                [f"link_{self.arm_side}_arm_5", f"ee_{self.arm_side}"],
+                names
+            )
+            state.set_q(self.robot.get_state().position)
+            dyn_model.compute_forward_kinematics(state)
+            T = dyn_model.compute_transformation(state, 0, 1)
+            return np.linalg.norm(T[:3, 3]) * 1000.0 # Convert to mm
+        except Exception as e:
+            self.log_msg(f"[WARN] Failed to get kinematics L_5_ee: {e}")
+            return 0.0
+
+    def show_unified_result(self):
+        self.log_text.clear()
+        self.log_msg("\n" + "#"*50)
+        self.log_msg("       UNIFIED BRACKET CALIBRATION RESULT")
+        self.log_msg("#"*50)
+        
+        if not self.data_5 or not self.data_6:
+            self.log_msg("\n[ERROR] Missing Dataset!")
+            if not self.data_6: self.log_msg(" -> Axis 6 Sweep (Yaw) data is missing. Please run it.")
+            if not self.data_5: self.log_msg(" -> Axis 5 Sweep (Pitch) data is missing. Please run it.")
+            self.log_msg("\nBoth sequences must be completed before unified calculation.")
+            return
+            
+        L_5_ee = self.get_link_length()
+        
+        z_offset = self.data_6['radius']
+        y_offset = self.data_5['radius'] - L_5_ee 
+        
+        roll = self.data_6['tilt']
+        yaw = self.data_6['yaw']
+        pitch = self.data_5['tilt']
+        
+        self.log_msg("\n[1] Cartesian Offset (Translations)")
+        self.log_msg(f"    - Z-Offset (6축 회전중심과의 거리): {z_offset:.2f} mm")
+        if L_5_ee > 0:
+            self.log_msg(f"    - Y-Offset (EE로부터 마커까지의 연장 길이): {y_offset:.2f} mm")
+            self.log_msg(f"       * (참고 5축반지름: {self.data_5['radius']:.1f} / Kinematics 링크길이: {L_5_ee:.1f})")
+        else:
+            self.log_msg("    - Y-Offset: N/A (Failed to get kinematic link length)")
+            
+        self.log_msg("\n[2] Angular Misalignment (Rotations)")
+        self.log_msg(f"    - Roll  (상하 틀어짐 from 6축): {roll:.2f} deg")
+        self.log_msg(f"    - Pitch (좌우 틀어짐 from 5축): {pitch:.2f} deg")
+        self.log_msg(f"    - Yaw   (마커 비틀림 from 6축): {yaw:.2f} deg")
+        
+        self.log_msg("\n" + "="*50)
 
 def main():
-    parser = argparse.ArgumentParser(description="Marker Bracket Calibration GUI")
+    parser = argparse.ArgumentParser(description="Unified Marker Bracket Calibration GUI")
     parser.add_argument("--address", type=str, help="Robot IP address (optional for manual mode)")
     parser.add_argument("--model", type=str, default="a", help="Robot model (default: rby1_a)")
     parser.add_argument("--side", type=str, default="right", choices=["left", "right"], help="Side of the arm/marker")
