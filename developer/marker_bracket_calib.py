@@ -313,9 +313,16 @@ def main():
                         print(f"  - Pose [{len(captured_poses)}/{MAX_POINTS}] Saved: {np.round(captured_pose[:3, 3], 2)}")
                     else:
                         print("  [WARN] Marker not detected. Retrying this step...")
-                        # We stay in the while loop and retry the same step (len(captured_poses) hasn't changed)
                         continue 
                 
+                # Move back to initial position after calibration is complete (without capture)
+                if robot and initial_joint_pos:
+                    print("\n[FINISH] Calibration capture complete. Returning to initial pose...")
+                    if args.side == "left":
+                        movej(robot, left_arm=initial_joint_pos, minimum_time=2.0)
+                    else:
+                        movej(robot, right_arm=initial_joint_pos, minimum_time=2.0)
+
                 if len(captured_poses) >= MAX_POINTS:
                     print("\n" + "="*40)
                     print("   BRACKET ALIGNMENT ANALYSIS (FINAL)")
@@ -365,20 +372,20 @@ def main():
                     twist_angle = np.degrees(np.arccos(min(1.0, max(-1.0, twist_cos))))
                     if np.dot(np.cross(ideal_tangent, marker_x_plane), axis) < 0:
                         twist_angle = -twist_angle
+                    
+                    # Handle 180-degree ambiguity (if X points opposite to tangent)
+                    if twist_angle > 90: twist_angle -= 180
+                    if twist_angle < -90: twist_angle += 180
 
                     print(f"  [1] Geometric Results:")
                     print(f"      Radius (Center-to-Axis): {radius:.2f} mm")
                     print(f"      Quality Score (FIT): {fitting_score:.1f}%")
                     print("-" * 30)
-                    print(f"  [2] Bracket Mounting Misalignment (at 0 deg):")
-                    print(f"      Roll (Tilt-X): {roll_tilt:.2f} deg")
-                    print(f"      Yaw  (Twist-Z): {twist_angle:.2f} deg")
-                    print("-" * 30)
-                    print(f"  [3] Repeatability Check (at 0 deg point):")
-                    print(f"      Pitch Residual: {pitch_error_at_zero:.2f} deg")
-                    print(f"      Position Error: {pos_error_at_zero:.2f} mm")
+                    print(f"  [2] Bracket Mounting Misalignment:")
+                    print(f"      Roll (상하 기울기): {roll_tilt:.2f} deg")
+                    print(f"      Yaw  (좌우 비틀림): {twist_angle:.2f} deg")
                     print("="*40)
-                    print("\n[FINISH] Automated -25~+25 calibration sweep complete.")
+                    print("\n[FINISH] Analysis complete.")
 
             elif key == ord('q') or key == 27: # 'q' or ESC
                 print("\nExiting calibration.")
