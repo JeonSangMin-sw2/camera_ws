@@ -11,7 +11,7 @@ from scipy.optimize import least_squares
 
 # --- Configuration ---
 MAX_POINTS = 11 # Total points for -20 to +20 sweep (4 deg steps)
-SHOW_IMAGE = True # Flag to show marker detection image
+SHOW_IMAGE = False # Flag to show marker detection image
 # ---------------------
 
 # Robot Helper Functions (Copied from 00_helper.py)
