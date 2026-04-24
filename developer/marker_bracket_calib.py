@@ -156,7 +156,8 @@ def fit_circle_3d_robust(points):
 def main():
     parser = argparse.ArgumentParser(description="Marker Bracket Calibration Tool")
     parser.add_argument("--address", type=str, help="Robot IP address (optional for manual mode)")
-    parser.add_argument("--model", type=str, default="rby1_a", help="Robot model (default: rby1_a)")
+    parser.add_argument("--model", type=str, default="a", help="Robot model (default: rby1_a)")
+    parser.add_argument("--side", type=str, default="right", choices=["left", "right"], help="Side of the arm/marker (left or right, default: right)")
     args = parser.parse_args()
 
     print("\n" + "="*50)
@@ -252,15 +253,17 @@ def main():
                 # Get initial robot pose if not already done
                 if robot and initial_joint_pos is None:
                     state = robot.get_state()
-                    initial_joint_pos = list(state.body.right_arm.position)
-                    print(f"[INFO] Recorded Initial Right Arm Pose: {initial_joint_pos}")
+                    model = robot.model()
+                    arm_idx = model.left_arm_idx if args.side == "left" else model.right_arm_idx
+                    initial_joint_pos = list(state.position[arm_idx])
+                    print(f"[INFO] Recorded Initial {args.side.capitalize()} Arm Pose: {initial_joint_pos}")
 
                 while len(captured_poses) < MAX_POINTS:
                     print(f"\n[STEP {len(captured_poses) + 1}/{MAX_POINTS}]")
                     
                     # 1. Capture Marker
-                    print("  - Capturing marker with LPF (2.0s)...")
-                    lpf_results = marker_st.get_marker_transform(sampling_time=2.0, side="right")
+                    print(f"  - Capturing {args.side} marker with LPF (2.0s)...")
+                    lpf_results = marker_st.get_marker_transform(sampling_time=2.0, side=args.side)
                     
                     captured_pose = None
                     if lpf_results and len(lpf_results) > 0:
@@ -292,17 +295,22 @@ def main():
                             # Final point: Return to initial position
                             print(f"  - [FINAL STEP] Returning to initial position for pure misalignment check...")
                         else:
-                            # Random move for right_arm_6 (+- 20 deg)
+                            # Random move for joint 6 (+- 20 deg)
                             random_offset_deg = random.uniform(-20, 20)
-                            # right_arm_6 is index 6 (7th joint)
                             target_joint_pos[6] = initial_joint_pos[6] + np.radians(random_offset_deg)
-                            print(f"  - Moving right_arm_6 to offset {random_offset_deg:.2f} deg...")
+                            print(f"  - Moving {args.side}_arm_6 to offset {random_offset_deg:.2f} deg...")
                         
-                        if movej(robot, right_arm=target_joint_pos, minimum_time=1.5):
-                            print("  - Robot reached target.")
+                        # Use the correct arm argument for movej
+                        if args.side == "left":
+                            move_status = movej(robot, left_arm=target_joint_pos, minimum_time=1.5)
+                        else:
+                            move_status = movej(robot, right_arm=target_joint_pos, minimum_time=1.5)
+
+                        if move_status:
+                            print(f"  - {args.side.capitalize()} arm reached target.")
                             time.sleep(0.5) # Settling time
                         else:
-                            print("  [ERROR] Robot movement failed.")
+                            print(f"  [ERROR] {args.side.capitalize()} arm movement failed.")
                             break
                     else:
                         print("\n[INFO] Manual mode: Please move the bracket and press 'c' for next point.")
