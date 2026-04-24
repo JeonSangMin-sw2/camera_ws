@@ -13,8 +13,6 @@ from scipy.optimize import least_squares
 MAX_POINTS = 11 # Total points for -20 to +20 sweep (4 deg steps)
 SHOW_IMAGE = False # Flag to show marker detection image
 # ---------------------
-
-# Robot Helper Functions (Copied from 00_helper.py)
 def initialize_robot(address, model, power=".*", servo=".*"):
     robot = rby.create_robot(address, model)
     if not robot.connect():
@@ -199,45 +197,34 @@ def main():
 
     captured_poses = [] # List to store captured 4x4 marker poses
     
+    print("\nCalibration tool ready.")
+    print("Commands: [c] Start Sweep, [q] Quit (Type in terminal and press Enter, or use OpenCV window)")
+    
     try:
         while True:
-            # Step 1: Capture and update images
-            # Marker_Transform.get_marker_transform with sampling_time=0 captures a single frame
-            # internally calling camera.capture_image() if not already monitoring
+            # 1. Check Terminal Input (Non-blocking)
+            rlist, _, _ = select.select([sys.stdin], [], [], 0.01)
+            term_cmd = None
+            if rlist:
+                term_cmd = sys.stdin.readline().strip().lower()
+
+            # 2. Live Preview (Optional)
             results = marker_st.get_marker_transform(sampling_time=0, side="all")
-            
-            # For visualization, we need the raw image
-            color_img = marker_st.camera.get_color_image()
-            if color_img is None:
-                time.sleep(0.01)
-                continue
+            key = 0xFF
+            if SHOW_IMAGE:
+                color_img = marker_st.camera.get_color_image()
+                if color_img is not None:
+                    display_img = color_img.copy()
+                    # Add current state info to display
+                    status_text = f"Points: {len(captured_poses)}/{MAX_POINTS}"
+                    cv2.putText(display_img, status_text, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
+                    if results:
+                        cv2.putText(display_img, "MARKER OK", (20, 80), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+                    cv2.imshow("Marker Bracket Calibration", display_img)
+                    key = cv2.waitKey(1) & 0xFF
 
-            display_img = color_img.copy()
-            
-            # Check if any marker was detected in this frame
-            current_pose = None
-            if results and len(results) > 0:
-                # results is a dict or list depending on side argument and marker_type
-                # get_marker_transform(side="all") returns a list of 16-element lists for "plate"
-                # Let's take the first one
-                if isinstance(results, list):
-                    pose_ref = results[0]
-                    current_pose = np.array(pose_ref).reshape(4, 4)
-                elif isinstance(results, dict):
-                    # For other types, results might be a dict
-                    first_key = list(results.keys())[0]
-                    current_pose = np.array(results[first_key]).reshape(4, 4)
-                
-                # Unit Conversion: m to mm
-                current_pose[:3, 3] *= 1000.0
-
-            # UI overlays
-            cv2.putText(display_img, f"Captured Points: {len(captured_poses)}/{MAX_POINTS}", (20, 40), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
-            
-            if current_pose is not None:
-                 key = cv2.waitKey(1) & 0xFF
-            if key == ord('c'):
+            # 3. Handle Commands
+            if term_cmd == 'c' or key == ord('c'):
                 # Reset for new run
                 captured_poses = []
                 initial_joint_pos = None
@@ -251,6 +238,7 @@ def main():
                 initial_check = marker_st.get_marker_transform(sampling_time=1.0, side=args.side)
                 if not initial_check:
                     print("\n[ERROR] 마커가 위치해 있지 않습니다. 시작할 수 없습니다.")
+                    print("Commands: [c] Retry, [q] Quit")
                     continue
 
                 # Get initial robot pose
@@ -388,7 +376,7 @@ def main():
                     print("="*40)
                     print("\n[FINISH] Analysis complete.")
 
-            elif key == ord('q') or key == 27: # 'q' or ESC
+            elif term_cmd == 'q' or key == ord('q') or key == 27: # 'q' or ESC
                 print("\nExiting calibration.")
                 break
 
