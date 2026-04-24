@@ -8,10 +8,10 @@ import logging
 import rby1_sdk as rby
 from scipy.optimize import least_squares
 
-from PyQt5.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
+from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QFrame)
-from PyQt5.QtCore import Qt, QTimer, QThread, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QPen, QFont
+from PySide6.QtCore import Qt, QTimer, QThread, Signal
+from PySide6.QtGui import QPainter, QColor, QPen, QFont
 
 # --- Configuration ---
 MAX_POINTS = 11 # Total points for -20 to +20 sweep (4 deg steps)
@@ -141,9 +141,9 @@ class IndicatorWidget(QWidget):
 
 # --- Calibration Worker Thread ---
 class CalibrationWorker(QThread):
-    log_signal = pyqtSignal(str)
-    status_signal = pyqtSignal(bool)
-    finished_signal = pyqtSignal()
+    log_signal = Signal(str)
+    status_signal = Signal(bool)
+    finished_signal = Signal()
     
     def __init__(self, marker_st, robot, arm_side):
         super().__init__()
@@ -458,7 +458,7 @@ def main():
     gui.show()
     
     try:
-        sys.exit(app.exec_())
+        sys.exit(app.exec())
     finally:
         marker_st.camera.stream_off()
         print("Camera resource released.")
