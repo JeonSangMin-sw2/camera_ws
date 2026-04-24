@@ -10,7 +10,7 @@ import rby1_sdk as rby
 from scipy.optimize import least_squares
 
 # --- Configuration ---
-MAX_POINTS = 10 # 1 (Manual) + 9 (Sweep: -20, -15, -10, -5, 5, 10, 15, 20, 0)
+MAX_POINTS = 11 # Total points for -25 to +25 sweep (5 deg steps)
 # ---------------------
 
 # Robot Helper Functions (Copied from 00_helper.py)
@@ -197,8 +197,6 @@ def main():
         return
 
     captured_poses = [] # List to store captured 4x4 marker poses
-    pitch_errors = []  # List to store (captured_pitch - expected_pitch) errors
-    expected_offsets = [0.0] # First manual capture is at 0 deg
     
     try:
         while True:
@@ -263,7 +261,39 @@ def main():
                 while len(captured_poses) < MAX_POINTS:
                     print(f"\n[STEP {len(captured_poses) + 1}/{MAX_POINTS}]")
                     
-                    # 1. Capture Marker
+                    # 1. Step Target Calculation
+                    # Sweep: -25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25 (11 points)
+                    target_offset_deg = -25 + (len(captured_poses) * 5)
+                    
+                    # 2. Move Robot to next position
+                    if robot and initial_joint_pos:
+                        target_joint_pos = list(initial_joint_pos)
+                        target_joint_pos[6] = initial_joint_pos[6] + np.radians(target_offset_deg)
+                        
+                        if target_offset_deg == 0:
+                            print(f"  - Moving to Initial Pose (0 deg) for capture...")
+                        else:
+                            print(f"  - Moving {args.side}_arm_6 to offset {target_offset_deg:.1f} deg...")
+                        
+                        # Use the correct arm argument for movej
+                        if args.side == "left":
+                            move_status = movej(robot, left_arm=target_joint_pos, minimum_time=1.5)
+                        else:
+                            move_status = movej(robot, right_arm=target_joint_pos, minimum_time=1.5)
+
+                        if move_status:
+                            print(f"  - {args.side.capitalize()} arm reached target. Settling...")
+                            time.sleep(1.0) # Settling time
+                        else:
+                            print(f"  [ERROR] {args.side.capitalize()} arm movement failed.")
+                            break
+                    else:
+                        print(f"\n[MANUAL MODE] Please move {args.side} to {target_offset_deg} deg offset and press 'c'.")
+                        # In manual mode, we wait for user input for each step if needed
+                        # But to simplify, let's keep the manual 'c' for one capture at a time
+                        break 
+
+                    # 3. Capture Marker
                     print(f"  - Waiting for stability (1.0s)...")
                     time.sleep(1.0)
                     print(f"  - Capturing {args.side} marker with LPF (2.0s)...")
@@ -280,63 +310,11 @@ def main():
                     if captured_pose is not None:
                         captured_pose[:3, 3] *= 1000.0 # m to mm
                         captured_poses.append(captured_pose.copy())
-                        print(f"  - Captured point at: {np.round(captured_pose[:3, 3], 2)}")
-                        
-                        # Only print coordinates during collection (no full status update)
                         print(f"  - Pose [{len(captured_poses)}/{MAX_POINTS}] Saved: {np.round(captured_pose[:3, 3], 2)}")
-                        
-                        # Calculate current pitch error if not the first point
-                        if len(captured_poses) > 1:
-                            T_ref_cam = np.linalg.inv(captured_poses[0])
-                            T_rel = T_ref_cam @ captured_pose
-                            rpy = mat2rpy_zyx(T_rel[:3, :3])
-                            captured_pitch = rpy[1]
-                            target_offset = expected_offsets[len(captured_poses)-1]
-                            error = abs(captured_pitch - target_offset)
-                            pitch_errors.append(error)
                     else:
                         print("  [WARN] Marker not detected. Retrying this step...")
-                        continue # Re-try current point
-
-                    if len(captured_poses) >= MAX_POINTS:
-                        break # Done
-                        
-                    # 2. Move Robot to next position
-                    if robot and initial_joint_pos:
-                        target_joint_pos = list(initial_joint_pos)
-                        
-                        # Define systematic sweep offsets (relative to initial)
-                        # Point 1 was 0. Remaining 9 steps:
-                        sweep_offsets = [-20, -15, -10, -5, 5, 10, 15, 20, 0]
-                        
-                        # Index for the next offset
-                        offset_idx = len(captured_poses) - 1
-                        if offset_idx < len(sweep_offsets):
-                            random_offset_deg = sweep_offsets[offset_idx]
-                            
-                            if random_offset_deg == 0:
-                                print(f"  - [FINAL STEP] Returning to initial position for pure misalignment check...")
-                            else:
-                                print(f"  - [SWEEP STEP] Moving {args.side}_arm_6 to offset {random_offset_deg:.2f} deg...")
-                            
-                            target_joint_pos[6] = initial_joint_pos[6] + np.radians(random_offset_deg)
-                            expected_offsets.append(random_offset_deg)
-                        
-                        # Use the correct arm argument for movej
-                        if args.side == "left":
-                            move_status = movej(robot, left_arm=target_joint_pos, minimum_time=1.5)
-                        else:
-                            move_status = movej(robot, right_arm=target_joint_pos, minimum_time=1.5)
-
-                        if move_status:
-                            print(f"  - {args.side.capitalize()} arm reached target. Settling...")
-                            time.sleep(1.0) # Settling time
-                        else:
-                            print(f"  [ERROR] {args.side.capitalize()} arm movement failed.")
-                            break
-                    else:
-                        print("\n[INFO] Manual mode: Please move the bracket and press 'c' for next point.")
-                        break # Break the loop to wait for next manual 'c' if robot not connected
+                        # We stay in the while loop and retry the same step (len(captured_poses) hasn't changed)
+                        continue 
                 
                 if len(captured_poses) >= MAX_POINTS:
                     print("\n" + "="*40)
@@ -344,7 +322,7 @@ def main():
                     print("="*40)
                     
                     # 1. Coordinate Setup
-                    T_cam_ref = captured_poses[0]
+                    T_cam_ref = captured_poses[0] # Note: This is the -25 deg point
                     T_ref_cam = np.linalg.inv(T_cam_ref)
                     relative_poses = [T_ref_cam @ T for T in captured_poses]
                     points = [T[:3, 3] for T in relative_poses]
@@ -353,59 +331,54 @@ def main():
                     center, axis, radius, rmse = fit_circle_3d_robust(points)
                     fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
                     
-                    # 3. Component-wise Analysis (In Reference Frame)
-                    # Marker0 is at (0,0,0) with Identity orientation in Ref frame
+                    # 3. Reference Pose for Misalignment (at 0 deg offset)
+                    # For 11 points (-25 to +25), index 5 is 0 deg
+                    zero_point_idx = 5
+                    if len(relative_poses) > zero_point_idx:
+                        T_zero = relative_poses[zero_point_idx]
+                        R_zero = T_zero[:3, :3]
+                        pos_error_at_zero = np.linalg.norm(T_zero[:3, 3])
+                        pitch_error_at_zero = mat2rpy_zyx(R_zero)[1]
+                    else:
+                        R_zero = np.eye(3)
+                        pos_error_at_zero = 0.0
+                        pitch_error_at_zero = 0.0
+
+                    # 4. Alignment Calculation (Roll/Yaw Errors)
+                    # Axis in the marker's 0-deg frame
+                    axis_m = R_zero.T @ axis
                     
-                    # A. Axial and Radial Positions
-                    # Vector from Center to Marker0
-                    vec_c_to_m0 = -center 
-                    axial_offset = np.dot(vec_c_to_m0, axis)
-                    # Radial vector (perpendicular to axis)
-                    radial_vec = vec_c_to_m0 - axial_offset * axis
+                    # Roll (Tilt around X): how much axis leans into Z
+                    roll_tilt = np.degrees(np.arcsin(min(1.0, max(-1.0, axis_m[2]))))
                     
-                    # B. Axis Misalignment in Marker Frame
-                    # Since R_marker0 is Identity, axis_in_marker = axis
-                    # Roll error (tilt around X): how much axis leans towards Z
-                    # Yaw error (tilt around Z): how much axis leans towards X
-                    roll_tilt = np.degrees(np.arcsin(min(1.0, max(-1.0, axis[2]))))
-                    yaw_tilt = np.degrees(np.arcsin(min(1.0, max(-1.0, -axis[0]))))
-                    
-                    # C. Tangential Misalignment (Yaw Twist)
-                    # Ideal tangent should be Axis x Radial_Vector
+                    # Yaw (Twist around Z): Marker X vs Tangent
+                    vec_c_to_m0 = T_zero[:3, 3] - center
+                    radial_vec = vec_c_to_m0 - np.dot(vec_c_to_m0, axis) * axis
                     ideal_tangent = np.cross(axis, radial_vec)
                     ideal_tangent /= np.linalg.norm(ideal_tangent)
-                    # Marker X-axis is [1, 0, 0] in Ref frame
-                    marker_x = np.array([1, 0, 0])
-                    # Projection of marker_x onto the hinge plane
+                    
+                    marker_x = R_zero[:, 0]
                     marker_x_plane = marker_x - np.dot(marker_x, axis) * axis
                     marker_x_plane /= np.linalg.norm(marker_x_plane)
                     
-                    # Angle between ideal tangent and marker x in plane
                     twist_cos = np.dot(marker_x_plane, ideal_tangent)
                     twist_angle = np.degrees(np.arccos(min(1.0, max(-1.0, twist_cos))))
-                    # Determining sign using axis
                     if np.dot(np.cross(ideal_tangent, marker_x_plane), axis) < 0:
                         twist_angle = -twist_angle
 
-                    # 4. Final Verification (Last Point vs Initial)
-                    last_relative_pose = relative_poses[-1]
-                    rpy_last = mat2rpy_zyx(last_relative_pose[:3, :3])
-                    
                     print(f"  [1] Geometric Results:")
-                    print(f"      Radius: {radius:.2f} mm")
-                    print(f"      Axial Offset (Shift along Axis): {axial_offset:.2f} mm")
+                    print(f"      Radius (Center-to-Axis): {radius:.2f} mm")
                     print(f"      Quality Score (FIT): {fitting_score:.1f}%")
                     print("-" * 30)
-                    print(f"  [2] Bracket Mounting Misalignment:")
-                    print(f"      Roll (X-Axis Tilt): {roll_tilt:.2f} deg")
-                    print(f"      Yaw  (Z-Axis Twist): {twist_angle:.2f} deg  <-- X vs Tangent")
-                    print(f"      (Diagnostic Axis-X lean: {yaw_tilt:.2f} deg)")
+                    print(f"  [2] Bracket Mounting Misalignment (at 0 deg):")
+                    print(f"      Roll (Tilt-X): {roll_tilt:.2f} deg")
+                    print(f"      Yaw  (Twist-Z): {twist_angle:.2f} deg")
                     print("-" * 30)
-                    print(f"  [3] Final Return Check (Marker at 0 deg):")
-                    print(f"      Final Pitch Error: {rpy_last[1]:.2f} deg")
-                    print(f"      Final Pos Error: {np.linalg.norm(last_relative_pose[:3, 3]):.2f} mm")
+                    print(f"  [3] Repeatability Check (at 0 deg point):")
+                    print(f"      Pitch Residual: {pitch_error_at_zero:.2f} deg")
+                    print(f"      Position Error: {pos_error_at_zero:.2f} mm")
                     print("="*40)
-                    print("\n[FINISH] Automated calibration loop complete.")
+                    print("\n[FINISH] Automated -25~+25 calibration sweep complete.")
 
             elif key == ord('q') or key == 27: # 'q' or ESC
                 print("\nExiting calibration.")
