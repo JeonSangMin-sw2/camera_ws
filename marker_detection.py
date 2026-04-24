@@ -9,7 +9,7 @@ import threading
 import os, yaml
 
 #debugging flag : 실사용시 모두 false여야함
-imshow_when_detect = True
+imshow_when_detect = False
 check_cube_marker_data = False
 tcpip_send = False
 use_calib_int = True # 세밀하게 보정된 파일(camera_intrinsics.yaml)을 사용할지 여부
