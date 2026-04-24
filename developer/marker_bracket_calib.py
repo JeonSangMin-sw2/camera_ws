@@ -10,7 +10,7 @@ import rby1_sdk as rby
 from scipy.optimize import least_squares
 
 # --- Configuration ---
-MAX_POINTS = 10 # Number of points to collect for calibration
+MAX_POINTS = 10 # 1 (Manual) + 9 (Sweep: -20, -15, -10, -5, 5, 10, 15, 20, 0)
 # ---------------------
 
 # Robot Helper Functions (Copied from 00_helper.py)
@@ -293,14 +293,21 @@ def main():
                     if robot and initial_joint_pos:
                         target_joint_pos = list(initial_joint_pos)
                         
-                        if len(captured_poses) == MAX_POINTS - 1:
-                            # Final point: Return to initial position
-                            print(f"  - [FINAL STEP] Returning to initial position for pure misalignment check...")
-                        else:
-                            # Random move for joint 6 (+- 20 deg)
-                            random_offset_deg = random.uniform(-20, 20)
+                        # Define systematic sweep offsets (relative to initial)
+                        # Point 1 was 0. Remaining 9 steps:
+                        sweep_offsets = [-20, -15, -10, -5, 5, 10, 15, 20, 0]
+                        
+                        # Index for the next offset
+                        offset_idx = len(captured_poses) - 1
+                        if offset_idx < len(sweep_offsets):
+                            random_offset_deg = sweep_offsets[offset_idx]
+                            
+                            if random_offset_deg == 0:
+                                print(f"  - [FINAL STEP] Returning to initial position for pure misalignment check...")
+                            else:
+                                print(f"  - [SWEEP STEP] Moving {args.side}_arm_6 to offset {random_offset_deg:.2f} deg...")
+                            
                             target_joint_pos[6] = initial_joint_pos[6] + np.radians(random_offset_deg)
-                            print(f"  - Moving {args.side}_arm_6 to offset {random_offset_deg:.2f} deg...")
                         
                         # Use the correct arm argument for movej
                         if args.side == "left":
