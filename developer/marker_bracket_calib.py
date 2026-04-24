@@ -197,6 +197,8 @@ def main():
         return
 
     captured_poses = [] # List to store captured 4x4 marker poses
+    pitch_errors = []  # List to store (captured_pitch - expected_pitch) errors
+    expected_offsets = [0.0] # First manual capture is at 0 deg
     
     try:
         while True:
@@ -282,6 +284,16 @@ def main():
                         
                         # Only print coordinates during collection (no full status update)
                         print(f"  - Pose [{len(captured_poses)}/{MAX_POINTS}] Saved: {np.round(captured_pose[:3, 3], 2)}")
+                        
+                        # Calculate current pitch error if not the first point
+                        if len(captured_poses) > 1:
+                            T_ref_cam = np.linalg.inv(captured_poses[0])
+                            T_rel = T_ref_cam @ captured_pose
+                            rpy = mat2rpy_zyx(T_rel[:3, :3])
+                            captured_pitch = rpy[1]
+                            target_offset = expected_offsets[len(captured_poses)-1]
+                            error = abs(captured_pitch - target_offset)
+                            pitch_errors.append(error)
                     else:
                         print("  [WARN] Marker not detected. Retrying this step...")
                         continue # Re-try current point
@@ -308,6 +320,7 @@ def main():
                                 print(f"  - [SWEEP STEP] Moving {args.side}_arm_6 to offset {random_offset_deg:.2f} deg...")
                             
                             target_joint_pos[6] = initial_joint_pos[6] + np.radians(random_offset_deg)
+                            expected_offsets.append(random_offset_deg)
                         
                         # Use the correct arm argument for movej
                         if args.side == "left":
@@ -340,43 +353,56 @@ def main():
                     center, axis, radius, rmse = fit_circle_3d_robust(points)
                     fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
                     
-                    # 3. Define Hinge Coordinate System (In Reference Frame)
-                    # Y_hinge = Rotation Axis
-                    # X_hinge = Unit vector from Center to First Marker Position (0,0,0 in Ref frame)
-                    # Z_hinge = Y cross X
-                    y_h = axis / np.linalg.norm(axis)
-                    vec_c_to_m0 = -center # Since Marker0 is at (0,0,0) in Ref frame
-                    x_h = vec_c_to_m0 - np.dot(vec_c_to_m0, y_h) * y_h
-                    x_h /= np.linalg.norm(x_h)
-                    z_h = np.cross(x_h, y_h)
+                    # 3. Component-wise Analysis (In Reference Frame)
+                    # Marker0 is at (0,0,0) with Identity orientation in Ref frame
                     
-                    R_hinge = np.stack([x_h, y_h, z_h], axis=1)
+                    # A. Axial and Radial Positions
+                    # Vector from Center to Marker0
+                    vec_c_to_m0 = -center 
+                    axial_offset = np.dot(vec_c_to_m0, axis)
+                    # Radial vector (perpendicular to axis)
+                    radial_vec = vec_c_to_m0 - axial_offset * axis
                     
-                    # 4. Calculate Misalignment at Initial Pose (Pose 0)
-                    # Since Marker0's R is Identity in Ref frame, 
-                    # the misalignment is simply R_hinge.T
-                    R_misalign = R_hinge.T
-                    # Convert to RPY (ZYX)
-                    # Roll -> X-tilt, Pitch -> Mounting Offset, Yaw -> Twist
-                    mis_rpy = mat2rpy_zyx(R_misalign)
+                    # B. Axis Misalignment in Marker Frame
+                    # Since R_marker0 is Identity, axis_in_marker = axis
+                    # Roll error (tilt around X): how much axis leans towards Z
+                    # Yaw error (tilt around Z): how much axis leans towards X
+                    roll_tilt = np.degrees(np.arcsin(min(1.0, max(-1.0, axis[2]))))
+                    yaw_tilt = np.degrees(np.arcsin(min(1.0, max(-1.0, -axis[0]))))
                     
-                    # 5. Final Verification (Last Point vs Initial)
-                    # Last point should be back at 0 deg move
+                    # C. Tangential Misalignment (Yaw Twist)
+                    # Ideal tangent should be Axis x Radial_Vector
+                    ideal_tangent = np.cross(axis, radial_vec)
+                    ideal_tangent /= np.linalg.norm(ideal_tangent)
+                    # Marker X-axis is [1, 0, 0] in Ref frame
+                    marker_x = np.array([1, 0, 0])
+                    # Projection of marker_x onto the hinge plane
+                    marker_x_plane = marker_x - np.dot(marker_x, axis) * axis
+                    marker_x_plane /= np.linalg.norm(marker_x_plane)
+                    
+                    # Angle between ideal tangent and marker x in plane
+                    twist_cos = np.dot(marker_x_plane, ideal_tangent)
+                    twist_angle = np.degrees(np.arccos(min(1.0, max(-1.0, twist_cos))))
+                    # Determining sign using axis
+                    if np.dot(np.cross(ideal_tangent, marker_x_plane), axis) < 0:
+                        twist_angle = -twist_angle
+
+                    # 4. Final Verification (Last Point vs Initial)
                     last_relative_pose = relative_poses[-1]
                     rpy_last = mat2rpy_zyx(last_relative_pose[:3, :3])
                     
-                    print(f"  [1] Circle Fitting Results:")
-                    print(f"      Center (Rel, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
+                    print(f"  [1] Geometric Results:")
                     print(f"      Radius: {radius:.2f} mm")
-                    print(f"      Quality Score: {fitting_score:.1f}%")
+                    print(f"      Axial Offset (Shift along Axis): {axial_offset:.2f} mm")
+                    print(f"      Quality Score (FIT): {fitting_score:.1f}%")
                     print("-" * 30)
-                    print(f"  [2] Bracket Misalignment (to Hinge Axis):")
-                    print(f"      Roll  (X-Axis Tilt): {mis_rpy[0]:.2f} deg  <-- User requested Tilt")
-                    print(f"      Pitch (Phase Offset): {mis_rpy[1]:.2f} deg")
-                    print(f"      Yaw   (Z-Axis Twist): {mis_rpy[2]:.2f} deg")
+                    print(f"  [2] Bracket Mounting Misalignment:")
+                    print(f"      Roll (X-Axis Tilt): {roll_tilt:.2f} deg")
+                    print(f"      Yaw  (Z-Axis Twist): {twist_angle:.2f} deg  <-- X vs Tangent")
+                    print(f"      (Diagnostic Axis-X lean: {yaw_tilt:.2f} deg)")
                     print("-" * 30)
                     print(f"  [3] Final Return Check (Marker at 0 deg):")
-                    print(f"      Final Pitch Error: {rpy_last[1]:.2f} deg  <-- Pitch difference")
+                    print(f"      Final Pitch Error: {rpy_last[1]:.2f} deg")
                     print(f"      Final Pos Error: {np.linalg.norm(last_relative_pose[:3, 3]):.2f} mm")
                     print("="*40)
                     print("\n[FINISH] Automated calibration loop complete.")
