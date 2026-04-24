@@ -3,7 +3,75 @@ import os
 import cv2
 import numpy as np
 import time
+import random
+import argparse
+import logging
+import rby1_sdk as rby
 from scipy.optimize import least_squares
+
+# --- Configuration ---
+MAX_POINTS = 10 # Number of points to collect for calibration
+# ---------------------
+
+# Robot Helper Functions (Copied from 00_helper.py)
+def initialize_robot(address, model, power=".*", servo=".*"):
+    robot = rby.create_robot(address, model)
+    if not robot.connect():
+        logging.error(f"Failed to connect robot {address}")
+        sys.exit(1)
+    if not robot.is_power_on(power):
+        if not robot.power_on(power):
+            logging.error(f"Failed to turn power ({power}) on")
+            sys.exit(1)
+    if not robot.is_servo_on(servo):
+        if not robot.servo_on(servo):
+            logging.error(f"Failed to servo ({servo}) on")
+            sys.exit(1)
+    if robot.get_control_manager_state().state in [
+        rby.ControlManagerState.State.MajorFault,
+        rby.ControlManagerState.State.MinorFault,
+    ]:
+        if not robot.reset_fault_control_manager():
+            logging.error(f"Failed to reset control manager")
+            sys.exit(1)
+    if not robot.enable_control_manager():
+        logging.error(f"Failed to enable control manager")
+        sys.exit(1)
+    return robot
+
+def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=0):
+    rc = rby.BodyComponentBasedCommandBuilder()
+    if torso is not None:
+        rc.set_torso_command(
+            rby.JointPositionCommandBuilder()
+            .set_minimum_time(minimum_time)
+            .set_position(torso)
+        )
+    if right_arm is not None:
+        rc.set_right_arm_command(
+            rby.JointPositionCommandBuilder()
+            .set_minimum_time(minimum_time)
+            .set_position(right_arm)
+        )
+    if left_arm is not None:
+        rc.set_left_arm_command(
+            rby.JointPositionCommandBuilder()
+            .set_minimum_time(minimum_time)
+            .set_position(left_arm)
+        )
+
+    rv = robot.send_command(
+        rby.RobotCommandBuilder().set_command(
+            rby.ComponentBasedCommandBuilder().set_body_command(rc)
+        ),
+        1,
+    ).get()
+
+    if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+        logging.error("Failed to conduct movej.")
+        return False
+
+    return True
 
 # marker_detection.py가 있는 부모 폴더를 sys.path에 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -86,26 +154,45 @@ def fit_circle_3d_robust(points):
     return center_3d, normal, radius_opt, rmse
 
 def main():
+    parser = argparse.ArgumentParser(description="Marker Bracket Calibration Tool")
+    parser.add_argument("--address", type=str, help="Robot IP address (optional for manual mode)")
+    parser.add_argument("--model", type=str, default="rby1_a", help="Robot model (default: rby1_a)")
+    args = parser.parse_args()
+
     print("\n" + "="*50)
     print("   Marker Bracket Calibration Tool")
     print("="*50)
     print("Instructions:")
     print("  1. Position the marker in the camera view.")
-    print("  2. Rotate the bracket to different positions.")
-    print("  3. Press 'c' to capture the current marker position.")
-    print("  4. After 3 points, calibration results will be shown.")
-    print("  5. Collect up to 10 points for a refined fit.")
+    print("  2. If robot is connected, press 'c' to start auto-calibration.")
+    print("  3. Otherwise, move the bracket manually and press 'c' to capture.")
+    print(f"  4. After 3 points, calibration results will be shown.")
+    print(f"  5. Collect up to {MAX_POINTS} points for a refined fit.")
     print("  6. Press 'q' or 'ESC' to quit.")
     print("="*50 + "\n")
+
+    # Robot Initialization
+    robot = None
+    initial_joint_pos = None
+    if args.address:
+        try:
+            print(f"[INFO] Connecting to robot at {args.address}...")
+            robot = initialize_robot(args.address, args.model)
+            print("[INFO] Robot initialized successfully.")
+        except Exception as e:
+            print(f"[WARN] Robot initialization failed: {e}. Running in manual mode.")
+            robot = None
+    else:
+        print("[INFO] No robot address provided. Running in manual mode.")
 
     # Initialize Marker_Transform (which handles camera and detector initialization)
     try:
         marker_st = Marker_Transform()
-        # Ensure we are looking for the correct marker type
-        # Defaulting to plate type as it's common for brackets
         marker_st.marker_detection.set_marker_type("plate")
+        print(f"[INFO] Current Marker Size: {marker_st.marker_detection.marker_size_mm} mm")
+        print(f"[TIP] If your physical marker size (outer border) is not {marker_st.marker_detection.marker_size_mm}mm, accuracy will be affected.")
     except Exception as e:
-        print(f"Failed to initialize camera/marker system: {e}")
+        print(f"[ERROR] Failed to initialize camera/marker system: {e}")
         return
 
     captured_poses = [] # List to store captured 4x4 marker poses
@@ -143,7 +230,7 @@ def main():
                 current_pose[:3, 3] *= 1000.0
 
             # UI overlays
-            cv2.putText(display_img, f"Captured Points: {len(captured_poses)}/10", (20, 40), 
+            cv2.putText(display_img, f"Captured Points: {len(captured_poses)}/{MAX_POINTS}", (20, 40), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2)
             
             if current_pose is not None:
@@ -156,68 +243,104 @@ def main():
             cv2.imshow("Marker Bracket Calibration", display_img)
             key = cv2.waitKey(1) & 0xFF
 
-            # Handle 'c' key for capture
+            # Handle 'c' key for capture (now with Auto-Loop if robot is connected)
             if key == ord('c'):
-                print("\n[INFO] Capturing with LPF (Sampling 1.0s)... Please hold the bracket still.")
-                # Call get_marker_transform with sampling_time > 0 for robust averaged result
-                lpf_results = marker_st.get_marker_transform(sampling_time=1.0, side="all")
+                print("\n" + "="*40)
+                print("   STARTING AUTOMATED CALIBRATION")
+                print("="*40)
                 
-                captured_pose = None
-                if lpf_results and len(lpf_results) > 0:
-                    if isinstance(lpf_results, list):
-                        captured_pose = np.array(lpf_results[0]).reshape(4, 4)
-                    elif isinstance(lpf_results, dict):
-                        first_key = list(lpf_results.keys())[0]
-                        captured_pose = np.array(lpf_results[first_key]).reshape(4, 4)
+                # Get initial robot pose if not already done
+                if robot and initial_joint_pos is None:
+                    state = robot.get_state()
+                    initial_joint_pos = list(state.body.right_arm.position)
+                    print(f"[INFO] Recorded Initial Right Arm Pose: {initial_joint_pos}")
 
-                if captured_pose is not None:
-                    # Unit Conversion: m to mm
-                    captured_pose[:3, 3] *= 1000.0
+                while len(captured_poses) < MAX_POINTS:
+                    print(f"\n[STEP {len(captured_poses) + 1}/{MAX_POINTS}]")
                     
-                    captured_poses.append(captured_pose.copy())
-                    print(f"[{len(captured_poses)}] Captured filtered point (Camera Frame): {np.round(captured_pose[:3, 3], 2)}")
+                    # 1. Capture Marker
+                    print("  - Capturing marker with LPF (2.0s)...")
+                    lpf_results = marker_st.get_marker_transform(sampling_time=2.0, side="right")
                     
-                    if len(captured_poses) >= 3:
-                        # Use the first captured pose as the reference frame
-                        T_cam_ref = captured_poses[0]
-                        T_ref_cam = np.linalg.inv(T_cam_ref)
+                    captured_pose = None
+                    if lpf_results and len(lpf_results) > 0:
+                        if isinstance(lpf_results, list):
+                            captured_pose = np.array(lpf_results[0]).reshape(4, 4)
+                        elif isinstance(lpf_results, dict):
+                            first_key = list(lpf_results.keys())[0]
+                            captured_pose = np.array(lpf_results[first_key]).reshape(4, 4)
+
+                    if captured_pose is not None:
+                        captured_pose[:3, 3] *= 1000.0 # m to mm
+                        captured_poses.append(captured_pose.copy())
+                        print(f"  - Captured point at: {np.round(captured_pose[:3, 3], 2)}")
                         
-                        # Transform all captured points relative to the first captured pose
-                        relative_poses = [T_ref_cam @ T for T in captured_poses]
-                        points = [T[:3, 3] for T in relative_poses]
+                        # Only print coordinates during collection (no full status update)
+                        print(f"  - Pose [{len(captured_poses)}/{MAX_POINTS}] Saved: {np.round(captured_pose[:3, 3], 2)}")
+                    else:
+                        print("  [WARN] Marker not detected. Retrying this step...")
+                        continue # Re-try current point
+
+                    if len(captured_poses) >= MAX_POINTS:
+                        break # Done
                         
-                        center, axis, radius, rmse = fit_circle_3d_robust(points)
+                    # 2. Move Robot to next position
+                    if robot and initial_joint_pos:
+                        target_joint_pos = list(initial_joint_pos)
                         
-                        # Calculate Fitting Score (0-100%)
-                        # RMSE = 0mm -> 100%, RMSE = 4mm -> 0%
-                        fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
+                        if len(captured_poses) == MAX_POINTS - 1:
+                            # Final point: Return to initial position
+                            print(f"  - [FINAL STEP] Returning to initial position for pure misalignment check...")
+                        else:
+                            # Random move for right_arm_6 (+- 20 deg)
+                            random_offset_deg = random.uniform(-20, 20)
+                            # right_arm_6 is index 6 (7th joint)
+                            target_joint_pos[6] = initial_joint_pos[6] + np.radians(random_offset_deg)
+                            print(f"  - Moving right_arm_6 to offset {random_offset_deg:.2f} deg...")
                         
-                        # Calculate Tilt: angle between marker Z-axis and rotation axis
-                        # We use the latest relative pose for tilt calculation
-                        current_relative_pose = relative_poses[-1]
-                        marker_z = current_relative_pose[:3, 2]
-                        # Normalized dot product
-                        dot_val = np.dot(marker_z, axis)
-                        # Angle is between 0 and 90.
-                        tilt_angle = np.degrees(np.arccos(min(1.0, max(-1.0, abs(dot_val)))))
-                        
-                        # Calculate RPY (ZYX) for the current marker orientation relative to the first one
-                        rpy = mat2rpy_zyx(current_relative_pose[:3, :3])
-                        
-                        print(f"\n--- Calibration Update (N={len(captured_poses)}) ---")
-                        print(f"  Reference Point: First Captured Marker")
-                        print(f"  Rotation Center (Relative, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
-                        print(f"  Rotation Axis (Normal): [{axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f}]")
-                        print(f"  Distance to Axis (Radius, mm): {radius:.2f}")
-                        print(f"  Fitting Quality Score (%): {fitting_score:.1f}%")
-                        print(f"  Marker Tilt vs Axis (deg): {tilt_angle:.2f}")
-                        print(f"  Marker RPY (Relative, deg): Roll={rpy[0]:.2f}, Pitch={rpy[1]:.2f}, Yaw={rpy[2]:.2f}")
-                        print("-" * 40)
-                        
-                        if len(captured_poses) >= 10:
-                            print("\n[INFO] Collected 10 points. Calibration complete.")
-                else:
-                    print("[WARN] No marker detected. Capture failed.")
+                        if movej(robot, right_arm=target_joint_pos, minimum_time=1.5):
+                            print("  - Robot reached target.")
+                            time.sleep(0.5) # Settling time
+                        else:
+                            print("  [ERROR] Robot movement failed.")
+                            break
+                    else:
+                        print("\n[INFO] Manual mode: Please move the bracket and press 'c' for next point.")
+                        break # Break the loop to wait for next manual 'c' if robot not connected
+                
+                if len(captured_poses) >= MAX_POINTS:
+                    print("\n" + "="*40)
+                    print("   CALIBRATION RESULTS (FINAL)")
+                    print("="*40)
+                    
+                    # Final Processing
+                    T_cam_ref = captured_poses[0]
+                    T_ref_cam = np.linalg.inv(T_cam_ref)
+                    relative_poses = [T_ref_cam @ T for T in captured_poses]
+                    points = [T[:3, 3] for T in relative_poses]
+                    
+                    center, axis, radius, rmse = fit_circle_3d_robust(points)
+                    fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
+                    
+                    current_relative_pose = relative_poses[-1]
+                    marker_y = current_relative_pose[:3, 1]
+                    dot_val = np.dot(marker_y, axis)
+                    tilt_angle = np.degrees(np.arccos(min(1.0, max(-1.0, abs(dot_val)))))
+                    rpy = mat2rpy_zyx(current_relative_pose[:3, :3])
+                    
+                    abs_axis = np.abs(axis)
+                    axis_labels = ["X", "Y", "Z"]
+                    primary_axis = axis_labels[np.argmax(abs_axis)]
+                    
+                    print(f"  Reference Point: First Captured Marker")
+                    print(f"  Rotation Center (Relative, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
+                    print(f"  Rotation Axis (In Ref Frame): X={axis[0]:.4f}, Y={axis[1]:.4f}, Z={axis[2]:.4f} (Mainly {primary_axis})")
+                    print(f"  Distance to Axis (Radius, mm): {radius:.2f}")
+                    print(f"  Fitting Quality Score (%): {fitting_score:.1f}%")
+                    print(f"  Marker Tilt vs Axis (deg): {tilt_angle:.2f}")
+                    print(f"  Marker RPY (Relative, deg): Roll={rpy[0]:.2f}, Pitch={rpy[1]:.2f}, Yaw={rpy[2]:.2f}")
+                    print("="*40)
+                    print("\n[FINISH] Automated calibration loop complete.")
 
             elif key == ord('q') or key == 27: # 'q' or ESC
                 print("\nExiting calibration.")
