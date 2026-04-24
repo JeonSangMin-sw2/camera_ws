@@ -3,6 +3,7 @@ import os
 import cv2
 import numpy as np
 import time
+from scipy.optimize import least_squares
 
 # marker_detection.py가 있는 부모 폴더를 sys.path에 추가
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
@@ -12,66 +13,54 @@ except ImportError:
     print("Cannot find marker_detection.py in parent directory.")
     sys.exit(1)
 
-def fit_circle_3d(points):
+def fit_circle_3d_robust(points):
     """
-    Fit a circle to 3D points.
-    Returns: center (3D), normal (rotation axis), radius
+    선형 대수적 피팅(초기값) + 비선형 기하학적 피팅(최적화)을 결합한 고정밀 3D 원 피팅 알고리즘
+    Returns: center_3d (3D), normal (rotation axis), radius
     """
     points = np.array(points)
-    # 1. Plane fitting (SVD)
-    # Subtract mean to center the points
+    
+    # 1. 평면 피팅 (SVD) 및 데이터 중심화
     centroid = np.mean(points, axis=0)
     pts_centered = points - centroid
     
-    # SVD
     _, _, vh = np.linalg.svd(pts_centered)
-    # The normal to the best-fitting plane is the last column of V (or row of VH)
     normal = vh[2, :]
-    
-    # Ensure normal points somewhat towards the camera (Z positive) or just keep it consistent
     if normal[2] < 0:
         normal = -normal
 
-    # 2. Project points to the plane coordinate system
-    # Create local basis (ex, ey, normal)
-    if abs(normal[0]) < 0.9:
-        ex = np.cross(normal, [1, 0, 0])
-    else:
-        ex = np.cross(normal, [0, 1, 0])
-    ex /= np.linalg.norm(ex)
-    ey = np.cross(normal, ex)
+    # 2. 2D 투영 (SVD의 vh[0], vh[1]은 이미 평면상의 완벽한 직교 기저 벡터입니다)
+    ex = vh[0, :]
+    ey = vh[1, :]
+    
+    # 내적을 통한 2D 좌표 변환
+    pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
 
-    # Project to 2D
-    pts_2d = np.zeros((len(points), 2))
-    for i, p in enumerate(pts_centered):
-        pts_2d[i, 0] = np.dot(p, ex)
-        pts_2d[i, 1] = np.dot(p, ey)
-
-    # 3. Fit circle in 2D
-    # Equation: (u - uc)^2 + (v - vc)^2 = R^2
-    # Linear form: u^2 + v^2 = 2u*uc + 2v*vc + (R^2 - uc^2 - vc^2)
-    # Solve A * x = b for x = [2*uc, 2*vc, C] where C = R^2 - uc^2 - vc^2
-    A = np.zeros((len(pts_2d), 3))
-    b = np.zeros((len(pts_2d), 1))
-    for i, (u, v) in enumerate(pts_2d):
-        A[i, 0] = 2 * u
-        A[i, 1] = 2 * v
-        A[i, 2] = 1
-        b[i, 0] = u**2 + v**2
-
-    # Least squares fit
+    # 3. 1차 추정: 선형 대수적 피팅 (Algebraic Fit - 기존 코드 방식)
+    A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
+    b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
     res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-    uc, vc, offset = res[0, 0], res[1, 0], res[2, 0]
+    uc_init, vc_init, offset_init = res[0], res[1], res[2]
     
-    # Calculate radius
-    # R^2 = C + uc^2 + vc^2
-    r_sq = offset + uc**2 + vc**2
-    radius = np.sqrt(max(0, r_sq))
+    radius_init = np.sqrt(max(0, offset_init + uc_init**2 + vc_init**2))
+    initial_guess = [uc_init, vc_init, radius_init]
 
-    # 4. Convert center back to 3D
-    center_3d = centroid + uc * ex + vc * ey
+    # 4. 2차 최적화: 비선형 기하학적 피팅 (Geometric Fit)
+    def residuals(params, xy):
+        uc, vc, R = params
+        # 각 데이터 포인트에서 중심까지의 거리 계산
+        distances = np.sqrt((xy[:, 0] - uc)**2 + (xy[:, 1] - vc)**2)
+        # 실제 반지름과의 기하학적 거리 오차 반환
+        return distances - R
+
+    # Huber loss를 사용하여 튀는 데이터(Outlier)의 영향력을 감소시킴
+    opt_result = least_squares(residuals, initial_guess, args=(pts_2d,), loss='huber')
+    uc_opt, vc_opt, radius_opt = opt_result.x
+
+    # 5. 최적화된 2D 중심을 3D로 복원
+    center_3d = centroid + uc_opt * ex + vc_opt * ey
     
-    return center_3d, normal, radius
+    return center_3d, normal, radius_opt
 
 def main():
     print("\n" + "="*50)
@@ -162,7 +151,7 @@ def main():
                     if len(captured_poses) >= 3:
                         # Perform 3D circle fitting
                         points = [T[:3, 3] for T in captured_poses]
-                        center, axis, radius = fit_circle_3d(points)
+                        center, axis, radius = fit_circle_3d_robust(points)
                         
                         # Calculate Tilt: angle between marker Z-axis and rotation axis
                         # We use the latest captured pose for tilt calculation
