@@ -262,6 +262,8 @@ def main():
                     print(f"\n[STEP {len(captured_poses) + 1}/{MAX_POINTS}]")
                     
                     # 1. Capture Marker
+                    print(f"  - Waiting for stability (1.0s)...")
+                    time.sleep(1.0)
                     print(f"  - Capturing {args.side} marker with LPF (2.0s)...")
                     lpf_results = marker_st.get_marker_transform(sampling_time=2.0, side=args.side)
                     
@@ -307,8 +309,8 @@ def main():
                             move_status = movej(robot, right_arm=target_joint_pos, minimum_time=1.5)
 
                         if move_status:
-                            print(f"  - {args.side.capitalize()} arm reached target.")
-                            time.sleep(0.5) # Settling time
+                            print(f"  - {args.side.capitalize()} arm reached target. Settling...")
+                            time.sleep(1.0) # Settling time
                         else:
                             print(f"  [ERROR] {args.side.capitalize()} arm movement failed.")
                             break
