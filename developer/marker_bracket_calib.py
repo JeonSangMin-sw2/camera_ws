@@ -327,35 +327,57 @@ def main():
                 
                 if len(captured_poses) >= MAX_POINTS:
                     print("\n" + "="*40)
-                    print("   CALIBRATION RESULTS (FINAL)")
+                    print("   BRACKET ALIGNMENT ANALYSIS (FINAL)")
                     print("="*40)
                     
-                    # Final Processing
+                    # 1. Coordinate Setup
                     T_cam_ref = captured_poses[0]
                     T_ref_cam = np.linalg.inv(T_cam_ref)
                     relative_poses = [T_ref_cam @ T for T in captured_poses]
                     points = [T[:3, 3] for T in relative_poses]
                     
+                    # 2. Circle Fitting
                     center, axis, radius, rmse = fit_circle_3d_robust(points)
                     fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
                     
-                    current_relative_pose = relative_poses[-1]
-                    marker_y = current_relative_pose[:3, 1]
-                    dot_val = np.dot(marker_y, axis)
-                    tilt_angle = np.degrees(np.arccos(min(1.0, max(-1.0, abs(dot_val)))))
-                    rpy = mat2rpy_zyx(current_relative_pose[:3, :3])
+                    # 3. Define Hinge Coordinate System (In Reference Frame)
+                    # Y_hinge = Rotation Axis
+                    # X_hinge = Unit vector from Center to First Marker Position (0,0,0 in Ref frame)
+                    # Z_hinge = Y cross X
+                    y_h = axis / np.linalg.norm(axis)
+                    vec_c_to_m0 = -center # Since Marker0 is at (0,0,0) in Ref frame
+                    x_h = vec_c_to_m0 - np.dot(vec_c_to_m0, y_h) * y_h
+                    x_h /= np.linalg.norm(x_h)
+                    z_h = np.cross(x_h, y_h)
                     
-                    abs_axis = np.abs(axis)
-                    axis_labels = ["X", "Y", "Z"]
-                    primary_axis = axis_labels[np.argmax(abs_axis)]
+                    R_hinge = np.stack([x_h, y_h, z_h], axis=1)
                     
-                    print(f"  Reference Point: First Captured Marker")
-                    print(f"  Rotation Center (Relative, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
-                    print(f"  Rotation Axis (In Ref Frame): X={axis[0]:.4f}, Y={axis[1]:.4f}, Z={axis[2]:.4f} (Mainly {primary_axis})")
-                    print(f"  Distance to Axis (Radius, mm): {radius:.2f}")
-                    print(f"  Fitting Quality Score (%): {fitting_score:.1f}%")
-                    print(f"  Marker Tilt vs Axis (deg): {tilt_angle:.2f}")
-                    print(f"  Marker RPY (Relative, deg): Roll={rpy[0]:.2f}, Pitch={rpy[1]:.2f}, Yaw={rpy[2]:.2f}")
+                    # 4. Calculate Misalignment at Initial Pose (Pose 0)
+                    # Since Marker0's R is Identity in Ref frame, 
+                    # the misalignment is simply R_hinge.T
+                    R_misalign = R_hinge.T
+                    # Convert to RPY (ZYX)
+                    # Roll -> X-tilt, Pitch -> Mounting Offset, Yaw -> Twist
+                    mis_rpy = mat2rpy_zyx(R_misalign)
+                    
+                    # 5. Final Verification (Last Point vs Initial)
+                    # Last point should be back at 0 deg move
+                    last_relative_pose = relative_poses[-1]
+                    rpy_last = mat2rpy_zyx(last_relative_pose[:3, :3])
+                    
+                    print(f"  [1] Circle Fitting Results:")
+                    print(f"      Center (Rel, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
+                    print(f"      Radius: {radius:.2f} mm")
+                    print(f"      Quality Score: {fitting_score:.1f}%")
+                    print("-" * 30)
+                    print(f"  [2] Bracket Misalignment (to Hinge Axis):")
+                    print(f"      Roll  (X-Axis Tilt): {mis_rpy[0]:.2f} deg  <-- User requested Tilt")
+                    print(f"      Pitch (Phase Offset): {mis_rpy[1]:.2f} deg")
+                    print(f"      Yaw   (Z-Axis Twist): {mis_rpy[2]:.2f} deg")
+                    print("-" * 30)
+                    print(f"  [3] Final Return Check (Marker at 0 deg):")
+                    print(f"      Final Pitch Error: {rpy_last[1]:.2f} deg  <-- Pitch difference")
+                    print(f"      Final Pos Error: {np.linalg.norm(last_relative_pose[:3, 3]):.2f} mm")
                     print("="*40)
                     print("\n[FINISH] Automated calibration loop complete.")
 
