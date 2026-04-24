@@ -13,10 +13,29 @@ except ImportError:
     print("Cannot find marker_detection.py in parent directory.")
     sys.exit(1)
 
+def mat2rpy_zyx(R):
+    """
+    Extract Roll, Pitch, Yaw from a rotation matrix using ZYX convention (R = Rz * Ry * Rx).
+    Returns angles in degrees: [roll, pitch, yaw]
+    """
+    # R = [[r00, r01, r02],
+    #      [r10, r11, r12],
+    #      [r20, r21, r22]]
+    
+    # yaw = atan2(r10, r00)
+    # pitch = atan2(-r20, sqrt(r21^2 + r22^2))
+    # roll = atan2(r21, r22)
+    
+    yaw = np.arctan2(R[1, 0], R[0, 0])
+    pitch = np.arctan2(-R[2, 0], np.sqrt(R[2, 1]**2 + R[2, 2]**2))
+    roll = np.arctan2(R[2, 1], R[2, 2])
+    
+    return np.degrees([roll, pitch, yaw])
+
 def fit_circle_3d_robust(points):
     """
     선형 대수적 피팅(초기값) + 비선형 기하학적 피팅(최적화)을 결합한 고정밀 3D 원 피팅 알고리즘
-    Returns: center_3d (3D), normal (rotation axis), radius
+    Returns: center_3d (3D), normal (rotation axis), radius, rmse
     """
     points = np.array(points)
     
@@ -60,7 +79,11 @@ def fit_circle_3d_robust(points):
     # 5. 최적화된 2D 중심을 3D로 복원
     center_3d = centroid + uc_opt * ex + vc_opt * ey
     
-    return center_3d, normal, radius_opt
+    # 6. RMSE 계산
+    final_residuals = residuals(opt_result.x, pts_2d)
+    rmse = np.sqrt(np.mean(final_residuals**2))
+    
+    return center_3d, normal, radius_opt, rmse
 
 def main():
     print("\n" + "="*50)
@@ -115,6 +138,9 @@ def main():
                     # For other types, results might be a dict
                     first_key = list(results.keys())[0]
                     current_pose = np.array(results[first_key]).reshape(4, 4)
+                
+                # Unit Conversion: m to mm
+                current_pose[:3, 3] *= 1000.0
 
             # UI overlays
             cv2.putText(display_img, f"Captured Points: {len(captured_poses)}/10", (20, 40), 
@@ -145,28 +171,47 @@ def main():
                         captured_pose = np.array(lpf_results[first_key]).reshape(4, 4)
 
                 if captured_pose is not None:
+                    # Unit Conversion: m to mm
+                    captured_pose[:3, 3] *= 1000.0
+                    
                     captured_poses.append(captured_pose.copy())
-                    print(f"[{len(captured_poses)}] Captured filtered point at: {np.round(captured_pose[:3, 3], 2)}")
+                    print(f"[{len(captured_poses)}] Captured filtered point (Camera Frame): {np.round(captured_pose[:3, 3], 2)}")
                     
                     if len(captured_poses) >= 3:
-                        # Perform 3D circle fitting
-                        points = [T[:3, 3] for T in captured_poses]
-                        center, axis, radius = fit_circle_3d_robust(points)
+                        # Use the first captured pose as the reference frame
+                        T_cam_ref = captured_poses[0]
+                        T_ref_cam = np.linalg.inv(T_cam_ref)
+                        
+                        # Transform all captured points relative to the first captured pose
+                        relative_poses = [T_ref_cam @ T for T in captured_poses]
+                        points = [T[:3, 3] for T in relative_poses]
+                        
+                        center, axis, radius, rmse = fit_circle_3d_robust(points)
+                        
+                        # Calculate Fitting Score (0-100%)
+                        # RMSE = 0mm -> 100%, RMSE = 4mm -> 0%
+                        fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
                         
                         # Calculate Tilt: angle between marker Z-axis and rotation axis
-                        # We use the latest captured pose for tilt calculation
-                        marker_z = current_pose[:3, 2]
+                        # We use the latest relative pose for tilt calculation
+                        current_relative_pose = relative_poses[-1]
+                        marker_z = current_relative_pose[:3, 2]
                         # Normalized dot product
                         dot_val = np.dot(marker_z, axis)
-                        # We use abs(dot) because the axis direction might be inverted
                         # Angle is between 0 and 90.
                         tilt_angle = np.degrees(np.arccos(min(1.0, max(-1.0, abs(dot_val)))))
                         
+                        # Calculate RPY (ZYX) for the current marker orientation relative to the first one
+                        rpy = mat2rpy_zyx(current_relative_pose[:3, :3])
+                        
                         print(f"\n--- Calibration Update (N={len(captured_poses)}) ---")
-                        print(f"  Rotation Center (Camera Frame, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
+                        print(f"  Reference Point: First Captured Marker")
+                        print(f"  Rotation Center (Relative, mm): X={center[0]:.2f}, Y={center[1]:.2f}, Z={center[2]:.2f}")
                         print(f"  Rotation Axis (Normal): [{axis[0]:.4f}, {axis[1]:.4f}, {axis[2]:.4f}]")
                         print(f"  Distance to Axis (Radius, mm): {radius:.2f}")
+                        print(f"  Fitting Quality Score (%): {fitting_score:.1f}%")
                         print(f"  Marker Tilt vs Axis (deg): {tilt_angle:.2f}")
+                        print(f"  Marker RPY (Relative, deg): Roll={rpy[0]:.2f}, Pitch={rpy[1]:.2f}, Yaw={rpy[2]:.2f}")
                         print("-" * 40)
                         
                         if len(captured_poses) >= 10:
