@@ -26,6 +26,7 @@ class IntrinsicsCalibrator:
         self.tvecs = None
         self.all_obj_points = []
         self.all_img_points = []
+        self.all_ids = []
         self.rms_error = 0.0
 
     def set_board(self, width, height, pattern, square_size, marker_size, aruco_dict_name):
@@ -58,6 +59,7 @@ class IntrinsicsCalibrator:
 
         all_obj_points = []
         all_img_points = []
+        all_ids = []
         img_size = None
 
         for path in image_paths:
@@ -79,6 +81,7 @@ class IntrinsicsCalibrator:
                     objp *= self.square_size
                     all_obj_points.append(objp)
                     all_img_points.append(corners)
+                    all_ids.append(np.arange(len(corners)))
 
             elif self.pattern == self.BoardPattern.CHARUCOBOARD:
                 detector = cv2.aruco.CharucoDetector(self.charuco_board)
@@ -86,6 +89,7 @@ class IntrinsicsCalibrator:
 
                 if charuco_ids is not None and len(charuco_ids) > 4:
                     all_img_points.append(charuco_corners)
+                    all_ids.append(charuco_ids)
                     all_obj_points.append(self.charuco_board.getChessboardCorners()[charuco_ids.flatten()])
 
         if len(all_obj_points) < 5:
@@ -100,6 +104,7 @@ class IntrinsicsCalibrator:
         self.tvecs = tvecs
         self.all_obj_points = all_obj_points
         self.all_img_points = all_img_points
+        self.all_ids = all_ids
         self.rms_error = ret
 
         print(f"Calibration successful! RMS error: {ret:.4f}")
@@ -121,6 +126,7 @@ class IntrinsicsCalibrator:
 
         all_obj_points = []
         all_img_points = []
+        all_ids = []
         img_size = None
 
         for i, img in enumerate(images):
@@ -141,6 +147,7 @@ class IntrinsicsCalibrator:
                     objp *= self.square_size
                     all_obj_points.append(objp)
                     all_img_points.append(corners)
+                    all_ids.append(np.arange(len(corners)))
 
             elif self.pattern == self.BoardPattern.CHARUCOBOARD:
                 detector = cv2.aruco.CharucoDetector(self.charuco_board)
@@ -148,6 +155,7 @@ class IntrinsicsCalibrator:
 
                 if charuco_ids is not None and len(charuco_ids) > 4:
                     all_img_points.append(charuco_corners)
+                    all_ids.append(charuco_ids)
                     all_obj_points.append(self.charuco_board.getChessboardCorners()[charuco_ids.flatten()])
 
         if len(all_obj_points) < 5:
@@ -162,6 +170,7 @@ class IntrinsicsCalibrator:
         self.tvecs = tvecs
         self.all_obj_points = all_obj_points
         self.all_img_points = all_img_points
+        self.all_ids = all_ids
         self.rms_error = ret
 
         print(f"Calibration successful! RMS error: {ret:.4f}")

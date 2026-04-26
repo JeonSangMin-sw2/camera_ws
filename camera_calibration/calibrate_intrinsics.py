@@ -103,16 +103,60 @@ def main():
                         new_mtx, _ = cv2.getOptimalNewCameraMatrix(calibrator.cameraMatrix, calibrator.distCoeffs, (w, h), 1, (w, h))
                         undistorted = cv2.undistort(test_img, calibrator.cameraMatrix, calibrator.distCoeffs, None, new_mtx)
                         
+                        grid_view = undistorted.copy()
                         for y in range(0, h, 60):
-                            cv2.line(undistorted, (0, y), (w, y), (0, 255, 0), 1)
+                            cv2.line(grid_view, (0, y), (w, y), (0, 255, 0), 1)
                         for x in range(0, w, 60):
-                            cv2.line(undistorted, (x, 0), (x, h), (0, 255, 0), 1)
-                        cv2.putText(undistorted, "Undistorted Grid View", (30, 40), 1, 1.5, (0, 255, 0), 2)
+                            cv2.line(grid_view, (x, 0), (x, h), (0, 255, 0), 1)
+                        cv2.putText(grid_view, "Undistorted Grid View", (30, 40), 1, 1.5, (0, 255, 0), 2)
 
-                        # 4. Display Combined View
-                        combined = np.hstack((fit_img, undistorted))
-                        display_w = 1280
-                        display_h = int(display_w * (h / (w * 2)))
+                        # 4. Linearity Verification (Board Corners)
+                        linearity_img = undistorted.copy()
+                        if len(calibrator.all_ids) > 0:
+                            ids_flat = calibrator.all_ids[-1].flatten()
+                            raw_pts = calibrator.all_img_points[-1]
+                            # Undistort the specific corners detected in this frame
+                            undist_pts = cv2.undistortPoints(raw_pts, calibrator.cameraMatrix, calibrator.distCoeffs, None, new_mtx).reshape(-1, 2)
+                            
+                            num_x = calibrator.board_size[0] - 1
+                            rows = {}
+                            cols = {}
+                            
+                            for i, cid in enumerate(ids_flat):
+                                r, c = divmod(cid, num_x)
+                                if r not in rows: rows[r] = []
+                                if c not in cols: cols[c] = []
+                                rows[r].append(undist_pts[i])
+                                cols[c].append(undist_pts[i])
+                            
+                            # Draw Row Lines (Blue)
+                            for r_idx in rows:
+                                pts = rows[r_idx]
+                                if len(pts) >= 2:
+                                    pts = sorted(pts, key=lambda p: p[0])
+                                    cv2.line(linearity_img, tuple(pts[0].astype(int)), tuple(pts[-1].astype(int)), (255, 0, 0), 1)
+                            
+                            # Draw Col Lines (Red)
+                            for c_idx in cols:
+                                pts = cols[c_idx]
+                                if len(pts) >= 2:
+                                    pts = sorted(pts, key=lambda p: p[1])
+                                    cv2.line(linearity_img, tuple(pts[0].astype(int)), tuple(pts[-1].astype(int)), (0, 0, 255), 1)
+                            
+                            # Draw Points (Green)
+                            for p in undist_pts:
+                                cv2.circle(linearity_img, tuple(p.astype(int)), 3, (0, 255, 0), -1)
+                        
+                        cv2.putText(linearity_img, "Linearity Proof (Rows/Cols)", (30, 40), 1, 1.5, (0, 255, 0), 2)
+                        cv2.putText(linearity_img, "Dots should align with lines if flat.", (30, 80), 1, 1.0, (255, 255, 255), 1)
+
+                        # 5. Display Combined View
+                        top_row = np.hstack((fit_img, grid_view))
+                        bottom_row = np.hstack((undistorted, linearity_img))
+                        combined = np.vstack((top_row, bottom_row))
+                        
+                        display_w = 1200
+                        display_h = int(display_w * (combined.shape[0] / combined.shape[1]))
                         combined_res = cv2.resize(combined, (display_w, display_h))
                         
                         print(f"\n[Verification] Total RMS: {calibrator.rms_error:.4f}, Last Frame Error: {err:.4f}")

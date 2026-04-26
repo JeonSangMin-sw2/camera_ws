@@ -84,7 +84,7 @@ except ImportError:
     print("Cannot find marker_detection.py in parent directory.")
     sys.exit(1)
 
-def fit_circle_3d_robust(points):
+def fit_circle_kinematic(points, angles_deg):
     points = np.array(points)
     centroid = np.mean(points, axis=0)
     pts_centered = points - centroid
@@ -98,27 +98,42 @@ def fit_circle_3d_robust(points):
     ey = vh[1, :]
     pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
 
+    # 대수적 방정식으로 초기 중심/방경 추정
     A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
     b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
     res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
     uc_init, vc_init, offset_init = res[0], res[1], res[2]
-    
     radius_init = np.sqrt(max(0, offset_init + uc_init**2 + vc_init**2))
-    initial_guess = [uc_init, vc_init, radius_init]
-
-    def residuals(params, xy):
-        uc, vc, R = params
-        distances = np.sqrt((xy[:, 0] - uc)**2 + (xy[:, 1] - vc)**2)
-        return distances - R
-
-    opt_result = least_squares(residuals, initial_guess, args=(pts_2d,), loss='huber')
-    uc_opt, vc_opt, radius_opt = opt_result.x
-
-    center_3d = centroid + uc_opt * ex + vc_opt * ey
-    final_residuals = residuals(opt_result.x, pts_2d)
-    rmse = np.sqrt(np.mean(final_residuals**2))
     
-    return center_3d, normal, radius_opt, rmse
+    best_rmse = float('inf')
+    best_opt = None
+
+    # 투영 축(ex, ey)의 부호나 모터 회전 방향의 역전을 방지하기 위해 + / - 회전 모두 테스트
+    for sign in [1, -1]:
+        angles_rad = np.radians(angles_deg) * sign
+        
+        def residuals(params):
+            uc, vc, R, alpha = params
+            model_x = uc + R * np.cos(alpha + angles_rad)
+            model_y = vc + R * np.sin(alpha + angles_rad)
+            return np.sqrt((pts_2d[:, 0] - model_x)**2 + (pts_2d[:, 1] - model_y)**2)
+        
+        # 시작 각도 위상(alpha) 초기값 추정
+        alpha_init = np.arctan2(pts_2d[0, 1] - vc_init, pts_2d[0, 0] - uc_init) - angles_rad[0]
+        initial_guess = [uc_init, vc_init, radius_init, alpha_init]
+        
+        # 이상치에 강건한 Huber 최적화
+        opt_result = least_squares(residuals, initial_guess, loss='huber')
+        rmse = np.sqrt(np.mean(opt_result.fun**2))
+        
+        if rmse < best_rmse:
+            best_rmse = rmse
+            best_opt = opt_result
+
+    uc_opt, vc_opt, R_opt, _ = best_opt.x
+    center_3d = centroid + uc_opt * ex + vc_opt * ey
+    
+    return center_3d, normal, R_opt, best_rmse
 
 # --- Custom UI Widgets ---
 class IndicatorWidget(QWidget):
@@ -175,6 +190,7 @@ class CalibrationWorker(QThread):
         
         self.status_signal.emit(True)
         captured_poses = []
+        captured_angles = []
 
         if not self.robot:
             self.log_signal.emit("[ERROR] Robot not connected. Cannot perform automated sweep.")
@@ -240,6 +256,7 @@ class CalibrationWorker(QThread):
             if captured_pose is not None:
                 captured_pose[:3, 3] *= 1000.0 # m to mm
                 captured_poses.append(captured_pose)
+                captured_angles.append(target_offset_deg)
                 self.log_signal.emit(f"  - Pose Saved: Pos={np.round(captured_pose[:3, 3], 2)}")
             else:
                 self.log_signal.emit("  [ERROR] Marker lost during sweep. Aborting.")
@@ -264,7 +281,7 @@ class CalibrationWorker(QThread):
             relative_poses = [T_ref_cam @ T for T in captured_poses]
             points = [T[:3, 3] for T in relative_poses]
             
-            center, axis, radius, rmse = fit_circle_3d_robust(points)
+            center, axis, radius, rmse = fit_circle_kinematic(points, captured_angles)
             fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
             
             tilt_list = []
@@ -389,6 +406,13 @@ class CalibrationApp(QWidget):
         controls_box = QGroupBox("Calibration Controls")
         controls_layout = QVBoxLayout()
         
+        self.arm_side_sel = QComboBox()
+        self.arm_side_sel.addItems(["Right Arm", "Left Arm"])
+        if getattr(self, 'arm_side', 'right') == "left":
+            self.arm_side_sel.setCurrentIndex(1)
+        self.arm_side_sel.currentTextChanged.connect(self.on_arm_side_changed)
+        controls_layout.addWidget(self.arm_side_sel)
+
         self.axis_sel = QComboBox()
         self.axis_sel.addItems(["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"])
         controls_layout.addWidget(self.axis_sel)
@@ -434,6 +458,15 @@ class CalibrationApp(QWidget):
     def log_msg(self, msg):
         self.log_text.append(msg)
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+    def on_arm_side_changed(self, text):
+        if "Left" in text:
+            self.arm_side = "left"
+        else:
+            self.arm_side = "right"
+        self.log_msg(f"[INFO] Target arm changed to {self.arm_side.upper()} Arm. (Prior sweep data cleared)")
+        self.data_5 = None
+        self.data_6 = None
 
     def on_monitor_toggled(self, checked):
         if checked:
