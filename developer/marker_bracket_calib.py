@@ -437,14 +437,18 @@ class CalibrationWorker(QThread):
             plt.gca().add_patch(circle)
             plt.plot(uc_opt, vc_opt, 'rx', label='Center')
             
-            # 확대(Zoom)을 위해 데이터 기준 x, y 축 리밋 설정
+            # 확대(Zoom)을 위해 데이터 기준 x, y 축 리밋 설정 (정사각형 영역)
             x_min, x_max = pts_2d[:, 0].min(), pts_2d[:, 0].max()
             y_min, y_max = pts_2d[:, 1].min(), pts_2d[:, 1].max()
-            margin_x = max(1.0, (x_max - x_min) * 0.5)
-            margin_y = max(1.0, (y_max - y_min) * 0.5)
-            plt.xlim(x_min - margin_x, x_max + margin_x)
-            plt.ylim(y_min - margin_y, y_max + margin_y)
-            plt.gca().set_aspect('equal', adjustable='datalim')
+            span = max(x_max - x_min, y_max - y_min)
+            margin = max(1.0, span * 0.5)
+            
+            cx = (x_max + x_min) / 2
+            cy = (y_max + y_min) / 2
+            
+            plt.xlim(cx - span/2 - margin, cx + span/2 + margin)
+            plt.ylim(cy - span/2 - margin, cy + span/2 + margin)
+            plt.gca().set_aspect('equal')
 
             plt.grid(True)
             plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {rmse:.2f} px)")
@@ -807,15 +811,15 @@ class CalibrationApp(QWidget):
         
         self.log_msg("\n[3] setting.yaml 복사 양식")
         
-        # Y and Z values swapped as requested. 
-        # y_offset is from Axis 6 radius, z_offset is from Axis 5 radius - Link Length.
-        y_offset_m = self.data_6['radius'] / 1000.0
-        z_offset_m = (self.data_5['radius'] - L_5_ee) / 1000.0
+        # Y and Z values swapped back.
+        # y_offset is from Axis 5 radius (extension), z_offset is from Axis 6 radius.
+        y_offset_m = (self.data_5['radius'] - L_5_ee) / 1000.0
+        z_offset_m = self.data_6['radius'] / 1000.0
         
         if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [0.0, {y_offset_m:.5f}, {z_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {0.0 + yaw:.2f}]")
+            self.log_msg(f"  Tf_to_marker_left:  [0.0, {z_offset_m:.5f}, {-y_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {0.0 + yaw:.2f}]")
         else:
-            self.log_msg(f"  Tf_to_marker_right: [0.0, {-y_offset_m:.5f}, {z_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {180.0 + yaw:.2f}]")
+            self.log_msg(f"  Tf_to_marker_right: [0.0, {-z_offset_m:.5f}, {-y_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {180.0 + yaw:.2f}]")
         
         self.log_msg("\n" + "="*50)
 
