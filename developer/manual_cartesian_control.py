@@ -247,16 +247,10 @@ class ManualCartesianApp(QWidget):
         
         ee_name = f"ee_{self.arm_side}"
         cb = rby.CartesianCommandBuilder().set_minimum_time(min_time)
-        cb.add_target("base", ee_name, T_target, min_time, 100.0, 1.0)
+        cb.add_target("base", ee_name, T_target, 1.0, 1.0, 1.0)
         
-        body_cmd = rby.BodyComponentBasedCommandBuilder()
-        if self.arm_side == "right":
-            body_cmd.set_right_arm_command(cb)
-        else:
-            body_cmd.set_left_arm_command(cb)
-            
         rc = rby.RobotCommandBuilder().set_command(
-            rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
+            rby.ComponentBasedCommandBuilder().set_body_command(cb)
         )
         
         rv = self.robot.send_command(rc, min_time + 1.0).get()

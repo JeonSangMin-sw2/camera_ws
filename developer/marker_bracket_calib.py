@@ -223,19 +223,13 @@ class MoveCenterWorker(QThread):
             T_target[2, 3] += dz_rob
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
-            cb.add_target("base", ee_name, T_target, 3.0, 100.0, 1.0)
+            cb.add_target("base", ee_name, T_target, 1.0, 1.0, 1.0)
             
-            body_cmd = rby.BodyComponentBasedCommandBuilder()
-            if self.arm_side == "right":
-                body_cmd.set_right_arm_command(cb)
-            else:
-                body_cmd.set_left_arm_command(cb)
-                
             rc = rby.RobotCommandBuilder().set_command(
-                rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
+                rby.ComponentBasedCommandBuilder().set_body_command(cb)
             )
             
-            rv = self.robot.send_command(rc, 2).get()
+            rv = self.robot.send_command(rc, 4.0).get()
             if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
                 self.log_signal.emit("  [ERROR] Failed to move Cartesian.")
                 break
@@ -434,7 +428,16 @@ class CalibrationWorker(QThread):
             circle = plt.Circle((uc_opt, vc_opt), radius, color='r', fill=False, label='Fitted Circle')
             plt.gca().add_patch(circle)
             plt.plot(uc_opt, vc_opt, 'rx', label='Center')
-            # Removing plt.axis('equal') to allow matplotlib to auto-zoom on the points
+            
+            # 확대(Zoom)을 위해 데이터 기준 x, y 축 리밋 설정
+            x_min, x_max = pts_2d[:, 0].min(), pts_2d[:, 0].max()
+            y_min, y_max = pts_2d[:, 1].min(), pts_2d[:, 1].max()
+            margin_x = max(1.0, (x_max - x_min) * 0.5)
+            margin_y = max(1.0, (y_max - y_min) * 0.5)
+            plt.xlim(x_min - margin_x, x_max + margin_x)
+            plt.ylim(y_min - margin_y, y_max + margin_y)
+            plt.gca().set_aspect('equal', adjustable='datalim')
+
             plt.grid(True)
             plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {rmse:.2f} px)")
             plt.legend()
@@ -795,12 +798,16 @@ class CalibrationApp(QWidget):
         self.log_msg(f"    - Yaw   (마커 비틀림 from 6축): {yaw:.2f} deg")
         
         self.log_msg("\n[3] setting.yaml 복사 양식")
-        z_offset_m = z_offset / 1000.0
-        y_offset_m = y_offset / 1000.0
+        
+        # Y and Z values swapped as requested. 
+        # y_offset is from Axis 6 radius, z_offset is from Axis 5 radius - Link Length.
+        y_offset_m = self.data_6['radius'] / 1000.0
+        z_offset_m = (self.data_5['radius'] - L_5_ee) / 1000.0
+        
         if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [0.0, {y_offset_m:.5f}, {-z_offset_m:.5f}, {90.0 + roll:.2f}, {pitch:.2f}, {0.0 + yaw:.2f}]")
+            self.log_msg(f"  Tf_to_marker_left:  [0.0, {y_offset_m:.5f}, {z_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {0.0 + yaw:.2f}]")
         else:
-            self.log_msg(f"  Tf_to_marker_right: [0.0, {-y_offset_m:.5f}, {-z_offset_m:.5f}, {90.0 + roll:.2f}, {pitch:.2f}, {180.0 + yaw:.2f}]")
+            self.log_msg(f"  Tf_to_marker_right: [0.0, {-y_offset_m:.5f}, {z_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {180.0 + yaw:.2f}]")
         
         self.log_msg("\n" + "="*50)
 
