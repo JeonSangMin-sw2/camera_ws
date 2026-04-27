@@ -199,8 +199,8 @@ class MoveCenterWorker(QThread):
             self.log_signal.emit(f"  Current: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f} mm")
             self.log_signal.emit(f"  Error: dX={err_x:.1f}, dY={err_y:.1f}, dZ={err_z:.1f} (Dist: {dist:.2f} mm)")
 
-            if dist <= 0.5:
-                self.log_signal.emit("  [SUCCESS] Reached target center (error <= 0.5mm)!")
+            if abs(err_x) <= 0.5 and abs(err_y) <= 0.5 and abs(err_z) <= 0.5:
+                self.log_signal.emit("  [SUCCESS] Reached target center (all axes error <= 0.5mm)!")
                 break
                 
             self.log_signal.emit("  Moving robot to correct error...")
@@ -222,8 +222,8 @@ class MoveCenterWorker(QThread):
             T_target[1, 3] += dy_rob
             T_target[2, 3] += dz_rob
             
-            cb = rby.CartesianCommandBuilder().set_minimum_time(1.5)
-            cb.add_target("base", ee_name, T_target, 1.5, 1.0, 1.0)
+            cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
+            cb.add_target("base", ee_name, T_target, 3.0, 100.0, 1.0)
             
             body_cmd = rby.BodyComponentBasedCommandBuilder()
             if self.arm_side == "right":
@@ -419,11 +419,12 @@ class CalibrationWorker(QThread):
             self.log_signal.emit(f"      Jitter (StdDev): {np.std(tilt_list):.2f} deg")
             self.log_signal.emit("-" * 30)
             
-            res_tilt_name = "Roll (상하 기울기)" if self.axis_mode == 6 else "Pitch (좌우 기울기)"
             self.log_signal.emit(f"  [2] Robust Axis Alignment (Median):")
-            self.log_signal.emit(f"      {res_tilt_name}: {robust_tilt:.2f} deg")
             if self.axis_mode == 6:
+                self.log_signal.emit(f"      Roll  (상하 기울기): {robust_tilt:.2f} deg")
                 self.log_signal.emit(f"      Yaw  (비틀림): {robust_yaw:.2f} deg")
+            else:
+                pass # Pitch (좌우 기울기)는 해석이 어려워 숨김 처리: self.log_signal.emit(f"      Pitch (좌우 기울기): {robust_tilt:.2f} deg")
             self.log_signal.emit("="*40)
             self.log_signal.emit("\n[SWEEP SUCCESSFUL]\n")
             
@@ -790,8 +791,16 @@ class CalibrationApp(QWidget):
             
         self.log_msg("\n[2] Angular Misalignment (Rotations)")
         self.log_msg(f"    - Roll  (상하 틀어짐 from 6축): {roll:.2f} deg")
-        self.log_msg(f"    - Pitch (좌우 틀어짐 from 5축): {pitch:.2f} deg")
+        # self.log_msg(f"    - Pitch (좌우 틀어짐 from 5축): {pitch:.2f} deg") # 숨김 처리
         self.log_msg(f"    - Yaw   (마커 비틀림 from 6축): {yaw:.2f} deg")
+        
+        self.log_msg("\n[3] setting.yaml 복사 양식")
+        z_offset_m = z_offset / 1000.0
+        y_offset_m = y_offset / 1000.0
+        if self.arm_side == "left":
+            self.log_msg(f"  Tf_to_marker_left:  [0.0, {y_offset_m:.5f}, {-z_offset_m:.5f}, {90.0 + roll:.2f}, {pitch:.2f}, {0.0 + yaw:.2f}]")
+        else:
+            self.log_msg(f"  Tf_to_marker_right: [0.0, {-y_offset_m:.5f}, {-z_offset_m:.5f}, {90.0 + roll:.2f}, {pitch:.2f}, {180.0 + yaw:.2f}]")
         
         self.log_msg("\n" + "="*50)
 
