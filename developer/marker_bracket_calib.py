@@ -9,7 +9,7 @@ import rby1_sdk as rby
 from scipy.optimize import least_squares
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, QLineEdit, QDialog)
+                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, QLineEdit, QDialog, QMessageBox, QTabWidget)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap
 import matplotlib.pyplot as plt
@@ -180,7 +180,7 @@ class MoveCenterWorker(QThread):
         for attempt in range(3):
             self.log_signal.emit(f"[Attempt {attempt + 1}/3] Capturing marker...")
             time.sleep(1.0)
-            res = self.marker_st.get_marker_transform(sampling_time=1.0, side=self.arm_side)
+            res = self.marker_st.get_marker_transform(sampling_time=2.0, side=self.arm_side)
             if not res:
                 self.log_signal.emit("  [ERROR] Marker not visible.")
                 break
@@ -199,8 +199,8 @@ class MoveCenterWorker(QThread):
             self.log_signal.emit(f"  Current: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f} mm")
             self.log_signal.emit(f"  Error: dX={err_x:.1f}, dY={err_y:.1f}, dZ={err_z:.1f} (Dist: {dist:.2f} mm)")
 
-            if dist <= 1.0:
-                self.log_signal.emit("  [SUCCESS] Reached target center (error <= 1mm)!")
+            if dist <= 0.5:
+                self.log_signal.emit("  [SUCCESS] Reached target center (error <= 0.5mm)!")
                 break
                 
             self.log_signal.emit("  Moving robot to correct error...")
@@ -433,7 +433,7 @@ class CalibrationWorker(QThread):
             circle = plt.Circle((uc_opt, vc_opt), radius, color='r', fill=False, label='Fitted Circle')
             plt.gca().add_patch(circle)
             plt.plot(uc_opt, vc_opt, 'rx', label='Center')
-            plt.axis('equal')
+            # Removing plt.axis('equal') to allow matplotlib to auto-zoom on the points
             plt.grid(True)
             plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {rmse:.2f} px)")
             plt.legend()
@@ -476,7 +476,13 @@ class CalibrationApp(QWidget):
         self.worker = None
 
     def init_ui(self):
-        main_layout = QHBoxLayout()
+        main_layout = QVBoxLayout()
+        self.tabs = QTabWidget()
+        main_layout.addWidget(self.tabs)
+        
+        # Main Tab
+        main_tab = QWidget()
+        main_tab_layout = QHBoxLayout()
         
         # Left Panel
         left_panel = QVBoxLayout()
@@ -484,9 +490,10 @@ class CalibrationApp(QWidget):
         
         # Connection
         conn_box = QGroupBox("Robot Connection")
-        conn_layout = QHBoxLayout()
+        conn_layout = QVBoxLayout()
         self.ip_input = QLineEdit("192.168.30.1:50051")
-        self.model_input = QLineEdit("a")
+        self.model_input = QComboBox()
+        self.model_input.addItems(["a", "m"])
         self.btn_connect = QPushButton("CONNECT")
         self.btn_connect.setStyleSheet("background-color: #ff9900; color: black; font-weight: bold;")
         self.btn_connect.clicked.connect(self.connect_robot)
@@ -577,8 +584,28 @@ class CalibrationApp(QWidget):
         self.log_text.setStyleSheet("background-color: #1e1e1e; color: #00ff00;")
         right_panel.addWidget(self.log_text)
         
-        main_layout.addLayout(left_panel, 1)
-        main_layout.addLayout(right_panel, 3)
+        main_tab_layout.addLayout(left_panel, 1)
+        main_tab_layout.addLayout(right_panel, 3)
+        main_tab.setLayout(main_tab_layout)
+        self.tabs.addTab(main_tab, "Main Calibration")
+        
+        # Plot Tab
+        self.plot_tab = QWidget()
+        plot_layout = QHBoxLayout()
+        
+        self.plot_label_6 = QLabel("6-Axis Plot will appear here")
+        self.plot_label_6.setAlignment(Qt.AlignCenter)
+        self.plot_label_6.setStyleSheet("background-color: #333333; color: white;")
+        
+        self.plot_label_5 = QLabel("5-Axis Plot will appear here")
+        self.plot_label_5.setAlignment(Qt.AlignCenter)
+        self.plot_label_5.setStyleSheet("background-color: #333333; color: white;")
+        
+        plot_layout.addWidget(self.plot_label_6)
+        plot_layout.addWidget(self.plot_label_5)
+        self.plot_tab.setLayout(plot_layout)
+        self.tabs.addTab(self.plot_tab, "Plot Viewer")
+        
         self.setLayout(main_layout)
         
         self.log_msg("Unified 5/6 Axis Calibration App Ready.\nCenter the marker physically before starting sweeps.")
@@ -590,7 +617,7 @@ class CalibrationApp(QWidget):
     def connect_robot(self):
         try:
             addr = self.ip_input.text().strip()
-            model = self.model_input.text().strip()
+            model = self.model_input.currentText().strip()
             self.log_msg(f"[INFO] Connecting to robot at {addr} ({model})...")
             self.robot = initialize_robot(addr, model)
             self.log_msg("[INFO] Robot successfully connected and activated.")
@@ -603,6 +630,10 @@ class CalibrationApp(QWidget):
     def move_to_center(self):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
+            return
+            
+        if not self.indicator.is_detected:
+            QMessageBox.warning(self, "Marker Not Detected", "Marker is not detected!\nPlease use the teaching button to make the camera recognize the marker.")
             return
             
         self.btn_center.setEnabled(False)
@@ -669,6 +700,10 @@ class CalibrationApp(QWidget):
             pass
 
     def start_calibration(self):
+        if not self.indicator.is_detected:
+            QMessageBox.warning(self, "Marker Not Detected", "Marker is not detected!\nPlease use the teaching button to make the camera recognize the marker.")
+            return
+
         axis_mode = 6 if "6" in self.axis_sel.currentText() else 5
         self.btn_start.setEnabled(False)
         self.btn_result.setEnabled(False)
@@ -693,15 +728,17 @@ class CalibrationApp(QWidget):
             else:
                 self.data_5 = result_dict
             
-            # Show Plot
+            # Show Plot in Plot Tab
             if 'plot_path' in result_dict and os.path.exists(result_dict['plot_path']):
-                dialog = QDialog(self)
-                dialog.setWindowTitle(f"Axis {result_dict['axis_mode']} Sweep Result")
-                l = QVBoxLayout(dialog)
-                img_label = QLabel()
-                img_label.setPixmap(QPixmap(result_dict['plot_path']))
-                l.addWidget(img_label)
-                dialog.exec()
+                pixmap = QPixmap(result_dict['plot_path'])
+                scaled_pixmap = pixmap.scaled(400, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                if result_dict['axis_mode'] == 6:
+                    self.plot_label_6.setPixmap(scaled_pixmap)
+                else:
+                    self.plot_label_5.setPixmap(scaled_pixmap)
+                
+                # Switch to plot tab automatically
+                self.tabs.setCurrentIndex(1)
 
     def get_link_length(self):
         if not self.robot: return 0.0
