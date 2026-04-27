@@ -237,7 +237,7 @@ class MoveCenterWorker(QThread):
                 rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
             )
             
-            rv = self.robot.send_command(rc, 4.0).get()
+            rv = self.robot.send_command(rc, 10).get()
             if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
                 self.log_signal.emit("  [ERROR] Failed to move Cartesian.")
                 break

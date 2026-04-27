@@ -261,7 +261,7 @@ class ManualCartesianApp(QWidget):
             rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
         )
         
-        rv = self.robot.send_command(rc, min_time + 1.0).get()
+        rv = self.robot.send_command(rc, 10).get()
         if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
             self.log_msg("[ERROR] Command failed or rejected.")
         else:
