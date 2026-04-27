@@ -817,9 +817,9 @@ class CalibrationApp(QWidget):
         z_offset_m = self.data_6['radius'] / 1000.0
         
         if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [0.0, {z_offset_m:.5f}, {-y_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {0.0 + yaw:.2f}]")
+            self.log_msg(f"  Tf_to_marker_left:  [0.0, {y_offset_m:.5f}, {-z_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {0.0 + yaw:.2f}]")
         else:
-            self.log_msg(f"  Tf_to_marker_right: [0.0, {-z_offset_m:.5f}, {-y_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {180.0 + yaw:.2f}]")
+            self.log_msg(f"  Tf_to_marker_right: [0.0, {-y_offset_m:.5f}, {-z_offset_m:.5f}, {90.0 + roll:.2f}, 0.00, {180.0 + yaw:.2f}]")
         
         self.log_msg("\n" + "="*50)
 
