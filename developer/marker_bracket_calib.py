@@ -9,9 +9,10 @@ import rby1_sdk as rby
 from scipy.optimize import least_squares
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox)
+                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, QLineEdit, QDialog)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QPainter, QColor, QPen, QFont
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap
+import matplotlib.pyplot as plt
 
 # --- Configuration ---
 # 6-Axis: ±20, 4 steps | 5-Axis: ±10, 2 steps
@@ -84,7 +85,7 @@ except ImportError:
     print("Cannot find marker_detection.py in parent directory.")
     sys.exit(1)
 
-def fit_circle_kinematic(points, angles_deg):
+def fit_circle_kinematic(points, angles_deg, return_plot_data=False):
     points = np.array(points)
     centroid = np.mean(points, axis=0)
     pts_centered = points - centroid
@@ -133,6 +134,8 @@ def fit_circle_kinematic(points, angles_deg):
     uc_opt, vc_opt, R_opt, _ = best_opt.x
     center_3d = centroid + uc_opt * ex + vc_opt * ey
     
+    if return_plot_data:
+        return center_3d, normal, R_opt, best_rmse, pts_2d, uc_opt, vc_opt
     return center_3d, normal, R_opt, best_rmse
 
 # --- Custom UI Widgets ---
@@ -153,6 +156,94 @@ class IndicatorWidget(QWidget):
         painter.setBrush(color)
         painter.setPen(QPen(Qt.black, 2))
         painter.drawEllipse(2, 2, 26, 26)
+
+class MoveCenterWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal()
+
+    def __init__(self, marker_st, robot, arm_side):
+        super().__init__()
+        self.marker_st = marker_st
+        self.robot = robot
+        self.arm_side = arm_side
+
+    def run(self):
+        if not self.robot:
+            self.log_signal.emit("[ERROR] Robot not connected.")
+            self.finished_signal.emit()
+            return
+
+        self.log_signal.emit("\n" + "="*40)
+        self.log_signal.emit("   STARTING MOVE TO CENTER [0, 0, 180]")
+        self.log_signal.emit("="*40)
+
+        for attempt in range(3):
+            self.log_signal.emit(f"[Attempt {attempt + 1}/3] Capturing marker...")
+            time.sleep(1.0)
+            res = self.marker_st.get_marker_transform(sampling_time=1.0, side=self.arm_side)
+            if not res:
+                self.log_signal.emit("  [ERROR] Marker not visible.")
+                break
+            
+            if isinstance(res, list):
+                pose = np.array(res[0]).reshape(4, 4)
+            else:
+                pose = np.array(list(res.values())[0]).reshape(4, 4)
+                
+            cam_x, cam_y, cam_z = pose[:3, 3] * 1000.0
+            err_x = 0.0 - cam_x
+            err_y = 0.0 - cam_y
+            err_z = 180.0 - cam_z
+            
+            dist = np.sqrt(err_x**2 + err_y**2 + err_z**2)
+            self.log_signal.emit(f"  Current: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f} mm")
+            self.log_signal.emit(f"  Error: dX={err_x:.1f}, dY={err_y:.1f}, dZ={err_z:.1f} (Dist: {dist:.2f} mm)")
+
+            if dist <= 1.0:
+                self.log_signal.emit("  [SUCCESS] Reached target center (error <= 1mm)!")
+                break
+                
+            self.log_signal.emit("  Moving robot to correct error...")
+            # Camera (X, Y, Z) -> Robot (-Y, -Z, X)
+            dx_rob = err_z / 1000.0
+            dy_rob = -err_x / 1000.0
+            dz_rob = -err_y / 1000.0
+            
+            model = self.robot.model()
+            dyn_robot = self.robot.get_dynamics()
+            ee_name = f"ee_{self.arm_side}"
+            dyn_state = dyn_robot.make_state(["base", ee_name], model.robot_joint_names)
+            dyn_state.set_q(self.robot.get_state().position)
+            dyn_robot.compute_forward_kinematics(dyn_state)
+            T_ref = dyn_robot.compute_transformation(dyn_state, 0, 1)
+            
+            T_target = T_ref.copy()
+            T_target[0, 3] += dx_rob
+            T_target[1, 3] += dy_rob
+            T_target[2, 3] += dz_rob
+            
+            cb = rby.CartesianCommandBuilder().set_minimum_time(1.5)
+            cb.add_target("base", ee_name, T_target, 1.5, 1.0, 1.0)
+            
+            body_cmd = rby.BodyComponentBasedCommandBuilder()
+            if self.arm_side == "right":
+                body_cmd.set_right_arm_command(cb)
+            else:
+                body_cmd.set_left_arm_command(cb)
+                
+            rc = rby.RobotCommandBuilder().set_command(
+                rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
+            )
+            
+            rv = self.robot.send_command(rc, 2).get()
+            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                self.log_signal.emit("  [ERROR] Failed to move Cartesian.")
+                break
+                
+            time.sleep(0.5)
+
+        self.log_signal.emit("Move to Center finished.\n")
+        self.finished_signal.emit()
 
 # --- Calibration Worker Thread ---
 class CalibrationWorker(QThread):
@@ -281,7 +372,7 @@ class CalibrationWorker(QThread):
             relative_poses = [T_ref_cam @ T for T in captured_poses]
             points = [T[:3, 3] for T in relative_poses]
             
-            center, axis, radius, rmse = fit_circle_kinematic(points, captured_angles)
+            center, axis, radius, rmse, pts_2d, uc_opt, vc_opt = fit_circle_kinematic(points, captured_angles, return_plot_data=True)
             fitting_score = max(0.0, 100.0 * (1.0 - rmse / 4.0))
             
             tilt_list = []
@@ -336,11 +427,26 @@ class CalibrationWorker(QThread):
             self.log_signal.emit("="*40)
             self.log_signal.emit("\n[SWEEP SUCCESSFUL]\n")
             
+            # Plotting and saving
+            plt.figure(figsize=(6, 6))
+            plt.scatter(pts_2d[:, 0], pts_2d[:, 1], c='b', label='Captured Points')
+            circle = plt.Circle((uc_opt, vc_opt), radius, color='r', fill=False, label='Fitted Circle')
+            plt.gca().add_patch(circle)
+            plt.plot(uc_opt, vc_opt, 'rx', label='Center')
+            plt.axis('equal')
+            plt.grid(True)
+            plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {rmse:.2f} px)")
+            plt.legend()
+            plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
+            plt.savefig(plot_path)
+            plt.close()
+            
             result_dict = {
                 'axis_mode': self.axis_mode,
                 'radius': radius,
                 'tilt': robust_tilt,
-                'yaw': robust_yaw
+                'yaw': robust_yaw,
+                'plot_path': plot_path
             }
         
         self.finished_signal.emit(result_dict)
@@ -375,6 +481,22 @@ class CalibrationApp(QWidget):
         # Left Panel
         left_panel = QVBoxLayout()
         left_panel.setContentsMargins(10, 10, 10, 10)
+        
+        # Connection
+        conn_box = QGroupBox("Robot Connection")
+        conn_layout = QHBoxLayout()
+        self.ip_input = QLineEdit("192.168.30.1:50051")
+        self.model_input = QLineEdit("a")
+        self.btn_connect = QPushButton("CONNECT")
+        self.btn_connect.setStyleSheet("background-color: #ff9900; color: black; font-weight: bold;")
+        self.btn_connect.clicked.connect(self.connect_robot)
+        conn_layout.addWidget(QLabel("IP:"))
+        conn_layout.addWidget(self.ip_input)
+        conn_layout.addWidget(QLabel("Model:"))
+        conn_layout.addWidget(self.model_input)
+        conn_layout.addWidget(self.btn_connect)
+        conn_box.setLayout(conn_layout)
+        left_panel.addWidget(conn_box)
         
         status_box = QGroupBox("Camera & Marker Status")
         status_layout = QVBoxLayout()
@@ -417,6 +539,11 @@ class CalibrationApp(QWidget):
         self.axis_sel.addItems(["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"])
         controls_layout.addWidget(self.axis_sel)
         
+        self.btn_center = QPushButton("MOVE TO CENTER")
+        self.btn_center.setMinimumHeight(40)
+        self.btn_center.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold;")
+        self.btn_center.clicked.connect(self.move_to_center)
+
         self.btn_start = QPushButton("START SWEEP")
         self.btn_start.setMinimumHeight(40)
         self.btn_start.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
@@ -432,6 +559,7 @@ class CalibrationApp(QWidget):
         self.btn_quit.setStyleSheet("background-color: #dc3545; color: white;")
         self.btn_quit.clicked.connect(self.close)
         
+        controls_layout.addWidget(self.btn_center)
         controls_layout.addWidget(self.btn_start)
         controls_layout.addWidget(self.btn_result)
         controls_layout.addWidget(self.btn_quit)
@@ -458,6 +586,35 @@ class CalibrationApp(QWidget):
     def log_msg(self, msg):
         self.log_text.append(msg)
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+
+    def connect_robot(self):
+        try:
+            addr = self.ip_input.text().strip()
+            model = self.model_input.text().strip()
+            self.log_msg(f"[INFO] Connecting to robot at {addr} ({model})...")
+            self.robot = initialize_robot(addr, model)
+            self.log_msg("[INFO] Robot successfully connected and activated.")
+            self.btn_connect.setText("CONNECTED")
+            self.btn_connect.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
+            self.btn_connect.setEnabled(False)
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to connect: {e}")
+
+    def move_to_center(self):
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+            
+        self.btn_center.setEnabled(False)
+        self.btn_start.setEnabled(False)
+        self.worker_mc = MoveCenterWorker(self.marker_st, self.robot, self.arm_side)
+        self.worker_mc.log_signal.connect(self.log_msg)
+        self.worker_mc.finished_signal.connect(self.on_move_center_finished)
+        self.worker_mc.start()
+
+    def on_move_center_finished(self):
+        self.btn_center.setEnabled(True)
+        self.btn_start.setEnabled(True)
 
     def on_arm_side_changed(self, text):
         if "Left" in text:
@@ -535,6 +692,16 @@ class CalibrationApp(QWidget):
                 self.data_6 = result_dict
             else:
                 self.data_5 = result_dict
+            
+            # Show Plot
+            if 'plot_path' in result_dict and os.path.exists(result_dict['plot_path']):
+                dialog = QDialog(self)
+                dialog.setWindowTitle(f"Axis {result_dict['axis_mode']} Sweep Result")
+                l = QVBoxLayout(dialog)
+                img_label = QLabel()
+                img_label.setPixmap(QPixmap(result_dict['plot_path']))
+                l.addWidget(img_label)
+                dialog.exec()
 
     def get_link_length(self):
         if not self.robot: return 0.0
@@ -600,13 +767,8 @@ def main():
 
     app = QApplication(sys.argv)
 
-    print("[INFO] Connecting to robot...")
-    if args.address:
-        robot = initialize_robot(args.address, args.model)
-        print("[INFO] Robot initialized.")
-    else:
-        robot = None
-        print("[WARN] No Robot IP provided.")
+    print("[INFO] Robot connection is now managed via GUI.")
+    robot = None
 
     print("[INFO] Initializing Camera System...")
     marker_st = Marker_Transform()
