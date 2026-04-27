@@ -488,7 +488,7 @@ class Marker_Detection:
         self.lpf_alpha = 0.3
         self.prev_pts_dict = {}
 
-        self.focal_scale = 0.99 # Focal length scaling factor for fine-tuning
+        self.focal_scale = 1.0 # Focal length scaling factor for fine-tuning
 
         # 인식할 마커 타입과 ID
         self.marker_type = None
