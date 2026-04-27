@@ -12,7 +12,7 @@ import os, yaml
 imshow_when_detect = False
 check_cube_marker_data = False
 tcpip_send = False
-use_calib_int = True # 세밀하게 보정된 파일(camera_intrinsics.yaml)을 사용할지 여부
+use_calib_int = False # 세밀하게 보정된 파일(camera_intrinsics.yaml)을 사용할지 여부
 # see_depth_sensors_depth = False
 # see_stereo_depth = False
 
