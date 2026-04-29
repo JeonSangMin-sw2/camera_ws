@@ -220,6 +220,7 @@ class CalibrationUI:
         ttk.Button(act, text="6.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=5, padx=5, pady=5)
         ttk.Button(act, text="7.Clear Samples", command=self.clear_samples).grid(row=0, column=6, padx=5, pady=5)
         ttk.Button(act, text="8.All Auto Motion", command=self.user_all_auto_motion).grid(row=1, column=2, padx=5, pady=5)
+        ttk.Button(act, text="10.Incremental Motion", command=self.user_incremental_motion).grid(row=1, column=3, padx=5, pady=5)
         ttk.Button(act, text="9.Stop", command=self.user_stop_auto_motion).grid(row=2, column=2, padx=5, pady=5)
 
         self.user_count = tk.StringVar(value="Samples: 0")
@@ -306,6 +307,7 @@ class CalibrationUI:
         ttk.Button(act, text="6.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=5, padx=5, pady=5)
         ttk.Button(act, text="7.Clear Samples", command=self.clear_samples).grid(row=0, column=6, padx=5, pady=5)
         ttk.Button(act, text="8.All Auto Motion", command=self.dev_all_auto_motion).grid(row=1, column=2, padx=5, pady=5)
+        ttk.Button(act, text="10.Incremental Motion", command=self.dev_incremental_motion).grid(row=1, column=3, padx=5, pady=5)
         ttk.Button(act, text="9.Stop", command=self.dev_stop_auto_motion).grid(row=2, column=2, padx=5, pady=5)
 
         self.dev_count = tk.StringVar(value="Shared Samples: 0")
@@ -590,6 +592,42 @@ class CalibrationUI:
         self.log(text_widget, "All Auto Motion started. Press Stop to interrupt between steps.")
         self._run_all_auto_motion_sequence(text_widget)
 
+    def start_incremental_motion(self, text_widget):
+        if self.robot is None:
+            raise RuntimeError("Robot is not connected.")
+        
+        if self.marker_transform is None:
+            self.marker_transform = create_live_marker_transform()
+
+        self.auto_motion_running = True
+        self.auto_stop_requested = False
+
+        def on_sample(q_arm, q_head, T_meas):
+            self.shared_arm_q_list.append(q_arm)
+            if q_head is not None:
+                self.shared_head_q_list.append(q_head)
+            self.shared_T_list.append(T_meas)
+            self.update_sample_counts()
+            self.update_head_pose_status()
+
+        from calibration_core import run_incremental_calibration_motion
+        
+        try:
+            run_incremental_calibration_motion(
+                robot=self.robot,
+                marker_transform=self.marker_transform,
+                on_sample_captured=on_sample,
+                log_func=lambda msg: self.log(text_widget, msg),
+                is_stop_requested=lambda: self.auto_stop_requested,
+                move_time=self.auto_config.move_time,
+                hold_time=self.auto_config.hold_time,
+                settle_time=self.auto_config.settle_time,
+                priority=self.auto_config.priority
+            )
+        finally:
+            self.auto_motion_running = False
+            self.log(text_widget, "Incremental motion task ended.")
+
     def capture_one_sample(self, text_widget):
         if self.robot is None:
             raise RuntimeError("Robot is not connected.")
@@ -823,6 +861,13 @@ class CalibrationUI:
             messagebox.showerror("Stop Error", str(e))
             self.log(self.user_text, f"Stop failed: {e}")
 
+    def user_incremental_motion(self):
+        try:
+            self.start_incremental_motion(self.user_text)
+        except Exception as e:
+            messagebox.showerror("Incremental Motion Error", str(e))
+            self.log(self.user_text, f"Incremental motion failed: {e}")
+
     def user_record(self):
         try:
             q_arm, q_head, T_meas = self.capture_one_sample(self.user_text)
@@ -930,6 +975,13 @@ class CalibrationUI:
         except Exception as e:
             messagebox.showerror("Stop Error", str(e))
             self.log(self.dev_text, f"Stop failed: {e}")
+
+    def dev_incremental_motion(self):
+        try:
+            self.start_incremental_motion(self.dev_text)
+        except Exception as e:
+            messagebox.showerror("Incremental Motion Error", str(e))
+            self.log(self.dev_text, f"Incremental motion failed: {e}")
 
     def dev_record(self):
         try:

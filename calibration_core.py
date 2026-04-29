@@ -258,6 +258,162 @@ def move_to_auto_ready_pose(robot, minimum_time=3.0, priority=10):
         raise RuntimeError("Failed to move to auto ready pose.")
 
 
+def apply_cartesian_offset(T, dx=0, dy=0, dz=0, droll_deg=0, dpitch_deg=0, dyaw_deg=0):
+    """
+    Apply translation and rotation offsets to a 4x4 transform matrix.
+    Rotation is applied in the BASE frame (intrinsic-like for small angles).
+    """
+    T_new = T.copy()
+    # Translation in base frame
+    T_new[0, 3] += dx
+    T_new[1, 3] += dy
+    T_new[2, 3] += dz
+
+    # Rotation in base frame
+    R_off = rot_z(np.deg2rad(dyaw_deg)) @ rot_y(np.deg2rad(dpitch_deg)) @ rot_x(np.deg2rad(droll_deg))
+    T_new[:3, :3] = R_off @ T_new[:3, :3]
+
+    return T_new
+
+
+def run_incremental_calibration_motion(
+    robot,
+    marker_transform,
+    angle_step_deg=5.0,
+    position_step_m=0.02,
+    max_x=0.5,
+    max_samples=100,
+    on_sample_captured=None,
+    log_func=None,
+    is_stop_requested=None,
+    move_time=1.2,
+    hold_time=3.0,
+    settle_time=0.6,
+    priority=10,
+):
+    """
+    Incremental calibration task.
+    1. Capture at current.
+    2. RPY offsets (+- angle_step).
+    3. YZ offsets (+- position_step).
+    4. Move X and repeat.
+    """
+    if log_func is None:
+        log_func = print
+    if is_stop_requested is None:
+        is_stop_requested = lambda: False
+
+    model = robot.model()
+    dyn_model = robot.get_dynamics()
+    arm_cfg = get_both_arm_config(model)
+    head_cfg = get_head_config(model)
+
+    def log(msg):
+        log_func(f"[IncrementalTask] {msg}")
+
+    def capture_and_store():
+        if marker_transform is None:
+            log("Marker detection skipped (No camera connected).")
+            return False
+            
+        q_arm, q_head, T_meas = capture_one_sample(
+            robot=robot,
+            arm_idx=arm_cfg["arm_idx"],
+            marker_transform=marker_transform,
+            head_idx=head_cfg["head_idx"],
+            side="all",
+        )
+        if T_meas is not None:
+            if on_sample_captured:
+                on_sample_captured(q_arm, q_head, T_meas)
+            return True
+        else:
+            log("Marker not detected, sample skipped.")
+            return False
+
+    def send_dual_arm_command(T_right, T_left):
+        body = rby.BodyComponentBasedCommandBuilder()
+        body.set_right_arm_command(
+            rby.CartesianCommandBuilder()
+            .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            .set_minimum_time(move_time)
+        )
+        body.set_left_arm_command(
+            rby.CartesianCommandBuilder()
+            .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            .set_minimum_time(move_time)
+        )
+        cmd = rby.RobotCommandBuilder().set_command(rby.ComponentBasedCommandBuilder().set_body_command(body))
+        rv = robot.send_command(cmd, priority).get()
+        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Move failed with code {rv.finish_code}")
+        time.sleep(settle_time)
+
+    log("Starting incremental motion task...")
+
+    # Get initial base pose
+    q_full = robot.get_state().position.copy()
+    _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
+    _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
+
+    while not is_stop_requested():
+        curr_x = T_base_right[0, 3]
+        if curr_x > max_x:
+            log(f"Reached max X limit ({curr_x:.3f} > {max_x}). Terminating.")
+            break
+
+        log(f"--- Level: X = {curr_x:.3f} ---")
+
+        # 1. RPY offsets (+- angle_step) (6 points)
+        rpy_targets = [
+            (angle_step_deg, 0, 0),
+            (-angle_step_deg, 0, 0),
+            (0, angle_step_deg, 0),
+            (0, -angle_step_deg, 0),
+            (0, 0, angle_step_deg),
+            (0, 0, -angle_step_deg),
+        ]
+
+        for dr, dp, dy in rpy_targets:
+            if is_stop_requested():
+                break
+            log(f"Moving RPY offset: ({dr}, {dp}, {dy})")
+            T_target_r = apply_cartesian_offset(T_base_right, droll_deg=dr, dpitch_deg=dp, dyaw_deg=dy)
+            T_target_l = apply_cartesian_offset(T_base_left, droll_deg=dr, dpitch_deg=dp, dyaw_deg=dy)
+
+            try:
+                send_dual_arm_command(T_target_r, T_target_l)
+                capture_and_store()
+            except Exception as e:
+                log(f"Motion error: {e}")
+                continue
+
+        # 2. YZ offsets (+- position_step) (4 points)
+        yz_targets = [(0, position_step_m, 0), (0, -position_step_m, 0), (0, 0, position_step_m), (0, 0, -position_step_m)]
+
+        for dx, dy, dz in yz_targets:
+            if is_stop_requested():
+                break
+            log(f"Moving Pos offset: ({dx}, {dy}, {dz})")
+            T_target_r = apply_cartesian_offset(T_base_right, dx=dx, dy=dy, dz=dz)
+            T_target_l = apply_cartesian_offset(T_base_left, dx=dx, dy=dy, dz=dz)
+
+            try:
+                send_dual_arm_command(T_target_r, T_target_l)
+                capture_and_store()
+            except Exception as e:
+                log(f"Motion error: {e}")
+                continue
+
+        # 3. Advance X reference
+        T_base_right = apply_cartesian_offset(T_base_right, dx=position_step_m)
+        T_base_left = apply_cartesian_offset(T_base_left, dx=position_step_m)
+
+    log("Incremental motion task finished.")
+
+
 # ============================================================
 # Lie algebra utilities
 # ============================================================
@@ -590,6 +746,9 @@ def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="
     q_full = state.position.copy()
     q_arm = q_full[arm_idx].copy()
     q_head = q_full[head_idx].copy() if head_idx is not None else None
+    
+    if marker_transform is None:
+        return None, None, None
 
     result = marker_transform.get_marker_transform(sampling_time=sampling_time, side=side)
     if result is None:
