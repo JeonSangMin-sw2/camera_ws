@@ -13,7 +13,7 @@ class File_Logger:
         log_dir = os.path.join(base_dir, "log")
         os.makedirs(log_dir, exist_ok=True)
         
-        if filepath is None or filepath == "leader_arm_qc_log.txt":
+        if filepath is None or filepath == "marker_detect_log.txt":
             now_str = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
             self.filepath = os.path.join(log_dir, f"{now_str}_{filepath if filepath else 'log'}.txt")
         else:
