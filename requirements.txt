@@ -1,7 +1,8 @@
 opencv-python
 opencv-contrib-python
-numpy
+numpy>=2.0.1
 pyrealsense2
-scipy
+scipy>=1.14.0
 pyyaml
 rby1_sdk
+PySide6
