@@ -559,8 +559,6 @@ def main():
         print("[INFO] Robot connection is now managed via GUI.")
         print("[INFO] Initializing Camera System...")
         
-        # Add parent directory to access marker_detection
-        sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
         try:
             from marker_detection import Marker_Transform
             marker_st = Marker_Transform()

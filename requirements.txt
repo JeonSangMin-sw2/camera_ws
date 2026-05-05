@@ -1,9 +1,10 @@
 opencv-python
 opencv-contrib-python
-numpy>=2.0.1
+numpy
 pyrealsense2
-scipy>=1.14.0
+scipy
 pyyaml
-matplotlib>=3.9.0
-PySide6
 rby1_sdk
+matplotlib
+PySide6
+qpsolvers

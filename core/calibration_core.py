@@ -17,7 +17,7 @@ from marker_detection import Marker_Transform
 
 np.set_printoptions(suppress=True, precision=6)
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 SETTING_PATH = BASE_DIR / "config" / "setting.yaml"
 DEFAULT_LAMBDA_CAM = 1.0
 ARM_SIDES = ("right", "left")

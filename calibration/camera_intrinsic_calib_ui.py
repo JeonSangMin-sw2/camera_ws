@@ -9,12 +9,10 @@ from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QImage, QPixmap, QFont
 
-# Add parent directory to access marker_detection and config
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 try:
     from marker_detection import RealSenseCamera, Marker_Detection
 except ImportError:
-    print("Cannot find marker_detection.py in parent directory.")
+    print("Cannot find marker_detection module.")
     sys.exit(1)
 
 from IntrinsicsCalibrator import IntrinsicsCalibrator
