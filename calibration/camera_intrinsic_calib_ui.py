@@ -2,6 +2,7 @@ import sys
 import os
 import cv2
 import numpy as np
+import argparse
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QLineEdit, QDialog)
@@ -11,7 +12,7 @@ from PySide6.QtGui import QImage, QPixmap, QFont
 # Add parent directory to access marker_detection and config
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 try:
-    from marker_detection import RealSenseCamera
+    from marker_detection import RealSenseCamera, Marker_Detection
 except ImportError:
     print("Cannot find marker_detection.py in parent directory.")
     sys.exit(1)
@@ -19,18 +20,30 @@ except ImportError:
 from IntrinsicsCalibrator import IntrinsicsCalibrator
 
 class IntrinsicCalibApp(QWidget):
-    def __init__(self):
+    def __init__(self, ui_only=False):
         super().__init__()
         
         self.setWindowTitle("Camera Intrinsic Calibration UI")
-        self.resize(1000, 700)
+        self.resize(1200, 800)
         
-        self.cam = RealSenseCamera()
-        self.cam.initialize_camera(1280, 720, 30)
+        self.ui_only = ui_only
+        self.cam = None
+        if not self.ui_only:
+            try:
+                self.cam = RealSenseCamera()
+                self.cam.initialize_camera(1280, 720, 30)
+            except Exception as e:
+                print(f"Camera Init Error: {e}")
+                self.ui_only = True
         
         self.calibrator = IntrinsicsCalibrator()
         # Default: 8x5 squares, 30mm x 22mm, DICT_5X5_100
         self.calibrator.set_board(8, 5, IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD, 30.0, 22.0, "DICT_5X5_100")
+        
+        # Marker Detection for monitoring
+        self.marker_detector = Marker_Detection()
+        self.marker_detector.set_marker_type("plate") # Default to plate
+        self.monitor_enabled = False
         
         self.captured_images = []
         self.output_yaml = os.path.join(os.path.dirname(__file__), "..", "config", "camera_intrinsics.yaml")
@@ -49,9 +62,25 @@ class IntrinsicCalibApp(QWidget):
         self.video_label = QLabel("Camera Feed Loading...")
         self.video_label.setAlignment(Qt.AlignCenter)
         self.video_label.setMinimumSize(640, 480)
-        self.video_label.setStyleSheet("background-color: black; color: white;")
+        self.video_label.setStyleSheet("background-color: black; color: white; border: 2px solid #555;")
         left_panel.addWidget(self.video_label)
         
+        # Instructions Panel (English)
+        instr_box = QGroupBox("Calibration Guidelines")
+        instr_layout = QVBoxLayout()
+        instructions = [
+            "1. Ensure the calibration board is recognized correctly.",
+            "2. Tilt the board at various angles while capturing.",
+            "3. Acquire data covering the entire camera field of view.",
+            "4. Keep the board as steady as possible during each capture."
+        ]
+        for text in instructions:
+            lbl = QLabel(text)
+            lbl.setStyleSheet("color: black; font-weight: bold;")
+            instr_layout.addWidget(lbl)
+        instr_box.setLayout(instr_layout)
+        left_panel.addWidget(instr_box)
+
         stats_box = QGroupBox("Capture Stats")
         stats_layout = QHBoxLayout()
         self.lbl_captured = QLabel("Captured Frames: 0")
@@ -63,6 +92,31 @@ class IntrinsicCalibApp(QWidget):
         # Right Panel (Controls & Log)
         right_panel = QVBoxLayout()
         
+        # 3D Marker Monitor Panel
+        monitor_box = QGroupBox("Marker 3D Monitoring")
+        monitor_layout = QVBoxLayout()
+        
+        side_layout = QHBoxLayout()
+        side_layout.addWidget(QLabel("Arm Side:"))
+        self.side_sel = QComboBox()
+        self.side_sel.addItems(["Left", "Right"])
+        side_layout.addWidget(self.side_sel)
+        monitor_layout.addLayout(side_layout)
+        
+        self.btn_monitor = QPushButton("ENABLE MONITORING")
+        self.btn_monitor.setCheckable(True)
+        self.btn_monitor.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
+        self.btn_monitor.toggled.connect(self.toggle_monitoring)
+        monitor_layout.addWidget(self.btn_monitor)
+        
+        self.lbl_marker_pos = QLabel("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+        self.lbl_marker_pos.setAlignment(Qt.AlignCenter)
+        self.lbl_marker_pos.setStyleSheet("font-size: 16px; font-weight: bold; color: #00d4ff; background-color: #111; padding: 5px;")
+        monitor_layout.addWidget(self.lbl_marker_pos)
+        
+        monitor_box.setLayout(monitor_layout)
+        right_panel.addWidget(monitor_box)
+
         controls_box = QGroupBox("Controls")
         controls_layout = QVBoxLayout()
         
@@ -98,6 +152,8 @@ class IntrinsicCalibApp(QWidget):
         self.setLayout(main_layout)
         
         self.log_msg("Camera Intrinsic Calibration UI Started.")
+        if self.ui_only:
+            self.log_msg("[DEBUG] UI-Only Mode enabled. Camera is mocked.")
         self.log_msg(f"Target pattern: CharucoBoard (8x5, 30mm/22mm)")
         self.log_msg("Please capture at least 5 frames from different angles.")
 
@@ -105,9 +161,25 @@ class IntrinsicCalibApp(QWidget):
         self.log_text.append(msg)
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
 
+    def toggle_monitoring(self, checked):
+        self.monitor_enabled = checked
+        if checked:
+            self.btn_monitor.setText("STOP MONITORING")
+            self.btn_monitor.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
+        else:
+            self.btn_monitor.setText("ENABLE MONITORING")
+            self.btn_monitor.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
+            self.lbl_marker_pos.setText("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+
     def update_frame(self):
-        self.cam.capture_image()
-        img = self.cam.get_color_image()
+        if not self.ui_only:
+            self.cam.capture_image()
+            img = self.cam.get_color_image()
+        else:
+            # Mock image
+            img = np.zeros((720, 1280, 3), dtype=np.uint8)
+            cv2.putText(img, "UI-ONLY MODE", (400, 360), cv2.FONT_HERSHEY_SIMPLEX, 2, (100, 100, 100), 3)
+
         if img is None:
             return
             
@@ -116,6 +188,8 @@ class IntrinsicCalibApp(QWidget):
         
         # Simple board detection for preview
         gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
+        
+        # 1. Intrinsics Board Detection
         if self.calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD:
             detector = cv2.aruco.CharucoDetector(self.calibrator.charuco_board)
             charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
@@ -125,6 +199,36 @@ class IntrinsicCalibApp(QWidget):
             ret, corners = cv2.findChessboardCorners(gray, self.calibrator.board_size, None)
             if ret:
                 cv2.drawChessboardCorners(display_img, self.calibrator.board_size, corners, ret)
+
+        # 2. Marker Monitoring
+        if self.monitor_enabled:
+            # Set intrinsics to detector if calibrated, else use defaults from cam
+            if self.calibrator.cameraMatrix is not None:
+                self.marker_detector.fx = self.calibrator.cameraMatrix[0, 0]
+                self.marker_detector.fy = self.calibrator.cameraMatrix[1, 1]
+                self.marker_detector.principal_point = [self.calibrator.cameraMatrix[0, 2], self.calibrator.cameraMatrix[1, 2]]
+                self.marker_detector.dist_coeffs = self.calibrator.distCoeffs
+            elif not self.ui_only:
+                self.marker_detector.fx = self.cam.fx
+                self.marker_detector.fy = self.cam.fy
+                self.marker_detector.principal_point = self.cam.principal_point
+                self.marker_detector.dist_coeffs = self.cam.dist_coeffs
+
+            side = self.side_sel.currentText().lower()
+            # Define marker IDs to look for based on side
+            target_ids = [10, 11, 12, 13, 14] if side == "left" else [30, 31, 32, 33, 34]
+            self.marker_detector.marker_id = target_ids
+            
+            res = self.marker_detector.detect(img.copy())
+            if res and len(res) > 0:
+                # Use the first detected marker pose
+                T = res[0]
+                x, y, z = T[:3, 3] * 1000.0 # m to mm
+                self.lbl_marker_pos.setText(f"X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} (mm)")
+                # Draw marker on preview
+                cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
+            else:
+                self.lbl_marker_pos.setText("Marker Not Detected")
 
         # Convert to QImage and show
         h, w, ch = display_img.shape
@@ -231,12 +335,17 @@ class IntrinsicCalibApp(QWidget):
         dialog.exec()
 
     def closeEvent(self, event):
-        self.cam.stream_off()
+        if self.cam:
+            self.cam.stream_off()
         event.accept()
 
 def main():
+    parser = argparse.ArgumentParser(description="Camera Intrinsic Calibration GUI")
+    parser.add_argument("--ui", action="store_true", help="Start only UI for debugging")
+    args = parser.parse_args()
+
     app = QApplication(sys.argv)
-    ex = IntrinsicCalibApp()
+    ex = IntrinsicCalibApp(ui_only=args.ui)
     ex.show()
     sys.exit(app.exec())
 

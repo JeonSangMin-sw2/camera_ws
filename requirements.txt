@@ -4,5 +4,6 @@ numpy>=2.0.1
 pyrealsense2
 scipy>=1.14.0
 pyyaml
-rby1_sdk
+matplotlib>=3.9.0
 PySide6
+rby1_sdk
