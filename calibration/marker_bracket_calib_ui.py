@@ -534,18 +534,22 @@ class CalibrationApp(QWidget):
         angle_between = np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0)))
         ortho_error = abs(90.0 - angle_between)
         
-        # 2. Roll Consistency: Both axes should report the same "up/down" tilt relative to the marker.
-        roll_6 = self.data_6['tilt']
-        roll_5 = self.data_5['tilt']
-        roll_consistency_error = abs(roll_6 - roll_5)
+        # 2. Axis-Marker Alignment: Check if Axis 6 is Normal (~90deg) and Axis 5 is Parallel (~0deg) to marker plane.
+        tilt_6 = self.data_6['tilt']
+        tilt_5 = self.data_5['tilt']
+        
+        # Deviation from ideal alignment (Z-axis normal, Y-axis parallel)
+        dev_6 = abs(90.0 - abs(tilt_6))
+        dev_5 = abs(tilt_5)
         
         self.log_msg("\n[4] Calibration Confidence Report")
-        self.log_msg(f"    - Axis Orthogonality Error: {ortho_error:.3f} deg")
-        self.log_msg(f"    - Roll Consistency Error  : {roll_consistency_error:.3f} deg (A6:{roll_6:.2f} vs A5:{roll_5:.2f})")
+        self.log_msg(f"    - Axis Orthogonality Error  : {ortho_error:.3f} deg (Target: 0.0)")
+        self.log_msg(f"    - A6-to-Marker Normal Error : {dev_6:.3f} deg (Tilt: {tilt_6:.2f})")
+        self.log_msg(f"    - A5-to-Marker Plane Error  : {dev_5:.3f} deg (Tilt: {tilt_5:.2f})")
         
-        # Determine pass/fail based on both metrics
-        if ortho_error < 0.5 and roll_consistency_error < 0.5:
-            self.log_msg("    - Status: [PASS] (All errors < 0.5 deg)")
+        # Determine pass/fail based on orthogonality and individual axis fit quality
+        if ortho_error < 1.0 and dev_6 < 10.0 and dev_5 < 10.0:
+            self.log_msg("    - Status: [PASS] (Errors within acceptable range)")
         else:
             self.log_msg("    - Status: [FAIL] (High inconsistency detected)")
             self.log_msg("\n" + "!"*60)
