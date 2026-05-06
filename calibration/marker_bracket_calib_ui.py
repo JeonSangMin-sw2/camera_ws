@@ -221,6 +221,13 @@ class CalibrationApp(QWidget):
         self.axis_sel = QComboBox()
         self.axis_sel.addItems(["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"])
         controls_layout.addWidget(self.axis_sel)
+
+        tol_layout = QHBoxLayout()
+        tol_layout.addWidget(QLabel("Tolerance (deg):"))
+        self.tolerance_input = QLineEdit("0.5")
+        self.tolerance_input.setFixedWidth(50)
+        tol_layout.addWidget(self.tolerance_input)
+        controls_layout.addLayout(tol_layout)
         
         self.btn_center = QPushButton("MOVE TO CENTER")
         self.btn_center.setMinimumHeight(40)
@@ -542,16 +549,29 @@ class CalibrationApp(QWidget):
         dev_6 = abs(90.0 - abs(tilt_6))
         dev_5 = abs(tilt_5)
         
-        self.log_msg("\n[4] Calibration Confidence Report")
-        self.log_msg(f"    - Axis Orthogonality Error  : {ortho_error:.3f} deg (Target: 0.0)")
-        self.log_msg(f"    - A6-to-Marker Normal Error : {dev_6:.3f} deg (Tilt: {tilt_6:.2f})")
-        self.log_msg(f"    - A5-to-Marker Plane Error  : {dev_5:.3f} deg (Tilt: {tilt_5:.2f})")
+        # Fitting Quality (RMSE)
+        rmse_6 = self.data_6.get('rmse', 0.0)
+        rmse_5 = self.data_5.get('rmse', 0.0)
+        self.log_msg(f"    - Fitting RMSE (A6/A5)      : {rmse_6:.3f} / {rmse_5:.3f} mm")
+
+        # Determine pass/fail based on Orthogonality and RMSE
+        try:
+            tol = float(self.tolerance_input.text())
+        except ValueError:
+            tol = 0.5
+            
+        is_ortho_ok = ortho_error < (tol * 2.0) # Orthogonality threshold scaled by tol
+        is_align_ok = dev_6 < (tol * 4.0) and dev_5 < (tol * 4.0) # Alignment threshold
+        is_rmse_ok = (rmse_6 < 0.5 and rmse_5 < 0.5)
         
-        # Determine pass/fail based on orthogonality and individual axis fit quality
-        if ortho_error < 1.0 and dev_6 < 10.0 and dev_5 < 10.0:
-            self.log_msg("    - Status: [PASS] (Errors within acceptable range)")
+        if is_ortho_ok and is_align_ok and is_rmse_ok:
+            self.log_msg(f"    - Status: [PASS] (Errors within {tol} range)")
         else:
-            self.log_msg("    - Status: [FAIL] (High inconsistency detected)")
+            reason = []
+            if not is_ortho_ok: reason.append("High Orthogonality Error")
+            if not is_align_ok: reason.append("High Alignment Error")
+            if not is_rmse_ok: reason.append("High Fitting RMSE")
+            self.log_msg(f"    - Status: [FAIL] ({', '.join(reason)})")
             self.log_msg("\n" + "!"*60)
             self.log_msg(" [WARNING] High Calibration Inconsistency Detected!")
             self.log_msg(" 1. The camera may not be recognizing the marker correctly. \n    Please run 'camera_intrinsic_calib_ui.py' to calibrate internal parameters.")

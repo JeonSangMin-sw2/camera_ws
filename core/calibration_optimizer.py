@@ -7,6 +7,8 @@ try:
 except ImportError:
     qpsolvers = None
 
+from core.sag_compensation import SagEstimator
+
 
 DEFAULT_LAMBDA_CAM_POS = 1.0
 DEFAULT_LAMBDA_CAM_ROT = 1.0
@@ -213,10 +215,12 @@ class QPCalibrationOptimizer:
         camera_pos_step_bound_m=None,
         camera_rot_bound_rad=None,
         camera_pos_bound_m=None,
+        use_sag=False,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
+        self.use_sag = use_sag
 
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
@@ -235,6 +239,13 @@ class QPCalibrationOptimizer:
         self.lambda_cam_pos = lambda_cam_pos
         self.lambda_cam_rot = lambda_cam_rot
         self.q_nominal = robot.get_state().position.copy()
+        
+        # Sag Estimators
+        self.sag_estimators = {
+            "right": SagEstimator(robot, self.arm_idx, self.ee_links["right"]),
+            "left": SagEstimator(robot, self.arm_idx, self.ee_links["left"]),
+        }
+        
         self.numeric_jac_eps = 1e-7
 
         self.base_link = self.camera_link if self.use_head_kinematics else "link_torso_5"
@@ -364,6 +375,11 @@ class QPCalibrationOptimizer:
         )
 
         state.set_q(q_full)
+
+        if self.use_sag:
+            q_full_sagged, _ = self.sag_estimators[str(arm_side)].get_sagged_joints(q_full)
+            state.set_q(q_full_sagged)
+
         self.dyn_model.compute_forward_kinematics(state)
         self.dyn_model.compute_diff_forward_kinematics(state)
 
@@ -770,10 +786,12 @@ class CalibrationOptimizer:
         eps=1e-6,
         lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
+        use_sag=False,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
+        self.use_sag = use_sag
 
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
@@ -794,6 +812,13 @@ class CalibrationOptimizer:
         self.lambda_cam_pos = lambda_cam_pos
         self.lambda_cam_rot = lambda_cam_rot
         self.q_nominal = robot.get_state().position.copy()
+        
+        # Sag Estimators
+        self.sag_estimators = {
+            "right": SagEstimator(robot, self.arm_idx, self.ee_links["right"]),
+            "left": SagEstimator(robot, self.arm_idx, self.ee_links["left"]),
+        }
+        
         self.numeric_jac_eps = 1e-7
 
         if self.use_head_kinematics:
@@ -866,6 +891,11 @@ class CalibrationOptimizer:
             self.model.robot_joint_names
         )
         state.set_q(q_full)
+        
+        if self.use_sag:
+            q_full_sagged, _ = self.sag_estimators[str(arm_side)].get_sagged_joints(q_full)
+            state.set_q(q_full_sagged)
+            
         self.dyn_model.compute_forward_kinematics(state)
         self.dyn_model.compute_diff_forward_kinematics(state)
 
