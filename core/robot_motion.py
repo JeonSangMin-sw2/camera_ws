@@ -178,19 +178,42 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
 def make_dual_arm_head_cmd(T_right, T_left, active_arms, min_time=1.2, hold_time=3.0):
     body = rby.BodyComponentBasedCommandBuilder()
 
-    if T_right is not None and "right" in active_arms:
+    # Always lock Torso to stable pose
+    body.set_torso_command(
+        rby.JointPositionCommandBuilder()
+        .set_position(np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R)
+        .set_minimum_time(min_time)
+    )
+
+    if "right" in active_arms:
+        if T_right is not None:
+            body.set_right_arm_command(
+                rby.CartesianCommandBuilder()
+                .add_target("link_torso_5", "ee_right", T_right, 0.002, 0.01, 0.3)
+                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+                .set_minimum_time(min_time)
+            )
+    else:
+        # Lock inactive right arm
         body.set_right_arm_command(
-            rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            rby.JointPositionCommandBuilder()
+            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
             .set_minimum_time(min_time)
         )
 
-    if T_left is not None and "left" in active_arms:
+    if "left" in active_arms:
+        if T_left is not None:
+            body.set_left_arm_command(
+                rby.CartesianCommandBuilder()
+                .add_target("link_torso_5", "ee_left", T_left, 0.002, 0.01, 0.3)
+                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+                .set_minimum_time(min_time)
+            )
+    else:
+        # Lock inactive left arm
         body.set_left_arm_command(
-            rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            rby.JointPositionCommandBuilder()
+            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
             .set_minimum_time(min_time)
         )
 
