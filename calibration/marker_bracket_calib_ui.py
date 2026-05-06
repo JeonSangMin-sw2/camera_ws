@@ -291,10 +291,22 @@ class CalibrationApp(QWidget):
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
 
     def connect_robot(self):
+        if self.robot:
+            # Disconnect
+            self.log_msg("[INFO] Disconnecting from robot...")
+            MarkerCalibrator.terminate_robot(self.robot)
+            self.robot = None
+            self.calibrator.robot = None
+            self.btn_connect.setText("CONNECT")
+            self.btn_connect.setStyleSheet("background-color: #ff9900; color: black; font-weight: bold;")
+            self.log_msg("[INFO] Robot disconnected.")
+            return
+
         if self.ui_only:
-            self.log_msg("[DEBUG] UI Only Mode: Skipping real robot connection.")
-            self.btn_connect.setText("CONNECTED (MOCK)")
-            self.btn_connect.setEnabled(False)
+            self.log_msg("[DEBUG] UI Only Mode: Mocking robot connection.")
+            self.btn_connect.setText("DISCONNECT (MOCK)")
+            self.btn_connect.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
+            self.robot = "MOCK_ROBOT"
             return
 
         try:
@@ -305,11 +317,10 @@ class CalibrationApp(QWidget):
             if self.robot:
                 self.calibrator.robot = self.robot
                 self.log_msg("[INFO] Robot successfully connected and activated.")
-                self.btn_connect.setText("CONNECTED")
-                self.btn_connect.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
-                self.btn_connect.setEnabled(False)
+                self.btn_connect.setText("DISCONNECT")
+                self.btn_connect.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
             else:
-                self.log_msg("[ERROR] Robot initialization failed.")
+                self.log_msg("[ERROR] Robot initialization failed. Please check the IP address and robot status.")
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to connect: {e}")
 
