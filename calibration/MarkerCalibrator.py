@@ -194,7 +194,7 @@ class MarkerCalibrator:
             T_target[2, 3] += dz_rob
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
-            cb.add_target("base", ee_name, T_target, 1.5, np.pi*1.5, 1.0)
+            cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)
             cb.set_stop_orientation_tracking_error(1e-4)
             cb.set_stop_position_tracking_error(1e-3)
             

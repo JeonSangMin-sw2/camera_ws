@@ -40,7 +40,8 @@ def apply_cartesian_offset(T, dx=0.0, dy=0.0, dz=0.0, droll_deg=0.0, dpitch_deg=
     T_new[2, 3] += dz
     
     R_off = rot_z(np.deg2rad(dyaw_deg)) @ rot_y(np.deg2rad(dpitch_deg)) @ rot_x(np.deg2rad(droll_deg))
-    T_new[:3, :3] = R_off @ T_new[:3, :3]
+    # Apply rotation in tool frame (right-multiply) to keep marker in view more easily
+    T_new[:3, :3] = T_new[:3, :3] @ R_off
     return T_new
 
 def compute_fk(robot, dyn_model, q_full, ee_link, base_link="link_torso_5"):
@@ -129,8 +130,12 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
         raise RuntimeError("Failed to move to Step 1: Joint Ready Pose.")
 
     # Step 2: Cartesian Checking Pose (go_to_calibration_checking_pose 기준, offset=0.2)
-    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -0.2, 0.0])
-    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, 0.2, 0.0])
+    # Raising Z-axis to 0.2m (down 20cm from previous 0.4m) and rotating 6th axis (wrist) by 180 degrees (@ rot_z(180))
+    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -0.2, 0.2])
+    T_right[:3, :3] = T_right[:3, :3] @ rot_z(180*D2R)
+    
+    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, 0.2, 0.2])
+    T_left[:3, :3] = T_left[:3, :3] @ rot_z(180*D2R)
 
     body2 = rby.BodyComponentBasedCommandBuilder()
     body2.set_torso_command(
@@ -142,7 +147,9 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     if "right" in active_arms:
         body2.set_right_arm_command(
             rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
+            .add_target("link_torso_5", "ee_right", T_right, 0.5, 1.0, 0.3)
+            .set_stop_position_tracking_error(0.005)
+            .set_stop_orientation_tracking_error(0.02)
             .set_minimum_time(minimum_time)
             .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
         )
@@ -156,7 +163,9 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     if "left" in active_arms:
         body2.set_left_arm_command(
             rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
+            .add_target("link_torso_5", "ee_left", T_left, 0.5, 1.0, 0.3)
+            .set_stop_position_tracking_error(0.005)
+            .set_stop_orientation_tracking_error(0.02)
             .set_minimum_time(minimum_time)
             .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
         )
@@ -189,7 +198,9 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, min_time=1.2, hold_time
         if T_right is not None:
             body.set_right_arm_command(
                 rby.CartesianCommandBuilder()
-                .add_target("link_torso_5", "ee_right", T_right, 0.002, 0.01, 0.3)
+                .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
+                .set_stop_position_tracking_error(0.001)
+                .set_stop_orientation_tracking_error(0.005)
                 .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
                 .set_minimum_time(min_time)
             )
@@ -205,7 +216,9 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, min_time=1.2, hold_time
         if T_left is not None:
             body.set_left_arm_command(
                 rby.CartesianCommandBuilder()
-                .add_target("link_torso_5", "ee_left", T_left, 0.002, 0.01, 0.3)
+                .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
+                .set_stop_position_tracking_error(0.001)
+                .set_stop_orientation_tracking_error(0.005)
                 .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
                 .set_minimum_time(min_time)
             )
