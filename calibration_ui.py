@@ -208,6 +208,9 @@ class CalibrationUI:
         self.dev_use_camera_ext = tk.BooleanVar(value=True)
         ttk.Checkbutton(cfg, text="use_camera_ext", variable=self.dev_use_camera_ext).grid(row=0, column=5, padx=5, pady=5, sticky="w")
 
+        self.dev_use_sag = tk.BooleanVar(value=False)
+        ttk.Checkbutton(cfg, text="use_sag", variable=self.dev_use_sag).grid(row=0, column=6, padx=5, pady=5, sticky="w")
+
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
         ttk.Entry(cfg, textvariable=self.dev_path, width=40).grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
@@ -683,6 +686,7 @@ class CalibrationUI:
         lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
         solver_type="Least Squares",
+        use_sag=False,
     ):
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
@@ -711,6 +715,7 @@ class CalibrationUI:
                 head_idx=head_cfg["head_idx"],
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
             )
         else:
             optimizer = CalibrationOptimizer(
@@ -728,6 +733,7 @@ class CalibrationUI:
                 use_head_kinematics=optimize_head,
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
             )
 
         q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(
@@ -1243,6 +1249,7 @@ class CalibrationUI:
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 solver_type=self.user_solver.get(),
+                use_sag=self.dev_use_sag.get(),
             )
 
         except Exception as e:
