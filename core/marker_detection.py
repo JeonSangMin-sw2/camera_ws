@@ -950,7 +950,11 @@ class Marker_Transform:
         
         # [NEW] 내부 파라미터 보정 파일(camera_intrinsics.yaml) 사용 설정
         if use_calib_int:
-            calib_file = os.path.join(os.path.dirname(__file__), "config", "camera_intrinsics.yaml")
+            # Search for config in current dir or parent dir (to support both source and installed structures)
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
+            if not os.path.exists(calib_file):
+                calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
             if os.path.exists(calib_file):
                 try:
                     with open(calib_file, "r") as f:
@@ -995,6 +999,9 @@ class Marker_Transform:
     def _load_all_configs(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))
         setting_config_path = os.path.join(base_dir, "config", "setting.yaml")
+        if not os.path.exists(setting_config_path):
+            setting_config_path = os.path.join(os.path.dirname(base_dir), "config", "setting.yaml")
+            
         try:
             with open(setting_config_path, "r") as f:
                 config_data = yaml.safe_load(f)
@@ -1012,7 +1019,8 @@ class Marker_Transform:
         
         self.marker_detection.cube_markers = {}
         
-        calib_left_path = os.path.join(base_dir, "config", "calibrated_cube_left.yaml")
+        config_dir = os.path.dirname(setting_config_path)
+        calib_left_path = os.path.join(config_dir, "calibrated_cube_left.yaml")
         if os.path.exists(calib_left_path):
             with open(calib_left_path, 'r') as f:
                 calib_data = yaml.safe_load(f)
@@ -1022,7 +1030,7 @@ class Marker_Transform:
                 self.cube_marker = left_cube # fallback
                 print(f"- Loaded Calibration from {os.path.basename(calib_left_path)}")
                 
-        calib_right_path = os.path.join(base_dir, "config", "calibrated_cube_right.yaml")
+        calib_right_path = os.path.join(config_dir, "calibrated_cube_right.yaml")
         if os.path.exists(calib_right_path):
             with open(calib_right_path, 'r') as f:
                 calib_data = yaml.safe_load(f)
