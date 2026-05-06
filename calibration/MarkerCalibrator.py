@@ -16,23 +16,38 @@ class MarkerCalibrator:
             logging.error(f"Failed to connect robot {address}")
             return None
         if not robot.is_power_on(power):
+            logging.info(f"Turning power ({power}) on...")
             if not robot.power_on(power):
                 logging.error(f"Failed to turn power ({power}) on")
                 return None
+        else:
+            logging.info(f"Power ({power}) is already ON.")
+
         if not robot.is_servo_on(servo):
+            logging.info(f"Turning servo ({servo}) on...")
             if not robot.servo_on(servo):
                 logging.error(f"Failed to servo ({servo}) on")
                 return None
-        if robot.get_control_manager_state().state in [
+        else:
+            logging.info(f"Servo ({servo}) is already ON.")
+
+        cm_state = robot.get_control_manager_state()
+        if cm_state.state in [
             rby.ControlManagerState.State.MajorFault,
             rby.ControlManagerState.State.MinorFault,
         ]:
+            logging.warning(f"Control manager is in fault state: {cm_state.state}. Resetting...")
             if not robot.reset_fault_control_manager():
                 logging.error(f"Failed to reset control manager")
                 return None
-        if not robot.enable_control_manager():
-            logging.error(f"Failed to enable control manager")
-            return None
+        
+        if cm_state.state != rby.ControlManagerState.State.Enabled:
+            logging.info("Enabling control manager...")
+            if not robot.enable_control_manager():
+                logging.error(f"Failed to enable control manager")
+                return None
+        else:
+            logging.info("Control manager is already enabled.")
         return robot
 
     @staticmethod
@@ -142,13 +157,17 @@ class MarkerCalibrator:
             if log_callback: log_callback("[ERROR] Robot not connected.")
             return False
 
+        if not self.marker_st:
+            if log_callback: log_callback("[ERROR] Camera system (marker_st) is not initialized.")
+            return False
+
         if log_callback:
             log_callback("\n" + "="*40)
-            log_callback("   STARTING MOVE TO CENTER [0, 0, 180]")
+            log_callback("   STARTING MOVE TO CENTER & ALIGN")
             log_callback("="*40)
 
-        for attempt in range(3):
-            if log_callback: log_callback(f"[Attempt {attempt + 1}/3] Capturing marker...")
+        for attempt in range(4):
+            if log_callback: log_callback(f"[Attempt {attempt + 1}/4] Capturing marker pose...")
             time.sleep(1.0)
             res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if not res:
@@ -161,24 +180,39 @@ class MarkerCalibrator:
                 pose = np.array(list(res.values())[0]).reshape(4, 4)
                 
             cam_x, cam_y, cam_z = pose[:3, 3] * 1000.0
+            R_cam_marker = pose[:3, :3]
+            
             err_x = 0.0 - cam_x
             err_y = 0.0 - cam_y
             err_z = 180.0 - cam_z
             
             dist = np.sqrt(err_x**2 + err_y**2 + err_z**2)
-            if log_callback:
-                log_callback(f"  Current: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f} mm")
-                log_callback(f"  Error: dX={err_x:.1f}, dY={err_y:.1f}, dZ={err_z:.1f} (Dist: {dist:.2f} mm)")
+            
+            # Check orientation error (angle from identity)
+            angle_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(R_cam_marker) - 1) / 2, -1.0, 1.0)))
 
-            if abs(err_x) <= 0.5 and abs(err_y) <= 0.5 and abs(err_z) <= 0.5:
-                if log_callback: log_callback("  [SUCCESS] Reached target center (all axes error <= 0.5mm)!")
+            if log_callback:
+                log_callback(f"  Current: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f} mm, AngErr={angle_err_deg:.1f} deg")
+                log_callback(f"  Error: dX={err_x:.1f}, dY={err_y:.1f}, dZ={err_z:.1f}")
+
+            if abs(err_x) <= 0.8 and abs(err_y) <= 0.8 and abs(err_z) <= 0.8 and angle_err_deg < 0.5:
+                if log_callback: log_callback("  [SUCCESS] Reached target pose!")
                 break
                 
-            if log_callback: log_callback("  Moving robot to correct error...")
-            # Camera (X, Y, Z) -> Robot (-Y, -Z, X)
+            if log_callback: log_callback("  Moving robot to correct pose...")
+            
+            # Coordinate mapping: Camera (X, Y, Z) -> Robot (-Y, -Z, X)
             dx_rob = err_z / 1000.0
             dy_rob = -err_x / 1000.0
             dz_rob = -err_y / 1000.0
+            
+            # Rotation mapping: 
+            # We want R_cam_marker to become Identity.
+            # In base frame: R_base_ee_target = R_base_ee_current * inv(R_cam_marker_mapped_to_robot)
+            # mapping R_cam to R_rob: R_rob = M * R_cam * M^T 
+            # where M is the rotation matrix from cam to rob.
+            M_cam_to_rob = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
+            R_marker_in_rob = M_cam_to_rob @ R_cam_marker @ M_cam_to_rob.T
             
             model = self.robot.model()
             dyn_robot = self.robot.get_dynamics()
@@ -192,6 +226,9 @@ class MarkerCalibrator:
             T_target[0, 3] += dx_rob
             T_target[1, 3] += dy_rob
             T_target[2, 3] += dz_rob
+            
+            # Apply orientation correction
+            T_target[:3, :3] = T_ref[:3, :3] @ R_marker_in_rob.T
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
             cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)
@@ -210,13 +247,47 @@ class MarkerCalibrator:
             
             rv = self.robot.send_command(rc, 10).get()
             if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-                if log_callback: log_callback("  [ERROR] Failed to move Cartesian.")
+                if log_callback: log_callback(f"  [ERROR] Failed to move Cartesian: {rv.finish_code}")
                 return False
                 
             time.sleep(0.5)
 
-        if log_callback: log_callback("Move to Center finished.\n")
+        if log_callback: log_callback("Move to Center & Align finished.\n")
         return True
+
+    def perform_move_to_ready_pose(self, arm_side, log_callback=None):
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot not connected.")
+            return False
+
+        if log_callback: log_callback(f"Moving to {arm_side} Marker Ready Pose...")
+
+        # Predefined ready pose for model 'm' (approximate center for calibration)
+        # Note: These values should be adjusted based on actual hardware design
+        torso = [0, 0, 0, 0, 0, 0] # link_torso_1 ~ 6
+        
+        if arm_side == "right":
+            # Move left arm to zero first
+            if log_callback: log_callback("  - Homing left arm...")
+            self.movej(self.robot, left_arm=[0,0,0,0,0,0,0], minimum_time=3.0)
+            
+            # Right arm ready pose (deg): [0:90, 1:0, 2:90, 3:-90, 4:90, 5:0, 6:0]
+            right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
+            left_arm = [0, 0, 0, 0, 0, 0, 0]
+        else:
+            # Move right arm to zero first
+            if log_callback: log_callback("  - Homing right arm...")
+            self.movej(self.robot, right_arm=[0,0,0,0,0,0,0], minimum_time=3.0)
+            
+            right_arm = [0, 0, 0, 0, 0, 0, 0]
+            # Left arm ready pose (deg): [0:90, 1:0, 2:-90, 3:90, 4:-90, 5:0, 6:0]
+            left_arm = np.deg2rad([-90, 45, -73, -107, -90, 90, 0])
+
+        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, minimum_time=5.0)
+        
+        if success and log_callback:
+            log_callback("Ready Pose Reached.")
+        return success
 
     def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None):
         if log_callback:
@@ -225,6 +296,10 @@ class MarkerCalibrator:
             log_callback("="*40)
 
         # Pre-check Marker Presence
+        if not self.marker_st:
+            if log_callback: log_callback("[ERROR] Camera system (marker_st) is not initialized. Cannot perform sweep.")
+            return None
+
         if log_callback: log_callback("  - Checking if marker is visible before starting...")
         initial_check = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
         if not initial_check:

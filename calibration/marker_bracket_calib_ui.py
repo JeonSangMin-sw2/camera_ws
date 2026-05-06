@@ -49,6 +49,19 @@ class MoveCenterWorker(QThread):
         self.calibrator.perform_move_to_center(self.arm_side, log_callback=self.log_signal.emit)
         self.finished_signal.emit()
 
+class MoveToReadyWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal()
+
+    def __init__(self, calibrator, arm_side):
+        super().__init__()
+        self.calibrator = calibrator
+        self.arm_side = arm_side
+
+    def run(self):
+        self.calibrator.perform_move_to_ready_pose(self.arm_side, log_callback=self.log_signal.emit)
+        self.finished_signal.emit()
+
 # --- Calibration Worker Thread ---
 class CalibrationWorker(QThread):
     log_signal = Signal(str)
@@ -168,6 +181,11 @@ class CalibrationApp(QWidget):
         conn_box = QGroupBox("Robot Connection")
         conn_layout = QVBoxLayout()
         self.ip_input = QLineEdit("192.168.30.1:50051")
+        if self.ui_only:
+            self.ip_input.setText("127.0.0.1:50051")
+            self.ip_input.setReadOnly(True)
+            self.ip_input.setStyleSheet("background-color: #e9ecef; color: #495057;")
+            
         self.model_input = QComboBox()
         self.model_input.addItems(["a", "m"])
         self.btn_connect = QPushButton("CONNECT")
@@ -234,6 +252,11 @@ class CalibrationApp(QWidget):
         self.btn_center.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold;")
         self.btn_center.clicked.connect(self.move_to_center)
 
+        self.btn_ready = QPushButton("MOVE TO READY")
+        self.btn_ready.setMinimumHeight(40)
+        self.btn_ready.setStyleSheet("background-color: #6f42c1; color: white; font-weight: bold;")
+        self.btn_ready.clicked.connect(self.move_to_ready_pose)
+
         self.btn_start = QPushButton("START SWEEP")
         self.btn_start.setMinimumHeight(40)
         self.btn_start.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
@@ -249,6 +272,7 @@ class CalibrationApp(QWidget):
         self.btn_quit.setStyleSheet("background-color: #dc3545; color: white;")
         self.btn_quit.clicked.connect(self.close)
         
+        controls_layout.addWidget(self.btn_ready)
         controls_layout.addWidget(self.btn_center)
         controls_layout.addWidget(self.btn_start)
         controls_layout.addWidget(self.btn_result)
@@ -309,13 +333,6 @@ class CalibrationApp(QWidget):
             self.log_msg("[INFO] Robot disconnected.")
             return
 
-        if self.ui_only:
-            self.log_msg("[DEBUG] UI Only Mode: Mocking robot connection.")
-            self.btn_connect.setText("DISCONNECT (MOCK)")
-            self.btn_connect.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
-            self.robot = "MOCK_ROBOT"
-            return
-
         try:
             addr = self.ip_input.text().strip()
             model = self.model_input.currentText().strip()
@@ -345,6 +362,7 @@ class CalibrationApp(QWidget):
             return
             
         self.btn_center.setEnabled(False)
+        self.btn_ready.setEnabled(False)
         self.btn_start.setEnabled(False)
         self.worker_mc = MoveCenterWorker(self.calibrator, self.arm_side)
         self.worker_mc.log_signal.connect(self.log_msg)
@@ -353,6 +371,26 @@ class CalibrationApp(QWidget):
 
     def on_move_center_finished(self):
         self.btn_center.setEnabled(True)
+        self.btn_ready.setEnabled(True)
+        self.btn_start.setEnabled(True)
+
+    def move_to_ready_pose(self):
+
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+
+        self.btn_center.setEnabled(False)
+        self.btn_ready.setEnabled(False)
+        self.btn_start.setEnabled(False)
+        self.ready_worker = MoveToReadyWorker(self.calibrator, self.arm_side)
+        self.ready_worker.log_signal.connect(self.log_msg)
+        self.ready_worker.finished_signal.connect(self.on_move_ready_finished)
+        self.ready_worker.start()
+
+    def on_move_ready_finished(self):
+        self.btn_center.setEnabled(True)
+        self.btn_ready.setEnabled(True)
         self.btn_start.setEnabled(True)
 
     def on_arm_side_changed(self, text):
