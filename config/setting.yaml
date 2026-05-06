@@ -8,13 +8,12 @@ camera:
   # Tf_to_marker_right: [0.0,-0.099, -0.05317,90.0, 0.0, 180.0]
 
 
-  # Static transform from the head camera mount link to the camera.
-  # `mount_to_cam` is the preferred key.
-  # `T5_to_cam` is kept only for backward compatibility with older code.
-  # Change `camera_mount_link` if this extrinsic is defined from another head link.
+  # Camera extrinsic calibrations
+  # `mount_to_cam`: used when head is included (base: camera_mount_link)
+  # `T5_to_cam`: used for headless/torso-mount configurations (base: link_torso_5)
   camera_mount_link: link_head_2
   mount_to_cam: [0.047, 0.009, 0.057, -90.0, -1.0, -90.0]
-  # T5_to_cam:    [0.035, 0.009, 0.057, -90.0, 0.0, -90.0]
+  T5_to_cam: [0.124, 0.009, 0.175, -90.0, 0.0, -90.0]
   
   width: 1280
   height: 720
