@@ -36,6 +36,16 @@ class MarkerCalibrator:
         return robot
 
     @staticmethod
+    def terminate_robot(robot):
+        if robot:
+            try:
+                robot.disconnect()
+                return True
+            except Exception as e:
+                logging.error(f"Failed to disconnect robot: {e}")
+        return False
+
+    @staticmethod
     def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=0):
         if not robot:
             return False

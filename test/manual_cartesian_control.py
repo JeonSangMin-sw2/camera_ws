@@ -34,6 +34,15 @@ def initialize_robot(address, model, power=".*", servo=".*"):
         raise Exception("Failed to enable control manager")
     return robot
 
+def terminate_robot(robot):
+    if robot:
+        try:
+            robot.disconnect()
+            return True
+        except:
+            pass
+    return False
+
 class ManualCartesianApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -155,15 +164,26 @@ class ManualCartesianApp(QWidget):
         self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
 
     def connect_robot(self):
+        if self.robot:
+            # Disconnect
+            self.log_msg("[INFO] Disconnecting from robot...")
+            terminate_robot(self.robot)
+            self.robot = None
+            self.btn_connect.setText("CONNECT")
+            self.btn_connect.setStyleSheet("background-color: #ff9900; color: black; font-weight: bold;")
+            self.lbl_joint.setText("Joint Positions:\nN/A")
+            self.lbl_cart.setText("Cartesian Pose (Base to EE):\nN/A")
+            self.log_msg("[INFO] Robot disconnected.")
+            return
+
         try:
             addr = self.ip_input.text().strip()
             model = self.model_input.currentText().strip()
             self.log_msg(f"[INFO] Connecting to robot at {addr} ({model})...")
             self.robot = initialize_robot(addr, model)
             self.log_msg("[INFO] Robot successfully connected and activated.")
-            self.btn_connect.setText("CONNECTED")
-            self.btn_connect.setStyleSheet("background-color: #28a745; color: white; font-weight: bold;")
-            self.btn_connect.setEnabled(False)
+            self.btn_connect.setText("DISCONNECT")
+            self.btn_connect.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to connect: {e}")
 
