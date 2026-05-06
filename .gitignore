@@ -5,3 +5,4 @@ log/
 __pycache__/
 *.pyc
 rby1_camera_utils.egg-info/
+core/rby1_camera_utils.egg-info/
