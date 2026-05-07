@@ -202,9 +202,9 @@ class MarkerCalibrator:
             if log_callback: log_callback("  Moving robot to correct pose...")
             
             # Coordinate mapping: Camera (X, Y, Z) -> Robot (-Y, -Z, X)
-            dx_rob = err_z / 1000.0
-            dy_rob = -err_x / 1000.0
-            dz_rob = -err_y / 1000.0
+            dx_rob = -err_z / 1000.0
+            dy_rob = err_x / 1000.0
+            dz_rob = err_y / 1000.0
             
             # Rotation mapping: 
             # We want R_cam_marker to become Identity.
@@ -228,7 +228,7 @@ class MarkerCalibrator:
             T_target[2, 3] += dz_rob
             
             # Apply orientation correction
-            T_target[:3, :3] = T_ref[:3, :3] @ R_marker_in_rob.T
+            T_target[:3, :3] = T_ref[:3, :3] @ R_marker_in_rob
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
             cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)
