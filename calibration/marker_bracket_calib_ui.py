@@ -40,14 +40,20 @@ class MoveCenterWorker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal()
 
-    def __init__(self, calibrator, arm_side, stop_event):
+    def __init__(self, calibrator, arm_side, stop_event, target_dist=300.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.stop_event = stop_event
+        self.target_dist = target_dist
 
     def run(self):
-        self.calibrator.perform_move_to_center(self.arm_side, log_callback=self.log_signal.emit, stop_event=self.stop_event)
+        self.calibrator.perform_move_to_center(
+            self.arm_side, 
+            log_callback=self.log_signal.emit, 
+            stop_event=self.stop_event,
+            target_dist=self.target_dist
+        )
         self.finished_signal.emit()
 
 class MoveToReadyWorker(QThread):
@@ -368,6 +374,14 @@ class CalibrationApp(QWidget):
             QMessageBox.warning(self, "Marker Not Detected", "Marker is not detected!\nPlease use the teaching button to make the camera recognize the marker.")
             return
             
+        # Determine target distance based on Axis Selection
+        # "Axis 6 (Yaw Sweep, ±20°)" -> 180mm
+        # "Axis 5 (Pitch Sweep, ±10°)" -> 200mm
+        axis_str = self.axis_sel.currentText()
+        target_dist = 180.0 if "Axis 6" in axis_str else 200.0
+        
+        self.log_msg(f"[INFO] Move to Center triggered for {axis_str}. Target distance: {target_dist} mm")
+
         self.btn_center.setText("CANCEL")
         self.btn_center.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
         self.btn_ready.setEnabled(False)
@@ -375,7 +389,7 @@ class CalibrationApp(QWidget):
         
         import threading
         self.stop_event_mc = threading.Event()
-        self.worker_mc = MoveCenterWorker(self.calibrator, self.arm_side, self.stop_event_mc)
+        self.worker_mc = MoveCenterWorker(self.calibrator, self.arm_side, self.stop_event_mc, target_dist=target_dist)
         self.worker_mc.log_signal.connect(self.log_msg)
         self.worker_mc.finished_signal.connect(self.on_move_center_finished)
         self.worker_mc.start()

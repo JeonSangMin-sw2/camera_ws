@@ -152,7 +152,7 @@ class MarkerCalibrator:
             return center_3d, normal, R_opt, best_rmse, pts_2d, uc_opt, vc_opt
         return center_3d, normal, R_opt, best_rmse
 
-    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None):
+    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0):
         if not self.robot:
             if log_callback: log_callback("[ERROR] Robot not connected.")
             return False
@@ -189,7 +189,7 @@ class MarkerCalibrator:
             
             err_x = 0.0 - cam_x
             err_y = 0.0 - cam_y
-            err_z = 180.0 - cam_z
+            err_z = target_dist - cam_z
             
             dist = np.sqrt(err_x**2 + err_y**2 + err_z**2)
             
@@ -243,8 +243,9 @@ class MarkerCalibrator:
             d_base = np.array([dx_rob, dy_rob, dz_rob])
             T_target[:3, 3] = T_ref[:3, 3] + d_base
             
-            # [Iterative Update] Move the hand by the calculated increment to cancel the error
-            T_target[:3, :3] = T_ref[:3, :3] @ R_inc_ee
+            # [Update] Rotation alignment removed per user request.
+            # Keeping current EE orientation.
+            T_target[:3, :3] = T_ref[:3, :3]
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
             cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)
@@ -344,8 +345,8 @@ class MarkerCalibrator:
             joint_i = 6
         else:
             max_points = 11
-            start_deg = -10
-            step_deg = 2
+            start_deg = -5
+            step_deg = 1
             joint_i = 5
 
         if log_callback: log_callback(f"[INFO] Initial Joint Pose: {np.round(initial_joint_pos, 2)}")
