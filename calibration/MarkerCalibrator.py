@@ -212,7 +212,13 @@ class MarkerCalibrator:
             # mapping R_cam to R_rob: R_rob = M * R_cam * M^T 
             # where M is the rotation matrix from cam to rob.
             M_cam_to_rob = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
-            R_marker_in_rob = M_cam_to_rob @ R_cam_marker @ M_cam_to_rob.T
+            
+            # [Fix] To align camera with marker face, we need to account for the 180-deg flip (Marker Z out, Cam Z in)
+            # Standard 'facing' orientation for AprilTag/ArUco in OpenCV: R_face = R_x(180)
+            R_face_offset = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+            R_inc_cam = R_cam_marker @ R_face_offset
+            
+            R_marker_in_rob = M_cam_to_rob @ R_inc_cam @ M_cam_to_rob.T
             
             model = self.robot.model()
             dyn_robot = self.robot.get_dynamics()
@@ -223,9 +229,10 @@ class MarkerCalibrator:
             T_ref = dyn_robot.compute_transformation(dyn_state, 0, 1)
             
             T_target = T_ref.copy()
-            T_target[0, 3] += dx_rob
-            T_target[1, 3] += dy_rob
-            T_target[2, 3] += dz_rob
+            # [Fix] Rotate the EE-local translation offset to the Base frame using current orientation
+            d_ee = np.array([dx_rob, dy_rob, dz_rob])
+            d_base = T_ref[:3, :3] @ d_ee
+            T_target[:3, 3] += d_base
             
             # Apply orientation correction
             T_target[:3, :3] = T_ref[:3, :3] @ R_marker_in_rob
