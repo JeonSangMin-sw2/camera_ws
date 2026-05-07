@@ -128,9 +128,6 @@ class CalibrationWorker(QThread):
                 plt.grid(True)
                 plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {res['rmse']:.3f})")
                 plt.legend()
-                
-                plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
-                plt.savefig(plot_path)
                 plt.close()
                 
                 res['plot_path'] = plot_path
@@ -571,23 +568,24 @@ class CalibrationApp(QWidget):
             ee_name = f"ee_{self.arm_side}"
             _, T_base_ee = self.calibrator.compute_fk(self.robot, self.calibrator.robot.get_dynamics(), state.position, ee_name, "link_torso_5")
             
-            # T_cam_base from setting.yaml (approx)
-            # T5_to_cam: [0.124, 0.009, 0.175, -90.0, 0.0, -90.0]
-            T_base_cam = self.calibrator.make_transform([0.124, 0.009, 0.175, -90.0, 0.0, -90.0])
-            T_cam_ee = np.linalg.inv(T_base_cam) @ T_base_ee
-            
             # Marker in Camera at center pose (0 deg)
             results = self.marker_st.get_marker_transform(sampling_time=0.5, side=self.arm_side)
             if results:
-                if isinstance(results, list): T_cam_m = np.array(results[0]).reshape(4, 4)
-                else: T_cam_m = np.array(list(results.values())[0]).reshape(4, 4)
+                # We no longer rely on T_base_cam to find the nominal orientation.
+                # Instead, we use the ideal physical mounting orientation of the bracket.
+                # Left bracket ideal: [Roll=90, Pitch=0, Yaw=0]
+                # Right bracket ideal: [Roll=90, Pitch=0, Yaw=180]
+                if self.arm_side == "left":
+                    ideal_rpy = [90.0, 0.0, 0.0]
+                else:
+                    ideal_rpy = [90.0, 0.0, 180.0]
                 
-                T_m_ee_nom = np.linalg.inv(T_cam_m) @ T_cam_ee
-                R_ee_m_nom = T_m_ee_nom[:3, :3] # Nominal axes of EE in Marker frame
+                T_ee_m_ideal = self.calibrator.make_transform([0, 0, 0] + ideal_rpy)
+                R_ee_m_ideal = T_ee_m_ideal[:3, :3]
                 
-                # Flip measured axes if they are opposite to nominal
-                if np.dot(z_e_in_m, R_ee_m_nom[:, 2]) < 0: z_e_in_m = -z_e_in_m
-                if np.dot(y_e_in_m, R_ee_m_nom[:, 1]) < 0: y_e_in_m = -y_e_in_m
+                # Flip measured axes if they are opposite to the ideal physical orientation
+                if np.dot(z_e_in_m, R_ee_m_ideal[:, 2]) < 0: z_e_in_m = -z_e_in_m
+                if np.dot(y_e_in_m, R_ee_m_ideal[:, 1]) < 0: y_e_in_m = -y_e_in_m
         
         # Orthogonalize
         y_e_in_m = y_e_in_m - np.dot(y_e_in_m, z_e_in_m) * z_e_in_m
@@ -613,7 +611,7 @@ class CalibrationApp(QWidget):
             y_e = radius_6
         else:
             y_e = -radius_6
-            
+
         # Z-offset: Negative if marker is behind EE tip (closer to wrist)
         z_e = radius_5 - L_5_ee
         

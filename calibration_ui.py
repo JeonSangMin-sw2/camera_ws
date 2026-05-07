@@ -722,12 +722,15 @@ class CalibrationUI:
                 arm_idx=cfg["arm_idx"],
                 ee_links=ee_links,
                 mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                t5_to_cam_nom=cfg.get("t5_to_cam_nom"),
                 ee_to_marker_nom=ee_to_marker_nom,
                 ndof=ndof_val,
                 head_idx=head_cfg["head_idx"],
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
+                optimize_head=optimize_head,
+                active_arms=active_arms,
             )
         else:
             optimizer = CalibrationOptimizer(
@@ -753,7 +756,18 @@ class CalibrationUI:
             q_head_list,
             T_meas_list,
         )
-        right_arm_offset, left_arm_offset = split_arm_offsets(q_arm_offset)
+        
+        # Correctly assign offsets based on active arms
+        if len(active_arms) == 1:
+            if active_arms[0] == "right":
+                right_arm_offset = q_arm_offset
+                left_arm_offset = None
+            else:
+                right_arm_offset = None
+                left_arm_offset = q_arm_offset
+        else:
+            right_arm_offset = q_arm_offset[:7]
+            left_arm_offset = q_arm_offset[7:]
 
         t5_to_cam_new = [float(x) for x in t5_to_cam_new] if t5_to_cam_new else None
         mount_to_cam_new = [float(x) for x in mount_to_cam_new] if mount_to_cam_new else None
@@ -761,8 +775,11 @@ class CalibrationUI:
         self.log(text_widget, "\n===== RESULT =====")
         self.log(text_widget, f"lambda_cam_pos = {lambda_cam_pos}")
         self.log(text_widget, f"lambda_cam_rot = {lambda_cam_rot}")
-        self.log(text_widget, "Right arm joint offset (deg):")
-        self.log(text_widget, str(np.rad2deg(right_arm_offset)))
+        
+        if right_arm_offset is not None:
+            self.log(text_widget, "Right arm joint offset (deg):")
+            self.log(text_widget, str(np.rad2deg(right_arm_offset)))
+            
         if left_arm_offset is not None:
             self.log(text_widget, "Left arm joint offset (deg):")
             self.log(text_widget, str(np.rad2deg(left_arm_offset)))
@@ -783,7 +800,7 @@ class CalibrationUI:
 
         result_dict = {
             "joint_offset_deg": np.rad2deg(q_arm_offset).tolist(),
-            "right_arm_joint_offset_deg": np.rad2deg(right_arm_offset).tolist(),
+            "right_arm_joint_offset_deg": np.rad2deg(right_arm_offset).tolist() if right_arm_offset is not None else None,
             "left_arm_joint_offset_deg": np.rad2deg(left_arm_offset).tolist() if left_arm_offset is not None else None,
             "head_joint_offset_deg": np.rad2deg(q_head_offset).tolist() if q_head_offset is not None else None,
             "xi_cam": np.array(xi_cam).tolist(),
@@ -1206,10 +1223,37 @@ class CalibrationUI:
                 q_arm_list = np.array(self.shared_arm_q_list)
                 q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
                 T_meas_list = np.array(self.shared_T_list)
+                
+                # Auto-slice for single-arm mode if data has both
+                if len(active_arms) == 1:
+                    if q_arm_list.shape[1] == 14:
+                        if active_arms[0] == "right":
+                            q_arm_list = q_arm_list[:, :7]
+                        else:
+                            q_arm_list = q_arm_list[:, 7:]
+                    if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                        if active_arms[0] == "right":
+                            T_meas_list = T_meas_list[:, 0]
+                        else:
+                            T_meas_list = T_meas_list[:, 1]
 
             elif mode == "npz":
                 npz_path = self.resolve_input_path(self.dev_path.get())
                 q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
+                
+                # Auto-slice for single-arm mode if data has both
+                if len(active_arms) == 1:
+                    if q_arm_list.shape[1] == 14:
+                        if active_arms[0] == "right":
+                            q_arm_list = q_arm_list[:, :7]
+                        else:
+                            q_arm_list = q_arm_list[:, 7:]
+                    if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                        if active_arms[0] == "right":
+                            T_meas_list = T_meas_list[:, 0]
+                        else:
+                            T_meas_list = T_meas_list[:, 1]
+
                 validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
                 self.log(self.dev_text, f"Loaded npz: {npz_path}")
                 self.log(self.dev_text, f"samples = {len(q_arm_list)}")

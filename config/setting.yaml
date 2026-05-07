@@ -1,18 +1,18 @@
 camera:
-  Tf_to_marker_left:  [0.00000, 0.07760, -0.06768, -89.48, 0.20, -1.6] # 고속형일 경우 y축에 0.0005 사라짐
-  Tf_to_marker_right: [0.00000, -0.07794, -0.06671, -89.30, 0.54, 178.62]
+  Tf_to_marker_left:  [0.00000, 0.07760, -0.06768, 89.48, 0.20, -1.6] # 고속형일 경우 y축에 0.0005 사라짐
+  Tf_to_marker_right: [0.00000, -0.07794, -0.06671, 90.70, 0.54, 178.62]
   # Tf_to_marker_left:  [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0] # 고속형일 경우 y축에 0.0005 사라짐
   # Tf_to_marker_right: [0.0-0.0775, -0.06677,90.0, 0.0, 180.0]
 
   # Tf_to_marker_left:  [0.0, 0.099, -0.05317, 90.0, 0.0, 0.0]
   # Tf_to_marker_right: [0.0,-0.099, -0.05317,90.0, 0.0, 180.0]
-
+ 
 
   # Camera extrinsic calibrations
   # `mount_to_cam`: used when head is included (base: camera_mount_link)
   # `T5_to_cam`: used for headless/torso-mount configurations (base: link_torso_5)
   camera_mount_link: link_head_2
-  mount_to_cam: [0.047, 0.009, 0.057, -90.0, -1.0, -90.0]
+  mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
   T5_to_cam: [0.124, 0.009, 0.175, -90.0, 0.0, -90.0]
   
   width: 1280

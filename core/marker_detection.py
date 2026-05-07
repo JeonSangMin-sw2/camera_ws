@@ -1081,11 +1081,9 @@ class Marker_Transform:
                 cam_to_tool_tf = camera_to_marker_tf
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
-            # Unit conversion if needed (mm -> m logic from original code)
-            if abs(cam_to_tool_vec[3]) > 4 or abs(cam_to_tool_vec[7]) > 4 or abs(cam_to_tool_vec[11]) > 4:
-                cam_to_tool_vec[3] /= 1000
-                cam_to_tool_vec[7] /= 1000
-                cam_to_tool_vec[11] /= 1000
+            cam_to_tool_vec[3] /= 1000
+            cam_to_tool_vec[7] /= 1000
+            cam_to_tool_vec[11] /= 1000
             if tcpip_send and len(cam_to_tool_vec) > 0:
                 self.marker_detection.tcp_client.send_pose(cam_to_tool_vec) 
             return cam_to_tool_vec
