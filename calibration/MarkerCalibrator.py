@@ -152,7 +152,7 @@ class MarkerCalibrator:
             return center_3d, normal, R_opt, best_rmse, pts_2d, uc_opt, vc_opt
         return center_3d, normal, R_opt, best_rmse
 
-    def perform_move_to_center(self, arm_side, log_callback=None):
+    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None):
         if not self.robot:
             if log_callback: log_callback("[ERROR] Robot not connected.")
             return False
@@ -166,8 +166,13 @@ class MarkerCalibrator:
             log_callback("   STARTING MOVE TO CENTER & ALIGN")
             log_callback("="*40)
 
-        for attempt in range(4):
-            if log_callback: log_callback(f"[Attempt {attempt + 1}/4] Capturing marker pose...")
+        for attempt in range(3): # Increased attempts for better convergence
+            if stop_event and stop_event.is_set():
+                if log_callback: log_callback("[INFO] Move to Center cancelled by user.")
+                self.robot.cancel_control()
+                break
+                
+            if log_callback: log_callback(f"[Attempt {attempt + 1}/3] Capturing marker pose...")
             time.sleep(1.0)
             res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if not res:
@@ -207,18 +212,16 @@ class MarkerCalibrator:
             dz_rob = err_y / 1000.0
             
             # Rotation mapping: 
-            # We want R_cam_marker to become Identity.
-            # In base frame: R_base_ee_target = R_base_ee_current * inv(R_cam_marker_mapped_to_robot)
-            # mapping R_cam to R_rob: R_rob = M * R_cam * M^T 
-            # where M is the rotation matrix from cam to rob.
+            # We want to align the camera frame with the marker frame.
             M_cam_to_rob = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
             
-            # [Fix] To align camera with marker face, we need to account for the 180-deg flip (Marker Z out, Cam Z in)
-            # Standard 'facing' orientation for AprilTag/ArUco in OpenCV: R_face = R_x(180)
-            R_face_offset = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
-            R_inc_cam = R_cam_marker @ R_face_offset
+            # If the rotation is 'completely wrong', it's possible R_face_offset was inappropriate.
+            # Let's try applying the rotation as a simple local increment first.
+            # R_marker_in_rob = M @ R_cam_marker @ M.T 
             
-            R_marker_in_rob = M_cam_to_rob @ R_inc_cam @ M_cam_to_rob.T
+            # [Alternative] Use R_cam_marker directly to reach Identity in camera frame.
+            # If Marker Z points into plate, R_cam_marker=I is aligned.
+            R_inc_ee = M_cam_to_rob @ R_cam_marker @ M_cam_to_rob.T
             
             model = self.robot.model()
             dyn_robot = self.robot.get_dynamics()
@@ -228,14 +231,20 @@ class MarkerCalibrator:
             dyn_robot.compute_forward_kinematics(dyn_state)
             T_ref = dyn_robot.compute_transformation(dyn_state, 0, 1)
             
-            T_target = T_ref.copy()
-            # [Fix] Rotate the EE-local translation offset to the Base frame using current orientation
-            d_ee = np.array([dx_rob, dy_rob, dz_rob])
-            d_base = T_ref[:3, :3] @ d_ee
-            T_target[:3, 3] += d_base
+            # [Fix for Torso-mount]
+            # Since the camera is fixed to the torso/base, err_cam mapped by M 
+            # is already an absolute offset/orientation in the base frame.
             
-            # Apply orientation correction
-            T_target[:3, :3] = T_ref[:3, :3] @ R_marker_in_rob
+            T_target = T_ref.copy()
+            # 1. Translation: d_ee is an absolute offset in base frame
+            d_base = np.array([dx_rob, dy_rob, dz_rob])
+            T_target[:3, 3] = T_ref[:3, 3] + d_base
+            
+            # 2. Orientation: M @ R_cam_marker is the absolute orientation of the marker in base frame
+            # We want the Hand (EE) to take this orientation.
+            # (Note: R_face_offset might be needed if Marker Z direction is opposite to Hand Z)
+            R_marker_in_base = M_cam_to_rob @ R_cam_marker
+            T_target[:3, :3] = R_marker_in_base
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
             cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)

@@ -40,13 +40,14 @@ class MoveCenterWorker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal()
 
-    def __init__(self, calibrator, arm_side):
+    def __init__(self, calibrator, arm_side, stop_event):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
+        self.stop_event = stop_event
 
     def run(self):
-        self.calibrator.perform_move_to_center(self.arm_side, log_callback=self.log_signal.emit)
+        self.calibrator.perform_move_to_center(self.arm_side, log_callback=self.log_signal.emit, stop_event=self.stop_event)
         self.finished_signal.emit()
 
 class MoveToReadyWorker(QThread):
@@ -356,23 +357,37 @@ class CalibrationApp(QWidget):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
+
+        # If already running, cancel it
+        if hasattr(self, 'worker_mc') and self.worker_mc.isRunning():
+            self.log_msg("[INFO] Cancelling Move to Center...")
+            self.stop_event_mc.set()
+            return
             
         if not self.indicator.is_detected:
             QMessageBox.warning(self, "Marker Not Detected", "Marker is not detected!\nPlease use the teaching button to make the camera recognize the marker.")
             return
             
-        self.btn_center.setEnabled(False)
+        self.btn_center.setText("CANCEL")
+        self.btn_center.setStyleSheet("background-color: #dc3545; color: white; font-weight: bold;")
         self.btn_ready.setEnabled(False)
         self.btn_start.setEnabled(False)
-        self.worker_mc = MoveCenterWorker(self.calibrator, self.arm_side)
+        
+        import threading
+        self.stop_event_mc = threading.Event()
+        self.worker_mc = MoveCenterWorker(self.calibrator, self.arm_side, self.stop_event_mc)
         self.worker_mc.log_signal.connect(self.log_msg)
         self.worker_mc.finished_signal.connect(self.on_move_center_finished)
         self.worker_mc.start()
 
     def on_move_center_finished(self):
+        self.btn_center.setText("MOVE TO CENTER")
+        self.btn_center.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
         self.btn_center.setEnabled(True)
         self.btn_ready.setEnabled(True)
         self.btn_start.setEnabled(True)
+        if hasattr(self, 'stop_event_mc'):
+            self.stop_event_mc.clear()
 
     def move_to_ready_pose(self):
 
