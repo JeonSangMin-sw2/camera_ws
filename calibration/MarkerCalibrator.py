@@ -106,9 +106,6 @@ class MarkerCalibrator:
         
         _, _, vh = np.linalg.svd(pts_centered)
         normal = vh[2, :]
-        if normal[2] < 0:
-            normal = -normal
-
         ex = vh[0, :]
         ey = vh[1, :]
         pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)

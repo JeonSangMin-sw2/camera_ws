@@ -557,28 +557,65 @@ class CalibrationApp(QWidget):
             self.log_msg("[WARN] Could not retrieve link length. Using default 0.0.")
             L_5_ee = 0.0
 
-        # --- Vector Math based on Axis Measurements ---
-        z_e_in_m = self.data_6['axis']
-        y_e_in_m = self.data_5['axis']
+        # --- [1] Vector Math: Align measured axes with nominal EE axes ---
+        # Measured axes are in Marker frame.
+        z_e_in_m = self.data_6['axis'] # Measured Axis 6 (Rotation around EE-Z)
+        y_e_in_m = self.data_5['axis'] # Measured Axis 5 (Rotation around EE-Y)
         
+        # Nominal Orientation Check to fix axis signs (+/-)
+        # We assume the EE Z-axis roughly points TOWARDS the torso-mounted camera 
+        # when looking at the marker.
+        # But let's be more precise: get the current EE pose in Marker frame.
+        if self.robot:
+            state = self.robot.get_state()
+            ee_name = f"ee_{self.arm_side}"
+            _, T_base_ee = self.calibrator.compute_fk(self.robot, self.calibrator.robot.get_dynamics(), state.position, ee_name, "link_torso_5")
+            
+            # T_cam_base from setting.yaml (approx)
+            # T5_to_cam: [0.124, 0.009, 0.175, -90.0, 0.0, -90.0]
+            T_base_cam = self.calibrator.make_transform([0.124, 0.009, 0.175, -90.0, 0.0, -90.0])
+            T_cam_ee = np.linalg.inv(T_base_cam) @ T_base_ee
+            
+            # Marker in Camera at center pose (0 deg)
+            results = self.marker_st.get_marker_transform(sampling_time=0.5, side=self.arm_side)
+            if results:
+                if isinstance(results, list): T_cam_m = np.array(results[0]).reshape(4, 4)
+                else: T_cam_m = np.array(list(results.values())[0]).reshape(4, 4)
+                
+                T_m_ee_nom = np.linalg.inv(T_cam_m) @ T_cam_ee
+                R_ee_m_nom = T_m_ee_nom[:3, :3] # Nominal axes of EE in Marker frame
+                
+                # Flip measured axes if they are opposite to nominal
+                if np.dot(z_e_in_m, R_ee_m_nom[:, 2]) < 0: z_e_in_m = -z_e_in_m
+                if np.dot(y_e_in_m, R_ee_m_nom[:, 1]) < 0: y_e_in_m = -y_e_in_m
+        
+        # Orthogonalize
         y_e_in_m = y_e_in_m - np.dot(y_e_in_m, z_e_in_m) * z_e_in_m
         y_e_in_m /= np.linalg.norm(y_e_in_m)
         x_e_in_m = np.cross(y_e_in_m, z_e_in_m)
         
-        R_E_M_mat = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
-        euler_deg = R_scipy.from_matrix(R_E_M_mat).as_euler('zyx', degrees=True)
+        # R_ee_in_m: Rotation from EE to Marker
+        R_ee_m = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
+        
+        # We want Marker orientation relative to EE (R_m_ee)
+        R_m_ee = R_ee_m.T
+        
+        # ZYX Euler angles for setting.yaml
+        euler_deg = R_scipy.from_matrix(R_m_ee).as_euler('zyx', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
         radius_6 = self.data_6['radius'] 
         radius_5 = self.data_5['radius'] 
         
+        # --- [2] Cartesian Offset ---
         x_e = 0.0
         if self.arm_side == "left":
             y_e = radius_6
         else:
             y_e = -radius_6
             
-        z_e = - (L_5_ee - radius_5)
+        # Z-offset: Negative if marker is behind EE tip (closer to wrist)
+        z_e = radius_5 - L_5_ee
         
         self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
         self.log_msg(f"    - X-Offset: {x_e:.2f} mm")
