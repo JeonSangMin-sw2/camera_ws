@@ -207,9 +207,13 @@ class MarkerCalibrator:
             if log_callback: log_callback("  Moving robot to correct pose...")
             
             # Coordinate mapping: Camera (X, Y, Z) -> Robot (-Y, -Z, X)
-            dx_rob = -err_z / 1000.0
-            dy_rob = err_x / 1000.0
-            dz_rob = err_y / 1000.0
+            # Correct signs for Fixed-Camera (Torso-mount) configuration:
+            # To move marker Left (-X_cam), move hand Left (+Y_rob) -> dy = -err_x
+            # To move marker Up (-Y_cam), move hand Up (+Z_rob) -> dz = -err_y
+            # To move marker Away (+Z_cam), move hand Forward (+X_rob) -> dx = err_z
+            dx_rob = err_z / 1000.0
+            dy_rob = -err_x / 1000.0
+            dz_rob = -err_y / 1000.0
             
             # Rotation mapping: 
             # We want to align the camera frame with the marker frame.
@@ -219,9 +223,8 @@ class MarkerCalibrator:
             # Let's try applying the rotation as a simple local increment first.
             # R_marker_in_rob = M @ R_cam_marker @ M.T 
             
-            # [Alternative] Use R_cam_marker directly to reach Identity in camera frame.
-            # If Marker Z points into plate, R_cam_marker=I is aligned.
-            R_inc_ee = M_cam_to_rob @ R_cam_marker @ M_cam_to_rob.T
+            # [Fix] Use transpose (inverse) to cancel the orientation error
+            R_inc_ee = M_cam_to_rob @ R_cam_marker.T @ M_cam_to_rob.T
             
             model = self.robot.model()
             dyn_robot = self.robot.get_dynamics()
@@ -240,11 +243,8 @@ class MarkerCalibrator:
             d_base = np.array([dx_rob, dy_rob, dz_rob])
             T_target[:3, 3] = T_ref[:3, 3] + d_base
             
-            # 2. Orientation: M @ R_cam_marker is the absolute orientation of the marker in base frame
-            # We want the Hand (EE) to take this orientation.
-            # (Note: R_face_offset might be needed if Marker Z direction is opposite to Hand Z)
-            R_marker_in_base = M_cam_to_rob @ R_cam_marker
-            T_target[:3, :3] = R_marker_in_base
+            # [Iterative Update] Move the hand by the calculated increment to cancel the error
+            T_target[:3, :3] = T_ref[:3, :3] @ R_inc_ee
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
             cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)
