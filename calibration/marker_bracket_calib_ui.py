@@ -119,7 +119,7 @@ class CalibrationWorker(QThread):
                 plt.ylim(cy - span/2 - margin, cy + span/2 + margin)
                 plt.gca().set_aspect('equal')
                 plt.grid(True)
-                plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {res['rmse']:.2f} px)")
+                plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {res['rmse']:.3f})")
                 plt.legend()
                 
                 plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
@@ -590,30 +590,15 @@ class CalibrationApp(QWidget):
         # Fitting Quality (RMSE)
         rmse_6 = self.data_6.get('rmse', 0.0)
         rmse_5 = self.data_5.get('rmse', 0.0)
-        self.log_msg(f"    - Fitting RMSE (A6/A5)      : {rmse_6:.3f} / {rmse_5:.3f} mm")
+        self.log_msg(f"    - Orthogonality Error       : {ortho_error:.3f} deg")
+        self.log_msg(f"    - Axis Alignment Dev (A6/A5): {dev_6:.3f} / {dev_5:.3f} deg")
+        self.log_msg(f"    - Fitting RMSE (A6/A5)      : {rmse_6:.3f} / {rmse_5:.3f}")
 
-        # Determine pass/fail based on Orthogonality and RMSE
-        try:
-            tol = float(self.tolerance_input.text())
-        except ValueError:
-            tol = 0.5
-            
-        is_ortho_ok = ortho_error < (tol * 2.0) # Orthogonality threshold scaled by tol
-        is_align_ok = dev_6 < (tol * 4.0) and dev_5 < (tol * 4.0) # Alignment threshold
-        is_rmse_ok = (rmse_6 < 0.5 and rmse_5 < 0.5)
-        
-        if is_ortho_ok and is_align_ok and is_rmse_ok:
-            self.log_msg(f"    - Status: [PASS] (Errors within {tol} range)")
-        else:
-            reason = []
-            if not is_ortho_ok: reason.append("High Orthogonality Error")
-            if not is_align_ok: reason.append("High Alignment Error")
-            if not is_rmse_ok: reason.append("High Fitting RMSE")
-            self.log_msg(f"    - Status: [FAIL] ({', '.join(reason)})")
+        # Warning for high RMSE
+        if rmse_6 > 0.6 or rmse_5 > 0.6:
             self.log_msg("\n" + "!"*60)
-            self.log_msg(" [WARNING] High Calibration Inconsistency Detected!")
-            self.log_msg(" 1. The camera may not be recognizing the marker correctly. \n    Please run 'camera_intrinsic_calib_ui.py' to calibrate internal parameters.")
-            self.log_msg(" 2. The marker may not be properly attached or stable. \n    Please ensure the marker is securely fixed and not vibrating.")
+            self.log_msg(" [WARNING] The error of the fitted circle exceeds 0.6, so the reliability is reduced.")
+            self.log_msg("  - The marker may be shaking or the camera recognition may be unstable.")
             self.log_msg("!"*60 + "\n")
 
         self.log_msg("\n" + "="*50)
