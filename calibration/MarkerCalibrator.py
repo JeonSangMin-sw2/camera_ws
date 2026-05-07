@@ -202,7 +202,7 @@ class MarkerCalibrator:
             if log_callback: log_callback("  Moving robot to correct pose...")
             
             # Coordinate mapping: Camera (X, Y, Z) -> Robot (-Y, -Z, X)
-            dx_rob = -err_z / 1000.0
+            dx_rob = -zerr_z / 1000.0
             dy_rob = err_x / 1000.0
             dz_rob = err_y / 1000.0
             
