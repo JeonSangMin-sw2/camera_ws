@@ -10,7 +10,7 @@ class AutoCollectionConfig:
     angle_step_deg: float = 5.0
     position_step_m: float = 0.03
     max_x: float = 0.5
-    move_time: float = 1.2
+    move_time: float = 2.4
     settle_time: float = 0.6
     hold_time: float = 3.0
     priority: int = 10
