@@ -58,7 +58,7 @@ class CalibrationUI:
         self.shared_T_list = []
         self.head_move_count = 0
         self.auto_config = AutoCollectionConfig()
-        self.auto_motion_plan = []
+        self.auto_motion_plan = None
         self.auto_base_head_q = None
         self.auto_ready_done = False
         self.auto_motion_running = False
@@ -66,6 +66,7 @@ class CalibrationUI:
         self.auto_motion_after_id = None
         self.include_head_motion = True
         self.connected_servo_mode = "all"
+        self.motion_test_mode = tk.BooleanVar(value=False)
 
         self.warning_img = None
         self.last_result_path = None
@@ -135,6 +136,8 @@ class CalibrationUI:
         self.user_use_camera_ext = tk.BooleanVar(value=True)
         ttk.Checkbutton(setup, text="use_camera_ext", variable=self.user_use_camera_ext).grid(row=0, column=3, padx=5, pady=5, sticky="w")
 
+        ttk.Checkbutton(setup, text="Motion Test", variable=self.motion_test_mode).grid(row=0, column=4, padx=5, pady=5, sticky="w")
+
         ttk.Label(setup, text="Mode: live").grid(row=0, column=4, padx=20, pady=5, sticky="w")
         self.user_head_status = tk.StringVar(value="Auto Motion: 0/0")
         ttk.Label(setup, textvariable=self.user_head_status).grid(row=1, column=0, columnspan=5, padx=5, pady=5, sticky="w")
@@ -172,7 +175,8 @@ class CalibrationUI:
 
         ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.dev_ip = tk.StringVar(value="192.168.30.1:50051")
-        ttk.Entry(conn, textvariable=self.dev_ip, width=30).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        self.dev_ip_entry = ttk.Entry(conn, textvariable=self.dev_ip, width=30)
+        self.dev_ip_entry.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         ttk.Label(conn, text="Model").grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.dev_model = tk.StringVar(value="a")
         ttk.Combobox(conn, textvariable=self.dev_model, values=["a", "m"], state="readonly", width=8)\
@@ -210,6 +214,8 @@ class CalibrationUI:
 
         self.dev_use_sag = tk.BooleanVar(value=False)
         ttk.Checkbutton(cfg, text="use_sag", variable=self.dev_use_sag).grid(row=0, column=6, padx=5, pady=5, sticky="w")
+
+        ttk.Checkbutton(cfg, text="Motion Test", variable=self.motion_test_mode).grid(row=0, column=7, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
@@ -341,7 +347,9 @@ class CalibrationUI:
         self.dev_count.set(f"Shared Samples: {sample_count}")
 
     def get_auto_pose_target_count(self):
-        return len(self.auto_motion_plan)
+        if self.auto_motion_plan is not None:
+            return len(self.auto_motion_plan)
+        return 0
 
     def update_head_pose_status(self):
         pose_target_count = self.get_auto_pose_target_count()
@@ -484,7 +492,7 @@ class CalibrationUI:
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
-        if self.marker_transform is None:
+        if self.dev_mode.get() != "sim" and not self.motion_test_mode.get() and self.marker_transform is None:
             self.marker_transform = create_live_marker_transform()
 
         pose_target = self.get_auto_pose_target_count()
@@ -522,8 +530,12 @@ class CalibrationUI:
         if q_arm is None:
             self.head_move_count += 1
             self.update_head_pose_status()
-            self.log(text_widget, "Capture failed after motion. This pose is skipped.")
-            return False
+            if self.motion_test_mode.get():
+                self.log(text_widget, "Capture failed after motion. (Motion Test: Continuing...)")
+                return True
+            else:
+                self.log(text_widget, "Capture failed after motion. This pose is skipped.")
+                return False
 
         self.shared_arm_q_list.append(q_arm)
         if q_head is not None:
@@ -566,30 +578,6 @@ class CalibrationUI:
         self.stop_all_auto_motion_internal(cancel_robot=True, reset_stop_requested=False)
         self.log(text_widget, "Stop requested. Sent robot.cancel_control(); the all-auto sequence stops after the current step.")
 
-    def run_all_auto_motion_sequence(self, text_widget):
-        self.auto_motion_after_id = None
-
-        if self.auto_stop_requested:
-            self.stop_all_auto_motion_internal(cancel_robot=False)
-            self.log(text_widget, "All Auto Motion stopped.")
-            return
-
-        pose_target = self.get_auto_pose_target_count()
-        if self.head_move_count >= pose_target:
-            self.stop_all_auto_motion_internal(cancel_robot=False)
-            self.log(text_widget, "All auto motions have already been executed.")
-            return
-
-        try:
-            self.run_auto_motion_step(text_widget)
-        except Exception as e:
-            self.stop_all_auto_motion_internal(cancel_robot=False)
-            self.log(text_widget, f"All Auto Motion failed: {e}")
-            messagebox.showerror("All Auto Motion Error", str(e))
-            return
-
-        if self.auto_stop_requested:
-            self.stop_all_auto_motion_internal(cancel_robot=False)
     def run_all_auto_motion_sequence(self, text_widget, tab="user"):
         if self.auto_stop_requested:
             self.log(text_widget, "Auto Motion stopped by user.")
@@ -620,13 +608,19 @@ class CalibrationUI:
         )
 
     def move_to_all_auto_motions(self, text_widget, tab="user"):
+        if not self.auto_ready_done:
+            raise RuntimeError("Please move to Init Pose first.")
+
+        if self.auto_motion_plan is None or len(self.auto_motion_plan) == 0:
+            self.log(text_widget, "Motion plan is missing or empty. Re-building...")
+            self.auto_motion_plan = build_incremental_motion_plan(
+                self.robot, self.dyn_model, self.auto_config
+            )
+
         pose_target = self.get_auto_pose_target_count()
         if self.head_move_count >= pose_target:
             self.log(text_widget, "All auto motions have already been executed.")
             return
-
-        if not self.auto_ready_done:
-            raise RuntimeError("Please move to Init Pose first.")
 
         if self.auto_motion_running or self.auto_motion_after_id is not None:
             self.log(text_widget, "All Auto Motion is already running.")
@@ -643,21 +637,29 @@ class CalibrationUI:
         if self.robot is None:
             raise RuntimeError("Robot is not connected.")
 
-        if self.marker_transform is None:
-            self.marker_transform = create_live_marker_transform()
-
-        if self.model is None:
-            raise RuntimeError("Robot is not connected.")
-
         cfg = get_both_arm_config(self.model)
         head_idx = self.get_capture_head_idx()
-        q_arm, q_head, T_meas = capture_robot_sample(
-            robot=self.robot,
-            arm_idx=cfg["arm_idx"],
-            marker_transform=self.marker_transform,
-            head_idx=head_idx,
-            side="all",
-        )
+
+        # In sim mode or motion test mode, bypass camera and return dummy marker data
+        if self.dev_mode.get() == "sim" or self.motion_test_mode.get():
+            state = self.robot.get_state()
+            q_full = state.position.copy()
+            q_arm = q_full[cfg["arm_idx"]].copy()
+            q_head = q_full[head_idx].copy() if head_idx is not None else None
+            # Return identity matrices as dummy marker measurements
+            T_meas = np.stack([np.eye(4), np.eye(4)], axis=0)
+            self.log(text_widget, "Sim/Test mode: Bypassing camera capture, using dummy marker data.")
+        else:
+            if self.marker_transform is None:
+                self.marker_transform = create_live_marker_transform()
+
+            q_arm, q_head, T_meas = capture_robot_sample(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                marker_transform=self.marker_transform,
+                head_idx=head_idx,
+                side="all",
+            )
         if T_meas is None:
             self.log(text_widget, "Marker not detected.")
             return None, None, None
@@ -1046,13 +1048,15 @@ class CalibrationUI:
         mode = self.dev_mode.get()
         if mode == "live":
             self.dev_mode_info.set("In live mode, Auto Motion records once and All Auto Motion runs the full sweep; Stop interrupts between steps.")
-        elif mode == "npz":
-            self.dev_mode_info.set("Path is used in npz mode.")
-        else:
+        elif mode == "sim":
+            self.dev_ip.set("127.0.0.1:50051")
+            self.dev_ip_entry.config(state="disabled")
             if self.dev_cal_with_head.get():
-                self.dev_mode_info.set("sim mode uses simultaneous samples with head sweep.")
+                self.dev_mode_info.set("sim mode uses simultaneous samples with head sweep. (IP locked to 127.0.0.1)")
             else:
-                self.dev_mode_info.set("sim mode uses simultaneous samples.")
+                self.dev_mode_info.set("sim mode uses simultaneous samples. (IP locked to 127.0.0.1)")
+        else:
+            self.dev_ip_entry.config(state="normal")
 
     def dev_connect(self):
         self.connected_servo_mode = self.dev_servo_mode.get()
@@ -1086,8 +1090,8 @@ class CalibrationUI:
     def dev_auto_motion(self):
         try:
             mode = self.dev_mode.get()
-            if mode != "live":
-                self.log(self.dev_text, "Auto motion is only available in live mode.")
+            if mode not in ["live", "sim"]:
+                self.log(self.dev_text, "Auto motion is only available in live or sim mode.")
                 return
 
             self.run_auto_motion_step(self.dev_text, tab="dev")
@@ -1098,8 +1102,8 @@ class CalibrationUI:
     def dev_all_auto_motion(self):
         try:
             mode = self.dev_mode.get()
-            if mode != "live":
-                self.log(self.dev_text, "All Auto motion is only available in live mode.")
+            if mode not in ["live", "sim"]:
+                self.log(self.dev_text, "All Auto motion is only available in live or sim mode.")
                 return
 
             self.move_to_all_auto_motions(self.dev_text, tab="dev")
