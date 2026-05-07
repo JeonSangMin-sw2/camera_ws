@@ -66,7 +66,6 @@ class CalibrationUI:
         self.auto_motion_after_id = None
         self.include_head_motion = True
         self.connected_servo_mode = "all"
-        self.motion_test_mode = tk.BooleanVar(value=False)
 
         self.warning_img = None
         self.last_result_path = None
@@ -129,16 +128,15 @@ class CalibrationUI:
         self.user_calib_arm = tk.StringVar(value="both_arm")
         ttk.Combobox(setup, textvariable=self.user_calib_arm, values=["both_arm", "right_arm", "left_arm"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
+        cb_frm = ttk.Frame(setup)
+        cb_frm.grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.user_cal_with_head = tk.BooleanVar(value=True)
-        self.user_cal_with_head_cb = ttk.Checkbutton(setup, text="cal_with_head", variable=self.user_cal_with_head)
-        self.user_cal_with_head_cb.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-
+        self.user_cal_with_head_cb = ttk.Checkbutton(cb_frm, text="cal_with_head", variable=self.user_cal_with_head)
+        self.user_cal_with_head_cb.pack(side="left", padx=2)
         self.user_use_camera_ext = tk.BooleanVar(value=True)
-        ttk.Checkbutton(setup, text="use_camera_ext", variable=self.user_use_camera_ext).grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        ttk.Checkbutton(cb_frm, text="use_camera_ext", variable=self.user_use_camera_ext).pack(side="left", padx=2)
 
-        ttk.Checkbutton(setup, text="Motion Test", variable=self.motion_test_mode).grid(row=0, column=4, padx=5, pady=5, sticky="w")
-
-        ttk.Label(setup, text="Mode: live").grid(row=0, column=4, padx=20, pady=5, sticky="w")
+        ttk.Label(setup, text="Mode: live").grid(row=0, column=3, padx=20, pady=5, sticky="w")
         self.user_head_status = tk.StringVar(value="Auto Motion: 0/0")
         ttk.Label(setup, textvariable=self.user_head_status).grid(row=1, column=0, columnspan=5, padx=5, pady=5, sticky="w")
 
@@ -205,17 +203,15 @@ class CalibrationUI:
         mode_box.grid(row=0, column=3, padx=5, pady=5, sticky="w")
         mode_box.bind("<<ComboboxSelected>>", self.update_dev_mode_label)
 
+        cb_row = ttk.Frame(cfg)
+        cb_row.grid(row=0, column=4, columnspan=4, sticky="w")
         self.dev_cal_with_head = tk.BooleanVar(value=True)
-        self.dev_cal_with_head_cb = ttk.Checkbutton(cfg, text="cal_with_head", variable=self.dev_cal_with_head)
-        self.dev_cal_with_head_cb.grid(row=0, column=4, padx=5, pady=5, sticky="w")
-
+        self.dev_cal_with_head_cb = ttk.Checkbutton(cb_row, text="cal_with_head", variable=self.dev_cal_with_head)
+        self.dev_cal_with_head_cb.pack(side="left", padx=2)
         self.dev_use_camera_ext = tk.BooleanVar(value=True)
-        ttk.Checkbutton(cfg, text="use_camera_ext", variable=self.dev_use_camera_ext).grid(row=0, column=5, padx=5, pady=5, sticky="w")
-
+        ttk.Checkbutton(cb_row, text="use_camera_ext", variable=self.dev_use_camera_ext).pack(side="left", padx=2)
         self.dev_use_sag = tk.BooleanVar(value=False)
-        ttk.Checkbutton(cfg, text="use_sag", variable=self.dev_use_sag).grid(row=0, column=6, padx=5, pady=5, sticky="w")
-
-        ttk.Checkbutton(cfg, text="Motion Test", variable=self.motion_test_mode).grid(row=0, column=7, padx=5, pady=5, sticky="w")
+        ttk.Checkbutton(cb_row, text="use_sag", variable=self.dev_use_sag).pack(side="left", padx=2)
 
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
@@ -461,10 +457,7 @@ class CalibrationUI:
             except Exception as e:
                 self.log(text_widget, f"Failed to read dev auto config: {e}. Using current values.")
 
-        self.log(text_widget, f"Auto init pose reached. Building incremental motion plan... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, MaxX={self.auto_config.max_x}m)")
-        self.auto_motion_plan = build_incremental_motion_plan(
-            self.robot, self.dyn_model, self.auto_config
-        )
+        self.auto_motion_plan = None
 
         if self.include_head_motion:
             head_cfg = get_head_config(self.model)
@@ -492,7 +485,7 @@ class CalibrationUI:
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
-        if self.dev_mode.get() != "sim" and not self.motion_test_mode.get() and self.marker_transform is None:
+        if self.dev_mode.get() != "sim" and self.marker_transform is None:
             self.marker_transform = create_live_marker_transform()
 
         pose_target = self.get_auto_pose_target_count()
@@ -502,6 +495,23 @@ class CalibrationUI:
 
         if not self.auto_ready_done:
             raise RuntimeError("Please move to Init Pose first.")
+
+        # Re-build incremental motion plan based on the CURRENT (possibly teached) pose
+        if self.auto_motion_plan is None or self.head_move_count == 0:
+            if tab == "dev":
+                try:
+                    self.auto_config.angle_step_deg = float(self.dev_angle_step.get())
+                    self.auto_config.position_step_m = float(self.dev_pos_step.get())
+                    self.auto_config.max_x = float(self.dev_max_x.get())
+                except Exception as e:
+                    self.log(text_widget, f"Failed to read dev auto config: {e}. Using current values.")
+            
+            self.log(text_widget, f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, MaxX={self.auto_config.max_x}m)")
+            self.auto_motion_plan = build_incremental_motion_plan(
+                self.robot, self.dyn_model, self.auto_config
+            )
+            self.update_head_pose_status()
+            self.update_est_samples()
 
         if self.include_head_motion and self.auto_base_head_q is None:
             head_cfg = get_head_config(self.model)
@@ -640,8 +650,8 @@ class CalibrationUI:
         cfg = get_both_arm_config(self.model)
         head_idx = self.get_capture_head_idx()
 
-        # In sim mode or motion test mode, bypass camera and return dummy marker data
-        if self.dev_mode.get() == "sim" or self.motion_test_mode.get():
+        # In sim mode bypass camera and return dummy marker data
+        if self.dev_mode.get() == "sim":
             state = self.robot.get_state()
             q_full = state.position.copy()
             q_arm = q_full[cfg["arm_idx"]].copy()
