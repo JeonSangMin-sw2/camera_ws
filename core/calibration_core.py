@@ -45,10 +45,12 @@ def create_robot(ip, model_name="a", power_regex=".*", servo_regex=".*"):
     robot = rby.create_robot(ip, model_name)
     robot.connect()
     time.sleep(1)
-    robot.power_on(power_regex)
-    time.sleep(1)
-    robot.servo_on(servo_regex)
-    time.sleep(2) 
+    if not robot.is_power_on(power_regex):
+        robot.power_on(power_regex)
+        time.sleep(1)
+    if not robot.is_servo_on(servo_regex):
+        robot.servo_on(servo_regex)
+    time.sleep(1) 
     robot.reset_fault_control_manager()
     robot.enable_control_manager(False)
     return robot
