@@ -1045,7 +1045,7 @@ class CalibrationOptimizer:
 
                 H += J.T @ J
                 g += J.T @ xi
-                total_err += np.dot(xi, xi)
+                total_err += np.linalg.norm(xi)
 
         if self.optimize_camera:
             rot_slice = slice(dim - 6, dim - 3)

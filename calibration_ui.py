@@ -713,9 +713,7 @@ class CalibrationUI:
             ee_to_marker_nom = cfg["ee_to_marker_nom"]
 
         head_cfg = get_head_config(self.model)
-        
-        ndof_val = 22 if (optimize_head and len(active_arms) == 2 and optimize_camera) else 22 # simple fallback
-        
+
         if solver_type == "QP Solver":
             optimizer = QPCalibrationOptimizer(
                 robot=self.robot,
