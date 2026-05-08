@@ -205,7 +205,7 @@ class QPCalibrationOptimizer:
         eps=1e-9,
         lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
-        qp_solver="osqp",
+        qp_solver="daqp",#osqp
         qp_regularization=1e-9,
         qp_kwargs=None,
         enforce_joint_offset_limits=True,
@@ -556,14 +556,17 @@ class QPCalibrationOptimizer:
                 joint_current.append(q_head_offset)
             joint_current = np.concatenate(joint_current)
             
-            if self.joint_step_bound_rad is not None:
-                self._apply_step_bound(lb, ub, joint_slice, self.joint_step_bound_rad)
-                any_bound = True
-            if self.joint_offset_bound_rad is not None:
-                self._apply_absolute_bound(
-                    lb, ub, joint_slice, joint_current, self.joint_offset_bound_rad
-                )
-                any_bound = True
+            # total_current = q_nominal + q_offset
+            total_current = joint_current #q_nom_subset + joint_current
+
+            # if self.joint_step_bound_rad is not None:
+                # self._apply_step_bound(lb, ub, joint_slice, self.joint_step_bound_rad)
+                # any_bound = True
+            # if self.joint_offset_bound_rad is not None:
+                # self._apply_absolute_bound(
+                    # lb, ub, joint_slice, joint_current, self.joint_offset_bound_rad
+                # )
+                # any_bound = True
             if self.enforce_joint_offset_limits:
                 self._apply_absolute_limits(
                     lb,
@@ -693,8 +696,8 @@ class QPCalibrationOptimizer:
             lb=lb,
             ub=ub,
             solver=self.qp_solver,
-            eps_abs=1e-8,
-            eps_rel=1e-8,
+            #eps_abs=1e-8,
+            #eps_rel=1e-8,
             **self.qp_kwargs,
         )
         if dx is None:
