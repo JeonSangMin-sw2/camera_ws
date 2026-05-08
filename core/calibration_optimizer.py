@@ -550,19 +550,12 @@ class QPCalibrationOptimizer:
         if joint_dim > 0:
             joint_slice = slice(0, joint_dim)
             joint_current = []
-            q_nom_subset = []
             if self.optimize_arm:
                 joint_current.append(q_arm_offset)
-                q_nom_subset.append(self.q_nominal[self.arm_idx])
             if self.optimize_head and q_head_offset is not None:
                 joint_current.append(q_head_offset)
-                q_nom_subset.append(self.q_nominal[self.head_idx])
             joint_current = np.concatenate(joint_current)
-            q_nom_subset = np.concatenate(q_nom_subset)
             
-            # total_current = q_nominal + q_offset
-            total_current = q_nom_subset + joint_current
-
             if self.joint_step_bound_rad is not None:
                 self._apply_step_bound(lb, ub, joint_slice, self.joint_step_bound_rad)
                 any_bound = True
@@ -576,7 +569,7 @@ class QPCalibrationOptimizer:
                     lb,
                     ub,
                     joint_slice,
-                    total_current,
+                    joint_current,
                     self.joint_offset_lower,
                     self.joint_offset_upper,
                 )
