@@ -724,12 +724,12 @@ class CalibrationUI:
                 mount_to_cam_nom=cfg["mount_to_cam_nom"],
                 t5_to_cam_nom=cfg.get("t5_to_cam_nom"),
                 ee_to_marker_nom=ee_to_marker_nom,
-                ndof=ndof_val,
                 head_idx=head_cfg["head_idx"],
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
                 optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
                 active_arms=active_arms,
             )
         else:
