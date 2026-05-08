@@ -381,6 +381,12 @@ class CalibrationUI:
             return ["left"]
         return ["right", "left"]
 
+    def get_target_arm_str(self, tab="user"):
+        val = self.user_calib_arm.get() if tab == "user" else self.dev_calib_arm.get()
+        if val == "both_arm":
+            return "both"
+        return val.replace("_arm", "")
+
     # robot 
     def connect_robot(self, ip, model_name, status_var, text_widget):
         try:
@@ -961,7 +967,7 @@ class CalibrationUI:
             self.zero_pose_check_common(
                 ip=self.user_ip.get(),
                 model_name=self.user_model.get(),
-                arm=FIXED_CALIB_ARM,
+                arm=self.get_target_arm_str(tab="user"),
                 servo_regex=self.servo_mode_to_regex(servo_mode),
                 include_head=self.servo_mode_includes_head(servo_mode),
                 text_widget=self.user_text,
@@ -1052,8 +1058,7 @@ class CalibrationUI:
     def user_apply_home_offset(self):
         try:
             servo_mode = self.user_servo_mode.get()
-            arm_val = self.user_calib_arm.get()
-            arm = "both" if arm_val == "both_arm" else arm_val.replace("_arm", "")
+            arm = self.get_target_arm_str(tab="user")
             self.apply_home_offset_common(
                 ip=self.user_ip.get(),
                 model_name=self.user_model.get(),
@@ -1091,8 +1096,7 @@ class CalibrationUI:
     def dev_zero_pose_check(self):
         try:
             servo_mode = self.dev_servo_mode.get()
-            arm_val = self.dev_calib_arm.get()
-            arm = "both" if arm_val == "both_arm" else arm_val.replace("_arm", "")
+            arm = self.get_target_arm_str(tab="dev")
             self.zero_pose_check_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
@@ -1318,7 +1322,7 @@ class CalibrationUI:
             self.apply_home_offset_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
-                arm=FIXED_CALIB_ARM,
+                arm=self.get_target_arm_str(tab="dev"),
                 servo_regex=self.servo_mode_to_regex(servo_mode),
                 include_head=self.servo_mode_includes_head(servo_mode),
                 text_widget=self.dev_text,
