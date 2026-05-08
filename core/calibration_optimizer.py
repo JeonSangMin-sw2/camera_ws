@@ -105,27 +105,14 @@ def se3_exp(xi):
 
 
 def so3_log(R):
-    cos_theta = (np.trace(R) - 1.0) / 2.0
-    cos_theta = np.clip(cos_theta, -1.0, 1.0)
+    cos_theta = (np.trace(R) - 1) / 2
+    cos_theta = np.clip(cos_theta, -1, 1)
     theta = np.arccos(cos_theta)
 
     if theta < 1e-8:
         return np.zeros(3)
-    
-    if abs(theta - np.pi) < 1e-5:
-        # Singularity at theta = pi
-        # R = I + 2*K^2 where K is skew-symmetric of k
-        # k*k^T = (R + I) / 2
-        diag = np.diag(R)
-        k = np.sqrt(np.maximum((diag + 1.0) / 2.0, 0.0))
-        if k[0] > 1e-3:
-            k[1] *= np.sign(R[0, 1])
-            k[2] *= np.sign(R[0, 2])
-        elif k[1] > 1e-3:
-            k[2] *= np.sign(R[1, 2])
-        return theta * k
 
-    w_hat = (R - R.T) / (2.0 * np.sin(theta))
+    w_hat = (R - R.T) / (2 * np.sin(theta))
     return theta * np.array([
         w_hat[2, 1],
         w_hat[0, 2],
@@ -210,9 +197,8 @@ class QPCalibrationOptimizer:
         arm_idx,
         ee_links,
         mount_to_cam_nom,
-        t5_to_cam_nom=None,
-        ee_to_marker_nom=None,
-        ndof=7,
+        ee_to_marker_nom,
+        ndof,
         head_idx=None,
         camera_link="link_head_2",
         max_iter=500,
@@ -230,26 +216,22 @@ class QPCalibrationOptimizer:
         camera_rot_bound_rad=None,
         camera_pos_bound_m=None,
         use_sag=False,
-        optimize_head=False,
-        active_arms=["right", "left"],
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
         self.use_sag = use_sag
-        self.active_arms = active_arms
 
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
         self.ee_links = dict(ee_links)
         self.mount_to_cam_nom = mount_to_cam_nom
-        self.t5_to_cam_nom = t5_to_cam_nom
         self.ee_to_marker_nom = dict(ee_to_marker_nom)
         self.camera_link = camera_link
 
-        self.use_head_kinematics = (self.head_idx is not None) and optimize_head
         self.optimize_arm = ndof in ARM_OPTIMIZATION_NDOF
-        self.optimize_head = ndof in HEAD_OPTIMIZATION_NDOF and self.use_head_kinematics
+        self.optimize_head = ndof in HEAD_OPTIMIZATION_NDOF and self.head_idx is not None
+        self.use_head_kinematics = self.head_idx is not None
         self.optimize_camera = ndof in CAMERA_OPTIMIZATION_NDOF
 
         self.max_iter = max_iter
@@ -258,22 +240,16 @@ class QPCalibrationOptimizer:
         self.lambda_cam_rot = lambda_cam_rot
         self.q_nominal = robot.get_state().position.copy()
         
-        if self.use_head_kinematics:
-            self.base_link = self.camera_link
-            self.T_mount_to_cam_nom = make_transform(self.mount_to_cam_nom) if self.mount_to_cam_nom else np.eye(4)
-        else:
-            self.base_link = "link_torso_5"
-            self.T_mount_to_cam_nom = make_transform(self.t5_to_cam_nom) if self.t5_to_cam_nom else np.eye(4)
-
         # Sag Estimators
-        self.sag_estimators = {}
-        if "right" in self.ee_links:
-            r_idx = self.arm_idx[:7] if len(self.arm_idx) > 7 else self.arm_idx
-            self.sag_estimators["right"] = SagEstimator(robot, r_idx, self.ee_links["right"])
-        if "left" in self.ee_links:
-            l_idx = self.arm_idx[7:14] if len(self.arm_idx) > 7 else self.arm_idx
-            self.sag_estimators["left"] = SagEstimator(robot, l_idx, self.ee_links["left"])
+        self.sag_estimators = {
+            "right": SagEstimator(robot, self.arm_idx, self.ee_links["right"]),
+            "left": SagEstimator(robot, self.arm_idx, self.ee_links["left"]),
+        }
+        
         self.numeric_jac_eps = 1e-7
+
+        self.base_link = self.camera_link if self.use_head_kinematics else "link_torso_5"
+        self.T_mount_to_cam_nom = make_transform(self.mount_to_cam_nom)
 
         self.q_lower, self.q_upper = self.get_joint_limit()
         self.joint_offset_lower, self.joint_offset_upper = self.get_joint_offset_limits()
@@ -454,8 +430,8 @@ class QPCalibrationOptimizer:
                 xi_mount_cam - delta,
             )
 
-            xi_plus = se3_log(T_model_plus @ np.linalg.inv(T_model_ref))
-            xi_minus = se3_log(T_model_minus @ np.linalg.inv(T_model_ref))
+            xi_plus = se3_log(np.linalg.inv(T_model_ref) @ T_model_plus)
+            xi_minus = se3_log(np.linalg.inv(T_model_ref) @ T_model_minus)
             J_cam[:, i] = (xi_plus - xi_minus) / (2 * self.numeric_jac_eps)
 
         return J_cam
@@ -565,18 +541,11 @@ class QPCalibrationOptimizer:
         if joint_dim > 0:
             joint_slice = slice(0, joint_dim)
             joint_current = []
-            q_nom_subset = []
             if self.optimize_arm:
                 joint_current.append(q_arm_offset)
-                q_nom_subset.append(self.q_nominal[self.arm_idx])
             if self.optimize_head and q_head_offset is not None:
                 joint_current.append(q_head_offset)
-                q_nom_subset.append(self.q_nominal[self.head_idx])
             joint_current = np.concatenate(joint_current)
-            q_nom_subset = np.concatenate(q_nom_subset)
-            
-            # total_current = q_nominal + q_offset
-            total_current = q_nom_subset + joint_current
 
             if self.joint_step_bound_rad is not None:
                 self._apply_step_bound(lb, ub, joint_slice, self.joint_step_bound_rad)
@@ -591,7 +560,7 @@ class QPCalibrationOptimizer:
                     lb,
                     ub,
                     joint_slice,
-                    total_current,
+                    joint_current,
                     self.joint_offset_lower,
                     self.joint_offset_upper,
                 )
@@ -650,19 +619,7 @@ class QPCalibrationOptimizer:
 
         for q_arm, q_head, T_meas_pair in zip(q_arm_list, q_head_iter, T_meas_list):
             for side_idx, arm_side in enumerate(ARM_SIDES):
-                if arm_side not in self.active_arms:
-                    continue
-
-                # Handle both single-arm (N, 4, 4) and dual-arm (N, 2, 4, 4) data shapes
-                if T_meas_pair.ndim == 3:
-                    if T_meas_pair.shape == (2, 4, 4):
-                        T_meas = T_meas_pair[side_idx]
-                    else:
-                        T_meas = T_meas_pair
-                elif T_meas_pair.ndim == 2:
-                    T_meas = T_meas_pair
-                else:
-                    T_meas = T_meas_pair[side_idx]
+                T_meas = T_meas_pair[side_idx]
 
                 Jb_joint, _, T_ee_to_marker, T_model = self.evaluate_sample(
                     q_arm,
@@ -689,7 +646,7 @@ class QPCalibrationOptimizer:
 
                 H += J.T @ J
                 g += J.T @ xi
-                total_err += np.dot(xi, xi)
+                total_err += np.linalg.norm(xi)
 
         if self.optimize_camera:
             rot_slice = slice(dim - 6, dim - 3)
@@ -799,8 +756,7 @@ class QPCalibrationOptimizer:
                 dx,
             )
 
-            # Split total_err into translation (m) and rotation (rad) components for better debugging
-            print(f"[{it:02d}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
+            print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
 
             if np.linalg.norm(dx) < self.eps:
                 print("Converged.")
@@ -858,13 +814,10 @@ class CalibrationOptimizer:
         self.q_nominal = robot.get_state().position.copy()
         
         # Sag Estimators
-        self.sag_estimators = {}
-        if "right" in self.ee_links:
-            r_idx = self.arm_idx[:7] if len(self.arm_idx) > 7 else self.arm_idx
-            self.sag_estimators["right"] = SagEstimator(robot, r_idx, self.ee_links["right"])
-        if "left" in self.ee_links:
-            l_idx = self.arm_idx[7:14] if len(self.arm_idx) > 7 else self.arm_idx
-            self.sag_estimators["left"] = SagEstimator(robot, l_idx, self.ee_links["left"])
+        self.sag_estimators = {
+            "right": SagEstimator(robot, self.arm_idx, self.ee_links["right"]),
+            "left": SagEstimator(robot, self.arm_idx, self.ee_links["left"]),
+        }
         
         self.numeric_jac_eps = 1e-7
 
@@ -970,8 +923,8 @@ class CalibrationOptimizer:
             _, _, _, T_model_plus = self.evaluate_sample(q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam + delta)
             _, _, _, T_model_minus = self.evaluate_sample(q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam - delta)
 
-            xi_plus = se3_log(T_model_plus @ np.linalg.inv(T_model_ref))
-            xi_minus = se3_log(T_model_minus @ np.linalg.inv(T_model_ref))
+            xi_plus = se3_log(np.linalg.inv(T_model_ref) @ T_model_plus)
+            xi_minus = se3_log(np.linalg.inv(T_model_ref) @ T_model_minus)
             J_cam[:, i] = (xi_plus - xi_minus) / (2 * self.numeric_jac_eps)
 
         return J_cam
@@ -1019,21 +972,11 @@ class CalibrationOptimizer:
             q_head_iter = q_head_list
 
         for q_arm, q_head, T_meas_pair in zip(q_arm_list, q_head_iter, T_meas_list):
-            for side_idx, arm_side in enumerate(ARM_SIDES):
-                if arm_side not in self.active_arms:
-                    continue
-
-                # Handle both single-arm (N, 4, 4) and dual-arm (N, 2, 4, 4) data shapes
-                if T_meas_pair.ndim == 3: # (2, 4, 4) flattened or single (4, 4)? 
-                    # Wait, T_meas_list from data['T_meas'] usually has shape (N, 2, 4, 4) or (N, 4, 4)
-                    if T_meas_pair.shape == (2, 4, 4):
-                        T_meas = T_meas_pair[side_idx]
-                    else:
-                        T_meas = T_meas_pair
-                elif T_meas_pair.ndim == 2: # (4, 4)
-                    T_meas = T_meas_pair
-                else:
+            for side_idx, arm_side in enumerate(self.active_arms):
+                if len(self.active_arms) > 1:
                     T_meas = T_meas_pair[side_idx]
+                else:
+                    T_meas = T_meas_pair
 
                 Jb_joint, _, T_ee_to_marker, T_model = self.evaluate_sample(
                     q_arm,
@@ -1060,7 +1003,7 @@ class CalibrationOptimizer:
 
                 H += J.T @ J
                 g += J.T @ xi
-                total_err += np.dot(xi, xi)
+                total_err += np.linalg.norm(xi)
 
         if self.optimize_camera:
             rot_slice = slice(dim - 6, dim - 3)
