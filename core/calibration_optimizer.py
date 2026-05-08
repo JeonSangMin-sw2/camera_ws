@@ -700,6 +700,8 @@ class QPCalibrationOptimizer:
             lb=lb,
             ub=ub,
             solver=self.qp_solver,
+            eps_abs=1e-8,
+            eps_rel=1e-8,
             **self.qp_kwargs,
         )
         if dx is None:
