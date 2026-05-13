@@ -3,6 +3,8 @@ import logging
 import numpy as np
 import rby1_sdk as rby
 from scipy.optimize import least_squares
+from scipy.spatial.transform import Rotation as R_scipy
+
 
 class MarkerCalibrator:
     def __init__(self, marker_st=None, robot=None):
@@ -59,6 +61,28 @@ class MarkerCalibrator:
             except Exception as e:
                 logging.error(f"Failed to disconnect robot: {e}")
         return False
+
+    @staticmethod
+    def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
+        model = robot.model()
+        state = dyn_model.make_state([base_link, ee_link], model.robot_joint_names)
+        state.set_q(q)
+        dyn_model.compute_forward_kinematics(state)
+        T = dyn_model.compute_transformation(state, 0, 1)
+        return T
+
+    @staticmethod
+    def make_transform(data):
+        """
+        Creates a 4x4 transformation matrix from [x, y, z, roll, pitch, yaw].
+        Coordinates in meters, angles in degrees (ZYX Euler).
+        """
+        T = np.eye(4)
+        T[:3, 3] = data[:3]
+        T[:3, :3] = R_scipy.from_euler('zyx', data[3:], degrees=True).as_matrix()
+        return T
+
+
 
     @staticmethod
     def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=0):
@@ -163,13 +187,21 @@ class MarkerCalibrator:
             log_callback("   STARTING MOVE TO CENTER & ALIGN")
             log_callback("="*40)
 
-        for attempt in range(3): # Increased attempts for better convergence
+        # Transformation from Camera to Robot (link_torso_5)
+        # RPY: [90, 0, -90] in ZYX order
+        T_cam_to_rob = self.make_transform([0, 0, 0, -90, 0, -90])
+        
+        # Target pose of marker in camera frame
+        T_target_cam = np.eye(4)
+        T_target_cam[:3, 3] = [0, 0, target_dist / 1000.0]
+
+        for attempt in range(5): 
             if stop_event and stop_event.is_set():
                 if log_callback: log_callback("[INFO] Move to Center cancelled by user.")
                 self.robot.cancel_control()
                 break
                 
-            if log_callback: log_callback(f"[Attempt {attempt + 1}/3] Capturing marker pose...")
+            if log_callback: log_callback(f"[Attempt {attempt + 1}/5] Capturing marker pose...")
             time.sleep(1.0)
             res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if not res:
@@ -177,75 +209,44 @@ class MarkerCalibrator:
                 return False
             
             if isinstance(res, list):
-                pose = np.array(res[0]).reshape(4, 4)
+                T_cam_marker = np.array(res[0]).reshape(4, 4)
             else:
-                pose = np.array(list(res.values())[0]).reshape(4, 4)
+                T_cam_marker = np.array(list(res.values())[0]).reshape(4, 4)
                 
-            cam_x, cam_y, cam_z = pose[:3, 3] * 1000.0
-            R_cam_marker = pose[:3, :3]
+            cam_pos = T_cam_marker[:3, 3]
+            cam_rot = T_cam_marker[:3, :3]
             
-            err_x = 0.0 - cam_x
-            err_y = 0.0 - cam_y
-            err_z = target_dist - cam_z
+            # Check convergence using combined norm (pos in mm, rot in deg)
+            pos_err_mm = np.linalg.norm(cam_pos - T_target_cam[:3, 3]) * 1000.0
+            rot_err_mat = cam_rot.T @ T_target_cam[:3, :3]
+            rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
             
-            dist = np.sqrt(err_x**2 + err_y**2 + err_z**2)
-            
-            # Check orientation error (angle from identity)
-            angle_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(R_cam_marker) - 1) / 2, -1.0, 1.0)))
+            err_norm = np.linalg.norm([pos_err_mm, rot_err_deg])
 
             if log_callback:
-                log_callback(f"  Current: X={cam_x:.1f}, Y={cam_y:.1f}, Z={cam_z:.1f} mm, AngErr={angle_err_deg:.1f} deg")
-                log_callback(f"  Error: dX={err_x:.1f}, dY={err_y:.1f}, dZ={err_z:.1f}")
+                log_callback(f"  Current: X={cam_pos[0]*1000:.1f}, Y={cam_pos[1]*1000:.1f}, Z={cam_pos[2]*1000:.1f} mm")
+                log_callback(f"  Error Norm: {err_norm:.2f} (Pos:{pos_err_mm:.1f}mm, Ang:{rot_err_deg:.1f}deg)")
 
-            if abs(err_x) <= 0.8 and abs(err_y) <= 0.8 and abs(err_z) <= 0.8 and angle_err_deg < 0.5:
-                if log_callback: log_callback("  [SUCCESS] Reached target pose!")
+            if err_norm <= 0.5:
+                if log_callback: log_callback(f"  [SUCCESS] Reached target pose! (Norm: {err_norm:.2f})")
                 break
+
                 
-            if log_callback: log_callback("  Moving robot to correct pose...")
+            if log_callback: log_callback("  Calculating and moving to correct pose...")
             
-            # Coordinate mapping: Camera (X, Y, Z) -> Robot (-Y, -Z, X)
-            # Correct signs for Fixed-Camera (Torso-mount) configuration:
-            # To move marker Left (-X_cam), move hand Left (+Y_rob) -> dy = -err_x
-            # To move marker Up (-Y_cam), move hand Up (+Z_rob) -> dz = -err_y
-            # To move marker Away (+Z_cam), move hand Forward (+X_rob) -> dx = err_z
-            dx_rob = err_z / 1000.0
-            dy_rob = -err_x / 1000.0
-            dz_rob = -err_y / 1000.0
+            # Robot frame calculations (relative to link_torso_5)
+            T_rob_marker = T_cam_to_rob @ T_cam_marker
+            T_rob_marker_target = T_cam_to_rob @ T_target_cam
             
-            # Rotation mapping: 
-            # We want to align the camera frame with the marker frame.
-            M_cam_to_rob = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]])
-            
-            # If the rotation is 'completely wrong', it's possible R_face_offset was inappropriate.
-            # Let's try applying the rotation as a simple local increment first.
-            # R_marker_in_rob = M @ R_cam_marker @ M.T 
-            
-            # [Fix] Use transpose (inverse) to cancel the orientation error
-            R_inc_ee = M_cam_to_rob @ R_cam_marker.T @ M_cam_to_rob.T
-            
-            model = self.robot.model()
-            dyn_robot = self.robot.get_dynamics()
             ee_name = f"ee_{arm_side}"
-            dyn_state = dyn_robot.make_state(["base", ee_name], model.robot_joint_names)
-            dyn_state.set_q(self.robot.get_state().position)
-            dyn_robot.compute_forward_kinematics(dyn_state)
-            T_ref = dyn_robot.compute_transformation(dyn_state, 0, 1)
+            T_rob_ee = self.compute_fk(self.robot, self.robot.get_dynamics(), self.robot.get_state().position, ee_name, "link_torso_5")
             
-            # [Fix for Torso-mount]
-            # Since the camera is fixed to the torso/base, err_cam mapped by M 
-            # is already an absolute offset/orientation in the base frame.
-            
-            T_target = T_ref.copy()
-            # 1. Translation: d_ee is an absolute offset in base frame
-            d_base = np.array([dx_rob, dy_rob, dz_rob])
-            T_target[:3, 3] = T_ref[:3, 3] + d_base
-            
-            # [Update] Rotation alignment removed per user request.
-            # Keeping current EE orientation.
-            T_target[:3, :3] = T_ref[:3, :3]
+            # Calculate new EE target pose: Apply marker correction in robot frame
+            # T_rob_ee_new = T_rob_marker_target * inv(T_rob_marker) * T_rob_ee
+            T_rob_ee_new = T_rob_marker_target @ np.linalg.inv(T_rob_marker) @ T_rob_ee
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
-            cb.add_target("base", ee_name, T_target, 0.2, 0.5, 1.0)
+            cb.add_target("link_torso_5", ee_name, T_rob_ee_new, 0.2, 0.5, 1.0)
             cb.set_stop_orientation_tracking_error(1e-4)
             cb.set_stop_position_tracking_error(1e-3)
             
@@ -268,6 +269,7 @@ class MarkerCalibrator:
 
         if log_callback: log_callback("Move to Center & Align finished.\n")
         return True
+
 
     def perform_move_to_ready_pose(self, arm_side, log_callback=None):
         if not self.robot:
@@ -317,7 +319,7 @@ class MarkerCalibrator:
         if log_callback: log_callback("  - Checking if marker is visible before starting...")
         initial_check = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
         if not initial_check:
-            if log_callback: log_callback("\n[ERROR] 마커가 위치해 있지 않습니다. 시작할 수 없습니다.")
+            if log_callback: log_callback("\n[ERROR] marker not detected.")
             if status_callback: status_callback(False)
             return None
         

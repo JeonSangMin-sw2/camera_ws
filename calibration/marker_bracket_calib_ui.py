@@ -128,9 +128,10 @@ class CalibrationWorker(QThread):
                 plt.grid(True)
                 plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {res['rmse']:.3f})")
                 plt.legend()
+                plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
+                plt.savefig(plot_path)
                 plt.close()
-                
-                res['plot_path'] = plot_path
+                res['plot_path'] = plot_pat
                 self.finished_signal.emit(res)
             else:
                 self.finished_signal.emit(None)
@@ -564,10 +565,6 @@ class CalibrationApp(QWidget):
         # when looking at the marker.
         # But let's be more precise: get the current EE pose in Marker frame.
         if self.robot:
-            state = self.robot.get_state()
-            ee_name = f"ee_{self.arm_side}"
-            _, T_base_ee = self.calibrator.compute_fk(self.robot, self.calibrator.robot.get_dynamics(), state.position, ee_name, "link_torso_5")
-            
             # Marker in Camera at center pose (0 deg)
             results = self.marker_st.get_marker_transform(sampling_time=0.5, side=self.arm_side)
             if results:
