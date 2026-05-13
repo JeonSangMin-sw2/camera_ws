@@ -109,7 +109,8 @@ class IntrinsicsCalibrator:
 
         print(f"Calibration successful! RMS error: {ret:.4f}")
         
-        self._save_results(output_yaml, img_size[0], img_size[1])
+        if output_yaml is not None:
+            self._save_results(output_yaml, img_size[0], img_size[1])
         return True
 
     def run_calibration_with_images(self, images, output_yaml):
@@ -175,7 +176,8 @@ class IntrinsicsCalibrator:
 
         print(f"Calibration successful! RMS error: {ret:.4f}")
         
-        self._save_results(output_yaml, img_size[0], img_size[1])
+        if output_yaml is not None:
+            self._save_results(output_yaml, img_size[0], img_size[1])
         return True
 
     def _save_results(self, output_yaml, width, height):

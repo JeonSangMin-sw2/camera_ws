@@ -85,34 +85,40 @@ class MarkerCalibrator:
 
 
     @staticmethod
-    def movej(robot, torso=None, right_arm=None, left_arm=None, minimum_time=0):
+    def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0):
         if not robot:
             return False
             
-        rc = rby.BodyComponentBasedCommandBuilder()
+        body_cmd = rby.BodyComponentBasedCommandBuilder()
         if torso is not None:
-            rc.set_torso_command(
+            body_cmd.set_torso_command(
                 rby.JointPositionCommandBuilder()
                 .set_minimum_time(minimum_time)
                 .set_position(torso)
             )
         if right_arm is not None:
-            rc.set_right_arm_command(
+            body_cmd.set_right_arm_command(
                 rby.JointPositionCommandBuilder()
                 .set_minimum_time(minimum_time)
                 .set_position(right_arm)
             )
         if left_arm is not None:
-            rc.set_left_arm_command(
+            body_cmd.set_left_arm_command(
                 rby.JointPositionCommandBuilder()
                 .set_minimum_time(minimum_time)
                 .set_position(left_arm)
             )
 
+        cmd = rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
+        if head is not None:
+            cmd.set_head_command(
+                rby.JointPositionCommandBuilder()
+                .set_minimum_time(minimum_time)
+                .set_position(head)
+            )
+
         rv = robot.send_command(
-            rby.RobotCommandBuilder().set_command(
-                rby.ComponentBasedCommandBuilder().set_body_command(rc)
-            ),
+            rby.RobotCommandBuilder().set_command(cmd),
             1,
         ).get()
 

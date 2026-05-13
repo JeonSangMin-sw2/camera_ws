@@ -262,6 +262,11 @@ class CalibrationApp(QWidget):
         self.btn_ready.setStyleSheet("background-color: #6f42c1; color: white; font-weight: bold;")
         self.btn_ready.clicked.connect(self.move_to_ready_pose)
 
+        self.btn_center_head = QPushButton("CENTER HEAD")
+        self.btn_center_head.setMinimumHeight(40)
+        self.btn_center_head.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
+        self.btn_center_head.clicked.connect(self.move_head_to_zero)
+
         self.btn_start = QPushButton("START SWEEP")
         self.btn_start.setMinimumHeight(40)
         self.btn_start.setStyleSheet("background-color: #007bff; color: white; font-weight: bold;")
@@ -278,6 +283,7 @@ class CalibrationApp(QWidget):
         self.btn_quit.clicked.connect(self.close)
         
         controls_layout.addWidget(self.btn_ready)
+        controls_layout.addWidget(self.btn_center_head)
         controls_layout.addWidget(self.btn_center)
         controls_layout.addWidget(self.btn_start)
         controls_layout.addWidget(self.btn_result)
@@ -420,6 +426,20 @@ class CalibrationApp(QWidget):
         self.btn_ready.setEnabled(True)
         self.btn_start.setEnabled(True)
 
+    def move_head_to_zero(self):
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        
+        self.log_msg("[INFO] Centering head...")
+        try:
+            head_zero = np.zeros(len(self.robot.model().head_idx))
+            success = self.calibrator.movej(self.robot, head=head_zero, minimum_time=3.0)
+            if success:
+                self.log_msg("[INFO] Head centered.")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to center head: {e}")
+
     def on_arm_side_changed(self, text):
         if "Left" in text:
             self.arm_side = "left"
@@ -561,42 +581,31 @@ class CalibrationApp(QWidget):
         y_e_in_m = self.data_5['axis'] # Measured Axis 5 (Rotation around EE-Y)
         
         # Nominal Orientation Check to fix axis signs (+/-)
-        # We assume the EE Z-axis roughly points TOWARDS the torso-mounted camera 
-        # when looking at the marker.
-        # But let's be more precise: get the current EE pose in Marker frame.
-        if self.robot:
-            # Marker in Camera at center pose (0 deg)
-            results = self.marker_st.get_marker_transform(sampling_time=0.5, side=self.arm_side)
-            if results:
-                # We no longer rely on T_base_cam to find the nominal orientation.
-                # Instead, we use the ideal physical mounting orientation of the bracket.
-                # Left bracket ideal: [Roll=90, Pitch=0, Yaw=0]
-                # Right bracket ideal: [Roll=90, Pitch=0, Yaw=180]
-                if self.arm_side == "left":
-                    ideal_rpy = [90.0, 0.0, 0.0]
-                else:
-                    ideal_rpy = [90.0, 0.0, 180.0]
-                
-                T_ee_m_ideal = self.calibrator.make_transform([0, 0, 0] + ideal_rpy)
-                R_ee_m_ideal = T_ee_m_ideal[:3, :3]
-                
-                # Flip measured axes if they are opposite to the ideal physical orientation
-                if np.dot(z_e_in_m, R_ee_m_ideal[:, 2]) < 0: z_e_in_m = -z_e_in_m
-                if np.dot(y_e_in_m, R_ee_m_ideal[:, 1]) < 0: y_e_in_m = -y_e_in_m
+        if self.arm_side == "left":
+            ideal_rpy = [90.0, 0.0, 0.0]
+        else:
+            ideal_rpy = [90.0, 0.0, 180.0]
+        
+        T_ee_m_ideal = self.calibrator.make_transform([0, 0, 0] + ideal_rpy)
+        R_ee_m_ideal = T_ee_m_ideal[:3, :3]
+        
+        # Flip measured axes if they are opposite to the ideal physical orientation
+        if np.dot(z_e_in_m, R_ee_m_ideal[:, 2]) < 0: z_e_in_m = -z_e_in_m
+        if np.dot(y_e_in_m, R_ee_m_ideal[:, 1]) < 0: y_e_in_m = -y_e_in_m
         
         # Orthogonalize
         y_e_in_m = y_e_in_m - np.dot(y_e_in_m, z_e_in_m) * z_e_in_m
         y_e_in_m /= np.linalg.norm(y_e_in_m)
         x_e_in_m = np.cross(y_e_in_m, z_e_in_m)
         
-        # R_ee_in_m: Rotation from EE to Marker
-        R_ee_m = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
+        # R_ee_m_actual: columns are EE axes expressed in Marker frame
+        R_ee_m_actual = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
         
-        # We want Marker orientation relative to EE (R_m_ee)
-        R_m_ee = R_ee_m.T
+        # Orientation of Marker relative to EE (R_m_ee)
+        R_m_ee_actual = R_ee_m_actual.T
         
         # ZYX Euler angles for setting.yaml
-        euler_deg = R_scipy.from_matrix(R_m_ee).as_euler('zyx', degrees=True)
+        euler_deg = R_scipy.from_matrix(R_m_ee_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
         radius_6 = self.data_6['radius'] 

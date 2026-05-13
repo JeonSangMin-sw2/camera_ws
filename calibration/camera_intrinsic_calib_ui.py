@@ -63,8 +63,8 @@ class IntrinsicCalibApp(QWidget):
         self.video_label.setStyleSheet("background-color: black; color: white; border: 2px solid #555;")
         left_panel.addWidget(self.video_label)
         
-        # Instructions Panel (English)
         instr_box = QGroupBox("Calibration Guidelines")
+        instr_box.setStyleSheet("QGroupBox::title { color: red; font-weight: bold; }")
         instr_layout = QVBoxLayout()
         instructions = [
             "1. Ensure the calibration board is recognized correctly.",
@@ -74,16 +74,22 @@ class IntrinsicCalibApp(QWidget):
         ]
         for text in instructions:
             lbl = QLabel(text)
-            lbl.setStyleSheet("color: black; font-weight: bold;")
+            lbl.setStyleSheet("color: red; font-weight: bold;")
             instr_layout.addWidget(lbl)
         instr_box.setLayout(instr_layout)
         left_panel.addWidget(instr_box)
 
         stats_box = QGroupBox("Capture Stats")
-        stats_layout = QHBoxLayout()
+        stats_layout = QVBoxLayout()
         self.lbl_captured = QLabel("Captured Frames: 0")
         self.lbl_captured.setFont(QFont("Arial", 14, QFont.Bold))
         stats_layout.addWidget(self.lbl_captured)
+        
+        self.lbl_temp = QLabel("Camera Temp: -- °C")
+        self.lbl_temp.setFont(QFont("Arial", 12))
+        self.lbl_temp.setStyleSheet("color: #ff5500; font-weight: bold;")
+        stats_layout.addWidget(self.lbl_temp)
+        
         stats_box.setLayout(stats_layout)
         left_panel.addWidget(stats_box)
         
@@ -129,6 +135,13 @@ class IntrinsicCalibApp(QWidget):
         self.btn_calibrate.setStyleSheet("background-color: #28a745; color: white; font-weight: bold; font-size: 14px;")
         self.btn_calibrate.clicked.connect(self.run_calibration)
         controls_layout.addWidget(self.btn_calibrate)
+        
+        self.btn_save = QPushButton("SAVE PARAMETERS")
+        self.btn_save.setMinimumHeight(50)
+        self.btn_save.setStyleSheet("background-color: #17a2b8; color: white; font-weight: bold; font-size: 14px;")
+        self.btn_save.clicked.connect(self.save_calibration)
+        self.btn_save.setEnabled(False) # Enable after calibration
+        controls_layout.addWidget(self.btn_save)
         
         self.btn_reset = QPushButton("RESET CAPTURES")
         self.btn_reset.setMinimumHeight(30)
@@ -198,6 +211,12 @@ class IntrinsicCalibApp(QWidget):
             if ret:
                 cv2.drawChessboardCorners(display_img, self.calibrator.board_size, corners, ret)
 
+        # Update Temperature
+        if not self.ui_only and hasattr(self.cam, 'get_camera_temperature'):
+            temp = self.cam.get_camera_temperature()
+            if temp is not None:
+                self.lbl_temp.setText(f"Camera Temp: {temp:.1f} °C")
+
         # 2. Marker Monitoring
         if self.monitor_enabled:
             # Set intrinsics to detector if calibrated, else use defaults from cam
@@ -220,7 +239,9 @@ class IntrinsicCalibApp(QWidget):
             res = self.marker_detector.detect(img.copy())
             if res and len(res) > 0:
                 # Use the first detected marker pose
-                T = res[0]
+                T = res[0][1] # Get the 4x4 matrix from (marker_id, transform)
+                if isinstance(T, list):
+                    T = np.array(T).reshape(4, 4)
                 x, y, z = T[:3, 3] * 1000.0 # m to mm
                 self.lbl_marker_pos.setText(f"X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} (mm)")
                 # Draw marker on preview
@@ -264,16 +285,38 @@ class IntrinsicCalibApp(QWidget):
         QApplication.setOverrideCursor(Qt.WaitCursor)
         QApplication.processEvents()
         
-        success = self.calibrator.run_calibration_with_images(self.captured_images, self.output_yaml)
+        success = self.calibrator.run_calibration_with_images(self.captured_images, None) # Don't save to file yet
         
         QApplication.restoreOverrideCursor()
         
         if success:
             self.log_msg(f"[SUCCESS] Calibration complete! RMS Error: {self.calibrator.rms_error:.4f}")
-            self.log_msg(f"Saved to: {self.output_yaml}")
+            self.log_msg("Click 'SAVE PARAMETERS' to apply changes.")
+            self.btn_save.setEnabled(True)
             self.show_verification()
         else:
             self.log_msg("[ERROR] Calibration failed. Check images and pattern settings.")
+
+    def save_calibration(self):
+        if self.calibrator.cameraMatrix is None:
+            self.log_msg("[ERROR] No calibration data to save!")
+            return
+            
+        import yaml
+        try:
+            data = {
+                "camera_matrix": self.calibrator.cameraMatrix.tolist(),
+                "dist_coeffs": self.calibrator.distCoeffs.tolist(),
+                "rms_error": float(self.calibrator.rms_error),
+                "width": int(self.captured_images[0].shape[1]),
+                "height": int(self.captured_images[0].shape[0])
+            }
+            os.makedirs(os.path.dirname(self.output_yaml), exist_ok=True)
+            with open(self.output_yaml, "w") as f:
+                yaml.dump(data, f)
+            self.log_msg(f"[SUCCESS] Saved to: {self.output_yaml}")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Save failed: {e}")
 
     def show_verification(self):
         if len(self.captured_images) == 0:
@@ -282,54 +325,49 @@ class IntrinsicCalibApp(QWidget):
         test_img = self.captured_images[-1]
         h, w = test_img.shape[:2]
         
-        rvec = self.calibrator.rvecs[-1]
-        tvec = self.calibrator.tvecs[-1]
-        obj_pts = self.calibrator.all_obj_points[-1]
-        img_pts = self.calibrator.all_img_points[-1]
-        
-        projected_pts, _ = cv2.projectPoints(obj_pts, rvec, tvec, self.calibrator.cameraMatrix, self.calibrator.distCoeffs)
-        err = cv2.norm(img_pts, projected_pts, cv2.NORM_L2) / len(projected_pts)
-        
-        # Fit Image
-        fit_img = test_img.copy()
-        for i in range(len(img_pts)):
-            cv2.circle(fit_img, (int(img_pts[i][0][0]), int(img_pts[i][0][1])), 4, (0, 255, 0), 1)
-            p = (int(projected_pts[i][0][0]), int(projected_pts[i][0][1]))
-            cv2.drawMarker(fit_img, p, (0, 0, 255), cv2.MARKER_CROSS, 8, 1)
-
-        cv2.putText(fit_img, f"Total RMS: {self.calibrator.rms_error:.4f}", (30, 40), 1, 1.5, (0, 255, 0), 2)
-        cv2.putText(fit_img, f"Frame Error: {err:.4f}", (30, 80), 1, 1.5, (0, 255, 255), 2)
-
         # Undistorted Image
         new_mtx, _ = cv2.getOptimalNewCameraMatrix(self.calibrator.cameraMatrix, self.calibrator.distCoeffs, (w, h), 1, (w, h))
         undistorted = cv2.undistort(test_img, self.calibrator.cameraMatrix, self.calibrator.distCoeffs, None, new_mtx)
         
-        grid_view = undistorted.copy()
-        for y in range(0, h, 60):
-            cv2.line(grid_view, (0, y), (w, y), (0, 255, 0), 1)
-        for x in range(0, w, 60):
-            cv2.line(grid_view, (x, 0), (x, h), (0, 255, 0), 1)
-        cv2.putText(grid_view, "Undistorted Grid View", (30, 40), 1, 1.5, (0, 255, 0), 2)
+        # Combine images
+        combined_res = np.hstack((test_img, undistorted))
+        h_res, w_res = combined_res.shape[:2]
 
-        # Show in dialog
-        top_row = np.hstack((fit_img, grid_view))
-        display_w = 1200
-        display_h = int(display_w * (top_row.shape[0] / top_row.shape[1]))
-        combined_res = cv2.resize(top_row, (display_w, display_h))
+        # Draw Grid across both images
+        grid_size = 60
+        for y in range(0, h_res, grid_size):
+            cv2.line(combined_res, (0, y), (w_res, y), (0, 255, 0), 1)
+        for x in range(0, w_res, grid_size):
+            cv2.line(combined_res, (x, 0), (x, h_res), (0, 255, 0), 1)
+
+        # Draw labels
+        cv2.putText(combined_res, "Original", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, "Undistorted", (w + 30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, f"RMS Error: {self.calibrator.rms_error:.4f}", (w + 30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+
+        display_w = 1400
+        display_h = int(display_w * (h_res / w_res))
+        combined_res = cv2.resize(combined_res, (display_w, display_h))
         
         dialog = QDialog(self)
-        dialog.setWindowTitle("Calibration Verification")
+        dialog.setWindowTitle("Calibration Verification (Original vs Undistorted)")
         dl = QVBoxLayout(dialog)
         img_label = QLabel()
         
         # Convert combined_res to QPixmap
-        h, w, ch = combined_res.shape
-        bytes_per_line = ch * w
+        h_res, w_res, ch_res = combined_res.shape
+        bytes_per_line = ch_res * w_res
         combined_rgb = cv2.cvtColor(combined_res, cv2.COLOR_BGR2RGB)
-        qimg = QImage(combined_rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        qimg = QImage(combined_rgb.data, w_res, h_res, bytes_per_line, QImage.Format_RGB888)
         img_label.setPixmap(QPixmap.fromImage(qimg))
         
         dl.addWidget(img_label)
+        
+        btn_close = QPushButton("CLOSE")
+        btn_close.setMinimumHeight(40)
+        btn_close.clicked.connect(dialog.accept)
+        dl.addWidget(btn_close)
+        
         dialog.exec()
 
     def closeEvent(self, event):
