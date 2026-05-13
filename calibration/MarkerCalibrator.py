@@ -79,7 +79,7 @@ class MarkerCalibrator:
         """
         T = np.eye(4)
         T[:3, 3] = data[:3]
-        T[:3, :3] = R_scipy.from_euler('zyx', data[3:], degrees=True).as_matrix()
+        T[:3, :3] = R_scipy.from_euler('ZYX', data[3:], degrees=True).as_matrix()
         return T
 
 
@@ -189,7 +189,7 @@ class MarkerCalibrator:
 
         # Transformation from Camera to Robot (link_torso_5)
         # RPY: [90, 0, -90] in ZYX order
-        T_cam_to_rob = self.make_transform([0, 0, 0, -90, 0, -90])
+        T_rob_to_cam = self.make_transform([0, 0, 0, -90, 0, -90])
         
         # Target pose of marker in camera frame
         T_target_cam = np.eye(4)
@@ -209,12 +209,12 @@ class MarkerCalibrator:
                 return False
             
             if isinstance(res, list):
-                T_cam_marker = np.array(res[0]).reshape(4, 4)
+                T_cam_to_marker = np.array(res[0]).reshape(4, 4)
             else:
-                T_cam_marker = np.array(list(res.values())[0]).reshape(4, 4)
+                T_cam_to_marker = np.array(list(res.values())[0]).reshape(4, 4)
                 
-            cam_pos = T_cam_marker[:3, 3]
-            cam_rot = T_cam_marker[:3, :3]
+            cam_pos = T_cam_to_marker[:3, 3]
+            cam_rot = T_cam_to_marker[:3, :3]
             
             # Check convergence using combined norm (pos in mm, rot in deg)
             pos_err_mm = np.linalg.norm(cam_pos - T_target_cam[:3, 3]) * 1000.0
@@ -235,18 +235,18 @@ class MarkerCalibrator:
             if log_callback: log_callback("  Calculating and moving to correct pose...")
             
             # Robot frame calculations (relative to link_torso_5)
-            T_rob_marker = T_cam_to_rob @ T_cam_marker
-            T_rob_marker_target = T_cam_to_rob @ T_target_cam
+            T_rob_to_marker = T_rob_to_cam @ T_cam_to_marker
+            T_rob_to_marker_target = T_rob_to_cam @ T_target_cam
             
             ee_name = f"ee_{arm_side}"
-            T_rob_ee = self.compute_fk(self.robot, self.robot.get_dynamics(), self.robot.get_state().position, ee_name, "link_torso_5")
+            T_rob_to_ee = self.compute_fk(self.robot, self.robot.get_dynamics(), self.robot.get_state().position, ee_name, "link_torso_5")
             
             # Calculate new EE target pose: Apply marker correction in robot frame
-            # T_rob_ee_new = T_rob_marker_target * inv(T_rob_marker) * T_rob_ee
-            T_rob_ee_new = T_rob_marker_target @ np.linalg.inv(T_rob_marker) @ T_rob_ee
+            # T_rob_to_ee_new = T_rob_to_marker_target * inv(T_rob_to_marker) * T_rob_to_ee
+            T_rob_to_ee_new = T_rob_to_marker_target @ np.linalg.inv(T_rob_to_marker) @ T_rob_to_ee
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
-            cb.add_target("link_torso_5", ee_name, T_rob_ee_new, 0.2, 0.5, 1.0)
+            cb.add_target("link_torso_5", ee_name, T_rob_to_ee_new, 0.2, 0.5, 1.0)
             cb.set_stop_orientation_tracking_error(1e-4)
             cb.set_stop_position_tracking_error(1e-3)
             
