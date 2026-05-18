@@ -3,6 +3,8 @@ import tkinter as tk
 from datetime import datetime
 from pathlib import Path
 from tkinter import ttk, messagebox
+import threading
+import time
 
 import numpy as np
 
@@ -64,6 +66,7 @@ class CalibrationUI:
         self.auto_motion_running = False
         self.auto_stop_requested = False
         self.auto_motion_after_id = None
+        self.auto_motion_thread = None
         self.include_head_motion = True
         self.connected_servo_mode = "all"
 
@@ -79,97 +82,69 @@ class CalibrationUI:
     # UI
     # ============================================================
     def build_ui(self):
-        notebook = ttk.Notebook(self.root)
-        notebook.pack(fill="both", expand=True, padx=10, pady=10)
+        self.root.title("Marker Bracket Calibration System")
+        self.root.geometry("1300x700")
+        self.root.minsize(1300, 700)
 
-        self.user_tab = ttk.Frame(notebook)
-        self.dev_tab = ttk.Frame(notebook)
+        # Main horizontal container
+        main_container = ttk.Frame(self.root)
+        main_container.pack(fill="both", expand=True, padx=10, pady=10)
 
-        notebook.add(self.user_tab, text="User")
-        notebook.add(self.dev_tab, text="Developer")
+        main_container.columnconfigure(0, weight=1)
+        main_container.rowconfigure(0, weight=1)
 
-        self.build_user_tab()
-        self.build_dev_tab()
+        # 1. Left/Middle Main Panel
+        self.main_content = ttk.Frame(main_container)
+        self.main_content.grid(row=0, column=0, sticky="nsew")
 
-    def build_user_tab(self):
-        frm = self.user_tab
+        # 2. Right Sidebar for "Options" (Starts hidden by default)
+        self.sidebar = ttk.LabelFrame(main_container, text="Options", width=180)
+        self.sidebar.grid(row=0, column=1, sticky="nsew", padx=(10, 0), pady=10)
+        self.sidebar.grid_remove() # Hide initially
+        self.sidebar.grid_propagate(False) # Keep width fixed
 
-        # connection
-        conn = ttk.LabelFrame(frm, text="Connection")
-        conn.pack(fill="x", padx=10, pady=10)
+        # Gather infrequently used checkboxes here
+        self.dev_cal_with_head = tk.BooleanVar(value=True)
+        self.dev_cal_with_head_cb = ttk.Checkbutton(self.sidebar, text="cal_with_head", variable=self.dev_cal_with_head)
+        self.dev_cal_with_head_cb.pack(anchor="w", padx=15, pady=10)
 
-        ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.user_ip = tk.StringVar(value="192.168.30.1:50051")
-        ttk.Entry(conn, textvariable=self.user_ip, width=30).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-        ttk.Label(conn, text="Model").grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.user_model = tk.StringVar(value="a")
-        ttk.Combobox(
-            conn,
-            textvariable=self.user_model,
-            values=["a", "m"],
-            state="readonly",
-            width=8
-        ).grid(row=0, column=3, padx=5, pady=5, sticky="w")
-        ttk.Button(conn, text="Connect", command=self.user_connect).grid(row=0, column=4, padx=5, pady=5)
+        self.dev_use_camera_ext = tk.BooleanVar(value=True)
+        self.dev_use_camera_ext_cb = ttk.Checkbutton(self.sidebar, text="use_camera_ext", variable=self.dev_use_camera_ext)
+        self.dev_use_camera_ext_cb.pack(anchor="w", padx=15, pady=10)
 
-        ttk.Label(conn, text="Servo On").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.user_servo_mode = tk.StringVar(value="all")
-        ttk.Radiobutton(conn, text="All", variable=self.user_servo_mode, value="all").grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        ttk.Radiobutton(conn, text="No Head", variable=self.user_servo_mode, value="no_head").grid(row=1, column=2, padx=5, pady=5, sticky="w")
+        self.dev_use_sag = tk.BooleanVar(value=False)
+        self.dev_use_sag_cb = ttk.Checkbutton(self.sidebar, text="use_sag", variable=self.dev_use_sag)
+        self.dev_use_sag_cb.pack(anchor="w", padx=15, pady=10)
 
-        self.user_status = tk.StringVar(value="Disconnected")
-        ttk.Label(conn, textvariable=self.user_status).grid(row=0, column=5, padx=10, pady=5, sticky="w")
+        self.build_main_ui(self.main_content)
 
-        # setup
-        setup = ttk.LabelFrame(frm, text="Setup")
-        setup.pack(fill="x", padx=10, pady=10)
+    def toggle_sidebar(self):
+        if self.sidebar.winfo_ismapped():
+            self.sidebar.grid_remove()
+        else:
+            self.sidebar.grid()
 
-        ttk.Label(setup, text="Arm").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.user_calib_arm = tk.StringVar(value="both_arm")
-        ttk.Combobox(setup, textvariable=self.user_calib_arm, values=["both_arm", "right_arm", "left_arm"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+    def on_servo_head_toggle(self):
+        if not self.servo_head.get():
+            self.dev_cal_with_head.set(False)
+            self.dev_cal_with_head_cb.config(state="disabled")
+        else:
+            self.dev_cal_with_head_cb.config(state="normal")
 
-        cb_frm = ttk.Frame(setup)
-        cb_frm.grid(row=0, column=2, padx=5, pady=5, sticky="w")
-        self.user_cal_with_head = tk.BooleanVar(value=True)
-        self.user_cal_with_head_cb = ttk.Checkbutton(cb_frm, text="cal_with_head", variable=self.user_cal_with_head)
-        self.user_cal_with_head_cb.pack(side="left", padx=2)
-        self.user_use_camera_ext = tk.BooleanVar(value=True)
-        ttk.Checkbutton(cb_frm, text="use_camera_ext", variable=self.user_use_camera_ext).pack(side="left", padx=2)
+    def build_main_ui(self, frm):
+        frm.columnconfigure(0, weight=1)
+        frm.columnconfigure(1, weight=1)
+        frm.rowconfigure(0, weight=0)
+        frm.rowconfigure(1, weight=0)
+        frm.rowconfigure(2, weight=0)
+        frm.rowconfigure(3, weight=1)
 
-        ttk.Label(setup, text="Mode: live").grid(row=0, column=3, padx=20, pady=5, sticky="w")
-        self.user_head_status = tk.StringVar(value="Auto Motion: 0/0")
-        ttk.Label(setup, textvariable=self.user_head_status).grid(row=1, column=0, columnspan=5, padx=5, pady=5, sticky="w")
-
-        # actions
-        act = ttk.LabelFrame(frm, text="Actions")
-        act.pack(fill="x", padx=10, pady=10)
-
-        ttk.Button(act, text="1.Zero Pose Check", command=self.user_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="2.Init Pose", command=self.user_init_pose).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="3.Auto Motion", command=self.user_auto_motion).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(act, text="4.Record(Current)", command=self.user_record, padding=(80, 48)).grid(row=0, column=3, padx=5, pady=5)
-        ttk.Button(act, text="5.Calculate", command=self.user_calculate).grid(row=0, column=4, padx=5, pady=5)
-        ttk.Button(act, text="6.Apply Home Offset", command=self.user_apply_home_offset).grid(row=0, column=5, padx=5, pady=5)
-        ttk.Button(act, text="7.Clear Samples", command=self.clear_samples).grid(row=0, column=6, padx=5, pady=5)
-        ttk.Button(act, text="8.All Auto Motion", command=self.user_all_auto_motion).grid(row=1, column=2, padx=5, pady=5)
-        ttk.Button(act, text="9.Stop", command=self.user_stop_auto_motion).grid(row=2, column=2, padx=5, pady=5)
-
-        self.user_count = tk.StringVar(value="Samples: 0")
-        ttk.Label(act, textvariable=self.user_count).grid(row=3, column=0, columnspan=7, padx=5, pady=5, sticky="w")
-        
-        # result/log
-        logfrm = ttk.LabelFrame(frm, text="Log / Result")
-        logfrm.pack(fill="both", expand=True, padx=10, pady=10)
-
-        self.user_text = tk.Text(logfrm, height=20)
-        self.user_text.pack(fill="both", expand=True, padx=5, pady=5)
-
-    def build_dev_tab(self):
-        frm = self.dev_tab
+        # 0. Options Button (Top-Left above Connection)
+        ttk.Button(frm, text="⚙ Options", command=self.toggle_sidebar).grid(row=0, column=0, sticky="w", padx=10, pady=(10, 0))
 
         # connection
         conn = ttk.LabelFrame(frm, text="Connection")
-        conn.pack(fill="x", padx=10, pady=10)
+        conn.grid(row=1, column=0, sticky="nsew", padx=10, pady=10)
 
         ttk.Label(conn, text="RPC IP").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.dev_ip = tk.StringVar(value="192.168.30.1:50051")
@@ -180,22 +155,22 @@ class CalibrationUI:
         ttk.Combobox(conn, textvariable=self.dev_model, values=["a", "m"], state="readonly", width=8)\
             .grid(row=0, column=3, padx=5, pady=5, sticky="w")
         ttk.Button(conn, text="Connect", command=self.dev_connect).grid(row=0, column=4, padx=5, pady=5)
-
-        ttk.Label(conn, text="Servo On").grid(row=1, column=0, padx=5, pady=5, sticky="w")
-        self.dev_servo_mode = tk.StringVar(value="all")
-        ttk.Radiobutton(conn, text="All", variable=self.dev_servo_mode, value="all").grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        ttk.Radiobutton(conn, text="No Head", variable=self.dev_servo_mode, value="no_head").grid(row=1, column=2, padx=5, pady=5, sticky="w")
-
         self.dev_status = tk.StringVar(value="Disconnected")
         ttk.Label(conn, textvariable=self.dev_status).grid(row=0, column=5, padx=10, pady=5, sticky="w")
 
+        ttk.Label(conn, text="Servo On").grid(row=1, column=0, padx=5, pady=5, sticky="w")
+        self.servo_body = tk.BooleanVar(value=True)
+        self.servo_head = tk.BooleanVar(value=True)
+        ttk.Checkbutton(conn, text="Body (torso/arms)", variable=self.servo_body).grid(row=1, column=1, padx=5, pady=5, sticky="w")
+        ttk.Checkbutton(conn, text="Head", variable=self.servo_head, command=self.on_servo_head_toggle).grid(row=1, column=2, padx=5, pady=5, sticky="w")
+
         # config
         cfg = ttk.LabelFrame(frm, text="Config")
-        cfg.pack(fill="x", padx=10, pady=10)
+        cfg.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
 
-        ttk.Label(cfg, text="Arm").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.dev_calib_arm = tk.StringVar(value="both_arm")
-        ttk.Combobox(cfg, textvariable=self.dev_calib_arm, values=["both_arm", "right_arm", "left_arm"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, text="Part").grid(row=0, column=0, padx=5, pady=5, sticky="w")
+        self.dev_calib_part = tk.StringVar(value="both_arm")
+        ttk.Combobox(cfg, textvariable=self.dev_calib_part, values=["both_arm", "right_arm", "left_arm", "torso"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="Mode").grid(row=0, column=2, padx=5, pady=5, sticky="w")
         self.dev_mode = tk.StringVar(value="live")
@@ -203,22 +178,11 @@ class CalibrationUI:
         mode_box.grid(row=0, column=3, padx=5, pady=5, sticky="w")
         mode_box.bind("<<ComboboxSelected>>", self.update_dev_mode_label)
 
-        cb_row = ttk.Frame(cfg)
-        cb_row.grid(row=0, column=4, columnspan=4, sticky="w")
-        self.dev_cal_with_head = tk.BooleanVar(value=True)
-        self.dev_cal_with_head_cb = ttk.Checkbutton(cb_row, text="cal_with_head", variable=self.dev_cal_with_head)
-        self.dev_cal_with_head_cb.pack(side="left", padx=2)
-        self.dev_use_camera_ext = tk.BooleanVar(value=True)
-        ttk.Checkbutton(cb_row, text="use_camera_ext", variable=self.dev_use_camera_ext).pack(side="left", padx=2)
-        self.dev_use_sag = tk.BooleanVar(value=False)
-        ttk.Checkbutton(cb_row, text="use_sag", variable=self.dev_use_sag).pack(side="left", padx=2)
-
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
         ttk.Entry(cfg, textvariable=self.dev_path, width=40).grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
 
         self.dev_mode_info = tk.StringVar(value="In live mode, Auto Motion records once and All Auto Motion runs the full sweep; Stop interrupts between steps.")
-        ttk.Label(cfg, textvariable=self.dev_mode_info).grid(row=1, column=4, columnspan=2, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="lambda_cam").grid(row=2, column=0, padx=5, pady=5, sticky="w")
         self.dev_lambda_cam_pos = tk.StringVar(value=str(DEFAULT_LAMBDA_CAM_POS))
@@ -227,8 +191,8 @@ class CalibrationUI:
         ttk.Entry(cfg, textvariable=self.dev_lambda_cam_rot, width=6).grid(row=2, column=2, padx=5, pady=5, sticky="w")
 
         ttk.Label(cfg, text="Solver").grid(row=2, column=3, padx=5, pady=5, sticky="w")
-        self.user_solver = tk.StringVar(value="Least Squares")
-        self.solver_cb = ttk.Combobox(cfg, textvariable=self.user_solver, values=["Least Squares", "QP Solver"], state="readonly", width=12)
+        self.dev_solver = tk.StringVar(value="Least Squares")
+        self.solver_cb = ttk.Combobox(cfg, textvariable=self.dev_solver, values=["Least Squares", "QP Solver"], state="readonly", width=12)
         self.solver_cb.grid(row=2, column=4, padx=5, pady=5, sticky="w")
 
         try:
@@ -254,7 +218,7 @@ class CalibrationUI:
         ttk.Entry(auto_frm, textvariable=self.dev_pos_step, width=5).pack(side="left", padx=(0, 10))
         
         ttk.Label(auto_frm, text="Max X(m):").pack(side="left", padx=(0, 2))
-        self.dev_max_x = tk.DoubleVar(value=0.5)
+        self.dev_max_x = tk.DoubleVar(value=0.4)
         ttk.Entry(auto_frm, textvariable=self.dev_max_x, width=5).pack(side="left", padx=(0, 10))
 
         self.dev_est_samples = tk.StringVar(value="Est. Samples: 0")
@@ -270,24 +234,26 @@ class CalibrationUI:
 
         # actions
         act = ttk.LabelFrame(frm, text="Actions")
-        act.pack(fill="x", padx=10, pady=10)
+        act.grid(row=3, column=0, sticky="nsew", padx=10, pady=10)
+        act.columnconfigure(0, weight=1)
+        act.columnconfigure(1, weight=1)
 
-        ttk.Button(act, text="1.Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=5, pady=5)
-        ttk.Button(act, text="2.Init Pose", command=self.dev_init_pose).grid(row=0, column=1, padx=5, pady=5)
-        ttk.Button(act, text="3.Auto Motion", command=self.dev_auto_motion).grid(row=0, column=2, padx=5, pady=5)
-        ttk.Button(act, text="4.Record(Current)", command=self.dev_record).grid(row=0, column=3, padx=5, pady=5)
-        ttk.Button(act, text="5.Calculate", command=self.dev_calculate).grid(row=0, column=4, padx=5, pady=5)
-        ttk.Button(act, text="6.Apply Home Offset", command=self.dev_apply_home_offset).grid(row=0, column=5, padx=5, pady=5)
-        ttk.Button(act, text="7.Clear Samples", command=self.clear_samples).grid(row=0, column=6, padx=5, pady=5)
-        ttk.Button(act, text="8.All Auto Motion", command=self.dev_all_auto_motion).grid(row=1, column=2, padx=5, pady=5)
-        ttk.Button(act, text="9.Stop", command=self.dev_stop_auto_motion).grid(row=2, column=2, padx=5, pady=5)
+        ttk.Button(act, text="1) Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="2) Init Pose", command=self.dev_init_pose).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="3-a-1) All Auto Motion", command=self.dev_all_auto_motion).grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="3-a-2) Stop", command=self.dev_stop_auto_motion).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="3-b-1) Auto Motion", command=self.dev_auto_motion).grid(row=2, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="3-b-2) Record(Current)", command=self.dev_record).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="4-1) Calculate", command=self.dev_calculate).grid(row=3, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="4-2) Clear Samples", command=self.clear_samples).grid(row=3, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="5) Apply Home Offset", command=self.dev_apply_home_offset).grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.dev_count = tk.StringVar(value="Shared Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=3, column=0, columnspan=7, padx=5, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="w")
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
-        logfrm.pack(fill="both", expand=True, padx=10, pady=10)
+        logfrm.grid(row=0, column=1, rowspan=4, sticky="nsew", padx=10, pady=10)
 
         self.dev_text = tk.Text(logfrm, height=20)
         self.dev_text.pack(fill="both", expand=True, padx=5, pady=5)
@@ -298,9 +264,14 @@ class CalibrationUI:
 
     # log
     def log(self, widget, msg):
-        widget.insert("end", msg + "\n")
-        widget.see("end")
-        self.root.update_idletasks()
+        def _log():
+            widget.insert("end", msg + "\n")
+            widget.see("end")
+            self.root.update_idletasks()
+        if threading.current_thread() is threading.main_thread():
+            _log()
+        else:
+            self.root.after(0, _log)
 
     # path
     def ensure_result_dir(self):
@@ -339,7 +310,6 @@ class CalibrationUI:
     # dataset sample
     def update_sample_counts(self):
         sample_count = len(self.shared_arm_q_list)
-        self.user_count.set(f"Samples: {sample_count}")
         self.dev_count.set(f"Shared Samples: {sample_count}")
 
     def get_auto_pose_target_count(self):
@@ -353,7 +323,6 @@ class CalibrationUI:
         label = f"Auto Motion: {pose_idx}/{pose_target_count}"
         if not self.include_head_motion:
             label += " (headless)"
-        self.user_head_status.set(label)
         self.dev_head_status.set(label)
 
     def clear_samples(self):
@@ -366,48 +335,48 @@ class CalibrationUI:
         self.auto_ready_done = False
         self.update_sample_counts()
         self.update_head_pose_status()
-        self.log(self.user_text, "Shared samples cleared.")
         self.log(self.dev_text, "Shared samples cleared.")
 
     
 
-    def get_active_arms(self, tab="user"):
-        val = self.user_calib_arm.get() if tab == "user" else self.dev_calib_arm.get()
+    def get_active_arms(self):
+        val = self.dev_calib_part.get()
         if val == "both_arm":
             return ["right", "left"]
         elif val == "right_arm":
             return ["right"]
         elif val == "left_arm":
             return ["left"]
+        elif val == "torso":
+            return ["torso"]
         return ["right", "left"]
 
-    def get_target_arm_str(self, tab="user"):
-        val = self.user_calib_arm.get() if tab == "user" else self.dev_calib_arm.get()
+    def get_target_arm_str(self):
+        val = self.dev_calib_part.get()
         if val == "both_arm":
             return "both"
+        elif val == "torso":
+            return "torso"
         return val.replace("_arm", "")
 
     # robot 
-    def connect_robot(self, ip, model_name, status_var, text_widget):
+    def connect_robot(self, ip, model_name, status_var, text_widget, servo_regex):
         try:
-            self.include_head_motion = self.servo_mode_includes_head(self.connected_servo_mode)
+            self.include_head_motion = self.servo_head.get()
             self.robot = create_robot(
                 ip,
                 model_name,
                 power_regex=".*",
-                servo_regex=self.servo_mode_to_regex(self.connected_servo_mode),
+                servo_regex=servo_regex,
             )
             self.dyn_model = self.robot.get_dynamics()
             self.model = self.robot.model()
             
             if len(self.model.head_idx) == 0:
-                self.user_cal_with_head.set(False)
                 self.dev_cal_with_head.set(False)
-                self.user_cal_with_head_cb.config(state="disabled")
                 self.dev_cal_with_head_cb.config(state="disabled")
                 self.log(text_widget, "No head joints detected. cal_with_head disabled and set to False (Torso base).")
             else:
-                self.user_cal_with_head_cb.config(state="normal")
                 self.dev_cal_with_head_cb.config(state="normal")
 
             self.auto_motion_running = False
@@ -416,20 +385,12 @@ class CalibrationUI:
             self.auto_base_head_q = None
             self.auto_ready_done = False
             status_var.set("Connected")
-            self.log(text_widget, f"Connected: {ip} (model={model_name}, servo={self.connected_servo_mode})")
+            self.log(text_widget, f"Connected: {ip} (model={model_name}, servo_regex={servo_regex})")
             self.update_head_pose_status()
         except Exception as e:
             status_var.set("Disconnected")
             messagebox.showerror("Connection Error", str(e))
             self.log(text_widget, f"Connection failed: {e}")
-
-    def servo_mode_to_regex(self, servo_mode):
-        if servo_mode == "no_head":
-            return r"torso_.*|right_arm_.*|left_arm_.*"
-        return r".*"
-
-    def servo_mode_includes_head(self, servo_mode):
-        return servo_mode != "no_head"
 
     def get_capture_head_idx(self):
         if self.model is None:
@@ -437,55 +398,72 @@ class CalibrationUI:
         return get_head_config(self.model)["head_idx"]
     
     # robot motion
-    def move_to_auto_init_pose(self, text_widget, tab="user"):
-        if self.robot is None:
-            raise RuntimeError("Robot is not connected.")
-        if self.model is None:
-            raise RuntimeError("Robot is not connected.")
+    def move_to_auto_init_pose_worker(self, text_widget, tab="dev"):
+        try:
+            if self.robot is None:
+                raise RuntimeError("Robot is not connected.")
+            if self.model is None:
+                raise RuntimeError("Robot is not connected.")
 
-        active_arms = self.get_active_arms(tab)
+            active_arms = self.get_active_arms()
 
-        self.log(text_widget, f"Moving to auto init pose (active_arms: {active_arms})...")
-        move_to_auto_ready_pose(
-            robot=self.robot,
-            active_arms=active_arms,
-            minimum_time=10.0,
-            priority=self.auto_config.priority,
-        )
-        self.auto_ready_done = True
-        self.auto_base_head_q = None
+            self.log(text_widget, f"Moving to auto init pose (active_arms: {active_arms})...")
+            move_to_auto_ready_pose(
+                robot=self.robot,
+                active_arms=active_arms,
+                minimum_time=10.0,
+                priority=self.auto_config.priority,
+            )
+            self.auto_ready_done = True
+            self.auto_base_head_q = None
 
-        if tab == "dev":
-            try:
-                self.auto_config.angle_step_deg = float(self.dev_angle_step.get())
-                self.auto_config.position_step_m = float(self.dev_pos_step.get())
-                self.auto_config.max_x = float(self.dev_max_x.get())
-            except Exception as e:
-                self.log(text_widget, f"Failed to read dev auto config: {e}. Using current values.")
+            if tab == "dev":
+                try:
+                    self.auto_config.angle_step_deg = float(self.dev_angle_step.get())
+                    self.auto_config.position_step_m = float(self.dev_pos_step.get())
+                    self.auto_config.max_x = float(self.dev_max_x.get())
+                except Exception as e:
+                    self.log(text_widget, f"Failed to read dev auto config: {e}. Using current values.")
 
-        self.auto_motion_plan = None
+            self.auto_motion_plan = None
 
-        if self.include_head_motion:
-            head_cfg = get_head_config(self.model)
-            if head_cfg["head_idx"] is not None:
-                self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
-                self.log(text_widget, f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
-            else:
-                self.auto_base_head_q = None
-                self.include_head_motion = False
+            if self.include_head_motion:
+                head_cfg = get_head_config(self.model)
+                if head_cfg["head_idx"] is not None:
+                    self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
+                    self.log(text_widget, f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+                else:
+                    self.auto_base_head_q = None
+                    self.include_head_motion = False
 
-        self.head_move_count = 0
-        self.update_head_pose_status()
-        self.update_est_samples()
-        
-        messagebox.showinfo(
-            "Teaching Required",
-            "Robot has moved to the initial pose.\n\n"
-            "Please use the Teaching button to adjust the robot's pose so that the marker is clearly visible to the camera.\n"
-            "Once adjusted, press 'Auto Motion' or 'All Auto Motion' to start the sequence."
-        )
+            self.head_move_count = 0
+            self.root.after(0, self.update_head_pose_status)
+            self.root.after(0, self.update_est_samples)
+            
+            self.root.after(0, lambda: messagebox.showinfo(
+                "Teaching Required",
+                "Robot has moved to the initial pose.\n\n"
+                "Please use the Teaching button to adjust the robot's pose so that the marker is clearly visible to the camera.\n"
+                "Once adjusted, press 'Auto Motion' or 'All Auto Motion' to start the sequence."
+            ))
+        except Exception as e:
+            self.log(text_widget, f"Init pose failed: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Init Error", str(e)))
+        finally:
+            self.auto_motion_running = False
+            self.auto_motion_thread = None
 
-    def run_auto_motion_step(self, text_widget, tab="user"):
+    def run_auto_motion_step_worker(self, text_widget, tab="dev"):
+        try:
+            self.run_auto_motion_step_blocking(text_widget, tab)
+        except Exception as e:
+            self.log(text_widget, f"Auto motion failed: {e}")
+            self.root.after(0, lambda: messagebox.showerror("Auto Motion Error", str(e)))
+        finally:
+            self.auto_motion_running = False
+            self.auto_motion_thread = None
+
+    def run_auto_motion_step_blocking(self, text_widget, tab="dev"):
         if self.robot is None:
             raise RuntimeError("Robot is not connected.")
         if self.model is None:
@@ -497,10 +475,12 @@ class CalibrationUI:
         pose_target = self.get_auto_pose_target_count()
         if self.head_move_count >= pose_target:
             self.log(text_widget, "All auto motions have already been executed.")
-            return
+            return True
 
         if not self.auto_ready_done:
             raise RuntimeError("Please move to Init Pose first.")
+
+        active_arms = self.get_active_arms()
 
         # Re-build incremental motion plan based on the CURRENT (possibly teached) pose
         if self.auto_motion_plan is None or self.head_move_count == 0:
@@ -514,10 +494,10 @@ class CalibrationUI:
             
             self.log(text_widget, f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, MaxX={self.auto_config.max_x}m)")
             self.auto_motion_plan = build_incremental_motion_plan(
-                self.robot, self.dyn_model, self.auto_config
+                self.robot, self.dyn_model, self.auto_config, active_arms
             )
-            self.update_head_pose_status()
-            self.update_est_samples()
+            self.root.after(0, self.update_head_pose_status)
+            self.root.after(0, self.update_est_samples)
 
         if self.include_head_motion and self.auto_base_head_q is None:
             head_cfg = get_head_config(self.model)
@@ -528,7 +508,10 @@ class CalibrationUI:
                 self.auto_base_head_q = None
                 self.include_head_motion = False
 
-        active_arms = self.get_active_arms(tab)
+        if self.auto_stop_requested:
+            self.log(text_widget, "Auto Motion stopped by user.")
+            return False
+
         motion_plan_step = self.auto_motion_plan[self.head_move_count]
         
         motion_info = execute_auto_motion_step(
@@ -536,16 +519,21 @@ class CalibrationUI:
             config=self.auto_config,
             motion_plan_step=motion_plan_step,
             active_arms=active_arms,
+            include_head_motion=self.include_head_motion,
         )
         self.log(
             text_widget,
             f"Auto motion done: {motion_plan_step['desc']}",
         )
 
+        if self.auto_stop_requested:
+            self.log(text_widget, "Auto Motion stopped by user.")
+            return False
+
         q_arm, q_head, T_meas = self.capture_one_sample(text_widget)
         if q_arm is None:
             self.head_move_count += 1
-            self.update_head_pose_status()
+            self.root.after(0, self.update_head_pose_status)
             if self.motion_test_mode.get():
                 self.log(text_widget, "Capture failed after motion. (Motion Test: Continuing...)")
                 return True
@@ -558,14 +546,9 @@ class CalibrationUI:
             self.shared_head_q_list.append(q_head)
         self.shared_T_list.append(T_meas)
         self.head_move_count += 1
-        self.update_sample_counts()
-        self.update_head_pose_status()
+        self.root.after(0, self.update_sample_counts)
+        self.root.after(0, self.update_head_pose_status)
         return True
-
-    def move_to_next_auto_motion(self, text_widget):
-        if self.auto_motion_running:
-            raise RuntimeError("All Auto Motion is running. Press Stop first.")
-        self.run_auto_motion_step(text_widget)
 
     def stop_all_auto_motion_internal(self, cancel_robot=False, reset_stop_requested=True):
         if self.auto_motion_after_id is not None:
@@ -585,7 +568,7 @@ class CalibrationUI:
                 pass
 
     def request_stop_all_auto_motion(self, text_widget):
-        if not self.auto_motion_running and self.auto_motion_after_id is None:
+        if not self.auto_motion_running and self.auto_motion_thread is None:
             self.log(text_widget, "No All Auto Motion sequence is running.")
             self.stop_all_auto_motion_internal(cancel_robot=True)
             return
@@ -594,43 +577,38 @@ class CalibrationUI:
         self.stop_all_auto_motion_internal(cancel_robot=True, reset_stop_requested=False)
         self.log(text_widget, "Stop requested. Sent robot.cancel_control(); the all-auto sequence stops after the current step.")
 
-    def run_all_auto_motion_sequence(self, text_widget, tab="user"):
-        if self.auto_stop_requested:
-            self.log(text_widget, "Auto Motion stopped by user.")
-            self.auto_motion_running = False
-            self.auto_stop_requested = False
-            return
-
-        pose_target = self.get_auto_pose_target_count()
-        if self.head_move_count >= pose_target:
-            self.log(text_widget, "All auto motions completed.")
-            self.auto_motion_running = False
-            return
-
+    def run_all_auto_motion_worker(self, text_widget, tab="dev"):
         try:
-            ok = self.run_auto_motion_step(text_widget, tab)
-            if ok is False:
-                self.log(text_widget, "Error capturing sample. Stopping.")
-                self.auto_motion_running = False
-                return
+            pose_target = self.get_auto_pose_target_count()
+            while self.head_move_count < pose_target:
+                if self.auto_stop_requested:
+                    self.log(text_widget, "Auto Motion stopped by user.")
+                    break
+
+                ok = self.run_auto_motion_step_blocking(text_widget, tab)
+                if not ok:
+                    self.log(text_widget, "Auto motion failed or stopped. Stopping sequence.")
+                    break
+
+                # Sleep slightly between steps
+                time.sleep(0.2)
+            else:
+                self.log(text_widget, "All auto motions completed.")
         except Exception as e:
-            self.log(text_widget, f"Auto motion failed: {e}")
+            self.log(text_widget, f"All Auto Motion background worker error: {e}")
+        finally:
             self.auto_motion_running = False
-            return
+            self.auto_motion_thread = None
 
-        self.auto_motion_after_id = self.root.after(
-            10,
-            lambda: self.run_all_auto_motion_sequence(text_widget, tab),
-        )
-
-    def move_to_all_auto_motions(self, text_widget, tab="user"):
+    def move_to_all_auto_motions(self, text_widget, tab="dev"):
         if not self.auto_ready_done:
             raise RuntimeError("Please move to Init Pose first.")
 
         if self.auto_motion_plan is None or len(self.auto_motion_plan) == 0:
             self.log(text_widget, "Motion plan is missing or empty. Re-building...")
+            active_arms = self.get_active_arms()
             self.auto_motion_plan = build_incremental_motion_plan(
-                self.robot, self.dyn_model, self.auto_config
+                self.robot, self.dyn_model, self.auto_config, active_arms
             )
 
         pose_target = self.get_auto_pose_target_count()
@@ -638,14 +616,20 @@ class CalibrationUI:
             self.log(text_widget, "All auto motions have already been executed.")
             return
 
-        if self.auto_motion_running or self.auto_motion_after_id is not None:
-            self.log(text_widget, "All Auto Motion is already running.")
+        if self.auto_motion_running or self.auto_motion_thread is not None:
+            self.log(text_widget, "Another robot operation is already running.")
             return
 
         self.auto_stop_requested = False
         self.auto_motion_running = True
-        self.log(text_widget, "All Auto Motion started. Press Stop to interrupt between steps.")
-        self.run_all_auto_motion_sequence(text_widget, tab)
+        self.log(text_widget, "All Auto Motion started in a background thread. Press Stop to cancel.")
+
+        self.auto_motion_thread = threading.Thread(
+            target=self.run_all_auto_motion_worker,
+            args=(text_widget, tab)
+        )
+        self.auto_motion_thread.daemon = True
+        self.auto_motion_thread.start()
 
 
     # record 
@@ -954,122 +938,8 @@ class CalibrationUI:
         self.show_zero_pose_check_popup()
 
     # ============================================================
-    # User tab
+    # Calibration Actions
     # ============================================================
-    def user_connect(self):
-        self.connected_servo_mode = self.user_servo_mode.get()
-        self.include_head_motion = self.servo_mode_includes_head(self.connected_servo_mode)
-        self.connect_robot(self.user_ip.get(), self.user_model.get(), self.user_status, self.user_text)
-
-    def user_zero_pose_check(self):
-        try:
-            servo_mode = self.user_servo_mode.get()
-            self.zero_pose_check_common(
-                ip=self.user_ip.get(),
-                model_name=self.user_model.get(),
-                arm=self.get_target_arm_str(tab="user"),
-                servo_regex=self.servo_mode_to_regex(servo_mode),
-                include_head=self.servo_mode_includes_head(servo_mode),
-                text_widget=self.user_text,
-            )
-        except Exception as e:
-            messagebox.showerror("Zero Pose Check Error", str(e))
-            self.log(self.user_text, f"Zero pose check failed: {e}")
-
-    def user_init_pose(self):
-        try:
-            self.move_to_auto_init_pose(self.user_text, tab="user")
-        except Exception as e:
-            messagebox.showerror("Init Error", str(e))
-            self.log(self.user_text, f"Init pose failed: {e}")
-
-    def user_auto_motion(self):
-        try:
-            self.run_auto_motion_step(self.user_text, tab="user")
-        except Exception as e:
-            messagebox.showerror("Auto Motion Error", str(e))
-            self.log(self.user_text, f"Auto motion failed: {e}")
-
-    def user_all_auto_motion(self):
-        try:
-            self.move_to_all_auto_motions(self.user_text, tab="user")
-        except Exception as e:
-            messagebox.showerror("All Auto Motion Error", str(e))
-            self.log(self.user_text, f"All auto motion failed: {e}")
-
-    def user_stop_auto_motion(self):
-        try:
-            self.request_stop_all_auto_motion(self.user_text)
-        except Exception as e:
-            messagebox.showerror("Stop Error", str(e))
-            self.log(self.user_text, f"Stop failed: {e}")
-
-    def user_record(self):
-        try:
-            q_arm, q_head, T_meas = self.capture_one_sample(self.user_text)
-            if q_arm is None:
-                return
-            self.shared_arm_q_list.append(q_arm)
-            if q_head is not None:
-                self.shared_head_q_list.append(q_head)
-            self.shared_T_list.append(T_meas)
-            self.update_sample_counts()
-        except Exception as e:
-            messagebox.showerror("Record Error", str(e))
-            self.log(self.user_text, f"Record failed: {e}")
-
-    def user_calculate(self):
-        try:
-            if len(self.shared_arm_q_list) == 0:
-                messagebox.showwarning("Warning", "No recorded samples.")
-                return
-
-            q_arm_list = np.array(self.shared_arm_q_list)
-            q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
-            T_meas_list = np.array(self.shared_T_list)
-            dataset_path, result_path = self.build_output_paths()
-
-            arm_val = self.user_calib_arm.get()
-            active_arms = ["right", "left"] if arm_val == "both_arm" else [arm_val.replace("_arm", "")]
-            optimize_head = self.user_cal_with_head.get()
-            optimize_camera = self.user_use_camera_ext.get()
-
-            validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
-            save_npz_dataset(dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
-            self.last_dataset_path = dataset_path
-            self.log(self.user_text, f"Dataset saved to {dataset_path}")
-            self.log(self.user_text, f"Optimization: arms={active_arms}, head={optimize_head}, cam={optimize_camera}")
-
-            self.run_optimizer(
-                active_arms=active_arms,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
-                q_arm_list=q_arm_list,
-                q_head_list=q_head_list,
-                T_meas_list=T_meas_list,
-                result_path=result_path,
-                text_widget=self.user_text,
-                solver_type=self.user_solver.get(),
-            )
-        except Exception as e:
-            messagebox.showerror("Calculate Error", str(e))
-            self.log(self.user_text, f"Calculate failed: {e}")
-
-    def user_apply_home_offset(self):
-        try:
-            servo_mode = self.user_servo_mode.get()
-            arm = self.get_target_arm_str(tab="user")
-            self.apply_home_offset_common(
-                ip=self.user_ip.get(),
-                model_name=self.user_model.get(),
-                arm=arm,
-                servo_regex=self.servo_mode_to_regex(servo_mode),
-                include_head=self.servo_mode_includes_head(servo_mode),
-                text_widget=self.user_text,
-            )
-        except Exception as e:
-            messagebox.showerror("Apply Home Offset Error", str(e))
-            self.log(self.user_text, f"Apply home offset failed: {e}")
 
     # ============================================================
     # Developer tab
@@ -1089,20 +959,38 @@ class CalibrationUI:
             self.dev_ip_entry.config(state="normal")
 
     def dev_connect(self):
-        self.connected_servo_mode = self.dev_servo_mode.get()
-        self.include_head_motion = self.servo_mode_includes_head(self.connected_servo_mode)
-        self.connect_robot(self.dev_ip.get(), self.dev_model.get(), self.dev_status, self.dev_text)
+        parts = []
+        if self.servo_body.get():
+            parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+        if self.servo_head.get():
+            parts.append(r"head_.*")
+        servo_regex = "|".join(parts) if parts else r"^$"
+
+        self.include_head_motion = self.servo_head.get()
+        self.connect_robot(
+            ip=self.dev_ip.get(),
+            model_name=self.dev_model.get(),
+            status_var=self.dev_status,
+            text_widget=self.dev_text,
+            servo_regex=servo_regex,
+        )
 
     def dev_zero_pose_check(self):
         try:
-            servo_mode = self.dev_servo_mode.get()
-            arm = self.get_target_arm_str(tab="dev")
+            parts = []
+            if self.servo_body.get():
+                parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+            if self.servo_head.get():
+                parts.append(r"head_.*")
+            servo_regex = "|".join(parts) if parts else r"^$"
+
+            arm = self.get_target_arm_str()
             self.zero_pose_check_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
                 arm=arm,
-                servo_regex=self.servo_mode_to_regex(servo_mode),
-                include_head=self.servo_mode_includes_head(servo_mode),
+                servo_regex=servo_regex,
+                include_head=self.servo_head.get(),
                 text_widget=self.dev_text,
             )
         except Exception as e:
@@ -1110,11 +998,16 @@ class CalibrationUI:
             self.log(self.dev_text, f"Zero pose check failed: {e}")
 
     def dev_init_pose(self):
-        try:
-            self.move_to_auto_init_pose(self.dev_text, tab="dev")
-        except Exception as e:
-            messagebox.showerror("Init Error", str(e))
-            self.log(self.dev_text, f"Init pose failed: {e}")
+        if self.auto_motion_running or self.auto_motion_thread is not None:
+            messagebox.showerror("Execution Error", "Another robot operation is currently running.")
+            return
+        self.auto_motion_running = True
+        self.auto_motion_thread = threading.Thread(
+            target=self.move_to_auto_init_pose_worker,
+            args=(self.dev_text, "dev")
+        )
+        self.auto_motion_thread.daemon = True
+        self.auto_motion_thread.start()
 
     def dev_auto_motion(self):
         try:
@@ -1123,7 +1016,18 @@ class CalibrationUI:
                 self.log(self.dev_text, "Auto motion is only available in live or sim mode.")
                 return
 
-            self.run_auto_motion_step(self.dev_text, tab="dev")
+            if self.auto_motion_running or self.auto_motion_thread is not None:
+                messagebox.showerror("Execution Error", "Another robot operation is currently running.")
+                return
+
+            self.auto_stop_requested = False
+            self.auto_motion_running = True
+            self.auto_motion_thread = threading.Thread(
+                target=self.run_auto_motion_step_worker,
+                args=(self.dev_text, "dev")
+            )
+            self.auto_motion_thread.daemon = True
+            self.auto_motion_thread.start()
         except Exception as e:
             messagebox.showerror("Auto Motion Error", str(e))
             self.log(self.dev_text, f"Auto motion failed: {e}")
@@ -1192,7 +1096,9 @@ class CalibrationUI:
         try:
             mode = self.dev_mode.get()
             
-            arm_val = self.dev_calib_arm.get()
+            arm_val = self.dev_calib_part.get()
+            if arm_val == "torso":
+                raise NotImplementedError("Torso calibration is not implemented yet.")
             active_arms = ["right", "left"] if arm_val == "both_arm" else [arm_val.replace("_arm", "")]
             optimize_head = self.dev_cal_with_head.get()
             optimize_camera = self.dev_use_camera_ext.get()
@@ -1308,7 +1214,7 @@ class CalibrationUI:
                 text_widget=self.dev_text,
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
-                solver_type=self.user_solver.get(),
+                solver_type=self.dev_solver.get(),
                 use_sag=self.dev_use_sag.get(),
             )
 
@@ -1318,13 +1224,19 @@ class CalibrationUI:
 
     def dev_apply_home_offset(self):
         try:
-            servo_mode = self.dev_servo_mode.get()
+            parts = []
+            if self.servo_body.get():
+                parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+            if self.servo_head.get():
+                parts.append(r"head_.*")
+            servo_regex = "|".join(parts) if parts else r"^$"
+
             self.apply_home_offset_common(
                 ip=self.dev_ip.get(),
                 model_name=self.dev_model.get(),
-                arm=self.get_target_arm_str(tab="dev"),
-                servo_regex=self.servo_mode_to_regex(servo_mode),
-                include_head=self.servo_mode_includes_head(servo_mode),
+                arm=self.get_target_arm_str(),
+                servo_regex=servo_regex,
+                include_head=self.servo_head.get(),
                 text_widget=self.dev_text,
             )
         except Exception as e:
@@ -1363,7 +1275,7 @@ class CalibrationUI:
             
             # 절대 좌표 기준이므로 (max_x - current_x) 범위를 계산
             if m > current_x:
-                cnt = 10 * (int((m - current_x) / p) + 1)
+                cnt = 20 * (int((m - current_x) / p) + 1)
             else:
                 cnt = 0
             self.dev_est_samples.set(f"Est. Samples: {cnt} (from X={current_x:.3f})")

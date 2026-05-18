@@ -53,14 +53,74 @@ def compute_fk(robot, dyn_model, q_full, ee_link, base_link="link_torso_5"):
     dyn_model.compute_forward_kinematics(state)
     return state, dyn_model.compute_transformation(state, 0, 1)
 
-def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig):
+def compute_head_tracking_q(T_right, T_left, active_arms, p_neck, q_head_0, p_marker_0):
+    if q_head_0 is None or p_neck is None or p_marker_0 is None:
+        return None
+        
+    pts = []
+    if "right" in active_arms and T_right is not None:
+        pts.append(T_right[:3, 3])
+    if "left" in active_arms and T_left is not None:
+        pts.append(T_left[:3, 3])
+        
+    if len(pts) == 0:
+        return q_head_0.copy()
+        
+    p_marker = np.mean(pts, axis=0)
+    
+    v_0 = p_marker_0 - p_neck
+    v_i = p_marker - p_neck
+    
+    yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
+    pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
+    
+    yaw_geo_i = np.arctan2(v_i[1], v_i[0])
+    pitch_geo_i = np.arctan2(v_i[2], np.sqrt(v_i[0]**2 + v_i[1]**2))
+    
+    yaw_diff = yaw_geo_i - yaw_geo_0
+    pitch_diff = pitch_geo_i - pitch_geo_0
+    
+    yaw_target = q_head_0[0] + yaw_diff
+    # Pitch joint sign convention: positive pitch rotates head downward (looking down),
+    # so we subtract pitch_diff to look upward.
+    pitch_target = q_head_0[1] - pitch_diff
+    
+    # Clip head angles to safe ranges (Yaw: ±25 deg, Pitch: ±20 deg relative to zero)
+    yaw_target = np.clip(yaw_target, -25.0 * D2R, 25.0 * D2R)
+    pitch_target = np.clip(pitch_target, -20.0 * D2R, 20.0 * D2R)
+    
+    return np.array([yaw_target, pitch_target], dtype=np.float64)
+
+def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"]):
     """
-    현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들을 생성합니다.
+    현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다.
     """
     state = robot.get_state()
     q_full = state.position
     _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
     _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
+    
+    model = robot.model()
+    head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
+    q_head_0 = q_full[head_idx].copy() if head_idx is not None else None
+    
+    try:
+        _, T_head_0 = compute_fk(robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+        p_neck = T_head_0[:3, 3]
+    except Exception:
+        p_neck = None
+        
+    def get_marker_midpoint(tr, tl):
+        pts = []
+        if "right" in active_arms and tr is not None:
+            pts.append(tr[:3, 3])
+        if "left" in active_arms and tl is not None:
+            pts.append(tl[:3, 3])
+        if len(pts) == 0:
+            return None
+        return np.mean(pts, axis=0)
+        
+    p_marker_0 = get_marker_midpoint(T_base_right, T_base_left)
     
     plan = []
     T_curr_right = T_base_right.copy()
@@ -71,29 +131,37 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         if curr_x > config.max_x:
             break
             
+        half_ang = config.angle_step_deg / 2.0
+        full_ang = config.angle_step_deg
         rpy_targets = [
-            (config.angle_step_deg, 0, 0), (-config.angle_step_deg, 0, 0),
-            (0, config.angle_step_deg, 0), (0, -config.angle_step_deg, 0),
-            (0, 0, config.angle_step_deg), (0, 0, -config.angle_step_deg)
+            (-half_ang, 0.0, 0.0), (-full_ang, 0.0, 0.0), (half_ang, 0.0, 0.0), (full_ang, 0.0, 0.0),
+            (0.0, -half_ang, 0.0), (0.0, -full_ang, 0.0), (0.0, half_ang, 0.0), (0.0, full_ang, 0.0),
+            (0.0, 0.0, -half_ang), (0.0, 0.0, -full_ang), (0.0, 0.0, half_ang), (0.0, 0.0, full_ang)
         ]
         for dr, dp, dy in rpy_targets:
             tr = apply_cartesian_offset(T_curr_right, droll_deg=dr, dpitch_deg=dp, dyaw_deg=dy)
             tl = apply_cartesian_offset(T_curr_left, droll_deg=dr, dpitch_deg=dp, dyaw_deg=dy)
+            head_q = compute_head_tracking_q(tr, tl, active_arms, p_neck, q_head_0, p_marker_0)
             plan.append({
                 "T_right": tr, "T_left": tl,
-                "desc": f"RPY: ({dr},{dp},{dy})"
+                "head_q": head_q,
+                "desc": f"RPY: ({dr:.2f},{dp:.2f},{dy:.2f})"
             })
             
+        half_pos = config.position_step_m / 2.0
+        full_pos = config.position_step_m
         yz_targets = [
-            (0, config.position_step_m, 0), (0, -config.position_step_m, 0),
-            (0, 0, config.position_step_m), (0, 0, -config.position_step_m)
+            (0.0, -half_pos, 0.0), (0.0, -full_pos, 0.0), (0.0, half_pos, 0.0), (0.0, full_pos, 0.0),
+            (0.0, 0.0, -half_pos), (0.0, 0.0, -full_pos), (0.0, 0.0, half_pos), (0.0, 0.0, full_pos)
         ]
         for dx, dy, dz in yz_targets:
             tr = apply_cartesian_offset(T_curr_right, dx=dx, dy=dy, dz=dz)
             tl = apply_cartesian_offset(T_curr_left, dx=dx, dy=dy, dz=dz)
+            head_q = compute_head_tracking_q(tr, tl, active_arms, p_neck, q_head_0, p_marker_0)
             plan.append({
                 "T_right": tr, "T_left": tl,
-                "desc": f"Pos: ({dx},{dy},{dz})"
+                "head_q": head_q,
+                "desc": f"Pos: ({dx:.3f},{dy:.3f},{dz:.3f})"
             })
             
         T_curr_right = apply_cartesian_offset(T_curr_right, dx=config.position_step_m)
@@ -184,7 +252,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 2: Cartesian Checking Pose.")
 
-def make_dual_arm_head_cmd(T_right, T_left, active_arms, min_time=1.2, hold_time=3.0):
+def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=3.0):
     body = rby.BodyComponentBasedCommandBuilder()
 
     # Always lock Torso to stable pose
@@ -231,16 +299,24 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, min_time=1.2, hold_time
         )
 
     cmd = rby.ComponentBasedCommandBuilder().set_body_command(body)
+    if head_position is not None:
+        cmd.set_head_command(
+            rby.JointPositionCommandBuilder()
+            .set_position(head_position)
+            .set_minimum_time(min_time)
+        )
     return rby.RobotCommandBuilder().set_command(cmd)
 
-def execute_auto_motion_step(robot, config, motion_plan_step, active_arms):
+def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, include_head_motion=True):
     T_right = motion_plan_step["T_right"]
     T_left = motion_plan_step["T_left"]
+    head_q = motion_plan_step.get("head_q", None) if include_head_motion else None
 
     cmd = make_dual_arm_head_cmd(
         T_right=T_right,
         T_left=T_left,
         active_arms=active_arms,
+        head_position=head_q,
         min_time=config.move_time,
         hold_time=config.hold_time,
     )

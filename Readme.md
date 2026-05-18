@@ -8,17 +8,19 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 pip install -e .
+# 종료 시 deactivate 입력
 ```
 
-- 가상환경 종료시에는 `deactivate` 입력
-
 ## 1. 하드웨어 스펙 및 마커 정보
-- **사용 카메라**:
+- **사용 카메라**: realsense D405
     - 해상도: 1280 x 720
     - 프레임 레이트: 30 FPS
-    - 장착 위치: `link_head_2` (Head 포함 시) 또는 `link_torso_5` (Headless 시)
-- **사용 마커**:
+    - 장착 위치
+        - Head 존재하는 모델일 경우 : 옵션으로 구매가능한 브라켓 장착
+        - Head 없는 모델일 경우 : 별도의 브라켓 사용 
+- **사용 마커**: apriltag
     - **Plate 마커**: 크기 80mm. ID: Left(7), Right(8)
+
 
 ## 2. 보정 UI (Calibration UI) 설명
 - **User Tab**: 일반 사용자를 위한 단순화된 인터페이스. 연결, 초기화, 자동 데이터 취득, 연산 및 적용 버튼으로 구성.
