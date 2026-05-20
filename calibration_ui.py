@@ -33,6 +33,7 @@ from core.robot_motion import (
     move_to_auto_ready_pose,
     execute_auto_motion_step,
     compute_fk,
+    reset_motion_state,
 )
 from homeoffset_core import (
     apply_home_offset_from_json,
@@ -204,10 +205,13 @@ class CalibrationUI:
         if not has_qp:
             self.solver_cb["state"] = "disabled"
             
-        ttk.Label(cfg, text="Auto Motion").grid(row=3, column=0, padx=5, pady=5, sticky="w")
+        self.dev_est_samples = tk.StringVar(value="Est. Samples: 0")
+        ttk.Label(cfg, textvariable=self.dev_est_samples, foreground="blue").grid(row=3, column=1, columnspan=6, sticky="w", padx=5, pady=5)
+
+        ttk.Label(cfg, text="Auto Motion Step").grid(row=4, column=0, padx=5, pady=5, sticky="w")
         
         auto_frm = ttk.Frame(cfg)
-        auto_frm.grid(row=3, column=1, columnspan=6, sticky="w", pady=5)
+        auto_frm.grid(row=4, column=1, columnspan=6, sticky="w", pady=5)
         
         ttk.Label(auto_frm, text="Angle(deg):").pack(side="left", padx=(0, 2))
         self.dev_angle_step = tk.DoubleVar(value=5.0)
@@ -216,21 +220,23 @@ class CalibrationUI:
         ttk.Label(auto_frm, text="Pos(m):").pack(side="left", padx=(0, 2))
         self.dev_pos_step = tk.DoubleVar(value=0.03)
         ttk.Entry(auto_frm, textvariable=self.dev_pos_step, width=5).pack(side="left", padx=(0, 10))
+
+        ttk.Label(auto_frm, text="Step(m):").pack(side="left", padx=(0, 2))
+        self.dev_step_x = tk.DoubleVar(value=0.03)
+        ttk.Entry(auto_frm, textvariable=self.dev_step_x, width=5).pack(side="left", padx=(0, 10))
         
         ttk.Label(auto_frm, text="Max X(m):").pack(side="left", padx=(0, 2))
         self.dev_max_x = tk.DoubleVar(value=0.4)
         ttk.Entry(auto_frm, textvariable=self.dev_max_x, width=5).pack(side="left", padx=(0, 10))
 
-        self.dev_est_samples = tk.StringVar(value="Est. Samples: 0")
-        ttk.Label(auto_frm, textvariable=self.dev_est_samples, foreground="blue").pack(side="left", padx=(5, 0))
-
         self.dev_angle_step.trace_add("write", self.update_est_samples)
         self.dev_pos_step.trace_add("write", self.update_est_samples)
+        self.dev_step_x.trace_add("write", self.update_est_samples)
         self.dev_max_x.trace_add("write", self.update_est_samples)
         self.update_est_samples()
 
         self.dev_head_status = tk.StringVar(value="Auto Motion: 0/0")
-        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=4, column=0, columnspan=7, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=5, column=0, columnspan=7, padx=5, pady=5, sticky="w")
 
         # actions
         act = ttk.LabelFrame(frm, text="Actions")
@@ -327,6 +333,7 @@ class CalibrationUI:
 
     def clear_samples(self):
         self.stop_all_auto_motion_internal(cancel_robot=True)
+        reset_motion_state()
         self.shared_arm_q_list.clear()
         self.shared_head_q_list.clear()
         self.shared_T_list.clear()
@@ -421,6 +428,7 @@ class CalibrationUI:
                 try:
                     self.auto_config.angle_step_deg = float(self.dev_angle_step.get())
                     self.auto_config.position_step_m = float(self.dev_pos_step.get())
+                    self.auto_config.step_x_m = float(self.dev_step_x.get())
                     self.auto_config.max_x = float(self.dev_max_x.get())
                 except Exception as e:
                     self.log(text_widget, f"Failed to read dev auto config: {e}. Using current values.")
@@ -488,11 +496,12 @@ class CalibrationUI:
                 try:
                     self.auto_config.angle_step_deg = float(self.dev_angle_step.get())
                     self.auto_config.position_step_m = float(self.dev_pos_step.get())
+                    self.auto_config.step_x_m = float(self.dev_step_x.get())
                     self.auto_config.max_x = float(self.dev_max_x.get())
                 except Exception as e:
                     self.log(text_widget, f"Failed to read dev auto config: {e}. Using current values.")
             
-            self.log(text_widget, f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, MaxX={self.auto_config.max_x}m)")
+            self.log(text_widget, f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, StepX={self.auto_config.step_x_m}m, MaxX={self.auto_config.max_x}m)")
             self.auto_motion_plan = build_incremental_motion_plan(
                 self.robot, self.dyn_model, self.auto_config, active_arms
             )
@@ -566,6 +575,7 @@ class CalibrationUI:
                 self.robot.cancel_control()
             except Exception:
                 pass
+        reset_motion_state()
 
     def request_stop_all_auto_motion(self, text_widget):
         if not self.auto_motion_running and self.auto_motion_thread is None:
@@ -587,8 +597,10 @@ class CalibrationUI:
 
                 ok = self.run_auto_motion_step_blocking(text_widget, tab)
                 if not ok:
-                    self.log(text_widget, "Auto motion failed or stopped. Stopping sequence.")
-                    break
+                    if self.auto_stop_requested:
+                        self.log(text_widget, "Auto Motion stopped by user.")
+                        break
+                    self.log(text_widget, f"Step capture failed and skipped. Continuing sequence...")
 
                 # Sleep slightly between steps
                 time.sleep(0.2)
@@ -1260,25 +1272,44 @@ class CalibrationUI:
     def update_est_samples(self, *args):
         try:
             p = self.dev_pos_step.get()
+            step_x = self.dev_step_x.get()
             m = self.dev_max_x.get()
-            if p <= 0:
+            if p <= 0 or step_x <= 0:
                 return
 
             current_x = 0.0
             if self.robot is not None and self.dyn_model is not None:
                 try:
+                    # Sync config values for build_incremental_motion_plan
+                    self.auto_config.angle_step_deg = float(self.dev_angle_step.get())
+                    self.auto_config.position_step_m = float(self.dev_pos_step.get())
+                    self.auto_config.step_x_m = float(self.dev_step_x.get())
+                    self.auto_config.max_x = float(self.dev_max_x.get())
+
+                    active_arms = self.get_active_arms()
+                    temp_plan = build_incremental_motion_plan(
+                        self.robot, self.dyn_model, self.auto_config, active_arms
+                    )
+                    cnt = len(temp_plan)
+
+                    # Compute current_x for display
                     q_full = self.robot.get_state().position
                     _, T_fk = compute_fk(self.robot, self.dyn_model, q_full, "ee_right", "link_torso_5")
                     current_x = T_fk[0, 3]
+
+                    self.dev_est_samples.set(f"Est. Samples: {cnt} (from X={current_x:.3f})")
+                    return
                 except:
                     pass
-            
-            # 절대 좌표 기준이므로 (max_x - current_x) 범위를 계산
+
+            # Fallback/Offline estimation:
+            # We exactly generate 29 steps per X-step (8 joint steps + 1 restore step + 12 RPY steps + 8 YZ steps = 29)
+            current_x = 0.3
             if m > current_x:
-                cnt = 20 * (int((m - current_x) / p) + 1)
+                cnt = 29 * (int((m - current_x) / step_x) + 1)
             else:
                 cnt = 0
-            self.dev_est_samples.set(f"Est. Samples: {cnt} (from X={current_x:.3f})")
+            self.dev_est_samples.set(f"Est. Samples: {cnt} (approx)")
         except:
             pass
 

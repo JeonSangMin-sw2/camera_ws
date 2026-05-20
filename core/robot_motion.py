@@ -9,6 +9,7 @@ D2R = np.pi / 180.0
 class AutoCollectionConfig:
     angle_step_deg: float = 5.0
     position_step_m: float = 0.03
+    step_x_m: float = 0.03
     max_x: float = 0.5
     move_time: float = 2.4
     settle_time: float = 0.6
@@ -90,11 +91,31 @@ def compute_head_tracking_q(T_right, T_left, active_arms, p_neck, q_head_0, p_ma
     pitch_target = np.clip(pitch_target, -20.0 * D2R, 20.0 * D2R)
     
     return np.array([yaw_target, pitch_target], dtype=np.float64)
+_motion_state = {
+    "q_right_baseline": None,
+    "q_left_baseline": None,
+    "q_head_baseline": None,
+    "p_neck": None,
+    "q_head_0": None,
+    "p_marker_0": None,
+}
+
+def reset_motion_state():
+    global _motion_state
+    _motion_state = {
+        "q_right_baseline": None,
+        "q_left_baseline": None,
+        "q_head_baseline": None,
+        "p_neck": None,
+        "q_head_0": None,
+        "p_marker_0": None,
+    }
 
 def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"]):
     """
     현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다.
     """
+    reset_motion_state()
     state = robot.get_state()
     q_full = state.position
     _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
@@ -133,6 +154,26 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             
         half_ang = config.angle_step_deg / 2.0
         full_ang = config.angle_step_deg
+
+        # 1. Joint steps for joint 0 and 1
+        joint_offsets = [-half_ang, -full_ang, half_ang, full_ang]
+        for joint_idx in [0, 1]:
+            for offset in joint_offsets:
+                plan.append({
+                    "type": "joint",
+                    "joint_idx": joint_idx,
+                    "offset_deg": offset,
+                    "T_right": T_curr_right.copy(),
+                    "T_left": T_curr_left.copy(),
+                    "desc": f"Joint {joint_idx} Offset: {offset:.1f}deg"
+                })
+        plan.append({
+            "type": "restore_baseline",
+            "T_right": T_curr_right.copy(),
+            "T_left": T_curr_left.copy(),
+            "desc": "Restore Baseline Pose"
+        })
+
         rpy_targets = [
             (-half_ang, 0.0, 0.0), (-full_ang, 0.0, 0.0), (half_ang, 0.0, 0.0), (full_ang, 0.0, 0.0),
             (0.0, -half_ang, 0.0), (0.0, -full_ang, 0.0), (0.0, half_ang, 0.0), (0.0, full_ang, 0.0),
@@ -164,8 +205,8 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                 "desc": f"Pos: ({dx:.3f},{dy:.3f},{dz:.3f})"
             })
             
-        T_curr_right = apply_cartesian_offset(T_curr_right, dx=config.position_step_m)
-        T_curr_left = apply_cartesian_offset(T_curr_left, dx=config.position_step_m)
+        T_curr_right = apply_cartesian_offset(T_curr_right, dx=config.step_x_m)
+        T_curr_left = apply_cartesian_offset(T_curr_left, dx=config.step_x_m)
         
     return plan
 
@@ -252,7 +293,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 2: Cartesian Checking Pose.")
 
-def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=3.0):
+def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=3.0, q_right=None, q_left=None):
     body = rby.BodyComponentBasedCommandBuilder()
 
     # Always lock Torso to stable pose
@@ -263,7 +304,14 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
     )
 
     if "right" in active_arms:
-        if T_right is not None:
+        if q_right is not None:
+            body.set_right_arm_command(
+                rby.JointPositionCommandBuilder()
+                .set_position(q_right)
+                .set_minimum_time(min_time)
+                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            )
+        elif T_right is not None:
             body.set_right_arm_command(
                 rby.CartesianCommandBuilder()
                 .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
@@ -281,7 +329,14 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         )
 
     if "left" in active_arms:
-        if T_left is not None:
+        if q_left is not None:
+            body.set_left_arm_command(
+                rby.JointPositionCommandBuilder()
+                .set_position(q_left)
+                .set_minimum_time(min_time)
+                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
+            )
+        elif T_left is not None:
             body.set_left_arm_command(
                 rby.CartesianCommandBuilder()
                 .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
@@ -308,21 +363,130 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
     return rby.RobotCommandBuilder().set_command(cmd)
 
 def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, include_head_motion=True):
-    T_right = motion_plan_step["T_right"]
-    T_left = motion_plan_step["T_left"]
-    head_q = motion_plan_step.get("head_q", None) if include_head_motion else None
+    global _motion_state
 
-    cmd = make_dual_arm_head_cmd(
-        T_right=T_right,
-        T_left=T_left,
-        active_arms=active_arms,
-        head_position=head_q,
-        min_time=config.move_time,
-        hold_time=config.hold_time,
-    )
-    rv = robot.send_command(cmd, config.priority).get()
-    if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-        raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
+    step_type = motion_plan_step.get("type")
 
-    time.sleep(config.settle_time)
-    return motion_plan_step
+    if step_type == "joint":
+        state = robot.get_state()
+        q_full = state.position
+        model = robot.model()
+        dyn_model = robot.get_dynamics()
+
+        # Save baseline configurations if not already saved
+        if _motion_state["q_right_baseline"] is None:
+            _motion_state["q_right_baseline"] = q_full[model.right_arm_idx[:7]].copy()
+            _motion_state["q_left_baseline"] = q_full[model.left_arm_idx[:7]].copy()
+            head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
+            _motion_state["q_head_baseline"] = q_full[head_idx].copy() if head_idx is not None else None
+            _motion_state["q_head_0"] = _motion_state["q_head_baseline"].copy() if head_idx is not None else None
+
+            _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
+            _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
+
+            try:
+                _, T_head_0 = compute_fk(robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                _motion_state["p_neck"] = T_head_0[:3, 3]
+            except Exception:
+                _motion_state["p_neck"] = None
+
+            pts = []
+            if "right" in active_arms and T_base_right is not None:
+                pts.append(T_base_right[:3, 3])
+            if "left" in active_arms and T_base_left is not None:
+                pts.append(T_base_left[:3, 3])
+            if len(pts) > 0:
+                _motion_state["p_marker_0"] = np.mean(pts, axis=0)
+            else:
+                _motion_state["p_marker_0"] = None
+
+        q_right_target = _motion_state["q_right_baseline"].copy()
+        q_left_target = _motion_state["q_left_baseline"].copy()
+
+        j_idx = motion_plan_step["joint_idx"]
+        offset_deg = motion_plan_step["offset_deg"]
+
+        if "right" in active_arms:
+            q_right_target[j_idx] += np.deg2rad(offset_deg)
+        if "left" in active_arms:
+            q_left_target[j_idx] += np.deg2rad(offset_deg)
+
+        head_q = None
+        if j_idx == 0 and include_head_motion:
+            q_full_temp = q_full.copy()
+            q_full_temp[model.right_arm_idx[:7]] = q_right_target
+            q_full_temp[model.left_arm_idx[:7]] = q_left_target
+
+            _, T_right_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_right", "link_torso_5")
+            _, T_left_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_left", "link_torso_5")
+
+            head_q = compute_head_tracking_q(
+                T_right_fk,
+                T_left_fk,
+                active_arms,
+                _motion_state["p_neck"],
+                _motion_state["q_head_0"],
+                _motion_state["p_marker_0"]
+            )
+        elif include_head_motion:
+            head_q = _motion_state["q_head_baseline"]
+
+        cmd = make_dual_arm_head_cmd(
+            T_right=None,
+            T_left=None,
+            active_arms=active_arms,
+            head_position=head_q,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+            q_right=q_right_target if "right" in active_arms else None,
+            q_left=q_left_target if "left" in active_arms else None,
+        )
+        rv = robot.send_command(cmd, config.priority).get()
+        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion joint command failed: {rv.finish_code}")
+
+        time.sleep(config.settle_time)
+        return motion_plan_step
+
+    elif step_type == "restore_baseline":
+        if _motion_state["q_right_baseline"] is not None:
+            cmd = make_dual_arm_head_cmd(
+                T_right=None,
+                T_left=None,
+                active_arms=active_arms,
+                head_position=_motion_state["q_head_baseline"],
+                min_time=config.move_time,
+                hold_time=config.hold_time,
+                q_right=_motion_state["q_right_baseline"],
+                q_left=_motion_state["q_left_baseline"]
+            )
+            rv = robot.send_command(cmd, config.priority).get()
+            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                raise RuntimeError(f"Restore baseline command failed: {rv.finish_code}")
+
+            # Clear the baseline state
+            reset_motion_state()
+
+        time.sleep(config.settle_time)
+        return motion_plan_step
+
+    else:
+        # Standard Cartesian step
+        T_right = motion_plan_step["T_right"]
+        T_left = motion_plan_step["T_left"]
+        head_q = motion_plan_step.get("head_q", None) if include_head_motion else None
+
+        cmd = make_dual_arm_head_cmd(
+            T_right=T_right,
+            T_left=T_left,
+            active_arms=active_arms,
+            head_position=head_q,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+        )
+        rv = robot.send_command(cmd, config.priority).get()
+        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
+
+        time.sleep(config.settle_time)
+        return motion_plan_step
