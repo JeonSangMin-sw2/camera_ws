@@ -1303,10 +1303,10 @@ class CalibrationUI:
                     pass
 
             # Fallback/Offline estimation:
-            # We exactly generate 29 steps per X-step (8 joint steps + 1 restore step + 12 RPY steps + 8 YZ steps = 29)
+            # We exactly generate 33 steps per X-step (12 joint steps + 1 restore step + 12 RPY steps + 8 YZ steps = 33)
             current_x = 0.3
             if m > current_x:
-                cnt = 29 * (int((m - current_x) / step_x) + 1)
+                cnt = 33 * (int((m - current_x) / step_x) + 1)
             else:
                 cnt = 0
             self.dev_est_samples.set(f"Est. Samples: {cnt} (approx)")

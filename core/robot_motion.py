@@ -155,9 +155,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         half_ang = config.angle_step_deg / 2.0
         full_ang = config.angle_step_deg
 
-        # 1. Joint steps for joint 0 and 1
+        # 1. Joint steps for joint 0, 1, and 4
         joint_offsets = [-half_ang, -full_ang, half_ang, full_ang]
-        for joint_idx in [0, 1]:
+        for joint_idx in [0, 1, 4]:
             for offset in joint_offsets:
                 plan.append({
                     "type": "joint",
