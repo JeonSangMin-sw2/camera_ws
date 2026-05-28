@@ -493,6 +493,21 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
 
 
 def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb=None, skip_ready=False):
+    # Ensure Control Manager is enabled
+    cm_state = robot.get_control_manager_state()
+    if cm_state.state in [rby.ControlManagerState.State.MinorFault, rby.ControlManagerState.State.MajorFault]:
+        if log_cb is not None:
+            log_cb("[ControlManager] Control manager in fault state. Resetting...")
+        robot.reset_fault_control_manager()
+        time.sleep(1.0)
+        
+    cm_state = robot.get_control_manager_state()
+    if cm_state.state != rby.ControlManagerState.State.Enabled:
+        if log_cb is not None:
+            log_cb("[ControlManager] Enabling control manager...")
+        robot.enable_control_manager()
+        time.sleep(1.0)
+
     q_torso = np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R
     if not skip_ready:
         if log_cb is not None:

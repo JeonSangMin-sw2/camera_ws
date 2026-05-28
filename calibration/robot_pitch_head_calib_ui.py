@@ -420,9 +420,41 @@ class CalibrationApp(QWidget):
             
             robot = rby.create_robot(addr, model)
             if robot.connect():
+                self.log_msg("[INFO] Connection established. Powering on and enabling servos...")
+                
+                # 1. Power ON
+                if not robot.is_power_on(".*"):
+                    self.log_msg("  - Turning power on...")
+                    robot.power_on(".*")
+                    time.sleep(1.0)
+                
+                # 2. Servo ON
+                if not robot.is_servo_on(".*"):
+                    self.log_msg("  - Enabling servos...")
+                    robot.servo_on(".*")
+                    time.sleep(1.0)
+
+                # 3. Reset Fault Control Manager
+                cm_state = robot.get_control_manager_state()
+                if cm_state.state in [rby.ControlManagerState.State.MinorFault, rby.ControlManagerState.State.MajorFault]:
+                    self.log_msg(f"  - Control manager in fault state ({cm_state.state}). Resetting...")
+                    robot.reset_fault_control_manager()
+                    time.sleep(1.0)
+                
+                # 4. Enable Control Manager
+                cm_state = robot.get_control_manager_state()
+                if cm_state.state != rby.ControlManagerState.State.Enabled:
+                    self.log_msg("  - Enabling control manager...")
+                    if robot.enable_control_manager():
+                        self.log_msg("  - Control manager enabled successfully.")
+                    else:
+                        self.log_msg("[WARNING] Failed to enable control manager. Please check manual state.")
+                else:
+                    self.log_msg("  - Control manager is already enabled.")
+                
                 self.robot = robot
                 self.calibrator.robot = robot
-                self.log_msg("[INFO] Robot successfully connected and activated.")
+                self.log_msg("[INFO] Robot successfully connected and fully activated.")
                 self.btn_connect.setText("DISCONNECT")
                 self.btn_connect.setStyleSheet("background-color: #6c757d; color: white; font-weight: bold;")
             else:

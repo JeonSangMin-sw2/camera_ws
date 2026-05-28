@@ -131,7 +131,7 @@ class CalibrationWorker(QThread):
                 plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
                 plt.savefig(plot_path)
                 plt.close()
-                res['plot_path'] = plot_pat
+                res['plot_path'] = plot_path
                 self.finished_signal.emit(res)
             else:
                 self.finished_signal.emit(None)
