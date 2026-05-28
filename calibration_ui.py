@@ -1017,7 +1017,7 @@ class CalibrationUI:
     def dev_connect(self):
         parts = []
         if self.servo_body.get():
-            parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+            parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
         if self.servo_head.get():
             parts.append(r"head_.*")
         servo_regex = "|".join(parts) if parts else r"^$"
@@ -1035,7 +1035,7 @@ class CalibrationUI:
         try:
             parts = []
             if self.servo_body.get():
-                parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+                parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
             if self.servo_head.get():
                 parts.append(r"head_.*")
             servo_regex = "|".join(parts) if parts else r"^$"
@@ -1136,7 +1136,7 @@ class CalibrationUI:
                 raise NotImplementedError("Torso calibration is not implemented yet.")
             active_arms = ["right", "left"] if arm_val == "both_arm" else [arm_val.replace("_arm", "")]
             optimize_head = self.dev_cal_with_head.get()
-            optimize_camera = True
+            optimize_camera = False
             
             lambda_cam_pos = 1.0
             lambda_cam_rot = 1.0
@@ -1304,7 +1304,7 @@ class CalibrationUI:
         try:
             parts = []
             if self.servo_body.get():
-                parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+                parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
             if self.servo_head.get():
                 parts.append(r"head_.*")
             servo_regex = "|".join(parts) if parts else r"^$"

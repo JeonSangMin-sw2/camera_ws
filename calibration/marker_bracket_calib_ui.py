@@ -619,7 +619,7 @@ class CalibrationApp(QWidget):
             y_e = -radius_6
 
         # Z-offset: Negative if marker is behind EE tip (closer to wrist)
-        z_e = radius_5 - L_5_ee
+        z_e = -abs(radius_5 - L_5_ee)
         
         self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
         self.log_msg(f"    - X-Offset: {x_e:.2f} mm")
@@ -639,9 +639,9 @@ class CalibrationApp(QWidget):
         z_m = z_e / 1000.0
         
         if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {roll_e:.2f}, {pitch_e:.2f}, {yaw_e:.2f}]")
+            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {yaw_e:.2f}, {pitch_e:.2f}, {roll_e:.2f}]")
         else:
-            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {roll_e:.2f}, {pitch_e:.2f}, {yaw_e:.2f}]")
+            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {yaw_e:.2f}, {pitch_e:.2f}, {roll_e:.2f}]")
         
         # --- [4] Calibration Confidence & Verification ---
         # 1. Orthogonality: Axis 5 and Axis 6 should be 90 deg apart.

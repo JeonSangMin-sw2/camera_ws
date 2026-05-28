@@ -131,47 +131,92 @@ class MarkerCalibrator:
     @staticmethod
     def fit_circle_kinematic(points, angles_deg, return_plot_data=False):
         points = np.array(points)
+        
+        # --- Robust Iterative Outlier Rejection ---
+        inlier_mask = np.ones(len(points), dtype=bool)
         centroid = np.mean(points, axis=0)
         pts_centered = points - centroid
-        
         _, _, vh = np.linalg.svd(pts_centered)
         normal = vh[2, :]
         ex = vh[0, :]
         ey = vh[1, :]
         pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
-
-        # 대수적 방정식으로 초기 중심/방경 추정
-        A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
-        b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
-        res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-        uc_init, vc_init, offset_init = res[0], res[1], res[2]
-        radius_init = np.sqrt(max(0, offset_init + uc_init**2 + vc_init**2))
         
-        best_rmse = float('inf')
         best_opt = None
+        best_rmse = float('inf')
+        
+        for iteration in range(2):
+            pts_2d_inliers = pts_2d[inlier_mask]
+            angles_deg_inliers = np.array(angles_deg)[inlier_mask]
+            
+            if len(pts_2d_inliers) < 5:
+                break
+                
+            centroid_in = np.mean(points[inlier_mask], axis=0)
+            pts_centered_in = points[inlier_mask] - centroid_in
+            _, _, vh_in = np.linalg.svd(pts_centered_in)
+            normal_in = vh_in[2, :]
+            ex_in = vh_in[0, :]
+            ey_in = vh_in[1, :]
+            pts_2d_in = np.dot(pts_centered_in, np.vstack((ex_in, ey_in)).T)
+            
+            A = np.c_[2 * pts_2d_in[:, 0], 2 * pts_2d_in[:, 1], np.ones(len(pts_2d_in))]
+            b = pts_2d_in[:, 0]**2 + pts_2d_in[:, 1]**2
+            res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+            uc_init, vc_init, offset_init = res[0], res[1], res[2]
+            radius_init = np.sqrt(max(0, offset_init + uc_init**2 + vc_init**2))
+            
+            best_rmse = float('inf')
+            best_opt = None
+            best_sign = 1
+            
+            for sign in [1, -1]:
+                angles_rad = np.radians(angles_deg_inliers) * sign
+                
+                def residuals(params):
+                    uc, vc, R, alpha = params
+                    model_x = uc + R * np.cos(alpha + angles_rad)
+                    model_y = vc + R * np.sin(alpha + angles_rad)
+                    return np.sqrt((pts_2d_in[:, 0] - model_x)**2 + (pts_2d_in[:, 1] - model_y)**2)
+                
+                alpha_init = np.arctan2(pts_2d_in[0, 1] - vc_init, pts_2d_in[0, 0] - uc_init) - angles_rad[0]
+                initial_guess = [uc_init, vc_init, radius_init, alpha_init]
+                
+                opt_result = least_squares(residuals, initial_guess, loss='huber')
+                rmse = np.sqrt(np.mean(opt_result.fun**2))
+                
+                if rmse < best_rmse:
+                    best_rmse = rmse
+                    best_opt = opt_result
+                    best_sign = sign
 
-        # 투영 축(ex, ey)의 부호나 모터 회전 방향의 역전을 방지하기 위해 + / - 회전 모두 테스트
-        for sign in [1, -1]:
-            angles_rad = np.radians(angles_deg) * sign
+            uc_opt, vc_opt, R_opt, alpha_opt = best_opt.x
+            angles_rad_all = np.radians(angles_deg) * best_sign
             
-            def residuals(params):
-                uc, vc, R, alpha = params
-                model_x = uc + R * np.cos(alpha + angles_rad)
-                model_y = vc + R * np.sin(alpha + angles_rad)
-                return np.sqrt((pts_2d[:, 0] - model_x)**2 + (pts_2d[:, 1] - model_y)**2)
+            pts_centered_all_in = points - centroid_in
+            pts_2d_all_in = np.dot(pts_centered_all_in, np.vstack((ex_in, ey_in)).T)
             
-            # 시작 각도 위상(alpha) 초기값 추정
-            alpha_init = np.arctan2(pts_2d[0, 1] - vc_init, pts_2d[0, 0] - uc_init) - angles_rad[0]
-            initial_guess = [uc_init, vc_init, radius_init, alpha_init]
+            model_x_all = uc_opt + R_opt * np.cos(alpha_opt + angles_rad_all)
+            model_y_all = vc_opt + R_opt * np.sin(alpha_opt + angles_rad_all)
             
-            # 이상치에 강건한 Huber 최적화
-            opt_result = least_squares(residuals, initial_guess, loss='huber')
-            rmse = np.sqrt(np.mean(opt_result.fun**2))
+            errors = np.sqrt((pts_2d_all_in[:, 0] - model_x_all)**2 + (pts_2d_all_in[:, 1] - model_y_all)**2)
             
-            if rmse < best_rmse:
-                best_rmse = rmse
-                best_opt = opt_result
+            inlier_errors = errors[inlier_mask]
+            std_err = np.std(inlier_errors) if len(inlier_errors) > 0 else 1.0
+            threshold = max(1.0, min(3.0, 2.0 * std_err))
+            
+            new_inlier_mask = errors < threshold
+            if np.all(new_inlier_mask == inlier_mask) or np.sum(new_inlier_mask) < 5:
+                break
+            inlier_mask = new_inlier_mask
+            
+            centroid = centroid_in
+            normal = normal_in
+            ex = ex_in
+            ey = ey_in
+            pts_2d = pts_2d_all_in
 
+        # Final fit best parameters
         uc_opt, vc_opt, R_opt, _ = best_opt.x
         center_3d = centroid + uc_opt * ex + vc_opt * ey
         

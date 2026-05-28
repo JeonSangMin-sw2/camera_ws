@@ -218,6 +218,8 @@ def apply_home_offset(
     time.sleep(2)
 
     # 3) joint별 home offset reset
+    robot.disable_control_manager()
+    time.sleep(1.0)
     failed_joints = []
     if apply_mode in ("right", "both"):
         for i in range(right_arm_dof):
