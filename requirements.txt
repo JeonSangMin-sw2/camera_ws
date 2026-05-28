@@ -9,4 +9,5 @@ rby1_sdk==0.9.1
 matplotlib
 PySide6<6.5
 qpsolvers[osqp]==4.11.0
+qpsolvers[daqp]==4.11.0
 osqp==1.1.1
