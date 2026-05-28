@@ -15,7 +15,7 @@ setup(
     install_requires=[
         "numpy",
         "opencv-python",
-        "PySide6",
+        "PySide6<6.5",
         "scipy",
         "pyyaml",
     ],

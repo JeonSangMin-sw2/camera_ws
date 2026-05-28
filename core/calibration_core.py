@@ -13,6 +13,8 @@ import rby1_sdk as rby
 import yaml
 
 from marker_detection import Marker_Transform
+from homeoffset_core import reset_home_offsets
+from robot_motion import check_calibration_state
 
 
 np.set_printoptions(suppress=True, precision=6)
@@ -247,8 +249,10 @@ def generate_sim_measurements(
     mount_to_cam_nom,
     ee_to_marker_nom,
     camera_link="link_head_2",
+    camera_position_noise_std_m=0.0005,
+    camera_orientation_noise_std_deg=0.5,
 ):
-    q_offset_true = np.deg2rad([3, 0, 1, 4, -3, 2, 1, -2, 1, -1, 3, -4, 2, -2])
+    q_offset_true = np.deg2rad([3, 0, 1, 2, -3, 2, 1, -2, -1, 3, 2, -4, 2, -2])
     if len(active_arms) == 1:
         q_offset_true = q_offset_true[:7]
         
@@ -298,6 +302,23 @@ def generate_sim_measurements(
             _, T_fk = compute_fk(robot, dyn_model, q_full, ee_links[arm_side], base_link=base_link)
             T_ee_to_marker = make_transform(ee_to_marker_nom[arm_side])
             T_meas = np.linalg.inv(T_mount_to_cam_true) @ T_fk @ T_ee_to_marker
+
+            if camera_orientation_noise_std_deg > 0.0:
+                rot_noise_rad = np.deg2rad(np.random.normal(
+                    0.0,
+                    camera_orientation_noise_std_deg,
+                    size=3,
+                ))
+                R_noise = se3_exp(np.concatenate([rot_noise_rad, np.zeros(3)]))[:3, :3]
+                T_meas[:3, :3] = R_noise @ T_meas[:3, :3]
+
+            if camera_position_noise_std_m > 0.0:
+                T_meas[:3, 3] += np.random.normal(
+                    0.0,
+                    camera_position_noise_std_m,
+                    size=3,
+                )
+
             T_pair.append(T_meas)
             
         if len(active_arms) == 1:
@@ -306,3 +327,6 @@ def generate_sim_measurements(
             T_list.append(np.stack(T_pair, axis=0))
 
     return np.array(T_list)
+
+
+

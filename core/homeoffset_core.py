@@ -298,3 +298,73 @@ def apply_home_offset_from_json(
     result["source"] = "json"
     result["json_path"] = json_path
     return result
+
+
+def reset_home_offsets(robot, model, log_cb=None):
+    if log_cb is not None:
+        log_cb("Starting Home Offset Reset...")
+    
+    # Disable control manager to allow reset safely
+    robot.disable_control_manager()
+    time.sleep(0.5)
+
+    right_dof = len(model.right_arm_idx)
+    left_dof = len(model.left_arm_idx)
+    head_dof = len(model.head_idx)
+
+    all_success = True
+
+    # Right arm joints
+    for i in range(right_dof):
+        joint_name = f"right_arm_{i}"
+        success = robot.home_offset_reset(joint_name)
+        if not success:
+            if log_cb is not None:
+                log_cb(f"Failed to reset right arm joint: {joint_name}")
+            all_success = False
+        else:
+            if log_cb is not None:
+                log_cb(f"Reset right arm joint OK: {joint_name}")
+
+    # Left arm joints
+    for i in range(left_dof):
+        joint_name = f"left_arm_{i}"
+        success = robot.home_offset_reset(joint_name)
+        if not success:
+            if log_cb is not None:
+                log_cb(f"Failed to reset left arm joint: {joint_name}")
+            all_success = False
+        else:
+            if log_cb is not None:
+                log_cb(f"Reset left arm joint OK: {joint_name}")
+
+    # Head joints
+    for i in range(head_dof):
+        joint_name = f"head_{i}"
+        success = robot.home_offset_reset(joint_name)
+        if not success:
+            if log_cb is not None:
+                log_cb(f"Failed to reset head joint: {joint_name}")
+            all_success = False
+        else:
+            if log_cb is not None:
+                log_cb(f"Reset head joint OK: {joint_name}")
+
+    if all_success:
+        if log_cb is not None:
+            log_cb("All joints reset successfully!")
+    else:
+        if log_cb is not None:
+            log_cb("Some joints failed to reset. Proceeding with power cycle...")
+
+    if log_cb is not None:
+        log_cb("Disabling control manager and waiting 2 seconds...")
+    robot.disable_control_manager()
+    time.sleep(2.0)
+
+    if log_cb is not None:
+        log_cb("Powering off 48V power...")
+    robot.power_off("48v")
+    time.sleep(1.5)
+    
+    return all_success
