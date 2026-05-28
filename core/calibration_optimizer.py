@@ -12,6 +12,14 @@ from core.sag_compensation import SagEstimator
 
 DEFAULT_LAMBDA_CAM_POS = 1.0
 DEFAULT_LAMBDA_CAM_ROT = 1.0
+DEFAULT_ESTIMATE_MEASUREMENT_NOISE = False
+DEFAULT_NOISE_UPDATE_RATE = 0.5
+DEFAULT_INITIAL_NOISE_STD_ROT_RAD = np.deg2rad(0.5)
+DEFAULT_INITIAL_NOISE_STD_POS_M = 5e-4
+DEFAULT_MIN_NOISE_STD_ROT_RAD = np.deg2rad(0.01)
+DEFAULT_MIN_NOISE_STD_POS_M = 1e-5
+DEFAULT_MAX_NOISE_STD_ROT_RAD = np.deg2rad(2.0)
+DEFAULT_MAX_NOISE_STD_POS_M = 1e-3
 
 ARM_SIDES = ("right", "left")
 ARM_OPTIMIZATION_NDOF = {14, 16, 20, 22}
@@ -19,6 +27,96 @@ HEAD_OPTIMIZATION_NDOF = {2, 16, 22}
 CAMERA_OPTIMIZATION_NDOF = {6, 20, 22}
 
 D2R = np.pi / 180.0
+
+
+class ResidualNoiseEstimator:
+    def __init__(
+        self,
+        enabled=DEFAULT_ESTIMATE_MEASUREMENT_NOISE,
+        update_rate=DEFAULT_NOISE_UPDATE_RATE,
+        initial_rot_std_rad=DEFAULT_INITIAL_NOISE_STD_ROT_RAD,
+        initial_pos_std_m=DEFAULT_INITIAL_NOISE_STD_POS_M,
+        min_rot_std_rad=DEFAULT_MIN_NOISE_STD_ROT_RAD,
+        min_pos_std_m=DEFAULT_MIN_NOISE_STD_POS_M,
+        max_rot_std_rad=DEFAULT_MAX_NOISE_STD_ROT_RAD,
+        max_pos_std_m=DEFAULT_MAX_NOISE_STD_POS_M,
+    ):
+        self.enabled = bool(enabled)
+        self.update_rate = float(np.clip(update_rate, 0.0, 1.0))
+        self.min_rot_std_rad = float(min_rot_std_rad)
+        self.min_pos_std_m = float(min_pos_std_m)
+        self.max_rot_std_rad = float(max_rot_std_rad)
+        self.max_pos_std_m = float(max_pos_std_m)
+        self.rot_std_rad = self._clamp_rot(initial_rot_std_rad)
+        self.pos_std_m = self._clamp_pos(initial_pos_std_m)
+
+    def _clamp_rot(self, value):
+        return float(np.clip(value, self.min_rot_std_rad, self.max_rot_std_rad))
+
+    def _clamp_pos(self, value):
+        return float(np.clip(value, self.min_pos_std_m, self.max_pos_std_m))
+
+    def weights(self):
+        if not self.enabled:
+            return np.ones(6, dtype=np.float64)
+
+        rot_std = self._clamp_rot(self.rot_std_rad)
+        pos_std = self._clamp_pos(self.pos_std_m)
+        return np.array([
+            1.0 / rot_std,
+            1.0 / rot_std,
+            1.0 / rot_std,
+            1.0 / pos_std,
+            1.0 / pos_std,
+            1.0 / pos_std,
+        ], dtype=np.float64)
+
+    def update(self, residuals):
+        if not self.enabled or not residuals:
+            return
+
+        residuals = np.asarray(residuals, dtype=np.float64).reshape(-1, 6)
+        rot_std = np.sqrt(np.mean(residuals[:, :3] ** 2))
+        pos_std = np.sqrt(np.mean(residuals[:, 3:] ** 2))
+
+        rot_std = self._clamp_rot(rot_std)
+        pos_std = self._clamp_pos(pos_std)
+        alpha = self.update_rate
+        self.rot_std_rad = self._clamp_rot(
+            (1.0 - alpha) * self.rot_std_rad + alpha * rot_std
+        )
+        self.pos_std_m = self._clamp_pos(
+            (1.0 - alpha) * self.pos_std_m + alpha * pos_std
+        )
+
+    def format(self):
+        if not self.enabled:
+            return "noise=off"
+
+        return (
+            f"sigma_rot={np.rad2deg(self.rot_std_rad):.4g}deg, "
+            f"sigma_pos={self.pos_std_m * 1e3:.4g}mm"
+        )
+
+    def as_dict(self):
+        return {
+            "measurement_noise_enabled": self.enabled,
+            "measurement_noise_rot_std_rad": float(self.rot_std_rad),
+            "measurement_noise_rot_std_deg": float(np.rad2deg(self.rot_std_rad)),
+            "measurement_noise_pos_std_m": float(self.pos_std_m),
+            "measurement_noise_pos_std_mm": float(self.pos_std_m * 1e3),
+            "measurement_noise_max_rot_std_rad": float(self.max_rot_std_rad),
+            "measurement_noise_max_rot_std_deg": float(np.rad2deg(self.max_rot_std_rad)),
+            "measurement_noise_max_pos_std_m": float(self.max_pos_std_m),
+            "measurement_noise_max_pos_std_mm": float(self.max_pos_std_m * 1e3),
+        }
+
+
+def add_weighted_normal_equation(H, g, J, xi, weights):
+    J_weighted = J * weights[:, None]
+    xi_weighted = xi * weights
+    H += J_weighted.T @ J_weighted
+    g += J_weighted.T @ xi_weighted
 
 
 def adjoint(T):
@@ -202,10 +300,10 @@ class QPCalibrationOptimizer:
         head_idx=None,
         camera_link="link_head_2",
         max_iter=500,
-        eps=1e-9,
+        eps=1e-6,
         lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
-        qp_solver="daqp",#osqp
+        qp_solver="osqp",
         qp_regularization=1e-9,
         qp_kwargs=None,
         enforce_joint_offset_limits=True,
@@ -220,6 +318,8 @@ class QPCalibrationOptimizer:
         optimize_head=False,
         optimize_camera=True,
         active_arms=["right", "left"],
+        estimate_measurement_noise=DEFAULT_ESTIMATE_MEASUREMENT_NOISE,
+        measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -244,6 +344,10 @@ class QPCalibrationOptimizer:
         self.eps = eps
         self.lambda_cam_pos = lambda_cam_pos
         self.lambda_cam_rot = lambda_cam_rot
+        self.noise_estimator = ResidualNoiseEstimator(
+            enabled=estimate_measurement_noise,
+            update_rate=measurement_noise_update_rate,
+        )
         self.q_nominal = robot.get_state().position.copy()
         
         if self.use_head_kinematics:
@@ -623,6 +727,8 @@ class QPCalibrationOptimizer:
         H = np.zeros((dim, dim), dtype=np.float64)
         g = np.zeros(dim, dtype=np.float64)
         total_err = 0.0
+        weights = self.noise_estimator.weights()
+        residual_samples = []
 
         if q_head_list is None:
             q_head_iter = [None] * len(q_arm_list)
@@ -668,9 +774,11 @@ class QPCalibrationOptimizer:
                     T_model,
                 )
 
-                H += J.T @ J
-                g += J.T @ xi
+                add_weighted_normal_equation(H, g, J, xi, weights)
                 total_err += np.linalg.norm(xi)
+                residual_samples.append(xi)
+
+        self.noise_estimator.update(residual_samples)
 
         if self.optimize_camera:
             rot_slice = slice(dim - 6, dim - 3)
@@ -814,6 +922,8 @@ class CalibrationOptimizer:
         lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
         use_sag=False,
+        estimate_measurement_noise=DEFAULT_ESTIMATE_MEASUREMENT_NOISE,
+        measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -838,6 +948,10 @@ class CalibrationOptimizer:
         self.eps = eps
         self.lambda_cam_pos = lambda_cam_pos
         self.lambda_cam_rot = lambda_cam_rot
+        self.noise_estimator = ResidualNoiseEstimator(
+            enabled=estimate_measurement_noise,
+            update_rate=measurement_noise_update_rate,
+        )
         self.q_nominal = robot.get_state().position.copy()
         
         # Sag Estimators
@@ -995,6 +1109,8 @@ class CalibrationOptimizer:
         H = np.zeros((dim, dim))
         g = np.zeros(dim)
         total_err = 0.0
+        weights = self.noise_estimator.weights()
+        residual_samples = []
 
         if q_head_list is None:
             q_head_iter = [None] * len(q_arm_list)
@@ -1041,9 +1157,11 @@ class CalibrationOptimizer:
                     T_model,
                 )
 
-                H += J.T @ J
-                g += J.T @ xi
+                add_weighted_normal_equation(H, g, J, xi, weights)
                 total_err += np.linalg.norm(xi)
+                residual_samples.append(xi)
+
+        self.noise_estimator.update(residual_samples)
 
         if self.optimize_camera:
             rot_slice = slice(dim - 6, dim - 3)
@@ -1144,4 +1262,3 @@ class CalibrationOptimizer:
         mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_cam)
         t5_to_cam_new = self.get_calibrated_t5_to_cam(xi_cam)
         return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, t5_to_cam_new
-

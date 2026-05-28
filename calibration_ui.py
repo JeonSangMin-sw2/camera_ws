@@ -117,6 +117,10 @@ class CalibrationUI:
         self.dev_use_sag_cb = ttk.Checkbutton(self.sidebar, text="use_sag", variable=self.dev_use_sag)
         self.dev_use_sag_cb.pack(anchor="w", padx=15, pady=10)
 
+        self.dev_use_noise = tk.BooleanVar(value=False)
+        self.dev_use_noise_cb = ttk.Checkbutton(self.sidebar, text="use_noise", variable=self.dev_use_noise)
+        self.dev_use_noise_cb.pack(anchor="w", padx=15, pady=10)
+
         self.build_main_ui(self.main_content)
 
     def toggle_sidebar(self):
@@ -701,6 +705,7 @@ class CalibrationUI:
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
         solver_type="Least Squares",
         use_sag=False,
+        use_noise=False,
     ):
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
@@ -731,6 +736,7 @@ class CalibrationUI:
                 optimize_head=optimize_head,
                 optimize_camera=optimize_camera,
                 active_arms=active_arms,
+                estimate_measurement_noise=use_noise,
             )
         else:
             optimizer = CalibrationOptimizer(
@@ -749,6 +755,7 @@ class CalibrationUI:
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
+                estimate_measurement_noise=use_noise,
             )
 
         q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(
@@ -775,6 +782,7 @@ class CalibrationUI:
         self.log(text_widget, "\n===== RESULT =====")
         self.log(text_widget, f"lambda_cam_pos = {lambda_cam_pos}")
         self.log(text_widget, f"lambda_cam_rot = {lambda_cam_rot}")
+        self.log(text_widget, f"measurement_noise = {optimizer.noise_estimator.format()}")
         
         if right_arm_offset is not None:
             self.log(text_widget, "Right arm joint offset (deg):")
@@ -804,6 +812,7 @@ class CalibrationUI:
             "left_arm_joint_offset_deg": np.rad2deg(left_arm_offset).tolist() if left_arm_offset is not None else None,
             "head_joint_offset_deg": np.rad2deg(q_head_offset).tolist() if q_head_offset is not None else None,
             "xi_cam": np.array(xi_cam).tolist(),
+            "measurement_noise": optimizer.noise_estimator.as_dict(),
         }
 
         if optimize_head:
@@ -1180,11 +1189,11 @@ class CalibrationUI:
 
             else:  # sim
                 sample_count = 100
-                q_arm_list = np.random.uniform(-5, 5, (sample_count, 7 * len(active_arms)))
+                q_arm_list = np.random.uniform(np.deg2rad(-5.0), np.deg2rad(5.0), (sample_count, 7 * len(active_arms)))
                 if optimize_head:
                     q_head_list = np.column_stack([
-                        np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
-                        np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
+                        np.random.uniform(np.deg2rad(-5.0), np.deg2rad(5.0), sample_count),
+                        np.random.uniform(np.deg2rad(-5.0), np.deg2rad(5.0), sample_count),
                     ])
                 else:
                     q_head_ref = self.robot.get_state().position[head_cfg["head_idx"]].copy()
@@ -1228,6 +1237,7 @@ class CalibrationUI:
                 lambda_cam_rot=lambda_cam_rot,
                 solver_type=self.dev_solver.get(),
                 use_sag=self.dev_use_sag.get(),
+                use_noise=self.dev_use_noise.get(),
             )
 
         except Exception as e:
