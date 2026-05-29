@@ -382,7 +382,7 @@ class MarkerCalibrator:
             log_callback("Ready Pose Reached.")
         return success
 
-    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None):
+    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True):
         if log_callback:
             log_callback("\n" + "="*40)
             log_callback(f"   STARTING {axis_mode}-AXIS CALIBRATION SWEEP")
@@ -428,19 +428,19 @@ class MarkerCalibrator:
 
         # Prepare Active Head/Camera Tracking
         head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
-        q_head_0 = state.position[head_idx].copy() if head_idx is not None else None
+        q_head_0 = state.position[head_idx].copy() if (head_idx is not None and use_head_tracking) else None
         dyn_model = self.robot.get_dynamics()
         
         try:
             T_neck = self.compute_fk(self.robot, dyn_model, state.position, "link_head_2", "link_torso_5")
-            p_neck = T_neck[:3, 3]
+            p_neck = T_neck[:3, 3] if use_head_tracking else None
         except Exception:
             p_neck = None
             
         ee_name = f"ee_{arm_side}"
         try:
             T_ee_0 = self.compute_fk(self.robot, dyn_model, state.position, ee_name, "link_torso_5")
-            p_marker_0 = T_ee_0[:3, 3]
+            p_marker_0 = T_ee_0[:3, 3] if use_head_tracking else None
         except Exception:
             p_marker_0 = None
 
@@ -460,7 +460,7 @@ class MarkerCalibrator:
             
             # Compute active head tracking target position
             head_q_step = None
-            if q_head_0 is not None and p_neck is not None and p_marker_0 is not None:
+            if use_head_tracking and q_head_0 is not None and p_neck is not None and p_marker_0 is not None:
                 q_full_temp = np.array(state.position)
                 if arm_side == "left":
                     q_full_temp[model.left_arm_idx] = target_joint_pos
