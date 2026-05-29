@@ -79,8 +79,13 @@ class MarkerCalibrator:
         """
         T = np.eye(4)
         T[:3, 3] = data[:3]
-        T[:3, :3] = R_scipy.from_euler('ZYX', data[3:], degrees=True).as_matrix()
+        # data[3:] is [roll, pitch, yaw], but scipy 'ZYX' expects [yaw, pitch, roll]
+        yaw = data[5]
+        pitch = data[4]
+        roll = data[3]
+        T[:3, :3] = R_scipy.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix()
         return T
+
 
 
 
@@ -129,18 +134,32 @@ class MarkerCalibrator:
         return True
 
     @staticmethod
-    def fit_circle_kinematic(points, angles_deg, return_plot_data=False):
+    def fit_circle_kinematic(points, angles_deg, axis_prior=None, return_plot_data=False):
         points = np.array(points)
         
         # --- Robust Iterative Outlier Rejection ---
         inlier_mask = np.ones(len(points), dtype=bool)
-        centroid = np.mean(points, axis=0)
-        pts_centered = points - centroid
-        _, _, vh = np.linalg.svd(pts_centered)
-        normal = vh[2, :]
-        ex = vh[0, :]
-        ey = vh[1, :]
-        pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+        
+        if axis_prior is not None:
+            normal = np.array(axis_prior, dtype=float)
+            normal /= np.linalg.norm(normal)
+            if abs(normal[0]) < 0.9:
+                ex = np.cross(normal, [1, 0, 0])
+            else:
+                ex = np.cross(normal, [0, 1, 0])
+            ex /= np.linalg.norm(ex)
+            ey = np.cross(normal, ex)
+            centroid = np.mean(points, axis=0)
+            pts_centered = points - centroid
+            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+        else:
+            centroid = np.mean(points, axis=0)
+            pts_centered = points - centroid
+            _, _, vh = np.linalg.svd(pts_centered)
+            normal = vh[2, :]
+            ex = vh[0, :]
+            ey = vh[1, :]
+            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
         
         best_opt = None
         best_rmse = float('inf')
@@ -154,10 +173,17 @@ class MarkerCalibrator:
                 
             centroid_in = np.mean(points[inlier_mask], axis=0)
             pts_centered_in = points[inlier_mask] - centroid_in
-            _, _, vh_in = np.linalg.svd(pts_centered_in)
-            normal_in = vh_in[2, :]
-            ex_in = vh_in[0, :]
-            ey_in = vh_in[1, :]
+            
+            if axis_prior is None:
+                _, _, vh_in = np.linalg.svd(pts_centered_in)
+                normal_in = vh_in[2, :]
+                ex_in = vh_in[0, :]
+                ey_in = vh_in[1, :]
+            else:
+                normal_in = normal
+                ex_in = ex
+                ey_in = ey
+                
             pts_2d_in = np.dot(pts_centered_in, np.vstack((ex_in, ey_in)).T)
             
             A = np.c_[2 * pts_2d_in[:, 0], 2 * pts_2d_in[:, 1], np.ones(len(pts_2d_in))]
@@ -189,7 +215,7 @@ class MarkerCalibrator:
                     best_rmse = rmse
                     best_opt = opt_result
                     best_sign = sign
-
+ 
             uc_opt, vc_opt, R_opt, alpha_opt = best_opt.x
             angles_rad_all = np.radians(angles_deg) * best_sign
             
@@ -215,7 +241,7 @@ class MarkerCalibrator:
             ex = ex_in
             ey = ey_in
             pts_2d = pts_2d_all_in
-
+ 
         # Final fit best parameters
         uc_opt, vc_opt, R_opt, _ = best_opt.x
         center_3d = centroid + uc_opt * ex + vc_opt * ey
@@ -395,9 +421,28 @@ class MarkerCalibrator:
             joint_i = 6
         else:
             max_points = 11
-            start_deg = -5
-            step_deg = 1
+            # Increased sweep range to ±10 degrees to improve fitting stability
+            start_deg = -10
+            step_deg = 2
             joint_i = 5
+
+        # Prepare Active Head/Camera Tracking
+        head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
+        q_head_0 = state.position[head_idx].copy() if head_idx is not None else None
+        dyn_model = self.robot.get_dynamics()
+        
+        try:
+            T_neck = self.compute_fk(self.robot, dyn_model, state.position, "link_head_2", "link_torso_5")
+            p_neck = T_neck[:3, 3]
+        except Exception:
+            p_neck = None
+            
+        ee_name = f"ee_{arm_side}"
+        try:
+            T_ee_0 = self.compute_fk(self.robot, dyn_model, state.position, ee_name, "link_torso_5")
+            p_marker_0 = T_ee_0[:3, 3]
+        except Exception:
+            p_marker_0 = None
 
         if log_callback: log_callback(f"[INFO] Initial Joint Pose: {np.round(initial_joint_pos, 2)}")
         
@@ -413,10 +458,46 @@ class MarkerCalibrator:
             else:
                 if log_callback: log_callback(f"  - Moving axis {axis_mode} to {target_offset_deg:.1f} deg offset...")
             
+            # Compute active head tracking target position
+            head_q_step = None
+            if q_head_0 is not None and p_neck is not None and p_marker_0 is not None:
+                q_full_temp = np.array(state.position)
+                if arm_side == "left":
+                    q_full_temp[model.left_arm_idx] = target_joint_pos
+                else:
+                    q_full_temp[model.right_arm_idx] = target_joint_pos
+                
+                try:
+                    T_ee_temp = self.compute_fk(self.robot, dyn_model, q_full_temp, ee_name, "link_torso_5")
+                    p_marker_i = T_ee_temp[:3, 3]
+                    
+                    v_0 = p_marker_0 - p_neck
+                    v_i = p_marker_i - p_neck
+                    
+                    yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
+                    pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
+                    
+                    yaw_geo_i = np.arctan2(v_i[1], v_i[0])
+                    pitch_geo_i = np.arctan2(v_i[2], np.sqrt(v_i[0]**2 + v_i[1]**2))
+                    
+                    yaw_diff = yaw_geo_i - yaw_geo_0
+                    pitch_diff = pitch_geo_i - pitch_geo_0
+                    
+                    yaw_target = q_head_0[0] + yaw_diff
+                    pitch_target = q_head_0[1] - pitch_diff
+                    
+                    # Clip head angles to safe ranges (Yaw: ±25 deg, Pitch: ±20 deg relative to zero)
+                    yaw_target = np.clip(yaw_target, -25.0 * np.pi / 180.0, 25.0 * np.pi / 180.0)
+                    pitch_target = np.clip(pitch_target, -20.0 * np.pi / 180.0, 20.0 * np.pi / 180.0)
+                    
+                    head_q_step = np.array([yaw_target, pitch_target])
+                except Exception:
+                    pass
+
             if arm_side == "left":
-                move_status = self.movej(self.robot, left_arm=target_joint_pos, minimum_time=1.5)
+                move_status = self.movej(self.robot, left_arm=target_joint_pos, head=head_q_step, minimum_time=1.5)
             else:
-                move_status = self.movej(self.robot, right_arm=target_joint_pos, minimum_time=1.5)
+                move_status = self.movej(self.robot, right_arm=target_joint_pos, head=head_q_step, minimum_time=1.5)
 
             if move_status:
                 time.sleep(1.0) # Settling time
@@ -450,9 +531,9 @@ class MarkerCalibrator:
         # Return to Initial Pose
         if log_callback: log_callback("\n[INFO] Sweep complete. Returning to initial pose...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=initial_joint_pos, minimum_time=2.0)
+            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
         else:
-            self.movej(self.robot, right_arm=initial_joint_pos, minimum_time=2.0)
+            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
 
         # Calculation logic
         if len(captured_poses) >= max_points:
@@ -461,7 +542,15 @@ class MarkerCalibrator:
             relative_poses = [T_ref_cam @ T for T in captured_poses]
             points = [T[:3, 3] for T in relative_poses]
             
-            center, axis, radius, rmse, pts_2d, uc_opt, vc_opt = self.fit_circle_kinematic(points, captured_angles, return_plot_data=True)
+            # Use nominal joint rotation axis as axis_prior to guarantee stability
+            if axis_mode == 6:
+                axis_prior = [0.0, -1.0, 0.0]
+            else:
+                axis_prior = [0.0, 0.0, 1.0]
+
+            center, axis, radius, rmse, pts_2d, uc_opt, vc_opt = self.fit_circle_kinematic(
+                points, captured_angles, axis_prior=axis_prior, return_plot_data=True
+            )
             
             result_dict = {
                 'axis_mode': axis_mode,

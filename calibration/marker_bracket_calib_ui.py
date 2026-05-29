@@ -15,6 +15,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
 
 # Import custom calibrator logic
+from marker_detection import Marker_Transform
 from MarkerCalibrator import MarkerCalibrator
 
 # --- Custom UI Widgets ---
@@ -598,14 +599,13 @@ class CalibrationApp(QWidget):
         y_e_in_m /= np.linalg.norm(y_e_in_m)
         x_e_in_m = np.cross(y_e_in_m, z_e_in_m)
         
-        # R_ee_m_actual: columns are EE axes expressed in Marker frame
+        # R_ee_m_actual: columns are EE axes expressed in Marker frame.
+        # This represents the rotation matrix from EE to Marker (R_ee_to_marker).
+        # We need the Euler angles of R_ee_to_marker for setting.yaml.
         R_ee_m_actual = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
         
-        # Orientation of Marker relative to EE (R_m_ee)
-        R_m_ee_actual = R_ee_m_actual.T
-        
-        # ZYX Euler angles for setting.yaml
-        euler_deg = R_scipy.from_matrix(R_m_ee_actual).as_euler('ZYX', degrees=True)
+        # ZYX Euler angles for setting.yaml (returns [yaw, pitch, roll])
+        euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
         radius_6 = self.data_6['radius'] 
@@ -639,9 +639,9 @@ class CalibrationApp(QWidget):
         z_m = z_e / 1000.0
         
         if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {yaw_e:.2f}, {pitch_e:.2f}, {roll_e:.2f}]")
+            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {roll_e:.2f}, {pitch_e:.2f}, {yaw_e:.2f}]")
         else:
-            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {yaw_e:.2f}, {pitch_e:.2f}, {roll_e:.2f}]")
+            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {roll_e:.2f}, {pitch_e:.2f}, {yaw_e:.2f}]")
         
         # --- [4] Calibration Confidence & Verification ---
         # 1. Orthogonality: Axis 5 and Axis 6 should be 90 deg apart.
@@ -688,7 +688,6 @@ def main():
         print("[INFO] Initializing Camera System...")
         
         try:
-            from marker_detection import Marker_Transform
             marker_st = Marker_Transform()
             marker_st.marker_detection.set_marker_type("plate")
         except Exception as e:
