@@ -76,18 +76,20 @@ class CalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
     
-    def __init__(self, calibrator, arm_side, axis_mode):
+    def __init__(self, calibrator, arm_side, axis_mode, use_head_tracking=True):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.axis_mode = axis_mode # 6 or 5
+        self.use_head_tracking = use_head_tracking
         
     def run(self):
         try:
             res = self.calibrator.perform_calibration_sweep(
                 self.arm_side, self.axis_mode, 
                 log_callback=self.log_signal.emit, 
-                status_callback=self.status_signal.emit
+                status_callback=self.status_signal.emit,
+                use_head_tracking=self.use_head_tracking
             )
             
             if res:
@@ -252,6 +254,11 @@ class CalibrationApp(QWidget):
         self.tolerance_input.setFixedWidth(50)
         tol_layout.addWidget(self.tolerance_input)
         controls_layout.addLayout(tol_layout)
+        
+        self.cb_head_tracking = QCheckBox("Active Head Tracking")
+        self.cb_head_tracking.setChecked(True)
+        self.cb_head_tracking.setStyleSheet("font-weight: bold; margin-bottom: 5px;")
+        controls_layout.addWidget(self.cb_head_tracking)
         
         self.btn_center = QPushButton("MOVE TO CENTER")
         self.btn_center.setMinimumHeight(40)
@@ -503,6 +510,7 @@ class CalibrationApp(QWidget):
             return
 
         axis_mode = 6 if "6" in self.axis_sel.currentText() else 5
+        use_head_tracking = self.cb_head_tracking.isChecked()
         self.btn_start.setEnabled(False)
         self.btn_result.setEnabled(False)
         if hasattr(self, 'poll_timer'):
@@ -510,7 +518,7 @@ class CalibrationApp(QWidget):
         
         self.log_text.clear()
         
-        self.worker = CalibrationWorker(self.calibrator, self.arm_side, axis_mode)
+        self.worker = CalibrationWorker(self.calibrator, self.arm_side, axis_mode, use_head_tracking=use_head_tracking)
         self.worker.log_signal.connect(self.log_msg)
         self.worker.status_signal.connect(self.update_marker_indicator)
         self.worker.finished_signal.connect(self.on_calibration_finished)
