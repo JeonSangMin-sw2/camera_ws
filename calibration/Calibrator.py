@@ -135,19 +135,22 @@ class BaseCalibrator:
                 .set_minimum_time(minimum_time)
                 .set_position(left_arm)
             )
+        
+        comp_cmd = rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
         if head is not None:
-            body_cmd.set_head_command(
+            comp_cmd.set_head_command(
                 rby.JointPositionCommandBuilder()
                 .set_minimum_time(minimum_time)
                 .set_position(head)
             )
         
-        cmd = rby.RobotCommandBuilder().set_command(
-            rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
-        )
+        cmd = rby.RobotCommandBuilder().set_command(comp_cmd)
         
         try:
-            robot.send_command(cmd).get()
+            rv = robot.send_command(cmd, 1).get()
+            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                logging.error("Failed to conduct movej.")
+                return False
             return True
         except Exception as e:
             logging.error(f"movej failed: {e}")
