@@ -32,7 +32,10 @@ class PitchHeadCalibrator:
         """
         T = np.eye(4)
         T[:3, 3] = data[:3]
-        T[:3, :3] = R_scipy.from_euler('ZYX', data[3:], degrees=True).as_matrix()
+        yaw = data[5]
+        pitch = data[4]
+        roll = data[3]
+        T[:3, :3] = R_scipy.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix()
         return T
 
     @staticmethod

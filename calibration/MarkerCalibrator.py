@@ -266,13 +266,14 @@ class MarkerCalibrator:
             r_final_dir /= np.linalg.norm(r_final_dir)
         R_init = best_opt.x[9]
         
-        # Iterative Outlier Rejection (2 iterations)
-        for iteration in range(2):
+        # Iterative Worst-Outlier Rejection (up to 3 points)
+        inlier_mask = np.ones(len(points), dtype=bool)
+        for out_iter in range(3):
             angles_rad = angles_rad_base * best_sign
             pts_in = points[inlier_mask]
             rad_in = angles_rad[inlier_mask]
             
-            if len(pts_in) < 5:
+            if len(pts_in) < 6: # Maintain at least 6 points for stability
                 break
                 
             init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
@@ -320,14 +321,18 @@ class MarkerCalibrator:
                 all_errors.append(np.linalg.norm(pt - pred_pt))
             all_errors = np.array(all_errors)
             
+            # Find the worst point among current inliers
+            inlier_indices = np.where(inlier_mask)[0]
             inlier_errors = all_errors[inlier_mask]
-            std_err = np.std(inlier_errors) if len(inlier_errors) > 0 else 1.0
-            threshold = max(0.5, min(3.0, 2.0 * std_err))
+            worst_inlier_idx_in_inliers = np.argmax(inlier_errors)
+            worst_global_idx = inlier_indices[worst_inlier_idx_in_inliers]
+            worst_error = inlier_errors[worst_inlier_idx_in_inliers]
             
-            new_mask = all_errors < threshold
-            if np.all(new_mask == inlier_mask) or np.sum(new_mask) < 5:
+            # Reject if the worst error is larger than 0.5 mm
+            if worst_error > 0.5:
+                inlier_mask[worst_global_idx] = False
+            else:
                 break
-            inlier_mask = new_mask
             
         # Re-orthogonalize best_normal with axis_prior to ensure sign consistency
         if axis_prior is not None:
