@@ -18,6 +18,9 @@ class BaseCalibrator:
         # Load camera setting config if available
         self.camera_config = {}
         self.load_camera_config()
+        
+        # Active joint home offsets to apply to commanded trajectories
+        self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
 
     def load_camera_config(self):
         # Locate setting.yaml
@@ -111,11 +114,21 @@ class BaseCalibrator:
         sin_t = np.sin(theta_rad)
         return vector * cos_t + np.cross(axis, vector) * sin_t + axis * np.dot(axis, vector) * (1 - cos_t)
 
-    @staticmethod
-    def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0):
+    def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True):
         if not robot:
             return False
             
+        if apply_offsets and hasattr(self, 'joint_offsets'):
+            # Offset mapping: Joint 3 (index 3) is elbow, Joint 5 (index 5) is wrist_pitch
+            if right_arm is not None:
+                right_arm = list(right_arm)
+                right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                right_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
+            if left_arm is not None:
+                left_arm = list(left_arm)
+                left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                left_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
+
         body_cmd = rby.BodyComponentBasedCommandBuilder()
         if torso is not None:
             body_cmd.set_torso_command(
@@ -880,19 +893,18 @@ class PitchHeadCalibrator(BaseCalibrator):
                     pass
 
             if arm_side == "left":
-                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.2)
+                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
             else:
-                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.2)
+                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
             time.sleep(0.5)
             
             res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                p_cam = pose[:3, 3] # meters
                 
                 # Capture full robot joint position
                 q_full_captured = np.array(self.robot.get_state().position)
-                dataset_A.append((q_full_captured, p_cam))
+                dataset_A.append((q_full_captured, pose))
                 if log_callback: log_callback(f"  Captured Point {len(dataset_A)}/{len(sweep_angles)}: sa={sa:.1f}°")
 
         # Return to baseline
@@ -924,9 +936,9 @@ class PitchHeadCalibrator(BaseCalibrator):
 
         if log_callback: log_callback("\n[INFO] Returning to candidate baseline...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=q_cand, head=head_q_step_cand, minimum_time=1.5)
+            self.movej(self.robot, left_arm=q_cand, head=head_q_step_cand, minimum_time=1.5, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=q_cand, head=head_q_step_cand, minimum_time=1.5)
+            self.movej(self.robot, right_arm=q_cand, head=head_q_step_cand, minimum_time=1.5, apply_offsets=False)
         time.sleep(0.5)
 
         # 2. PHYSICAL SWEEP JOINT B
@@ -964,27 +976,26 @@ class PitchHeadCalibrator(BaseCalibrator):
                     pass
 
             if arm_side == "left":
-                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.2)
+                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
             else:
-                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.2)
+                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
             time.sleep(0.5)
             
             res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                p_cam = pose[:3, 3]
                 
                 # Capture full robot joint position
                 q_full_captured = np.array(self.robot.get_state().position)
-                dataset_B.append((q_full_captured, p_cam))
+                dataset_B.append((q_full_captured, pose))
                 if log_callback: log_callback(f"  Captured Point {len(dataset_B)}/{len(sweep_angles)}: sb={sb:.1f}°")
 
         # Return arm and head to original ready pose
         if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm and head to initial pose...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
+            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
+            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0, apply_offsets=False)
 
         if len(dataset_A) < 6 or len(dataset_B) < 6:
             if log_callback: log_callback("[ERROR] Too few valid captured points. Calibration failed.")
@@ -1000,7 +1011,8 @@ class PitchHeadCalibrator(BaseCalibrator):
         def evaluate_offset(offset_rad):
             # Transform pts_A to ee frame
             pts_ee_A = []
-            for q_full, p_cam in dataset_A:
+            for q_full, pose in dataset_A:
+                p_cam = pose[:3, 3]
                 q_mod = np.array(q_full)
                 q_mod[arm_idx[cand_joint]] += offset_rad
                 T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
@@ -1017,7 +1029,8 @@ class PitchHeadCalibrator(BaseCalibrator):
                 
             # Transform pts_B to ee frame
             pts_ee_B = []
-            for q_full, p_cam in dataset_B:
+            for q_full, pose in dataset_B:
+                p_cam = pose[:3, 3]
                 q_mod = np.array(q_full)
                 q_mod[arm_idx[cand_joint]] += offset_rad
                 T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
@@ -1068,7 +1081,8 @@ class PitchHeadCalibrator(BaseCalibrator):
 
         # Prepare final visual projection datasets
         pts_ee_A_best = []
-        for q_full, p_cam in dataset_A:
+        for q_full, pose in dataset_A:
+            p_cam = pose[:3, 3]
             q_mod = np.array(q_full)
             q_mod[arm_idx[cand_joint]] += optimal_offset_rad
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
@@ -1081,7 +1095,8 @@ class PitchHeadCalibrator(BaseCalibrator):
             pts_ee_A_best.append(p_ee * 1000.0)
             
         pts_ee_B_best = []
-        for q_full, p_cam in dataset_B:
+        for q_full, pose in dataset_B:
+            p_cam = pose[:3, 3]
             q_mod = np.array(q_full)
             q_mod[arm_idx[cand_joint]] += optimal_offset_rad
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
@@ -1101,6 +1116,42 @@ class PitchHeadCalibrator(BaseCalibrator):
         plot_offsets = np.linspace(-4.0, 4.0, 5)
         plot_errors = [evaluate_offset(np.radians(o)) for o in plot_offsets]
 
+        # Simultaneous Marker Axis 6 parameter calculation
+        marker_6_res = None
+        if mode == "wrist_pitch":
+            try:
+                # Extract captured_poses projected into the static torso frame
+                captured_poses_torso = []
+                for q_full, pose_cam_to_marker in dataset_B:
+                    # Dynamically compute T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    
+                    # Project T_cam_to_marker back to torso frame T_t5_to_marker
+                    T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
+                    captured_poses_torso.append(T_t5_to_marker)
+                    
+                # Solve Marker Bracket Axis 6 Calibration on torso-projected poses
+                # Note: axis_prior = [1.0, 0.0, 0.0] for Axis 6 (roll)
+                marker_6_res = self.fit_circle_3d_and_6dof_misalignment(
+                    captured_poses_torso, 
+                    sweep_angles, 
+                    axis_prior=[1.0, 0.0, 0.0]
+                )
+                
+                if log_callback and marker_6_res:
+                    log_callback("\n" + "-"*50)
+                    log_callback("  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS]")
+                    log_callback("-"*50)
+                    log_callback(f"    - Fitted Sweep Radius    : {marker_6_res['radius']:.3f} mm")
+                    log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
+                    log_callback(f"    - Axis Direction Vector  : {np.round(marker_6_res['axis'], 4)}")
+                    log_callback(f"    - Jitter StdDev (Tilt)   : {np.std(marker_6_res.get('tilt_list', [0.0])):.3f} deg")
+                    log_callback("-"*50 + "\n")
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"\n[WARN] Failed simultaneous Marker Axis 6 calculation: {e}\n")
+
         return {
             'mode': mode,
             'optimal_offset': optimal_offset_deg,
@@ -1115,7 +1166,8 @@ class PitchHeadCalibrator(BaseCalibrator):
             'vc_B': vc_B,
             'r_B': r_B,
             'rmse_A': rmse_A,
-            'rmse_B': rmse_B
+            'rmse_B': rmse_B,
+            'marker_6_res': marker_6_res
         }
 
     def perform_head_calibration_sweep(self, arm_side, log_callback=None, status_callback=None):

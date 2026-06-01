@@ -7,7 +7,7 @@ import logging
 import rby1_sdk as rby
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, QLineEdit, QDialog, QMessageBox, QTabWidget)
+                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap
 import matplotlib.pyplot as plt
@@ -254,13 +254,14 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True, current_offset_deg=0.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.mode = mode
         self.ui_only = ui_only
         self.use_head_tracking = use_head_tracking
+        self.current_offset_deg = current_offset_deg
 
     def run(self):
         try:
@@ -287,9 +288,11 @@ class JointCalibrationWorker(QThread):
                     theta = np.linspace(-np.pi, np.pi, 20)
                     pts_2d_A = np.column_stack((np.cos(theta)*45 + 1.0, np.sin(theta)*45 + 2.0))
                     pts_2d_B = np.column_stack((np.cos(theta)*43 - 0.5, np.sin(theta)*43 + 1.5))
+                    # Simulate convergence: if offset already applied, make residual extremely close to zero!
+                    opt_offset = -0.45 if abs(self.current_offset_deg) < 1e-4 else -0.002
                     res = {
                         'mode': self.mode,
-                        'optimal_offset': -0.45,
+                        'optimal_offset': opt_offset,
                         'offsets': [-4, -2, 0, 2, 4],
                         'errors': [2.1, 1.0, 0.3, 1.4, 2.9],
                         'pts_2d_A': pts_2d_A,
@@ -315,7 +318,8 @@ class JointCalibrationWorker(QThread):
                         self.arm_side, self.mode,
                         log_callback=self.log_signal.emit, 
                         status_callback=self.status_signal.emit,
-                        use_head_tracking=self.use_head_tracking
+                        use_head_tracking=self.use_head_tracking,
+                        current_offset_deg=self.current_offset_deg
                     )
 
             if res:
@@ -420,6 +424,9 @@ class UnifiedCalibrationApp(QWidget):
         
         # Cumulative Joint Offsets for iterative sweeps
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        self.joint_calib_state = "idle"
+        self.marker_calibrator.joint_offsets = self.joint_offsets
+        self.joint_calibrator.joint_offsets = self.joint_offsets
         
         self.setWindowTitle("Unified Robot Joint & Marker Bracket Calibration")
         self.resize(1100, 750)
@@ -806,29 +813,31 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_joint_apply.setVisible(False)
 
     def apply_joint_offset(self):
-        if not self.joint_sweep_data:
-            QMessageBox.warning(self, "No Sweep Data", "Please perform a joint sweep first.")
-            return
-            
-        mode = self.joint_sweep_data.get('mode')
+        mode_str = self.joint_mode_sel.currentText()
+        mode = "wrist_pitch" if "wrist_pitch" in mode_str else ("elbow" if "elbow" in mode_str else "head")
         if mode not in ["wrist_pitch", "elbow"]:
             QMessageBox.warning(self, "Invalid Mode", "Offset can only be applied to wrist_pitch or elbow joints.")
             return
             
-        optimal_offset = self.joint_sweep_data.get('optimal_offset', 0.0)
-        
-        # Cumulative update
-        self.joint_offsets[mode] += optimal_offset
-        self.update_applied_offset_label()
-        
-        QMessageBox.information(
+        current_val = self.joint_offsets.get(mode, 0.0)
+        new_val, ok = QInputDialog.getDouble(
             self, 
-            "Offset Applied", 
-            f"Successfully applied relative offset: {optimal_offset:.4f}°\n"
-            f"Total Cumulative Applied Offset for {mode}: {self.joint_offsets[mode]:.4f}°"
+            "Manual Offset Override", 
+            f"Enter cumulative home offset for {mode} (degrees):", 
+            current_val, -45.0, 45.0, 4
         )
-        self.log_msg(f"\n[APPLIED OFFSET] Added {optimal_offset:.4f}° relative offset to {mode}.")
-        self.log_msg(f"[APPLIED OFFSET] Total cumulative offset is now {self.joint_offsets[mode]:.4f}°.")
+        if ok:
+            self.joint_offsets[mode] = new_val
+            self.joint_calibrator.joint_offsets[mode] = new_val
+            self.marker_calibrator.joint_offsets[mode] = new_val
+            self.update_applied_offset_label()
+            self.log_msg(f"[MANUAL OFFSET] Manually updated cumulative offset for {mode} to {new_val:.4f}°.")
+            QMessageBox.information(
+                self, 
+                "Offset Saved", 
+                f"Successfully set cumulative offset for {mode} to {new_val:.4f}°.\n"
+                f"This offset will be persistently applied to all subsequent joint and marker operations."
+            )
 
     def set_controls_enabled(self, enabled):
         self.btn_joint_ready.setEnabled(enabled)
@@ -875,12 +884,20 @@ class UnifiedCalibrationApp(QWidget):
         mode_str = self.joint_mode_sel.currentText()
         mode = "wrist_pitch" if "wrist_pitch" in mode_str else ("elbow" if "elbow" in mode_str else "head")
 
+        # State machine transition
+        if mode in ["wrist_pitch", "elbow"]:
+            self.joint_calib_state = "first_sweep"
+            self.first_sweep_optimal_offset = 0.0
+            self.original_joint_offset = self.joint_offsets.get(mode, 0.0)
+        else:
+            self.joint_calib_state = "idle"
+
         self.set_controls_enabled(False)
         if not self.ui_only and hasattr(self, 'poll_timer'):
             self.poll_timer.stop()
 
         self.log_text.clear()
-        self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
+        self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()} [State: FIRST SWEEP]")
         
         use_ht = self.cb_joint_head_tracking.isChecked()
         curr_offset = self.joint_offsets.get(mode, 0.0)
@@ -895,24 +912,118 @@ class UnifiedCalibrationApp(QWidget):
         self.active_worker.start()
 
     def on_calibration_finished_joint(self, res):
+        if not res:
+            self.on_action_finished()
+            if not self.ui_only and hasattr(self, 'poll_timer'):
+                self.poll_timer.start(200)
+            self.log_msg("[ERROR] Joint sweep failed or aborted.")
+            self.joint_calib_state = "idle"
+            return
+
+        mode = res['mode']
+
+        if self.joint_calib_state == "first_sweep" and mode in ["wrist_pitch", "elbow"]:
+            # Capture the relative optimal offset calculated from the first sweep
+            self.first_sweep_optimal_offset = res['optimal_offset']
+            self.log_msg(f"\n[INFO] First sweep completed successfully!")
+            self.log_msg(f"  -> Calculated Relative Joint Offset: {self.first_sweep_optimal_offset:.4f} deg")
+            
+            # Temporarily apply this offset cumulatively!
+            temp_cumulative = self.original_joint_offset + self.first_sweep_optimal_offset
+            self.joint_offsets[mode] = temp_cumulative
+            self.log_msg(f"  -> Temporarily applying cumulative offset: {temp_cumulative:.4f} deg")
+            self.log_msg(f"  -> Automatically launching physical VERIFICATION SWEEP with new offset baseline...\n")
+            
+            # Sync the offset to the calibrators immediately!
+            self.joint_calibrator.joint_offsets[mode] = temp_cumulative
+            self.marker_calibrator.joint_offsets[mode] = temp_cumulative
+            self.update_applied_offset_label()
+            
+            # Start verification sweep
+            self.joint_calib_state = "verifying"
+            use_ht = self.cb_joint_head_tracking.isChecked()
+            self.active_worker = JointCalibrationWorker(
+                self.joint_calibrator, self.arm_side, mode, 
+                ui_only=self.ui_only, use_head_tracking=use_ht, 
+                current_offset_deg=temp_cumulative
+            )
+            self.active_worker.log_signal.connect(self.log_msg)
+            self.active_worker.status_signal.connect(self.update_marker_indicator)
+            self.active_worker.finished_signal.connect(self.on_calibration_finished_joint)
+            self.active_worker.start()
+            return
+
+        # Verification sweep or head sweep finished
         self.on_action_finished()
         if not self.ui_only and hasattr(self, 'poll_timer'):
             self.poll_timer.start(200)
 
-        if res:
-            self.joint_sweep_data = res
+        self.joint_sweep_data = res
+
+        # Update Plot viewer if plots exist
+        if 'plot_path_left' in res and os.path.exists(res['plot_path_left']):
+            pix_l = QPixmap(res['plot_path_left']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.plot_label_left.setPixmap(pix_l)
+        if 'plot_path_right' in res and os.path.exists(res['plot_path_right']):
+            pix_r = QPixmap(res['plot_path_right']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.plot_label_right.setPixmap(pix_r)
             
-            # Update Plot viewer
-            if 'plot_path_left' in res and os.path.exists(res['plot_path_left']):
-                pix_l = QPixmap(res['plot_path_left']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.plot_label_left.setPixmap(pix_l)
-            if 'plot_path_right' in res and os.path.exists(res['plot_path_right']):
-                pix_r = QPixmap(res['plot_path_right']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.plot_label_right.setPixmap(pix_r)
-                
-            self.tabs.setCurrentIndex(1) # Auto swap to plot tab
-        else:
-            self.log_msg("[ERROR] Joint sweep failed or aborted.")
+        self.tabs.setCurrentIndex(1) # Auto swap to plot tab
+
+        if mode in ["wrist_pitch", "elbow"]:
+            residual_offset = res['optimal_offset']
+            total_cumulative = self.joint_offsets[mode] # already updated before verification sweep
+            
+            self.log_msg(f"\n" + "="*50)
+            self.log_msg("       AUTOMATED VERIFICATION SWEEP COMPLETED")
+            self.log_msg("="*50)
+            self.log_msg(f"  * Cumulative Applied Offset : {total_cumulative:.4f} deg")
+            self.log_msg(f"  * Sweep Residual Offset     : {residual_offset:.4f} deg")
+            self.log_msg(f"  * Circle A Fitting RMSE     : {res['rmse_A']:.4f} mm")
+            self.log_msg(f"  * Circle B Fitting RMSE     : {res['rmse_B']:.4f} mm")
+            
+            # Print Axis 6 simultaneous results if available!
+            if 'marker_6_res' in res and res['marker_6_res']:
+                m6 = res['marker_6_res']
+                self.log_msg(f"\n[SIMULTANEOUS MARKER AXIS 6 ESTIMATION]")
+                self.log_msg(f"    - Fitted Radius           : {m6['radius']:.3f} mm")
+                self.log_msg(f"    - Axis 6 fitting RMSE     : {m6['rmse']:.3f} mm")
+                self.log_msg(f"    - Axis Direction Vector   : {np.round(m6['axis'], 4)}")
+            self.log_msg("="*50 + "\n")
+            
+            # Modal Confirmation Dialog
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Question)
+            msg_box.setWindowTitle("Joint Calibration Verification")
+            msg_box.setText(f"<b>최종 검증 완료!</b><br><br>"
+                            f"정밀 물리 검증 루프가 완료되었습니다.<br>"
+                            f"<b>누적 보정치:</b> {total_cumulative:.4f}°<br>"
+                            f"<b>잔여 오차 (Residual Offset):</b> {residual_offset:.4f}°<br>"
+                            f"<b>원 피팅 오차 (A/B RMSE):</b> {res['rmse_A']:.3f} / {res['rmse_B']:.3f} mm<br><br>"
+                            f"이 보정 오프셋을 최종 영구 적용하시겠습니까?")
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.Yes)
+            
+            reply = msg_box.exec()
+            if reply == QMessageBox.Yes:
+                self.log_msg(f"[SUCCESS] Calibration Approved! Permanently saved offset: {total_cumulative:.4f} deg")
+                # Confirm permanent updates
+                self.joint_offsets[mode] = total_cumulative
+                self.joint_calibrator.joint_offsets[mode] = total_cumulative
+                self.marker_calibrator.joint_offsets[mode] = total_cumulative
+            else:
+                self.log_msg(f"[REVERT] Calibration Rejected. Reverting offset to pre-sweep value: {self.original_joint_offset:.4f} deg")
+                self.joint_offsets[mode] = self.original_joint_offset
+                self.joint_calibrator.joint_offsets[mode] = self.original_joint_offset
+                self.marker_calibrator.joint_offsets[mode] = self.original_joint_offset
+            
+            self.update_applied_offset_label()
+            self.joint_calib_state = "idle"
+            
+        else: # Head Calibration
+            self.log_msg("\n[INFO] Head calibration finished.")
+            self.show_result_joint()
+            self.joint_calib_state = "idle"
 
     def show_result_joint(self):
         self.log_text.clear()
