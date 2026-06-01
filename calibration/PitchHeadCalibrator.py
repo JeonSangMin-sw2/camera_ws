@@ -48,10 +48,13 @@ class PitchHeadCalibrator:
         return T
 
     @staticmethod
-    def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0):
+    def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, priority=10):
         if not robot:
             return False
             
+        cmd = rby.ComponentBasedCommandBuilder()
+        
+        has_body = False
         body_cmd = rby.BodyComponentBasedCommandBuilder()
         if torso is not None:
             body_cmd.set_torso_command(
@@ -59,20 +62,25 @@ class PitchHeadCalibrator:
                 .set_minimum_time(minimum_time)
                 .set_position(torso)
             )
+            has_body = True
         if right_arm is not None:
             body_cmd.set_right_arm_command(
                 rby.JointPositionCommandBuilder()
                 .set_minimum_time(minimum_time)
                 .set_position(right_arm)
             )
+            has_body = True
         if left_arm is not None:
             body_cmd.set_left_arm_command(
                 rby.JointPositionCommandBuilder()
                 .set_minimum_time(minimum_time)
                 .set_position(left_arm)
             )
+            has_body = True
 
-        cmd = rby.ComponentBasedCommandBuilder().set_body_command(body_cmd)
+        if has_body:
+            cmd.set_body_command(body_cmd)
+
         if head is not None:
             cmd.set_head_command(
                 rby.JointPositionCommandBuilder()
@@ -82,11 +90,11 @@ class PitchHeadCalibrator:
 
         rv = robot.send_command(
             rby.RobotCommandBuilder().set_command(cmd),
-            1,
+            priority,
         ).get()
 
         if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            logging.error("Failed to conduct movej.")
+            logging.error(f"Failed to conduct movej. Finish code: {rv.finish_code}")
             return False
 
         return True
