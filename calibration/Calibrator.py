@@ -270,13 +270,19 @@ class BaseCalibrator:
 class MarkerCalibrator(BaseCalibrator):
     @staticmethod
     def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False):
-        points = np.array([T[:3, 3] for T in relative_poses])
+        points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])
         angles_rad_base = np.radians(captured_angles)
         
+        # Nominal Normal
+        if axis_prior is not None:
+            n_nominal = np.array(axis_prior, dtype=float)
+            n_nominal /= np.linalg.norm(n_nominal)
+        else:
+            n_nominal = np.array([0.0, 0.0, 1.0])
+            
         # Initial Normal
         if axis_prior is not None:
-            best_normal = np.array(axis_prior, dtype=float)
-            best_normal /= np.linalg.norm(best_normal)
+            best_normal = n_nominal.copy()
         else:
             centroid = np.mean(points, axis=0)
             pts_centered = points - centroid
@@ -485,12 +491,6 @@ class MarkerCalibrator(BaseCalibrator):
         vc_opt = 0.0
         
         # Calculate 6-DOF misalignment
-        if axis_prior is not None:
-            n_nominal = np.array(axis_prior, dtype=float)
-            n_nominal /= np.linalg.norm(n_nominal)
-        else:
-            n_nominal = np.array([0.0, 0.0, 1.0])
-            
         tilt_angle = np.rad2deg(np.arccos(np.clip(np.dot(axis_opt, n_nominal), -1.0, 1.0)))
         
         # Projection for yaw
@@ -504,6 +504,24 @@ class MarkerCalibrator(BaseCalibrator):
         else:
             yaw_angle = 0.0
             
+        # Calculate individual tilt angles for each pose to compute jitter/stddev
+        tilt_list = []
+        for T in relative_poses:
+            if axis_prior is not None:
+                if abs(axis_prior[0]) > 0.8:
+                    axis_i = T[:3, 0]
+                elif abs(axis_prior[1]) > 0.8:
+                    axis_i = T[:3, 1]
+                else:
+                    axis_i = T[:3, 2]
+            else:
+                axis_i = T[:3, 2]
+            axis_norm = np.linalg.norm(axis_i)
+            if axis_norm > 1e-6:
+                axis_i /= axis_norm
+            tilt_i = np.rad2deg(np.arccos(np.clip(np.dot(axis_i, n_nominal), -1.0, 1.0)))
+            tilt_list.append(tilt_i)
+            
         res_dict = {
             'c_opt': c_opt,
             'axis_opt': axis_opt,
@@ -514,7 +532,8 @@ class MarkerCalibrator(BaseCalibrator):
             'pts_2d': pts_2d,
             'uc_opt': uc_opt,
             'vc_opt': vc_opt,
-            'inlier_mask': inlier_mask
+            'inlier_mask': inlier_mask,
+            'tilt_list': tilt_list
         }
         return res_dict
 
@@ -642,16 +661,16 @@ class MarkerCalibrator(BaseCalibrator):
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
         initial_joint_pos = list(state.position[arm_idx])
 
-        # Sweep configuration
+        # Sweep configuration (0.5 degree steps for dense cloud)
         if "axis 6" in axis_mode.lower():
             start_deg = -20.0
-            step_deg = 5.0
-            max_points = 9
+            step_deg = 0.5
+            max_points = 81
             joint_i = 6
         else:
             start_deg = -10.0
-            step_deg = 2.5
-            max_points = 9
+            step_deg = 0.5
+            max_points = 41
             joint_i = 5
 
         # Active head tracking setup
@@ -719,19 +738,21 @@ class MarkerCalibrator(BaseCalibrator):
                 except Exception:
                     pass
 
+            # Fast 0.3s movement for dense 0.5-degree steps
             if arm_side == "left":
-                move_status = self.movej(self.robot, left_arm=target_joint_pos, head=head_q_step, minimum_time=1.5)
+                move_status = self.movej(self.robot, left_arm=target_joint_pos, head=head_q_step, minimum_time=0.3)
             else:
-                move_status = self.movej(self.robot, right_arm=target_joint_pos, head=head_q_step, minimum_time=1.5)
+                move_status = self.movej(self.robot, right_arm=target_joint_pos, head=head_q_step, minimum_time=0.3)
 
             if move_status:
-                time.sleep(1.0)
+                time.sleep(0.1)  # Minimal settle time
             else:
                 if log_callback: log_callback(f"  [ERROR] Arm movement failed.")
                 break
 
             if log_callback: log_callback(f"  - Capturing marker transform...")
-            lpf_results = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+            # Fast 0.5s sampling time for dense averaging
+            lpf_results = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side)
             
             captured_pose = None
             if lpf_results and len(lpf_results) > 0:
@@ -841,8 +862,8 @@ class PitchHeadCalibrator(BaseCalibrator):
             sweep_joint_A = 2
             sweep_joint_B = 4
 
-        # 9 steps from -20 to 20 deg (5 deg steps)
-        sweep_angles = [-20, -15, -10, -5, 0, 5, 10, 15, 20]
+        # 0.5 degree steps from -20 to 20 deg (81 steps)
+        sweep_angles = np.arange(-20.0, 20.01, 0.5)
         
         # Prepare Active Head/Camera Tracking
         head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
@@ -901,12 +922,12 @@ class PitchHeadCalibrator(BaseCalibrator):
                     pass
 
             if arm_side == "left":
-                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
+                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=0.3, apply_offsets=False)
             else:
-                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
-            time.sleep(0.5)
+                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=0.3, apply_offsets=False)
+            time.sleep(0.1)
             
-            res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+            res = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 
@@ -944,10 +965,10 @@ class PitchHeadCalibrator(BaseCalibrator):
 
         if log_callback: log_callback("\n[INFO] Returning to candidate baseline...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=q_cand, head=head_q_step_cand, minimum_time=1.5, apply_offsets=False)
+            self.movej(self.robot, left_arm=q_cand, head=head_q_step_cand, minimum_time=1.0, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=q_cand, head=head_q_step_cand, minimum_time=1.5, apply_offsets=False)
-        time.sleep(0.5)
+            self.movej(self.robot, right_arm=q_cand, head=head_q_step_cand, minimum_time=1.0, apply_offsets=False)
+        time.sleep(0.1)
 
         # 2. PHYSICAL SWEEP JOINT B
         if log_callback: log_callback(f"\n--- [2/2] Physically Sweeping Joint B (Index {sweep_joint_B}) ---")
@@ -984,12 +1005,12 @@ class PitchHeadCalibrator(BaseCalibrator):
                     pass
 
             if arm_side == "left":
-                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
+                self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=0.3, apply_offsets=False)
             else:
-                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.2, apply_offsets=False)
-            time.sleep(0.5)
+                self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=0.3, apply_offsets=False)
+            time.sleep(0.1)
             
-            res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+            res = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 
@@ -1010,15 +1031,16 @@ class PitchHeadCalibrator(BaseCalibrator):
             return None
 
         # 3. OFFLINE NUMERICAL OPTIMIZATION (Brent's 1D search)
-        if log_callback: log_callback("\n--- [3] Starting Offline Iterative Brent Optimization ---")
+        if log_callback: log_callback("\n--- [3] Starting Offline Iterative Brent Optimization (3D Spread Minimization) ---")
         
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
         T_mount_to_cam = self.make_transform(mount_to_cam)
 
         def evaluate_offset(offset_rad):
+            pts_ee = []
+            
             # Transform pts_A to ee frame
-            pts_ee_A = []
             for q_full, pose in dataset_A:
                 p_cam = pose[:3, 3]
                 q_mod = np.array(q_full)
@@ -1033,10 +1055,9 @@ class PitchHeadCalibrator(BaseCalibrator):
                 R = T_t5_to_ee[:3, :3]
                 p = T_t5_to_ee[:3, 3]
                 p_ee = R.T @ (p_meas_t5 - p)
-                pts_ee_A.append(p_ee * 1000.0) # mm
+                pts_ee.append(p_ee * 1000.0) # mm
                 
             # Transform pts_B to ee frame
-            pts_ee_B = []
             for q_full, pose in dataset_B:
                 p_cam = pose[:3, 3]
                 q_mod = np.array(q_full)
@@ -1051,11 +1072,13 @@ class PitchHeadCalibrator(BaseCalibrator):
                 R = T_t5_to_ee[:3, :3]
                 p = T_t5_to_ee[:3, 3]
                 p_ee = R.T @ (p_meas_t5 - p)
-                pts_ee_B.append(p_ee * 1000.0) # mm
+                pts_ee.append(p_ee * 1000.0) # mm
                 
-            c3d_A, _, _, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_ee_A)
-            c3d_B, _, _, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_ee_B)
-            return np.linalg.norm(c3d_A - c3d_B)
+            pts_ee = np.array(pts_ee)
+            mean_pt = np.mean(pts_ee, axis=0)
+            deviations = np.linalg.norm(pts_ee - mean_pt, axis=1)
+            # Minimize standard deviation of marker coordinates in ee frame (makes the two circles collapse together!)
+            return np.sqrt(np.mean(deviations**2))
 
         iteration_count = 0
         def evaluate_offset_logged(offset_rad):
@@ -1063,7 +1086,7 @@ class PitchHeadCalibrator(BaseCalibrator):
             iteration_count += 1
             error = evaluate_offset(offset_rad)
             if log_callback:
-                log_callback(f"  [Iter {iteration_count:2d}] Joint Offset: {np.degrees(offset_rad):.6f}° | Circle Centers Dist: {error:.8f} mm")
+                log_callback(f"  [Iter {iteration_count:2d}] Joint Offset: {np.degrees(offset_rad):.6f}° | Marker Spread (SD): {error:.8f} mm")
             return error
 
         # Run brent scalar optimizer (bounds: ±10 deg = ±0.1745 rad)
@@ -1084,7 +1107,7 @@ class PitchHeadCalibrator(BaseCalibrator):
             log_callback("="*50)
             log_callback(f"  * Total Iterations          : {iteration_count}")
             log_callback(f"  * Estimated Optimal Offset  : {optimal_offset_deg:.6f} deg")
-            log_callback(f"  * Final Circle Centers Dist : {final_dist:.8f} mm")
+            log_callback(f"  * Final Marker Spread (SD)  : {final_dist:.8f} mm")
             log_callback("="*50)
 
         # Prepare final visual projection datasets
@@ -1153,7 +1176,7 @@ class PitchHeadCalibrator(BaseCalibrator):
                     log_callback("-"*50)
                     log_callback(f"    - Fitted Sweep Radius    : {marker_6_res['radius']:.3f} mm")
                     log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
-                    log_callback(f"    - Axis Direction Vector  : {np.round(marker_6_res['axis'], 4)}")
+                    log_callback(f"    - Axis Direction Vector  : {np.round(marker_6_res['axis_opt'], 4)}")
                     log_callback(f"    - Jitter StdDev (Tilt)   : {np.std(marker_6_res.get('tilt_list', [0.0])):.3f} deg")
                     log_callback("-"*50 + "\n")
             except Exception as e:
