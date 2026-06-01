@@ -782,10 +782,12 @@ class PitchHeadCalibrator(BaseCalibrator):
             log_callback("[INFO] Ready Pose Reached.")
         return success
 
-    def perform_calibration_sweep_5_or_3(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True):
+    def perform_calibration_sweep_5_or_3(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True, current_offset_deg=0.0):
         if log_callback:
             log_callback("\n" + "="*50)
             log_callback(f"   STARTING {mode.upper()} OFFSET CALIBRATION SWEEP (ITERATIVE BRENT OPTIMIZATION)")
+            if current_offset_deg != 0.0:
+                log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
             log_callback("="*50)
 
         if not self.marker_st:
@@ -839,8 +841,9 @@ class PitchHeadCalibrator(BaseCalibrator):
         except Exception:
             p_marker_0 = None
 
-        # Arm cand baseline pose (joint 5 is 0)
+        # Arm cand baseline pose (shifted by current offset)
         q_cand = list(initial_joint_pos)
+        q_cand[cand_joint] = initial_joint_pos[cand_joint] + np.radians(current_offset_deg)
 
         # 1. PHYSICAL SWEEP JOINT A
         if log_callback: log_callback(f"\n--- [1/2] Physically Sweeping Joint A (Index {sweep_joint_A}) ---")
@@ -990,9 +993,9 @@ class PitchHeadCalibrator(BaseCalibrator):
         # 3. OFFLINE NUMERICAL OPTIMIZATION (Brent's 1D search)
         if log_callback: log_callback("\n--- [3] Starting Offline Iterative Brent Optimization ---")
         
-        # Load mount_to_cam
+        # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        T_t5_to_cam = self.make_transform(mount_to_cam)
+        T_mount_to_cam = self.make_transform(mount_to_cam)
 
         def evaluate_offset(offset_rad):
             # Transform pts_A to ee frame
@@ -1001,6 +1004,10 @@ class PitchHeadCalibrator(BaseCalibrator):
                 q_mod = np.array(q_full)
                 q_mod[arm_idx[cand_joint]] += offset_rad
                 T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                
+                # Dynamically compute T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
                 
                 p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
                 R = T_t5_to_ee[:3, :3]
@@ -1014,6 +1021,10 @@ class PitchHeadCalibrator(BaseCalibrator):
                 q_mod = np.array(q_full)
                 q_mod[arm_idx[cand_joint]] += offset_rad
                 T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                
+                # Dynamically compute T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
                 
                 p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
                 R = T_t5_to_ee[:3, :3]
@@ -1061,6 +1072,10 @@ class PitchHeadCalibrator(BaseCalibrator):
             q_mod = np.array(q_full)
             q_mod[arm_idx[cand_joint]] += optimal_offset_rad
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+            
+            T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+            
             p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
             p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
             pts_ee_A_best.append(p_ee * 1000.0)
@@ -1070,6 +1085,10 @@ class PitchHeadCalibrator(BaseCalibrator):
             q_mod = np.array(q_full)
             q_mod[arm_idx[cand_joint]] += optimal_offset_rad
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+            
+            T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+            
             p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
             p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
             pts_ee_B_best.append(p_ee * 1000.0)

@@ -418,11 +418,15 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_data_6 = None
         self.joint_sweep_data = None
         
+        # Cumulative Joint Offsets for iterative sweeps
+        self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        
         self.setWindowTitle("Unified Robot Joint & Marker Bracket Calibration")
         self.resize(1100, 750)
         self.setStyleSheet(DARK_STYLESHEET)
         
         self.init_ui()
+        self.update_applied_offset_label()
         
         # Poll indicators
         if not self.ui_only:
@@ -512,6 +516,7 @@ class UnifiedCalibrationApp(QWidget):
         
         self.joint_mode_sel = QComboBox()
         self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)", "head (Yaw/Pitch Sweep)"])
+        self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
         
         self.cb_joint_head_tracking = QCheckBox("Active Head Tracking")
         self.cb_joint_head_tracking.setChecked(True)
@@ -521,10 +526,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
         self.btn_joint_ready.clicked.connect(self.move_to_ready_pose_joint)
         
-        self.btn_joint_center_head = QPushButton("CENTER HEAD")
-        self.btn_joint_center_head.setStyleSheet("background-color: #424242; color: white;")
-        self.btn_joint_center_head.clicked.connect(self.move_head_to_zero)
-        
         self.btn_joint_start = QPushButton("START SWEEP")
         self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
@@ -533,15 +534,23 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_result.setStyleSheet("background-color: #2e7d32; color: white;")
         self.btn_joint_result.clicked.connect(self.show_result_joint)
         
+        self.lbl_applied_offset = QLabel("Applied Offset: 0.0000°")
+        self.lbl_applied_offset.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 13px; margin-top: 10px; qproperty-alignment: AlignCenter;")
+        
+        self.btn_joint_apply = QPushButton("APPLY OFFSET")
+        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white;")
+        self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
+        
         joint_sublayout.addWidget(QLabel("Target Arm:"))
         joint_sublayout.addWidget(self.joint_arm_sel)
         joint_sublayout.addWidget(QLabel("Calibration Mode:"))
         joint_sublayout.addWidget(self.joint_mode_sel)
         joint_sublayout.addWidget(self.cb_joint_head_tracking)
         joint_sublayout.addWidget(self.btn_joint_ready)
-        joint_sublayout.addWidget(self.btn_joint_center_head)
         joint_sublayout.addWidget(self.btn_joint_start)
         joint_sublayout.addWidget(self.btn_joint_result)
+        joint_sublayout.addWidget(self.lbl_applied_offset)
+        joint_sublayout.addWidget(self.btn_joint_apply)
         joint_subtab.setLayout(joint_sublayout)
         self.workflow_tabs.addTab(joint_subtab, "1. Joint Calib")
         
@@ -569,10 +578,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
         self.btn_marker_ready.clicked.connect(self.move_to_ready_pose_marker)
         
-        self.btn_marker_center_head = QPushButton("CENTER HEAD")
-        self.btn_marker_center_head.setStyleSheet("background-color: #424242; color: white;")
-        self.btn_marker_center_head.clicked.connect(self.move_head_to_zero)
-        
         self.btn_marker_center = QPushButton("MOVE TO CENTER")
         self.btn_marker_center.setStyleSheet("background-color: #00838f; color: white;")
         self.btn_marker_center.clicked.connect(self.move_to_center_marker)
@@ -592,7 +597,6 @@ class UnifiedCalibrationApp(QWidget):
         marker_sublayout.addLayout(tol_lay)
         marker_sublayout.addWidget(self.cb_head_tracking)
         marker_sublayout.addWidget(self.btn_marker_ready)
-        marker_sublayout.addWidget(self.btn_marker_center_head)
         marker_sublayout.addWidget(self.btn_marker_center)
         marker_sublayout.addWidget(self.btn_marker_start)
         marker_sublayout.addWidget(self.btn_marker_result)
@@ -783,14 +787,56 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[ERROR] Failed to center head: {e}")
             self.on_action_finished()
 
+    def update_applied_offset_label(self):
+        if not hasattr(self, 'lbl_applied_offset') or not hasattr(self, 'btn_joint_apply'):
+            return
+        mode_str = self.joint_mode_sel.currentText()
+        if "wrist_pitch" in mode_str:
+            offset = self.joint_offsets["wrist_pitch"]
+            self.lbl_applied_offset.setText(f"Applied Offset: {offset:.4f}°")
+            self.lbl_applied_offset.setVisible(True)
+            self.btn_joint_apply.setVisible(True)
+        elif "elbow" in mode_str:
+            offset = self.joint_offsets["elbow"]
+            self.lbl_applied_offset.setText(f"Applied Offset: {offset:.4f}°")
+            self.lbl_applied_offset.setVisible(True)
+            self.btn_joint_apply.setVisible(True)
+        else: # head mode (no offset applied)
+            self.lbl_applied_offset.setVisible(False)
+            self.btn_joint_apply.setVisible(False)
+
+    def apply_joint_offset(self):
+        if not self.joint_sweep_data:
+            QMessageBox.warning(self, "No Sweep Data", "Please perform a joint sweep first.")
+            return
+            
+        mode = self.joint_sweep_data.get('mode')
+        if mode not in ["wrist_pitch", "elbow"]:
+            QMessageBox.warning(self, "Invalid Mode", "Offset can only be applied to wrist_pitch or elbow joints.")
+            return
+            
+        optimal_offset = self.joint_sweep_data.get('optimal_offset', 0.0)
+        
+        # Cumulative update
+        self.joint_offsets[mode] += optimal_offset
+        self.update_applied_offset_label()
+        
+        QMessageBox.information(
+            self, 
+            "Offset Applied", 
+            f"Successfully applied relative offset: {optimal_offset:.4f}°\n"
+            f"Total Cumulative Applied Offset for {mode}: {self.joint_offsets[mode]:.4f}°"
+        )
+        self.log_msg(f"\n[APPLIED OFFSET] Added {optimal_offset:.4f}° relative offset to {mode}.")
+        self.log_msg(f"[APPLIED OFFSET] Total cumulative offset is now {self.joint_offsets[mode]:.4f}°.")
+
     def set_controls_enabled(self, enabled):
         self.btn_joint_ready.setEnabled(enabled)
-        self.btn_joint_center_head.setEnabled(enabled)
         self.btn_joint_start.setEnabled(enabled)
         self.btn_joint_result.setEnabled(enabled)
+        self.btn_joint_apply.setEnabled(enabled)
         
         self.btn_marker_ready.setEnabled(enabled)
-        self.btn_marker_center_head.setEnabled(enabled)
         self.btn_marker_center.setEnabled(enabled)
         self.btn_marker_start.setEnabled(enabled)
         self.btn_marker_result.setEnabled(enabled)
@@ -837,7 +883,12 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
         
         use_ht = self.cb_joint_head_tracking.isChecked()
-        self.active_worker = JointCalibrationWorker(self.joint_calibrator, self.arm_side, mode, ui_only=self.ui_only, use_head_tracking=use_ht)
+        curr_offset = self.joint_offsets.get(mode, 0.0)
+        self.active_worker = JointCalibrationWorker(
+            self.joint_calibrator, self.arm_side, mode, 
+            ui_only=self.ui_only, use_head_tracking=use_ht, 
+            current_offset_deg=curr_offset
+        )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
         self.active_worker.finished_signal.connect(self.on_calibration_finished_joint)
