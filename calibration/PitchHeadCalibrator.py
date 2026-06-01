@@ -226,11 +226,11 @@ class PitchHeadCalibrator:
         if mode == "wrist_pitch":
             # Joint 5 (wrist_pitch) is 0
             if arm_side == "right":
-                right_arm = np.deg2rad([-60, -45, 30, -107, 90, 0, 0])
+                right_arm = np.deg2rad([-55, -45, 25, -127, 90, 0, 0])
                 left_arm = [0, 0, 0, 0, 0, 0, 0]
             else:
                 right_arm = [0, 0, 0, 0, 0, 0, 0]
-                left_arm = np.deg2rad([-60, 45, -30, -107, -90, 0, 0])
+                left_arm = np.deg2rad([-55, 45, -25, -127, -90, 0, 0])
         elif mode == "elbow":
             # Joint 3 (elbow) is 0, Joint 5 (wrist_pitch) is 90
             if arm_side == "right":
