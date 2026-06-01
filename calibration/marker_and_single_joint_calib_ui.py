@@ -14,8 +14,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
 
 # Import custom calibrator logic
-from MarkerCalibrator import MarkerCalibrator
-from PitchHeadCalibrator import PitchHeadCalibrator
+from Calibrator import MarkerCalibrator, PitchHeadCalibrator
 
 # --- Premium Dark CSS Stylesheet ---
 DARK_STYLESHEET = """
@@ -526,10 +525,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_center_head.setStyleSheet("background-color: #424242; color: white;")
         self.btn_joint_center_head.clicked.connect(self.move_head_to_zero)
         
-        self.btn_joint_center = QPushButton("MOVE TO CENTER")
-        self.btn_joint_center.setStyleSheet("background-color: #00838f; color: white;")
-        self.btn_joint_center.clicked.connect(self.move_to_center_joint)
-        
         self.btn_joint_start = QPushButton("START SWEEP")
         self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
@@ -545,7 +540,6 @@ class UnifiedCalibrationApp(QWidget):
         joint_sublayout.addWidget(self.cb_joint_head_tracking)
         joint_sublayout.addWidget(self.btn_joint_ready)
         joint_sublayout.addWidget(self.btn_joint_center_head)
-        joint_sublayout.addWidget(self.btn_joint_center)
         joint_sublayout.addWidget(self.btn_joint_start)
         joint_sublayout.addWidget(self.btn_joint_result)
         joint_subtab.setLayout(joint_sublayout)
@@ -792,7 +786,6 @@ class UnifiedCalibrationApp(QWidget):
     def set_controls_enabled(self, enabled):
         self.btn_joint_ready.setEnabled(enabled)
         self.btn_joint_center_head.setEnabled(enabled)
-        self.btn_joint_center.setEnabled(enabled)
         self.btn_joint_start.setEnabled(enabled)
         self.btn_joint_result.setEnabled(enabled)
         
@@ -824,44 +817,6 @@ class UnifiedCalibrationApp(QWidget):
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
         self.ready_worker.start()
-
-    def move_to_center_joint(self):
-        if not self.robot:
-            self.log_msg("[ERROR] Robot is not connected!")
-            return
-        if self.ui_only:
-            self.log_msg("[MOCK] Moved to center (Joint mode).")
-            return
-
-        if hasattr(self, 'active_worker') and self.active_worker and self.active_worker.isRunning():
-            self.log_msg("[INFO] Cancelling Move to Center...")
-            self.stop_event_mc.set()
-            return
-
-        if not self.indicator.is_detected:
-            QMessageBox.warning(self, "Marker Not Detected", "Marker is not visible. Teach target position first.")
-            return
-
-        mode_str = self.joint_mode_sel.currentText()
-        target_dist = 200.0 if "head" in mode_str else 300.0
-        self.log_msg(f"[INFO] Move to Center (Joint Calibration) -> target: {target_dist} mm")
-
-        self.btn_joint_center.setText("CANCEL")
-        self.btn_joint_center.setStyleSheet("background-color: #b71c1c; color: white;")
-        self.set_controls_enabled(False)
-        self.btn_joint_center.setEnabled(True)
-
-        import threading
-        self.stop_event_mc = threading.Event()
-        self.active_worker = MoveCenterWorker(self.joint_calibrator, self.arm_side, self.stop_event_mc, target_dist=target_dist)
-        self.active_worker.log_signal.connect(self.log_msg)
-        self.active_worker.finished_signal.connect(self.on_move_center_finished_joint)
-        self.active_worker.start()
-
-    def on_move_center_finished_joint(self):
-        self.btn_joint_center.setText("MOVE TO CENTER")
-        self.btn_joint_center.setStyleSheet("background-color: #00838f; color: white;")
-        self.on_action_finished()
 
     def start_calibration_joint(self):
         if not self.robot:

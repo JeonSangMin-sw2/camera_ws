@@ -267,7 +267,7 @@ class PitchHeadCalibrator:
             return None
 
         # Pre-check marker visibility
-        initial_check = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
+        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
         if not initial_check:
             if log_callback: log_callback("[ERROR] Marker is not visible.")
             if status_callback: status_callback(False)
@@ -364,7 +364,7 @@ class PitchHeadCalibrator:
                     self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 time.sleep(0.5)
                 
-                res = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
+                res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
                 if res:
                     pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                     pts_A.append(pose[:3, 3] * 1000.0) # mm
@@ -441,7 +441,7 @@ class PitchHeadCalibrator:
                     self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 time.sleep(0.5)
                 
-                res = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
+                res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
                 if res:
                     pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                     pts_B.append(pose[:3, 3] * 1000.0) # mm
@@ -535,7 +535,7 @@ class PitchHeadCalibrator:
             return None
 
         # Pre-check marker visibility
-        initial_check = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
+        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
         if not initial_check:
             if log_callback: log_callback("[ERROR] Marker is not visible.")
             if status_callback: status_callback(False)
@@ -572,7 +572,7 @@ class PitchHeadCalibrator:
             self.movej(self.robot, head=q_head, minimum_time=1.0)
             time.sleep(0.5)
             
-            res = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
+            res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 p_meas = pose[:3, 3] # meters
@@ -590,7 +590,7 @@ class PitchHeadCalibrator:
             self.movej(self.robot, head=q_head, minimum_time=1.0)
             time.sleep(0.5)
             
-            res = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
+            res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 p_meas = pose[:3, 3] # meters
