@@ -176,15 +176,35 @@ class MarkerCalibrator:
             ex = np.cross(best_normal, [0, 1, 0])
         ex /= np.linalg.norm(ex)
         ey = np.cross(best_normal, ex)
+
+        # Geometric Sagitta Formula for highly robust initialization on small arcs (like Axis 5 sweep)
+        C_chord_vec = points[-1] - points[0]
+        C_chord = np.linalg.norm(C_chord_vec)
+        p_mid_chord = (points[0] + points[-1]) / 2.0
+        p_mid_arc = points[len(points) // 2]
+        v_sag = p_mid_arc - p_mid_chord
+        H_sag = np.linalg.norm(v_sag)
         
-        pts_centered = points - centroid
-        pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
-        A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
-        b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
-        res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-        uc, vc = res[0], res[1]
-        R_init = np.sqrt(max(0.001, res[2] + uc**2 + vc**2))
-        c_init = centroid + uc * ex + vc * ey
+        if H_sag > 0.05 and C_chord > 1.0:
+            R_geom = (C_chord ** 2) / (8.0 * H_sag) + H_sag / 2.0
+        else:
+            R_geom = 280.0 if (axis_prior is not None and abs(axis_prior[2]) > 0.8) else 75.0
+            
+        R_init = np.clip(R_geom, 50.0, 450.0)
+        
+        if 50.0 <= R_geom <= 450.0 and H_sag > 0.05:
+            u_sag = v_sag / H_sag
+            c_init = p_mid_arc - R_init * u_sag
+        else:
+            # Fallback to algebraic circle fit but clamp radius
+            pts_centered = points - centroid
+            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+            A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
+            b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
+            res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+            uc, vc = res[0], res[1]
+            R_init = np.clip(np.sqrt(max(0.001, res[2] + uc**2 + vc**2)), 50.0, 450.0)
+            c_init = centroid + uc * ex + vc * ey
         
         best_opt = None
         best_rmse = float('inf')
@@ -201,6 +221,10 @@ class MarkerCalibrator:
                 r_dir_init /= np.linalg.norm(r_dir_init)
             
             init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
+            
+            # Add physically realistic bounds to prevent divergence on noise-sensitive sweeps
+            lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
+            upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
             
             def total_residuals(params):
                 c = params[0:3]
@@ -224,7 +248,7 @@ class MarkerCalibrator:
                     
                 return np.array(residuals)
                 
-            opt_res = least_squares(total_residuals, init_params, loss='huber', diff_step=1e-4)
+            opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
             rmse = np.sqrt(np.mean(opt_res.fun**2))
             
             if rmse < best_rmse:
@@ -253,6 +277,9 @@ class MarkerCalibrator:
                 
             init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
             
+            lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
+            upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+            
             def total_residuals_in(params):
                 c = params[0:3]
                 axis = params[3:6]
@@ -275,7 +302,7 @@ class MarkerCalibrator:
                     
                 return np.array(residuals)
                 
-            opt_res = least_squares(total_residuals_in, init_params, loss='huber', diff_step=1e-4)
+            opt_res = least_squares(total_residuals_in, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
             
             c_init = opt_res.x[0:3]
             best_normal = opt_res.x[3:6]
@@ -426,16 +453,22 @@ class MarkerCalibrator:
                 
             if log_callback: log_callback("  Calculating and moving to correct pose...")
             
-            # Robot frame calculations (relative to link_torso_5)
-            T_rob_to_marker = T_rob_to_cam @ T_cam_to_marker
-            T_rob_to_marker_target = T_rob_to_cam @ T_target_cam
+            # Use only rotation of T_rob_to_cam to transform camera-frame errors to robot torso frame.
+            # This completely avoids translation lever-arm errors.
+            R_rob_to_cam = T_rob_to_cam[:3, :3]
+            
+            dp_cam = T_target_cam[:3, 3] - T_cam_to_marker[:3, 3]
+            dR_cam = T_target_cam[:3, :3] @ T_cam_to_marker[:3, :3].T
+            
+            dp_rob = R_rob_to_cam @ dp_cam
+            dR_rob = R_rob_to_cam @ dR_cam @ R_rob_to_cam.T
             
             ee_name = f"ee_{arm_side}"
             T_rob_to_ee = self.compute_fk(self.robot, self.robot.get_dynamics(), self.robot.get_state().position, ee_name, "link_torso_5")
             
-            # Calculate new EE target pose: Apply marker correction in robot frame
-            # T_rob_to_ee_new = T_rob_to_marker_target * inv(T_rob_to_marker) * T_rob_to_ee
-            T_rob_to_ee_new = T_rob_to_marker_target @ np.linalg.inv(T_rob_to_marker) @ T_rob_to_ee
+            T_rob_to_ee_new = np.eye(4)
+            T_rob_to_ee_new[:3, :3] = dR_rob @ T_rob_to_ee[:3, :3]
+            T_rob_to_ee_new[:3, 3] = T_rob_to_ee[:3, 3] + dp_rob
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
             cb.add_target("link_torso_5", ee_name, T_rob_to_ee_new, 0.2, 0.5, 1.0)
@@ -477,7 +510,7 @@ class MarkerCalibrator:
         if arm_side == "right":
             # Move left arm to zero first
             if log_callback: log_callback("  - Homing left arm...")
-            self.movej(self.robot, left_arm=[0,0,0,0,0,0,0], minimum_time=3.0)
+            self.movej(self.robot, torso=torso, left_arm=[0,0,0,0,0,0,0], minimum_time=4.0)
             
             # Right arm ready pose (deg): [0:90, 1:0, 2:90, 3:-90, 4:90, 5:0, 6:0]
             right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
@@ -485,13 +518,13 @@ class MarkerCalibrator:
         else:
             # Move right arm to zero first
             if log_callback: log_callback("  - Homing right arm...")
-            self.movej(self.robot, right_arm=[0,0,0,0,0,0,0], minimum_time=3.0)
+            self.movej(self.robot, torso=torso, right_arm=[0,0,0,0,0,0,0], minimum_time=4.0)
             
             right_arm = [0, 0, 0, 0, 0, 0, 0]
             # Left arm ready pose (deg): [0:90, 1:0, 2:-90, 3:90, 4:-90, 5:0, 6:0]
             left_arm = np.deg2rad([-90, 45, -73, -107, -90, 90, 0])
 
-        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, minimum_time=5.0)
+        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, minimum_time=4.0)
         
         if success and log_callback:
             log_callback("Ready Pose Reached.")
