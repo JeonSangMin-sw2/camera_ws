@@ -255,12 +255,13 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.mode = mode
         self.ui_only = ui_only
+        self.use_head_tracking = use_head_tracking
 
     def run(self):
         try:
@@ -314,7 +315,8 @@ class JointCalibrationWorker(QThread):
                     res = self.calibrator.perform_calibration_sweep_5_or_3(
                         self.arm_side, self.mode,
                         log_callback=self.log_signal.emit, 
-                        status_callback=self.status_signal.emit
+                        status_callback=self.status_signal.emit,
+                        use_head_tracking=self.use_head_tracking
                     )
 
             if res:
@@ -512,6 +514,10 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_mode_sel = QComboBox()
         self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)", "head (Yaw/Pitch Sweep)"])
         
+        self.cb_joint_head_tracking = QCheckBox("Active Head Tracking")
+        self.cb_joint_head_tracking.setChecked(True)
+        self.cb_joint_head_tracking.setToolTip("Active neck control during wrist_pitch sweep to keep marker centered.")
+        
         self.btn_joint_ready = QPushButton("MOVE TO READY")
         self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
         self.btn_joint_ready.clicked.connect(self.move_to_ready_pose_joint)
@@ -536,6 +542,7 @@ class UnifiedCalibrationApp(QWidget):
         joint_sublayout.addWidget(self.joint_arm_sel)
         joint_sublayout.addWidget(QLabel("Calibration Mode:"))
         joint_sublayout.addWidget(self.joint_mode_sel)
+        joint_sublayout.addWidget(self.cb_joint_head_tracking)
         joint_sublayout.addWidget(self.btn_joint_ready)
         joint_sublayout.addWidget(self.btn_joint_center_head)
         joint_sublayout.addWidget(self.btn_joint_center)
@@ -874,7 +881,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
         
-        self.active_worker = JointCalibrationWorker(self.joint_calibrator, self.arm_side, mode, ui_only=self.ui_only)
+        use_ht = self.cb_joint_head_tracking.isChecked()
+        self.active_worker = JointCalibrationWorker(self.joint_calibrator, self.arm_side, mode, ui_only=self.ui_only, use_head_tracking=use_ht)
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
         self.active_worker.finished_signal.connect(self.on_calibration_finished_joint)

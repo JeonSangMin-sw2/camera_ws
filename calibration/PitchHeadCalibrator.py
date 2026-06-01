@@ -252,7 +252,7 @@ class PitchHeadCalibrator:
             log_callback("[INFO] Ready Pose Reached.")
         return success
 
-    def perform_calibration_sweep_5_or_3(self, arm_side, mode, log_callback=None, status_callback=None):
+    def perform_calibration_sweep_5_or_3(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True):
         if log_callback:
             log_callback("\n" + "="*50)
             log_callback(f"   STARTING {mode.upper()} OFFSET CALIBRATION SWEEP")
@@ -279,6 +279,24 @@ class PitchHeadCalibrator:
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
         initial_joint_pos = list(state.position[arm_idx])
+
+        # Prepare Active Head/Camera Tracking
+        head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
+        q_head_0 = state.position[head_idx].copy() if (head_idx is not None and use_head_tracking and mode == "wrist_pitch") else None
+        dyn_model = self.robot.get_dynamics()
+        
+        try:
+            T_neck = self.compute_fk(self.robot, dyn_model, state.position, "link_head_2", "link_torso_5")
+            p_neck = T_neck[:3, 3] if (use_head_tracking and mode == "wrist_pitch") else None
+        except Exception:
+            p_neck = None
+            
+        ee_name = f"ee_{arm_side}"
+        try:
+            T_ee_0 = self.compute_fk(self.robot, dyn_model, state.position, ee_name, "link_torso_5")
+            p_marker_0 = T_ee_0[:3, 3] if (use_head_tracking and mode == "wrist_pitch") else None
+        except Exception:
+            p_marker_0 = None
 
         # Define sweep axes based on mode
         if mode == "wrist_pitch":
@@ -313,10 +331,37 @@ class PitchHeadCalibrator:
                 q_sweep = list(q_cand)
                 q_sweep[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(sa)
                 
+                # Active head tracking computation
+                head_q_step = None
+                if use_head_tracking and mode == "wrist_pitch" and q_head_0 is not None and p_neck is not None and p_marker_0 is not None:
+                    q_full_temp = np.array(state.position)
+                    if arm_side == "left":
+                        q_full_temp[model.left_arm_idx] = q_sweep
+                    else:
+                        q_full_temp[model.right_arm_idx] = q_sweep
+                    try:
+                        T_ee_temp = self.compute_fk(self.robot, dyn_model, q_full_temp, ee_name, "link_torso_5")
+                        p_marker_i = T_ee_temp[:3, 3]
+                        v_0 = p_marker_0 - p_neck
+                        v_i = p_marker_i - p_neck
+                        yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
+                        pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
+                        yaw_geo_i = np.arctan2(v_i[1], v_i[0])
+                        pitch_geo_i = np.arctan2(v_i[2], np.sqrt(v_i[0]**2 + v_i[1]**2))
+                        yaw_diff = yaw_geo_i - yaw_geo_0
+                        pitch_diff = pitch_geo_i - pitch_geo_0
+                        yaw_target = q_head_0[0] + yaw_diff
+                        pitch_target = q_head_0[1] - pitch_diff
+                        yaw_target = np.clip(yaw_target, -25.0 * np.pi / 180.0, 25.0 * np.pi / 180.0)
+                        pitch_target = np.clip(pitch_target, -20.0 * np.pi / 180.0, 20.0 * np.pi / 180.0)
+                        head_q_step = np.array([yaw_target, pitch_target])
+                    except Exception:
+                        pass
+
                 if arm_side == "left":
-                    self.movej(self.robot, left_arm=q_sweep, minimum_time=1.0)
+                    self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 else:
-                    self.movej(self.robot, right_arm=q_sweep, minimum_time=1.0)
+                    self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 time.sleep(0.5)
                 
                 res = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
@@ -325,10 +370,36 @@ class PitchHeadCalibrator:
                     pts_A.append(pose[:3, 3] * 1000.0) # mm
             
             # Return to candidate baseline pose before next sweep
+            head_q_step_cand = None
+            if use_head_tracking and mode == "wrist_pitch" and q_head_0 is not None and p_neck is not None and p_marker_0 is not None:
+                q_full_temp = np.array(state.position)
+                if arm_side == "left":
+                    q_full_temp[model.left_arm_idx] = q_cand
+                else:
+                    q_full_temp[model.right_arm_idx] = q_cand
+                try:
+                    T_ee_temp = self.compute_fk(self.robot, dyn_model, q_full_temp, ee_name, "link_torso_5")
+                    p_marker_i = T_ee_temp[:3, 3]
+                    v_0 = p_marker_0 - p_neck
+                    v_i = p_marker_i - p_neck
+                    yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
+                    pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
+                    yaw_geo_i = np.arctan2(v_i[1], v_i[0])
+                    pitch_geo_i = np.arctan2(v_i[2], np.sqrt(v_i[0]**2 + v_i[1]**2))
+                    yaw_diff = yaw_geo_i - yaw_geo_0
+                    pitch_diff = pitch_geo_i - pitch_geo_0
+                    yaw_target = q_head_0[0] + yaw_diff
+                    pitch_target = q_head_0[1] - pitch_diff
+                    yaw_target = np.clip(yaw_target, -25.0 * np.pi / 180.0, 25.0 * np.pi / 180.0)
+                    pitch_target = np.clip(pitch_target, -20.0 * np.pi / 180.0, 20.0 * np.pi / 180.0)
+                    head_q_step_cand = np.array([yaw_target, pitch_target])
+                except Exception:
+                    pass
+
             if arm_side == "left":
-                self.movej(self.robot, left_arm=q_cand, minimum_time=1.2)
+                self.movej(self.robot, left_arm=q_cand, head=head_q_step_cand, minimum_time=1.2)
             else:
-                self.movej(self.robot, right_arm=q_cand, minimum_time=1.2)
+                self.movej(self.robot, right_arm=q_cand, head=head_q_step_cand, minimum_time=1.2)
             time.sleep(0.5)
 
             # Second sweep (Joint B)
@@ -337,10 +408,37 @@ class PitchHeadCalibrator:
                 q_sweep = list(q_cand)
                 q_sweep[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(sb)
                 
+                # Active head tracking computation
+                head_q_step = None
+                if use_head_tracking and mode == "wrist_pitch" and q_head_0 is not None and p_neck is not None and p_marker_0 is not None:
+                    q_full_temp = np.array(state.position)
+                    if arm_side == "left":
+                        q_full_temp[model.left_arm_idx] = q_sweep
+                    else:
+                        q_full_temp[model.right_arm_idx] = q_sweep
+                    try:
+                        T_ee_temp = self.compute_fk(self.robot, dyn_model, q_full_temp, ee_name, "link_torso_5")
+                        p_marker_i = T_ee_temp[:3, 3]
+                        v_0 = p_marker_0 - p_neck
+                        v_i = p_marker_i - p_neck
+                        yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
+                        pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
+                        yaw_geo_i = np.arctan2(v_i[1], v_i[0])
+                        pitch_geo_i = np.arctan2(v_i[2], np.sqrt(v_i[0]**2 + v_i[1]**2))
+                        yaw_diff = yaw_geo_i - yaw_geo_0
+                        pitch_diff = pitch_geo_i - pitch_geo_0
+                        yaw_target = q_head_0[0] + yaw_diff
+                        pitch_target = q_head_0[1] - pitch_diff
+                        yaw_target = np.clip(yaw_target, -25.0 * np.pi / 180.0, 25.0 * np.pi / 180.0)
+                        pitch_target = np.clip(pitch_target, -20.0 * np.pi / 180.0, 20.0 * np.pi / 180.0)
+                        head_q_step = np.array([yaw_target, pitch_target])
+                    except Exception:
+                        pass
+
                 if arm_side == "left":
-                    self.movej(self.robot, left_arm=q_sweep, minimum_time=1.0)
+                    self.movej(self.robot, left_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 else:
-                    self.movej(self.robot, right_arm=q_sweep, minimum_time=1.0)
+                    self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 time.sleep(0.5)
                 
                 res = self.marker_st.get_marker_transform(sampling_time=1.0, side=arm_side)
@@ -350,9 +448,9 @@ class PitchHeadCalibrator:
 
             # Return to candidate pose
             if arm_side == "left":
-                self.movej(self.robot, left_arm=q_cand, minimum_time=1.2)
+                self.movej(self.robot, left_arm=q_cand, head=head_q_step_cand, minimum_time=1.2)
             else:
-                self.movej(self.robot, right_arm=q_cand, minimum_time=1.2)
+                self.movej(self.robot, right_arm=q_cand, head=head_q_step_cand, minimum_time=1.2)
             time.sleep(0.5)
 
             if len(pts_A) >= 3 and len(pts_B) >= 3:
@@ -370,12 +468,12 @@ class PitchHeadCalibrator:
                 if log_callback: log_callback("  [ERROR] Marker tracking failed during sweep.")
                 return None
 
-        # Return arm to original pose
-        if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm to initial pose...")
+        # Return arm and head to original pose
+        if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm and head to initial pose...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=initial_joint_pos, minimum_time=2.0)
+            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
         else:
-            self.movej(self.robot, right_arm=initial_joint_pos, minimum_time=2.0)
+            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
 
         # Parabolic fitting of errors to find minimum
         offsets = [r[0] for r in results]
