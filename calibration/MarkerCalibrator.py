@@ -134,121 +134,236 @@ class MarkerCalibrator:
         return True
 
     @staticmethod
-    def fit_circle_kinematic(points, angles_deg, axis_prior=None, return_plot_data=False):
-        points = np.array(points)
+    def rodrigues_rotation(vector, axis, theta_rad):
+        axis = axis / np.linalg.norm(axis)
+        cos_t = np.cos(theta_rad)
+        sin_t = np.sin(theta_rad)
+        return vector * cos_t + np.cross(axis, vector) * sin_t + axis * np.dot(axis, vector) * (1 - cos_t)
+
+    @staticmethod
+    def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False):
+        """
+        Fits a circle directly in 3D space using encoder angles and RANSAC/Huber loss,
+        and computes the full 6-DOF misalignment (Tilt and Twist/Yaw).
+        
+        Args:
+            relative_poses (list or np.ndarray): N x 4 x 4 matrices (translation in mm)
+            captured_angles (list or np.ndarray): N encoder angles in degrees
+            axis_prior (list or np.ndarray): 3D nominal axis direction
+            return_plot_data (bool): Whether to return 2D projection data for UI plotting
+        """
+        points = np.array([T[:3, 3] for T in relative_poses])
+        angles_rad_base = np.radians(captured_angles)
         
         # --- Robust Iterative Outlier Rejection ---
         inlier_mask = np.ones(len(points), dtype=bool)
         
+        # 1. Initial rotation axis & center estimation
         if axis_prior is not None:
-            normal = np.array(axis_prior, dtype=float)
-            normal /= np.linalg.norm(normal)
-            if abs(normal[0]) < 0.9:
-                ex = np.cross(normal, [1, 0, 0])
-            else:
-                ex = np.cross(normal, [0, 1, 0])
-            ex /= np.linalg.norm(ex)
-            ey = np.cross(normal, ex)
-            centroid = np.mean(points, axis=0)
-            pts_centered = points - centroid
-            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+            best_normal = np.array(axis_prior, dtype=float)
+            best_normal /= np.linalg.norm(best_normal)
         else:
             centroid = np.mean(points, axis=0)
             pts_centered = points - centroid
             _, _, vh = np.linalg.svd(pts_centered)
-            normal = vh[2, :]
-            ex = vh[0, :]
-            ey = vh[1, :]
-            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+            best_normal = vh[2, :]
+            best_normal /= np.linalg.norm(best_normal)
+            
+        centroid = np.mean(points, axis=0)
+        if best_normal[0] < 0.9:
+            ex = np.cross(best_normal, [1, 0, 0])
+        else:
+            ex = np.cross(best_normal, [0, 1, 0])
+        ex /= np.linalg.norm(ex)
+        ey = np.cross(best_normal, ex)
+        
+        pts_centered = points - centroid
+        pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+        A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
+        b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
+        res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+        uc, vc = res[0], res[1]
+        R_init = np.sqrt(max(0.001, res[2] + uc**2 + vc**2))
+        c_init = centroid + uc * ex + vc * ey
         
         best_opt = None
         best_rmse = float('inf')
+        best_sign = 1
         
+        # Determine the encoder rotation sign (+1 or -1)
+        for sign in [1, -1]:
+            angles_rad = angles_rad_base * sign
+            
+            # Formulate parameters: [cx, cy, cz, nx, ny, nz, rx, ry, rz, R]
+            r_dir_init = points[0] - c_init
+            r_dir_init -= np.dot(r_dir_init, best_normal) * best_normal
+            if np.linalg.norm(r_dir_init) > 1e-6:
+                r_dir_init /= np.linalg.norm(r_dir_init)
+            
+            init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
+            
+            def total_residuals(params):
+                c = params[0:3]
+                axis = params[3:6]
+                axis_norm = np.linalg.norm(axis)
+                if axis_norm > 1e-6:
+                    axis = axis / axis_norm
+                    
+                r_init = params[6:9]
+                r_init -= np.dot(r_init, axis) * axis
+                r_init_norm = np.linalg.norm(r_init)
+                if r_init_norm > 1e-6:
+                    r_init = r_init / r_init_norm
+                    
+                R = params[9]
+                
+                residuals = []
+                for pt, theta in zip(points[inlier_mask], angles_rad[inlier_mask]):
+                    pred_pt = c + R * MarkerCalibrator.rodrigues_rotation(r_init, axis, theta)
+                    residuals.extend(pt - pred_pt)
+                    
+                return np.array(residuals)
+                
+            opt_res = least_squares(total_residuals, init_params, loss='huber', diff_step=1e-4)
+            rmse = np.sqrt(np.mean(opt_res.fun**2))
+            
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_opt = opt_res
+                best_sign = sign
+
+        # Extract optimal parameters
+        c_init = best_opt.x[0:3]
+        best_normal = best_opt.x[3:6]
+        best_normal /= np.linalg.norm(best_normal)
+        r_final_dir = best_opt.x[6:9]
+        r_final_dir -= np.dot(r_final_dir, best_normal) * best_normal
+        if np.linalg.norm(r_final_dir) > 1e-6:
+            r_final_dir /= np.linalg.norm(r_final_dir)
+        R_init = best_opt.x[9]
+        
+        # Iterative Outlier Rejection (2 iterations)
         for iteration in range(2):
-            pts_2d_inliers = pts_2d[inlier_mask]
-            angles_deg_inliers = np.array(angles_deg)[inlier_mask]
+            angles_rad = angles_rad_base * best_sign
+            pts_in = points[inlier_mask]
+            rad_in = angles_rad[inlier_mask]
             
-            if len(pts_2d_inliers) < 5:
+            if len(pts_in) < 5:
                 break
                 
-            centroid_in = np.mean(points[inlier_mask], axis=0)
-            pts_centered_in = points[inlier_mask] - centroid_in
+            init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
             
-            if axis_prior is None:
-                _, _, vh_in = np.linalg.svd(pts_centered_in)
-                normal_in = vh_in[2, :]
-                ex_in = vh_in[0, :]
-                ey_in = vh_in[1, :]
-            else:
-                normal_in = normal
-                ex_in = ex
-                ey_in = ey
+            def total_residuals_in(params):
+                c = params[0:3]
+                axis = params[3:6]
+                axis_norm = np.linalg.norm(axis)
+                if axis_norm > 1e-6:
+                    axis = axis / axis_norm
+                    
+                r_init = params[6:9]
+                r_init -= np.dot(r_init, axis) * axis
+                r_init_norm = np.linalg.norm(r_init)
+                if r_init_norm > 1e-6:
+                    r_init = r_init / r_init_norm
+                    
+                R = params[9]
                 
-            pts_2d_in = np.dot(pts_centered_in, np.vstack((ex_in, ey_in)).T)
-            
-            A = np.c_[2 * pts_2d_in[:, 0], 2 * pts_2d_in[:, 1], np.ones(len(pts_2d_in))]
-            b = pts_2d_in[:, 0]**2 + pts_2d_in[:, 1]**2
-            res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-            uc_init, vc_init, offset_init = res[0], res[1], res[2]
-            radius_init = np.sqrt(max(0, offset_init + uc_init**2 + vc_init**2))
-            
-            best_rmse = float('inf')
-            best_opt = None
-            best_sign = 1
-            
-            for sign in [1, -1]:
-                angles_rad = np.radians(angles_deg_inliers) * sign
+                residuals = []
+                for pt, theta in zip(pts_in, rad_in):
+                    pred_pt = c + R * MarkerCalibrator.rodrigues_rotation(r_init, axis, theta)
+                    residuals.extend(pt - pred_pt)
+                    
+                return np.array(residuals)
                 
-                def residuals(params):
-                    uc, vc, R, alpha = params
-                    model_x = uc + R * np.cos(alpha + angles_rad)
-                    model_y = vc + R * np.sin(alpha + angles_rad)
-                    return np.sqrt((pts_2d_in[:, 0] - model_x)**2 + (pts_2d_in[:, 1] - model_y)**2)
-                
-                alpha_init = np.arctan2(pts_2d_in[0, 1] - vc_init, pts_2d_in[0, 0] - uc_init) - angles_rad[0]
-                initial_guess = [uc_init, vc_init, radius_init, alpha_init]
-                
-                opt_result = least_squares(residuals, initial_guess, loss='huber')
-                rmse = np.sqrt(np.mean(opt_result.fun**2))
-                
-                if rmse < best_rmse:
-                    best_rmse = rmse
-                    best_opt = opt_result
-                    best_sign = sign
- 
-            uc_opt, vc_opt, R_opt, alpha_opt = best_opt.x
-            angles_rad_all = np.radians(angles_deg) * best_sign
+            opt_res = least_squares(total_residuals_in, init_params, loss='huber', diff_step=1e-4)
             
-            pts_centered_all_in = points - centroid_in
-            pts_2d_all_in = np.dot(pts_centered_all_in, np.vstack((ex_in, ey_in)).T)
+            c_init = opt_res.x[0:3]
+            best_normal = opt_res.x[3:6]
+            best_normal /= np.linalg.norm(best_normal)
+            r_final_dir = opt_res.x[6:9]
+            r_final_dir -= np.dot(r_final_dir, best_normal) * best_normal
+            if np.linalg.norm(r_final_dir) > 1e-6:
+                r_final_dir /= np.linalg.norm(r_final_dir)
+            R_init = opt_res.x[9]
             
-            model_x_all = uc_opt + R_opt * np.cos(alpha_opt + angles_rad_all)
-            model_y_all = vc_opt + R_opt * np.sin(alpha_opt + angles_rad_all)
+            # Recompute errors for all points
+            all_errors = []
+            for pt, theta in zip(points, angles_rad):
+                pred_pt = c_init + R_init * MarkerCalibrator.rodrigues_rotation(r_final_dir, best_normal, theta)
+                all_errors.append(np.linalg.norm(pt - pred_pt))
+            all_errors = np.array(all_errors)
             
-            errors = np.sqrt((pts_2d_all_in[:, 0] - model_x_all)**2 + (pts_2d_all_in[:, 1] - model_y_all)**2)
-            
-            inlier_errors = errors[inlier_mask]
+            inlier_errors = all_errors[inlier_mask]
             std_err = np.std(inlier_errors) if len(inlier_errors) > 0 else 1.0
-            threshold = max(1.0, min(3.0, 2.0 * std_err))
+            threshold = max(0.5, min(3.0, 2.0 * std_err))
             
-            new_inlier_mask = errors < threshold
-            if np.all(new_inlier_mask == inlier_mask) or np.sum(new_inlier_mask) < 5:
+            new_mask = all_errors < threshold
+            if np.all(new_mask == inlier_mask) or np.sum(new_mask) < 5:
                 break
-            inlier_mask = new_inlier_mask
+            inlier_mask = new_mask
             
-            centroid = centroid_in
-            normal = normal_in
-            ex = ex_in
-            ey = ey_in
-            pts_2d = pts_2d_all_in
- 
-        # Final fit best parameters
-        uc_opt, vc_opt, R_opt, _ = best_opt.x
-        center_3d = centroid + uc_opt * ex + vc_opt * ey
+        # Re-orthogonalize best_normal with axis_prior to ensure sign consistency
+        if axis_prior is not None:
+            if np.dot(best_normal, axis_prior) < 0:
+                best_normal = -best_normal
+                
+        # Re-project to 2D for UI plotting compatibility
+        if best_normal[0] < 0.9:
+            ex_final = np.cross(best_normal, [1, 0, 0])
+        else:
+            ex_final = np.cross(best_normal, [0, 1, 0])
+        ex_final /= np.linalg.norm(ex_final)
+        ey_final = np.cross(best_normal, ex_final)
         
+        pts_centered_final = points - centroid
+        pts_2d_final = np.dot(pts_centered_final, np.vstack((ex_final, ey_final)).T)
+        uc_opt_final = np.dot(c_init - centroid, ex_final)
+        vc_opt_final = np.dot(c_init - centroid, ey_final)
+
+        # Compute tilt and twist/yaw for each frame and robustly estimate medians
+        tilt_list = []
+        yaw_list = []
+        for T_i in relative_poses:
+            R_i = T_i[:3, :3]
+            axis_m_i = R_i.T @ best_normal
+            tilt_i = np.degrees(np.arcsin(np.clip(axis_m_i[2], -1.0, 1.0)))
+            tilt_list.append(tilt_i)
+            
+            vec_c_to_mi = T_i[:3, 3] - c_init
+            radial_vec = vec_c_to_mi - np.dot(vec_c_to_mi, best_normal) * best_normal
+            ideal_tangent = np.cross(best_normal, radial_vec)
+            norm_ideal = np.linalg.norm(ideal_tangent)
+            if norm_ideal > 1e-6:
+                ideal_tangent /= norm_ideal
+                
+            marker_x = R_i[:, 0]
+            marker_x_plane = marker_x - np.dot(marker_x, best_normal) * best_normal
+            norm_mx = np.linalg.norm(marker_x_plane)
+            if norm_mx > 1e-6:
+                marker_x_plane /= norm_mx
+                
+            twist_cos = np.dot(marker_x_plane, ideal_tangent)
+            twist_angle = np.degrees(np.arccos(np.clip(twist_cos, -1.0, 1.0)))
+            if np.dot(np.cross(ideal_tangent, marker_x_plane), best_normal) < 0:
+                twist_angle = -twist_angle
+                
+            if twist_angle > 90:
+                twist_angle -= 180
+            elif twist_angle < -90:
+                twist_angle += 180
+            yaw_list.append(twist_angle)
+            
+        all_errors = []
+        for pt, theta in zip(points, angles_rad):
+            pred_pt = c_init + R_init * MarkerCalibrator.rodrigues_rotation(r_final_dir, best_normal, theta)
+            all_errors.append(np.linalg.norm(pt - pred_pt))
+        all_errors = np.array(all_errors)
+        final_rmse = np.sqrt(np.mean(all_errors[inlier_mask]**2))
+            
         if return_plot_data:
-            return center_3d, normal, R_opt, best_rmse, pts_2d, uc_opt, vc_opt
-        return center_3d, normal, R_opt, best_rmse
+            return c_init, best_normal, abs(R_init), final_rmse, pts_2d_final, uc_opt_final, vc_opt_final, np.median(tilt_list), np.median(yaw_list), tilt_list
+            
+        return c_init, best_normal, abs(R_init), final_rmse, np.median(tilt_list), np.median(yaw_list), tilt_list
 
     def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0):
         if not self.robot:
@@ -540,7 +655,6 @@ class MarkerCalibrator:
             T_cam_ref = captured_poses[0]
             T_ref_cam = np.linalg.inv(T_cam_ref)
             relative_poses = [T_ref_cam @ T for T in captured_poses]
-            points = [T[:3, 3] for T in relative_poses]
             
             # Use nominal joint rotation axis as axis_prior to guarantee stability
             if axis_mode == 6:
@@ -548,9 +662,10 @@ class MarkerCalibrator:
             else:
                 axis_prior = [0.0, 0.0, 1.0]
 
-            center, axis, radius, rmse, pts_2d, uc_opt, vc_opt = self.fit_circle_kinematic(
-                points, captured_angles, axis_prior=axis_prior, return_plot_data=True
-            )
+            center, axis, radius, rmse, pts_2d, uc_opt, vc_opt, robust_tilt, robust_yaw, tilt_list = \
+                self.fit_circle_3d_and_6dof_misalignment(
+                    relative_poses, captured_angles, axis_prior=axis_prior, return_plot_data=True
+                )
             
             result_dict = {
                 'axis_mode': axis_mode,
@@ -560,48 +675,11 @@ class MarkerCalibrator:
                 'center': center,
                 'pts_2d': pts_2d,
                 'uc_opt': uc_opt,
-                'vc_opt': vc_opt
-            }
-
-            tilt_list = []
-            yaw_list = []
-            
-            for T_i in relative_poses:
-                R_i = T_i[:3, :3]
-                axis_m_i = R_i.T @ axis
-                tilt_i = np.degrees(np.arcsin(min(1.0, max(-1.0, axis_m_i[2]))))
-                tilt_list.append(tilt_i)
-                
-                vec_c_to_mi = T_i[:3, 3] - center
-                radial_vec = vec_c_to_mi - np.dot(vec_c_to_mi, axis) * axis
-                ideal_tangent = np.cross(axis, radial_vec)
-                norm_ideal = np.linalg.norm(ideal_tangent)
-                if norm_ideal > 1e-6:
-                    ideal_tangent /= norm_ideal
-                
-                marker_x = R_i[:, 0]
-                marker_x_plane = marker_x - np.dot(marker_x, axis) * axis
-                norm_mx = np.linalg.norm(marker_x_plane)
-                if norm_mx > 1e-6:
-                    marker_x_plane /= norm_mx
-                
-                twist_cos = np.dot(marker_x_plane, ideal_tangent)
-                twist_angle = np.degrees(np.arccos(min(1.0, max(-1.0, twist_cos))))
-                if np.dot(np.cross(ideal_tangent, marker_x_plane), axis) < 0:
-                    twist_angle = -twist_angle
-                
-                if twist_angle > 90: twist_angle -= 180
-                if twist_angle < -90: twist_angle += 180
-                yaw_list.append(twist_angle)
-
-            robust_tilt = np.median(tilt_list)
-            robust_yaw = np.median(yaw_list)
-            
-            result_dict.update({
+                'vc_opt': vc_opt,
                 'tilt': robust_tilt,
                 'yaw': robust_yaw,
                 'tilt_list': tilt_list
-            })
+            }
             return result_dict
         
         return None
