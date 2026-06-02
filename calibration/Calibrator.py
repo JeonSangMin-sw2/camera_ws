@@ -686,7 +686,7 @@ class MarkerCalibrator(BaseCalibrator):
     def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True):
         if log_callback:
             log_callback("\n" + "="*50)
-            log_callback(f"   STARTING {axis_mode.upper()} CALIBRATION SWEEP")
+            log_callback(f"   STARTING {str(axis_mode).upper()} CALIBRATION SWEEP")
             log_callback("="*50)
             
         if not self.marker_st:
@@ -710,7 +710,8 @@ class MarkerCalibrator(BaseCalibrator):
         initial_joint_pos = list(state.position[arm_idx])
 
         # Sweep configuration (0.5 degree steps for dense cloud)
-        if "axis 6" in axis_mode.lower():
+        axis_str = str(axis_mode).lower()
+        if "6" in axis_str:
             start_deg = -20.0
             step_deg = 0.5
             max_points = 81
@@ -831,7 +832,7 @@ class MarkerCalibrator(BaseCalibrator):
             return None
 
         # Solve Circle Fitting
-        n_nom = [1.0, 0.0, 0.0] if "axis 6" in axis_mode.lower() else [0.0, 1.0, 0.0]
+        n_nom = [1.0, 0.0, 0.0] if "6" in str(axis_mode).lower() else [0.0, 1.0, 0.0]
         res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom)
         return res
 

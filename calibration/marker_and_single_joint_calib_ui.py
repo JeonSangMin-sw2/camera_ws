@@ -7,7 +7,9 @@ import logging
 import rby1_sdk as rby
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
-                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog)
+                             QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
+                             QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog,
+                             QTableWidget, QHeaderView, QTableWidgetItem)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap
 import matplotlib.pyplot as plt
@@ -375,67 +377,72 @@ class JointCalibrationWorker(QThread):
                 self.log_signal.emit("-" * 30)
                 self.log_signal.emit("\n[CALIBRATION COMPLETE]\n")
                 
-                # Plotting
-                plot_path_left = os.path.join(os.path.dirname(__file__), f"fit_{self.mode}_axis_A.png")
-                plot_path_right = os.path.join(os.path.dirname(__file__), f"fit_{self.mode}_axis_B.png")
+                # Single Unified Widescreen Plot (1x2 Subplots) split by left/right side
+                plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png" if self.mode != "head" else f"fit_head_{self.arm_side}_calib.png"
+                plot_path_combined = os.path.join(os.path.dirname(__file__), plot_filename)
+                
+                plt.figure(figsize=(10, 5))
                 
                 if self.mode == "head":
-                    # Yaw Sweep
-                    plt.figure(figsize=(5, 5))
+                    # Subplot 1: Yaw Sweep
+                    plt.subplot(1, 2, 1)
                     plt.plot(res['meas_pts_yaw'][:, 0], res['meas_pts_yaw'][:, 3]*1000, 'ro', label='Measured')
                     plt.plot(res['pred_pts_yaw'][:, 0], res['pred_pts_yaw'][:, 3]*1000, 'r-', label='Calibrated')
-                    plt.title("Head Yaw Sweep (Z Axis)")
+                    plt.title("Head Yaw Sweep (Z-Axis over Angle)")
                     plt.xlabel("Yaw Angle (deg)")
-                    plt.ylabel("Z (mm)")
+                    plt.ylabel("Z Height (mm)")
                     plt.grid(True)
                     plt.legend()
-                    plt.tight_layout()
-                    plt.savefig(plot_path_left)
-                    plt.close()
                     
-                    # Pitch Sweep
-                    plt.figure(figsize=(5, 5))
+                    # Subplot 2: Pitch Sweep
+                    plt.subplot(1, 2, 2)
                     plt.plot(res['meas_pts_pitch'][:, 0], res['meas_pts_pitch'][:, 3]*1000, 'bo', label='Measured')
                     plt.plot(res['pred_pts_pitch'][:, 0], res['pred_pts_pitch'][:, 3]*1000, 'b-', label='Calibrated')
-                    plt.title("Head Pitch Sweep (Z Axis)")
+                    plt.title("Head Pitch Sweep (Z-Axis over Angle)")
                     plt.xlabel("Pitch Angle (deg)")
-                    plt.ylabel("Z (mm)")
+                    plt.ylabel("Z Height (mm)")
                     plt.grid(True)
                     plt.legend()
-                    plt.tight_layout()
-                    plt.savefig(plot_path_right)
-                    plt.close()
                 else:
-                    # Circle A
-                    plt.figure(figsize=(5, 5))
+                    # Trajectory representations based on mode
+                    if self.mode == "wrist_pitch":
+                        title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                        title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                    else: # elbow mode
+                        title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                        title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                        
+                    # Subplot 1: Circle A
+                    plt.subplot(1, 2, 1)
                     plt.scatter(res['pts_2d_A'][:, 0], res['pts_2d_A'][:, 1], c='r', label='Sweep Axis A')
                     circle_A = plt.Circle((res['uc_A'], res['vc_A']), res['r_A'], color='r', fill=False, label='Fit A')
                     plt.gca().add_patch(circle_A)
-                    plt.plot(res['uc_A'], res['vc_A'], 'rx')
-                    plt.title(f"Axis A Circle (RMSE: {res['rmse_A']:.3f})")
+                    plt.plot(res['uc_A'], res['vc_A'], 'rx', markersize=8)
+                    plt.title(title_A)
+                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
+                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
                     plt.gca().set_aspect('equal')
                     plt.grid(True)
                     plt.legend()
-                    plt.tight_layout()
-                    plt.savefig(plot_path_left)
-                    plt.close()
                     
-                    # Circle B
-                    plt.figure(figsize=(5, 5))
+                    # Subplot 2: Circle B
+                    plt.subplot(1, 2, 2)
                     plt.scatter(res['pts_2d_B'][:, 0], res['pts_2d_B'][:, 1], c='b', label='Sweep Axis B')
                     circle_B = plt.Circle((res['uc_B'], res['vc_B']), res['r_B'], color='b', fill=False, label='Fit B')
                     plt.gca().add_patch(circle_B)
-                    plt.plot(res['uc_B'], res['vc_B'], 'bx')
-                    plt.title(f"Axis B Circle (RMSE: {res['rmse_B']:.3f})")
+                    plt.plot(res['uc_B'], res['vc_B'], 'bx', markersize=8)
+                    plt.title(title_B)
+                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
+                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
                     plt.gca().set_aspect('equal')
                     plt.grid(True)
                     plt.legend()
-                    plt.tight_layout()
-                    plt.savefig(plot_path_right)
-                    plt.close()
                 
-                res['plot_path_left'] = plot_path_left
-                res['plot_path_right'] = plot_path_right
+                plt.tight_layout()
+                plt.savefig(plot_path_combined, dpi=120)
+                plt.close()
+                
+                res['plot_path_combined'] = plot_path_combined
                 self.finished_signal.emit(res)
             else:
                 self.finished_signal.emit(None)
@@ -464,6 +471,8 @@ class UnifiedCalibrationApp(QWidget):
         
         # Cumulative Joint Offsets for iterative sweeps
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        self.load_offsets_from_yaml()
+        
         self.joint_calib_state = "idle"
         self.joint_calib_iteration = 0
         self.joint_calib_max_iterations = 4
@@ -491,6 +500,48 @@ class UnifiedCalibrationApp(QWidget):
             self.temp_label.setText("Camera Temp: 34.2 °C (Simulated)")
             
         self.active_worker = None
+
+    def load_offsets_from_yaml(self):
+        import yaml
+        config_path = "/home/rainbow/camera_ws/config/joint5_offset.yaml"
+        if os.path.exists(config_path):
+            try:
+                with open(config_path, "r") as f:
+                    data = yaml.safe_load(f)
+                if data:
+                    self.joint_offsets_store = data
+                    # Sync current offsets with active arm_side from YAML
+                    self.joint_offsets["wrist_pitch"] = data.get(self.arm_side, {}).get("joint5", 0.0)
+                    self.joint_offsets["elbow"] = data.get(self.arm_side, {}).get("joint3", 0.0)
+                    self.marker_calibrator.joint_offsets = self.joint_offsets
+                    self.joint_calibrator.joint_offsets = self.joint_offsets
+                    return
+            except Exception as e:
+                pass
+        
+        # Fallback default values
+        self.joint_offsets_store = {
+            "left": {"joint5": 0.0, "joint3": 0.0},
+            "right": {"joint5": 0.0, "joint3": 0.0}
+        }
+        self.joint_offsets["wrist_pitch"] = 0.0
+        self.joint_offsets["elbow"] = 0.0
+
+    def save_offsets_to_yaml(self):
+        import yaml
+        config_path = "/home/rainbow/camera_ws/config/joint5_offset.yaml"
+        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        
+        # Sync values from UI state to memory store
+        self.joint_offsets_store[self.arm_side]["joint5"] = self.joint_offsets["wrist_pitch"]
+        self.joint_offsets_store[self.arm_side]["joint3"] = self.joint_offsets["elbow"]
+        
+        try:
+            with open(config_path, "w") as f:
+                yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
+            self.log_msg(f"[SUCCESS] Saved offsets permanently to joint5_offset.yaml!")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to save joint5_offset.yaml: {e}")
 
     def init_ui(self):
         # 1. Main horizontal split layout to prevent horizontal clipping
@@ -583,12 +634,31 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_result = QPushButton("SHOW RESULT")
         self.btn_joint_result.clicked.connect(self.show_result_joint)
         
-        # Two high-visibility static offset labels inside control panel
-        self.lbl_joint5_offset = QLabel("Joint 5 (Wrist Pitch) Offset: 0.0000°")
-        self.lbl_joint5_offset.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 11px; margin-top: 5px;")
-        
-        self.lbl_joint3_offset = QLabel("Joint 3 (Elbow) Offset: 0.0000°")
-        self.lbl_joint3_offset.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 11px; margin-top: 2px;")
+        # Premium offset monitor dashboard
+        self.tbl_offset_monitor = QTableWidget(2, 2)
+        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
+        self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
+        self.tbl_offset_monitor.setFixedHeight(95)
+        self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.setStyleSheet("""
+            QTableWidget {
+                background-color: #121212;
+                color: #00e5ff;
+                gridline-color: #2d2d2d;
+                font-weight: bold;
+                border: 1px solid #2d2d2d;
+                border-radius: 4px;
+            }
+            QHeaderView::section {
+                background-color: #1a1a1a;
+                color: #888888;
+                font-weight: bold;
+                padding: 4px;
+                border: 1px solid #2d2d2d;
+            }
+        """)
         
         # Existing apply offset button kept
         self.btn_joint_apply = QPushButton("APPLY OFFSET")
@@ -601,8 +671,8 @@ class UnifiedCalibrationApp(QWidget):
         joint_sublayout.addWidget(self.joint_mode_sel)
         joint_sublayout.addWidget(self.btn_joint_ready)
         joint_sublayout.addWidget(self.btn_joint_start)
-        joint_sublayout.addWidget(self.lbl_joint5_offset)
-        joint_sublayout.addWidget(self.lbl_joint3_offset)
+        joint_sublayout.addWidget(QLabel("Offset Monitoring Dashboard:"))
+        joint_sublayout.addWidget(self.tbl_offset_monitor)
         joint_sublayout.addWidget(self.btn_joint_apply)
         joint_subtab.setLayout(joint_sublayout)
         self.workflow_tabs.addTab(joint_subtab, "1. Joint Calib")
@@ -721,18 +791,13 @@ class UnifiedCalibrationApp(QWidget):
         
         # Tab 2: Interactive Plot Viewer
         self.plot_tab = QWidget()
-        plot_layout = QHBoxLayout()
+        plot_layout = QVBoxLayout()
         
-        self.plot_label_left = QLabel("Circle Fit: Axis A / Yaw Sweep Plot")
-        self.plot_label_left.setAlignment(Qt.AlignCenter)
-        self.plot_label_left.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
+        self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations (1x2 Unified Subplots)")
+        self.plot_label_combined.setAlignment(Qt.AlignCenter)
+        self.plot_label_combined.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
         
-        self.plot_label_right = QLabel("Circle Fit: Axis B / Pitch Sweep Plot")
-        self.plot_label_right.setAlignment(Qt.AlignCenter)
-        self.plot_label_right.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
-        
-        plot_layout.addWidget(self.plot_label_left)
-        plot_layout.addWidget(self.plot_label_right)
+        plot_layout.addWidget(self.plot_label_combined)
         self.plot_tab.setLayout(plot_layout)
         
         self.right_tabs.addTab(log_tab, "System Log")
@@ -802,6 +867,10 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_data_5 = None
             self.marker_data_6 = None
             self.joint_sweep_data = None
+            
+            # Reload offsets from yaml and sync with active arm_side
+            self.load_offsets_from_yaml()
+            self.update_applied_offset_label()
             
             # Sync dropdown indexes between workflow tabs
             self.joint_arm_sel.blockSignals(True)
@@ -881,13 +950,18 @@ class UnifiedCalibrationApp(QWidget):
             self.on_action_finished()
 
     def update_applied_offset_label(self):
-        if not hasattr(self, 'lbl_joint5_offset') or not hasattr(self, 'lbl_joint3_offset') or not hasattr(self, 'btn_joint_apply'):
+        if not hasattr(self, 'tbl_offset_monitor') or not hasattr(self, 'btn_joint_apply'):
             return
         
-        j5_val = self.joint_offsets.get("wrist_pitch", 0.0)
-        j3_val = self.joint_offsets.get("elbow", 0.0)
-        self.lbl_joint5_offset.setText(f"Joint 5 (Wrist Pitch) Offset: {j5_val:.4f}°")
-        self.lbl_joint3_offset.setText(f"Joint 3 (Elbow) Offset: {j3_val:.4f}°")
+        # Populate QTableWidget from self.joint_offsets_store
+        # Row 0: Right Arm, Row 1: Left Arm
+        # Col 0: Joint 5, Col 1: Joint 3
+        for row_idx, arm in enumerate(["right", "left"]):
+            for col_idx, joint_key in enumerate(["joint5", "joint3"]):
+                val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
+                item = QTableWidgetItem(f"{val:.4f}°")
+                item.setTextAlignment(Qt.AlignCenter)
+                self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
         
         mode_str = self.joint_mode_sel.currentText()
         if "wrist_pitch" in mode_str or "elbow" in mode_str:
@@ -907,6 +981,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_offsets[mode] = recommended
             self.joint_calibrator.joint_offsets[mode] = recommended
             self.marker_calibrator.joint_offsets[mode] = recommended
+            self.save_offsets_to_yaml() # Save permanently to YAML
             self.update_applied_offset_label()
             self.log_msg(f"[APPLY] Applied recommended cumulative offset for {mode} to {recommended:.4f}° successfully!")
             # Keep the recommended offset so they can re-apply if needed, or clear it
@@ -922,6 +997,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.joint_offsets[mode] = new_val
                 self.joint_calibrator.joint_offsets[mode] = new_val
                 self.marker_calibrator.joint_offsets[mode] = new_val
+                self.save_offsets_to_yaml() # Save permanently to YAML
                 self.update_applied_offset_label()
                 self.log_msg(f"[MANUAL OFFSET] Manually updated cumulative offset for {mode} to {new_val:.4f}°.")
 
@@ -1141,12 +1217,9 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_sweep_data = res
 
         # Update Plot viewer if plots exist
-        if 'plot_path_left' in res and os.path.exists(res['plot_path_left']):
-            pix_l = QPixmap(res['plot_path_left']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.plot_label_left.setPixmap(pix_l)
-        if 'plot_path_right' in res and os.path.exists(res['plot_path_right']):
-            pix_r = QPixmap(res['plot_path_right']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.plot_label_right.setPixmap(pix_r)
+        if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
+            pix = QPixmap(res['plot_path_combined']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.plot_label_combined.setPixmap(pix)
             
         self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
 
@@ -1345,16 +1418,14 @@ class UnifiedCalibrationApp(QWidget):
         if res:
             if res['axis_mode'] == 6:
                 self.marker_data_6 = res
-                if 'plot_path' in res and os.path.exists(res['plot_path']):
-                    pix = QPixmap(res['plot_path']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.plot_label_left.setPixmap(pix)
             else:
                 self.marker_data_5 = res
-                if 'plot_path' in res and os.path.exists(res['plot_path']):
-                    pix = QPixmap(res['plot_path']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.plot_label_right.setPixmap(pix)
+                
+            if 'plot_path' in res and os.path.exists(res['plot_path']):
+                pix = QPixmap(res['plot_path']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                self.plot_label_combined.setPixmap(pix)
             
-            self.tabs.setCurrentIndex(1) # Auto swap to plot tab
+            self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
         else:
             self.log_msg("[ERROR] Marker sweep failed.")
 
