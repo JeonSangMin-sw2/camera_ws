@@ -50,7 +50,7 @@ class IntrinsicCalibApp(QWidget):
         
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.update_frame)
-        self.timer.start(33) # ~30 fps
+        self.timer.start(33) # ~30`` fps
         
     def init_ui(self):
         main_layout = QHBoxLayout()
