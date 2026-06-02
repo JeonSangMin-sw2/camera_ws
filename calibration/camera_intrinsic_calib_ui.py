@@ -36,7 +36,7 @@ class IntrinsicCalibApp(QWidget):
         
         self.calibrator = IntrinsicsCalibrator()
         # Default: 8x5 squares, 30mm x 22mm, DICT_5X5_100
-        self.calibrator.set_board(8, 5, IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD, 30.0, 22.0, "DICT_5X5_100")
+        self.calibrator.set_board(8, 5, IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD, 36.0, 27.0, "DICT_5X5_100")
         
         # Marker Detection for monitoring
         self.marker_detector = Marker_Detection()
