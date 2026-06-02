@@ -927,7 +927,8 @@ class PitchHeadCalibrator(BaseCalibrator):
                 self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=0.3, apply_offsets=False)
             time.sleep(0.1)
             
-            res = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side)
+            # 정지 측정 중이므로 칼만 필터를 완전히 우회(use_filter=False)
+            res = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side, use_filter=False)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 
@@ -1010,7 +1011,8 @@ class PitchHeadCalibrator(BaseCalibrator):
                 self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=0.3, apply_offsets=False)
             time.sleep(0.1)
             
-            res = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side)
+            # 정지 측정 중이므로 칼만 필터를 완전히 우회(use_filter=False)
+            res = self.marker_st.get_marker_transform(sampling_time=0.5, side=arm_side, use_filter=False)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 
@@ -1173,6 +1175,349 @@ class PitchHeadCalibrator(BaseCalibrator):
                 if log_callback and marker_6_res:
                     log_callback("\n" + "-"*50)
                     log_callback("  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS]")
+                    log_callback("-"*50)
+                    log_callback(f"    - Fitted Sweep Radius    : {marker_6_res['radius']:.3f} mm")
+                    log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
+                    log_callback(f"    - Axis Direction Vector  : {np.round(marker_6_res['axis_opt'], 4)}")
+                    log_callback(f"    - Jitter StdDev (Tilt)   : {np.std(marker_6_res.get('tilt_list', [0.0])):.3f} deg")
+                    log_callback("-"*50 + "\n")
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"\n[WARN] Failed simultaneous Marker Axis 6 calculation: {e}\n")
+
+        return {
+            'mode': mode,
+            'optimal_offset': optimal_offset_deg,
+            'offsets': list(plot_offsets),
+            'errors': plot_errors,
+            'pts_2d_A': pts_2d_A,
+            'uc_A': uc_A,
+            'vc_A': vc_A,
+            'r_A': r_A,
+            'pts_2d_B': pts_2d_B,
+            'uc_B': uc_B,
+            'vc_B': vc_B,
+            'r_B': r_B,
+            'rmse_A': rmse_A,
+            'rmse_B': rmse_B,
+            'marker_6_res': marker_6_res
+        }
+
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True, current_offset_deg=0.0, sweep_duration=15.0):
+        import threading
+        
+        class MoveThread(threading.Thread):
+            def __init__(self, calibrator, robot, torso, right_arm, left_arm, head, minimum_time):
+                super().__init__()
+                self.calibrator = calibrator
+                self.robot = robot
+                self.torso = torso
+                self.right_arm = right_arm
+                self.left_arm = left_arm
+                self.head = head
+                self.minimum_time = minimum_time
+                self.success = False
+
+            def run(self):
+                self.success = self.calibrator.movej(
+                    self.robot, torso=self.torso, 
+                    right_arm=self.right_arm, left_arm=self.left_arm, 
+                    head=self.head, minimum_time=self.minimum_time,
+                    apply_offsets=False
+                )
+
+        if log_callback:
+            log_callback("\n" + "="*50)
+            log_callback(f"   STARTING {mode.upper()} CONTINUOUS OFFSET CALIBRATION SWEEP")
+            if current_offset_deg != 0.0:
+                log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
+            log_callback("="*50)
+
+        if not self.marker_st:
+            if log_callback: log_callback("[ERROR] Camera system is not initialized.")
+            return None
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot not connected.")
+            return None
+
+        # Pre-check marker visibility
+        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+        if not initial_check:
+            if log_callback: log_callback("[ERROR] Marker is not visible.")
+            if status_callback: status_callback(False)
+            return None
+        if status_callback: status_callback(True)
+
+        state = self.robot.get_state()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        initial_joint_pos = list(state.position[arm_idx])
+
+        # Define joint parameters based on mode
+        if mode == "wrist_pitch":
+            cand_joint = 5
+            sweep_joint_A = 4
+            sweep_joint_B = 6
+        else: # elbow mode
+            cand_joint = 3
+            sweep_joint_A = 2
+            sweep_joint_B = 4
+
+        # Prepare Active Head/Camera Tracking (Optional in Continuous mode)
+        head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
+        q_head_0 = state.position[head_idx].copy() if (head_idx is not None and use_head_tracking and mode == "wrist_pitch") else None
+        dyn_model = self.robot.get_dynamics()
+
+        try:
+            T_neck = self.compute_fk(self.robot, dyn_model, state.position, "link_head_2", "link_torso_5")
+            p_neck = T_neck[:3, 3] if (use_head_tracking and mode == "wrist_pitch") else None
+        except Exception:
+            p_neck = None
+            
+        ee_name = f"ee_{arm_side}"
+        try:
+            T_ee_0 = self.compute_fk(self.robot, dyn_model, state.position, ee_name, "link_torso_5")
+            p_marker_0 = T_ee_0[:3, 3] if (use_head_tracking and mode == "wrist_pitch") else None
+        except Exception:
+            p_marker_0 = None
+
+        # Arm cand baseline pose (shifted by current offset)
+        q_cand = list(initial_joint_pos)
+        q_cand[cand_joint] = initial_joint_pos[cand_joint] + np.radians(current_offset_deg)
+
+        # 1. PHYSICAL SWEEP JOINT A
+        if log_callback: log_callback(f"\n--- [1/2] Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
+        
+        # Move to start position (-20 deg)
+        q_start_A = list(q_cand)
+        q_start_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(-20.0)
+        if arm_side == "left":
+            self.movej(self.robot, left_arm=q_start_A, head=q_head_0, minimum_time=2.0, apply_offsets=False)
+        else:
+            self.movej(self.robot, right_arm=q_start_A, head=q_head_0, minimum_time=2.0, apply_offsets=False)
+        time.sleep(1.0)
+
+        # Launch motion thread to move from -20 to +20 deg
+        q_end_A = list(q_cand)
+        q_end_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(20.0)
+        
+        move_thread = MoveThread(
+            self, self.robot, torso=None,
+            right_arm=q_end_A if arm_side == "right" else None,
+            left_arm=q_end_A if arm_side == "left" else None,
+            head=q_head_0, minimum_time=sweep_duration
+        )
+        
+        dataset_A = []
+        move_thread.start()
+        
+        # Capture marker pose and joint angles in real time
+        while move_thread.is_alive():
+            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+            if res:
+                pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                q_full_captured = np.array(self.robot.get_state().position)
+                if np.linalg.norm(pose[:3, 3]) > 0.01:
+                    dataset_A.append((q_full_captured, pose))
+            time.sleep(0.03) # 30Hz polling
+            
+        move_thread.join()
+        if log_callback: log_callback(f"    -> Swept {len(dataset_A)} dense raw coordinate frames during Joint A motion.")
+
+        # Return to baseline candidate pose
+        if arm_side == "left":
+            self.movej(self.robot, left_arm=q_cand, head=q_head_0, minimum_time=1.5, apply_offsets=False)
+        else:
+            self.movej(self.robot, right_arm=q_cand, head=q_head_0, minimum_time=1.5, apply_offsets=False)
+        time.sleep(1.0)
+
+        # 2. PHYSICAL SWEEP JOINT B
+        if log_callback: log_callback(f"\n--- [2/2] Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
+        
+        # Move to start position (-20 deg)
+        q_start_B = list(q_cand)
+        q_start_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(-20.0)
+        if arm_side == "left":
+            self.movej(self.robot, left_arm=q_start_B, head=q_head_0, minimum_time=2.0, apply_offsets=False)
+        else:
+            self.movej(self.robot, right_arm=q_start_B, head=q_head_0, minimum_time=2.0, apply_offsets=False)
+        time.sleep(1.0)
+
+        # Launch motion thread to move from -20 to +20 deg
+        q_end_B = list(q_cand)
+        q_end_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(20.0)
+        
+        move_thread = MoveThread(
+            self, self.robot, torso=None,
+            right_arm=q_end_B if arm_side == "right" else None,
+            left_arm=q_end_B if arm_side == "left" else None,
+            head=q_head_0, minimum_time=sweep_duration
+        )
+        
+        dataset_B = []
+        move_thread.start()
+        
+        # Capture marker pose and joint angles in real time
+        while move_thread.is_alive():
+            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+            if res:
+                pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                q_full_captured = np.array(self.robot.get_state().position)
+                if np.linalg.norm(pose[:3, 3]) > 0.01:
+                    dataset_B.append((q_full_captured, pose))
+            time.sleep(0.03) # 30Hz polling
+            
+        move_thread.join()
+        if log_callback: log_callback(f"    -> Swept {len(dataset_B)} dense raw coordinate frames during Joint B motion.")
+
+        # Return arm and head to original ready pose
+        if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm and head to initial pose...")
+        if arm_side == "left":
+            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.5, apply_offsets=False)
+        else:
+            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.5, apply_offsets=False)
+
+        if len(dataset_A) < 10 or len(dataset_B) < 10:
+            if log_callback: log_callback("[ERROR] Too few valid captured points. Calibration failed.")
+            return None
+
+        # Clean/Downsample dataset to make optimization fast but robust
+        # Keep up to 60 dense points per sweep
+        step_A = max(1, len(dataset_A) // 60)
+        step_B = max(1, len(dataset_B) // 60)
+        dataset_A = dataset_A[::step_A]
+        dataset_B = dataset_B[::step_B]
+
+        # 3. OFFLINE NUMERICAL OPTIMIZATION (Brent's 1D search)
+        if log_callback: log_callback("\n--- [3] Starting Offline Iterative Brent Optimization (3D Spread Minimization - Dense) ---")
+        
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_mount_to_cam = self.make_transform(mount_to_cam)
+
+        def evaluate_offset(offset_rad):
+            pts_ee = []
+            for q_full, pose in dataset_A:
+                p_cam = pose[:3, 3]
+                q_mod = np.array(q_full)
+                q_mod[arm_idx[cand_joint]] += offset_rad
+                T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                
+                p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+                R = T_t5_to_ee[:3, :3]
+                p = T_t5_to_ee[:3, 3]
+                p_ee = R.T @ (p_meas_t5 - p)
+                pts_ee.append(p_ee * 1000.0)
+                
+            for q_full, pose in dataset_B:
+                p_cam = pose[:3, 3]
+                q_mod = np.array(q_full)
+                q_mod[arm_idx[cand_joint]] += offset_rad
+                T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                
+                p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+                R = T_t5_to_ee[:3, :3]
+                p = T_t5_to_ee[:3, 3]
+                p_ee = R.T @ (p_meas_t5 - p)
+                pts_ee.append(p_ee * 1000.0)
+                
+            pts_ee = np.array(pts_ee)
+            mean_pt = np.mean(pts_ee, axis=0)
+            deviations = np.linalg.norm(pts_ee - mean_pt, axis=1)
+            return np.sqrt(np.mean(deviations**2))
+
+        iteration_count = 0
+        def evaluate_offset_logged(offset_rad):
+            nonlocal iteration_count
+            iteration_count += 1
+            error = evaluate_offset(offset_rad)
+            if log_callback:
+                log_callback(f"  [Iter {iteration_count:2d}] Joint Offset: {np.degrees(offset_rad):.6f}° | Marker Spread (SD): {error:.8f} mm")
+            return error
+
+        opt_res = minimize_scalar(
+            evaluate_offset_logged, 
+            bounds=(-np.radians(10.0), np.radians(10.0)), 
+            method='bounded', 
+            options={'xatol': 1e-8}
+        )
+        
+        optimal_offset_rad = opt_res.x
+        optimal_offset_deg = np.degrees(optimal_offset_rad)
+        final_dist = opt_res.fun
+
+        if log_callback:
+            log_callback("\n" + "="*50)
+            log_callback(f"   SWEEP ANALYSIS & RESULTS ({mode.upper()} - CONTINUOUS)")
+            log_callback("="*50)
+            log_callback(f"  * Total Iterations          : {iteration_count}")
+            log_callback(f"  * Estimated Optimal Offset  : {optimal_offset_deg:.6f} deg")
+            log_callback(f"  * Final Marker Spread (SD)  : {final_dist:.8f} mm")
+            log_callback("="*50)
+
+        # Prepare final visual projection datasets
+        pts_ee_A_best = []
+        for q_full, pose in dataset_A:
+            p_cam = pose[:3, 3]
+            q_mod = np.array(q_full)
+            q_mod[arm_idx[cand_joint]] += optimal_offset_rad
+            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+            
+            T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+            
+            p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+            p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+            pts_ee_A_best.append(p_ee * 1000.0)
+            
+        pts_ee_B_best = []
+        for q_full, pose in dataset_B:
+            p_cam = pose[:3, 3]
+            q_mod = np.array(q_full)
+            q_mod[arm_idx[cand_joint]] += optimal_offset_rad
+            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+            
+            T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+            
+            p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+            p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+            pts_ee_B_best.append(p_ee * 1000.0)
+
+        # High-precision 3D fit circles for plotting
+        c3d_A, _, r_A, rmse_A, pts_2d_A, uc_A, vc_A, _, _ = BaseCalibrator.fit_circle_3d(pts_ee_A_best)
+        c3d_B, _, r_B, rmse_B, pts_2d_B, uc_B, vc_B, _, _ = BaseCalibrator.fit_circle_3d(pts_ee_B_best)
+
+        # Generate candidates & errors array for the plot
+        plot_offsets = np.linspace(-4.0, 4.0, 5)
+        plot_errors = [evaluate_offset(np.radians(o)) for o in plot_offsets]
+
+        # Simultaneous Marker Axis 6 parameter calculation
+        marker_6_res = None
+        if mode == "wrist_pitch":
+            try:
+                captured_poses_torso = []
+                sweep_angles_dummy = np.linspace(-20.0, 20.0, len(dataset_B))
+                for q_full, pose_cam_to_marker in dataset_B:
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
+                    captured_poses_torso.append(T_t5_to_marker)
+                    
+                marker_6_res = self.fit_circle_3d_and_6dof_misalignment(
+                    captured_poses_torso, 
+                    sweep_angles_dummy, 
+                    axis_prior=[1.0, 0.0, 0.0]
+                )
+                
+                if log_callback and marker_6_res:
+                    log_callback("\n" + "-"*50)
+                    log_callback("  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]")
                     log_callback("-"*50)
                     log_callback(f"    - Fitted Sweep Radius    : {marker_6_res['radius']:.3f} mm")
                     log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
