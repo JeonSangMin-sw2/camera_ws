@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
 
 # Import custom calibrator logic
-from Calibrator import MarkerCalibrator, PitchHeadCalibrator
+from Calibrator import MarkerCalibrator, JointCalibrator
 
 # --- Premium Dark CSS Stylesheet ---
 DARK_STYLESHEET = """
@@ -283,15 +283,13 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True, current_offset_deg=0.0, continuous=False, sweep_duration=60.0):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=60.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.mode = mode
         self.ui_only = ui_only
-        self.use_head_tracking = use_head_tracking
         self.current_offset_deg = current_offset_deg
-        self.continuous = continuous
         self.sweep_duration = sweep_duration
 
     def run(self):
@@ -304,139 +302,83 @@ class JointCalibrationWorker(QThread):
                     self.log_signal.emit(f"  [STEP {i+1}/5] Mock calibration step executed.")
                     time.sleep(0.2)
                 
-                if self.mode == "head":
-                    res = {
-                        'mode': 'head',
-                        'opt_yaw': 0.35,
-                        'opt_pitch': -0.48,
-                        'rmse': 0.14,
-                        'meas_pts_yaw': np.array([[y, y*0.01 + 0.1, y*0.02 + 0.2, y*0.03 + 0.3] for y in range(-10, 11)]),
-                        'pred_pts_yaw': np.array([[y, y*0.01 + 0.11, y*0.02 + 0.21, y*0.03 + 0.31] for y in range(-10, 11)]),
-                        'meas_pts_pitch': np.array([[p, p*0.01 + 0.1, p*0.02 + 0.2, p*0.03 + 0.3] for p in range(-10, 11)]),
-                        'pred_pts_pitch': np.array([[p, p*0.01 + 0.11, p*0.02 + 0.21, p*0.03 + 0.31] for p in range(-10, 11)])
-                    }
-                else:
-                    theta = np.linspace(-np.pi, np.pi, 20)
-                    pts_2d_A = np.column_stack((np.cos(theta)*45 + 1.0, np.sin(theta)*45 + 2.0))
-                    pts_2d_B = np.column_stack((np.cos(theta)*43 - 0.5, np.sin(theta)*43 + 1.5))
-                    # Simulate physical convergence under UI offset -= optimal_offset
-                    # True offset misalignment is -1.5 degrees, offset correction converges it to zero
-                    opt_offset = -1.5 + self.current_offset_deg
-                    res = {
-                        'mode': self.mode,
-                        'optimal_offset': opt_offset,
-                        'offsets': [-4, -2, 0, 2, 4],
-                        'errors': [2.1, 1.0, 0.3, 1.4, 2.9],
-                        'pts_2d_A': pts_2d_A,
-                        'uc_A': 1.0,
-                        'vc_A': 2.0,
-                        'r_A': 45.0,
-                        'pts_2d_B': pts_2d_B,
-                        'uc_B': -0.5,
-                        'vc_B': 1.5,
-                        'r_B': 43.0,
-                        'rmse_A': 0.09,
-                        'rmse_B': 0.12
-                    }
+                theta = np.linspace(-np.pi, np.pi, 20)
+                pts_2d_A = np.column_stack((np.cos(theta)*45 + 1.0, np.sin(theta)*45 + 2.0))
+                pts_2d_B = np.column_stack((np.cos(theta)*43 - 0.5, np.sin(theta)*43 + 1.5))
+                opt_offset = -1.5 + self.current_offset_deg
+                res = {
+                    'mode': self.mode,
+                    'optimal_offset': opt_offset,
+                    'recommended_joint_offset': opt_offset,
+                    'converged': True,
+                    'pts_2d_A': pts_2d_A,
+                    'uc_A': 1.0,
+                    'vc_A': 2.0,
+                    'r_A': 45.0,
+                    'pts_2d_B': pts_2d_B,
+                    'uc_B': -0.5,
+                    'vc_B': 1.5,
+                    'r_B': 43.0,
+                    'rmse_A': 0.09,
+                    'rmse_B': 0.12
+                }
             else:
-                if self.mode == "head":
-                    res = self.calibrator.perform_head_calibration_sweep(
-                        self.arm_side, 
-                        log_callback=self.log_signal.emit, 
-                        status_callback=self.status_signal.emit
-                    )
-                else:
-                    if self.continuous:
-                        res = self.calibrator.perform_calibration_sweep_continuous(
-                            self.arm_side, self.mode,
-                            log_callback=self.log_signal.emit, 
-                            status_callback=self.status_signal.emit,
-                            use_head_tracking=self.use_head_tracking,
-                            current_offset_deg=self.current_offset_deg,
-                            sweep_duration=self.sweep_duration
-                        )
-                    else:
-                        res = self.calibrator.perform_calibration_sweep_5_or_3(
-                            self.arm_side, self.mode,
-                            log_callback=self.log_signal.emit, 
-                            status_callback=self.status_signal.emit,
-                            use_head_tracking=self.use_head_tracking,
-                            current_offset_deg=self.current_offset_deg
-                        )
+                res = self.calibrator.perform_3step_joint_calibration(
+                    self.arm_side, self.mode,
+                    log_callback=self.log_signal.emit, 
+                    status_callback=self.status_signal.emit,
+                    current_offset_deg=self.current_offset_deg,
+                    sweep_duration=self.sweep_duration
+                )
 
             if res:
                 self.log_signal.emit("-" * 30)
                 self.log_signal.emit(f"  [1] Calibration Target: {self.mode}")
-                if self.mode == "head":
-                    self.log_signal.emit(f"      Yaw Offset Estimation  : {res['opt_yaw']:.3f} deg")
-                    self.log_signal.emit(f"      Pitch Offset Estimation: {res['opt_pitch']:.3f} deg")
-                    self.log_signal.emit(f"      Fit Quality (RMSE)     : {res['rmse']:.3f} mm")
-                else:
-                    self.log_signal.emit(f"      Estimated Optimal Offset: {res['optimal_offset']:.3f} deg")
-                    self.log_signal.emit(f"      Sweep RMSE (A/B)       : {res['rmse_A']:.3f} / {res['rmse_B']:.3f}")
+                recommended = res.get('recommended_joint_offset', res['optimal_offset'])
+                self.log_signal.emit(f"      Estimated Optimal Offset: {recommended:.3f} deg")
+                self.log_signal.emit(f"      Sweep RMSE (A/B)       : {res['rmse_A']:.3f} / {res['rmse_B']:.3f}")
                 self.log_signal.emit("-" * 30)
                 self.log_signal.emit("\n[CALIBRATION COMPLETE]\n")
                 
                 # Single Unified Widescreen Plot (1x2 Subplots) split by left/right side
-                plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png" if self.mode != "head" else f"fit_head_{self.arm_side}_calib.png"
+                plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png"
                 plot_path_combined = os.path.join(os.path.dirname(__file__), plot_filename)
                 
                 plt.figure(figsize=(10, 5))
                 
-                if self.mode == "head":
-                    # Subplot 1: Yaw Sweep
-                    plt.subplot(1, 2, 1)
-                    plt.plot(res['meas_pts_yaw'][:, 0], res['meas_pts_yaw'][:, 3]*1000, 'ro', label='Measured')
-                    plt.plot(res['pred_pts_yaw'][:, 0], res['pred_pts_yaw'][:, 3]*1000, 'r-', label='Calibrated')
-                    plt.title("Head Yaw Sweep (Z-Axis over Angle)")
-                    plt.xlabel("Yaw Angle (deg)")
-                    plt.ylabel("Z Height (mm)")
-                    plt.grid(True)
-                    plt.legend()
+                # Trajectory representations based on mode
+                if self.mode == "wrist_pitch":
+                    title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                    title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                else: # elbow mode
+                    title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                    title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
                     
-                    # Subplot 2: Pitch Sweep
-                    plt.subplot(1, 2, 2)
-                    plt.plot(res['meas_pts_pitch'][:, 0], res['meas_pts_pitch'][:, 3]*1000, 'bo', label='Measured')
-                    plt.plot(res['pred_pts_pitch'][:, 0], res['pred_pts_pitch'][:, 3]*1000, 'b-', label='Calibrated')
-                    plt.title("Head Pitch Sweep (Z-Axis over Angle)")
-                    plt.xlabel("Pitch Angle (deg)")
-                    plt.ylabel("Z Height (mm)")
-                    plt.grid(True)
-                    plt.legend()
-                else:
-                    # Trajectory representations based on mode
-                    if self.mode == "wrist_pitch":
-                        title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                        title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                    else: # elbow mode
-                        title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                        title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                        
-                    # Subplot 1: Circle A
-                    plt.subplot(1, 2, 1)
-                    plt.scatter(res['pts_2d_A'][:, 0], res['pts_2d_A'][:, 1], c='r', label='Sweep Axis A')
-                    circle_A = plt.Circle((res['uc_A'], res['vc_A']), res['r_A'], color='r', fill=False, label='Fit A')
-                    plt.gca().add_patch(circle_A)
-                    plt.plot(res['uc_A'], res['vc_A'], 'rx', markersize=8)
-                    plt.title(title_A)
-                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
-                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
-                    plt.gca().set_aspect('equal')
-                    plt.grid(True)
-                    plt.legend()
-                    
-                    # Subplot 2: Circle B
-                    plt.subplot(1, 2, 2)
-                    plt.scatter(res['pts_2d_B'][:, 0], res['pts_2d_B'][:, 1], c='b', label='Sweep Axis B')
-                    circle_B = plt.Circle((res['uc_B'], res['vc_B']), res['r_B'], color='b', fill=False, label='Fit B')
-                    plt.gca().add_patch(circle_B)
-                    plt.plot(res['uc_B'], res['vc_B'], 'bx', markersize=8)
-                    plt.title(title_B)
-                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
-                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
-                    plt.gca().set_aspect('equal')
-                    plt.grid(True)
-                    plt.legend()
+                # Subplot 1: Circle A
+                plt.subplot(1, 2, 1)
+                plt.scatter(res['pts_2d_A'][:, 0], res['pts_2d_A'][:, 1], c='r', label='Sweep Axis A')
+                circle_A = plt.Circle((res['uc_A'], res['vc_A']), res['r_A'], color='r', fill=False, label='Fit A')
+                plt.gca().add_patch(circle_A)
+                plt.plot(res['uc_A'], res['vc_A'], 'rx', markersize=8)
+                plt.title(title_A)
+                plt.xlabel("U coord (mm) [Fitting Local Plane X]")
+                plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
+                plt.gca().set_aspect('equal')
+                plt.grid(True)
+                plt.legend()
+                
+                # Subplot 2: Circle B
+                plt.subplot(1, 2, 2)
+                plt.scatter(res['pts_2d_B'][:, 0], res['pts_2d_B'][:, 1], c='b', label='Sweep Axis B')
+                circle_B = plt.Circle((res['uc_B'], res['vc_B']), res['r_B'], color='b', fill=False, label='Fit B')
+                plt.gca().add_patch(circle_B)
+                plt.plot(res['uc_B'], res['vc_B'], 'bx', markersize=8)
+                plt.title(title_B)
+                plt.xlabel("U coord (mm) [Fitting Local Plane X]")
+                plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
+                plt.gca().set_aspect('equal')
+                plt.grid(True)
+                plt.legend()
                 
                 plt.tight_layout()
                 plt.savefig(plot_path_combined, dpi=120)
@@ -462,7 +404,7 @@ class UnifiedCalibrationApp(QWidget):
         
         # Core Calibrator Instances
         self.marker_calibrator = MarkerCalibrator(marker_st, robot)
-        self.joint_calibrator = PitchHeadCalibrator(marker_st, robot)
+        self.joint_calibrator = JointCalibrator(marker_st, robot)
         
         # Saved Calibration Results
         self.marker_data_5 = None
@@ -473,11 +415,8 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
         self.load_offsets_from_yaml()
         
-        self.joint_calib_state = "idle"
-        self.joint_calib_iteration = 0
-        self.joint_calib_max_iterations = 4
-        self.joint_calib_threshold = 0.05 # Degrees
         self.recommended_joint_offset = None
+
         
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -503,45 +442,73 @@ class UnifiedCalibrationApp(QWidget):
 
     def load_offsets_from_yaml(self):
         import yaml
-        config_path = "/home/rainbow/camera_ws/config/joint5_offset.yaml"
-        if os.path.exists(config_path):
-            try:
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "joint_offset.yaml"))
+        try:
+            if not os.path.exists(config_path):
+                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+                self.joint_offsets_store = {
+                    "left": {"joint5": 0.0, "joint3": 0.0},
+                    "right": {"joint5": 0.0, "joint3": 0.0}
+                }
+                with open(config_path, "w") as f:
+                    yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
+                self.log_msg(f"[INFO] Created new calibration file: joint_offset.yaml")
+            else:
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f)
-                if data:
+                if data and isinstance(data, dict):
                     self.joint_offsets_store = data
-                    # Sync current offsets with active arm_side from YAML
-                    self.joint_offsets["wrist_pitch"] = data.get(self.arm_side, {}).get("joint5", 0.0)
-                    self.joint_offsets["elbow"] = data.get(self.arm_side, {}).get("joint3", 0.0)
-                    self.marker_calibrator.joint_offsets = self.joint_offsets
-                    self.joint_calibrator.joint_offsets = self.joint_offsets
-                    return
-            except Exception as e:
-                pass
-        
-        # Fallback default values
-        self.joint_offsets_store = {
-            "left": {"joint5": 0.0, "joint3": 0.0},
-            "right": {"joint5": 0.0, "joint3": 0.0}
-        }
-        self.joint_offsets["wrist_pitch"] = 0.0
-        self.joint_offsets["elbow"] = 0.0
+                else:
+                    raise ValueError("Invalid YAML data format")
+            
+            # Sync current offsets with active arm_side from YAML
+            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
+            self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
+            self.marker_calibrator.joint_offsets = self.joint_offsets
+            self.joint_calibrator.joint_offsets = self.joint_offsets
+            
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to load/create joint_offset.yaml: {e}")
+            # Fallback default values
+            self.joint_offsets_store = {
+                "left": {"joint5": 0.0, "joint3": 0.0},
+                "right": {"joint5": 0.0, "joint3": 0.0}
+            }
+            self.joint_offsets["wrist_pitch"] = 0.0
+            self.joint_offsets["elbow"] = 0.0
+            self.marker_calibrator.joint_offsets = self.joint_offsets
+            self.joint_calibrator.joint_offsets = self.joint_offsets
 
     def save_offsets_to_yaml(self):
         import yaml
-        config_path = "/home/rainbow/camera_ws/config/joint5_offset.yaml"
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "joint_offset.yaml"))
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
-        
-        # Sync values from UI state to memory store
-        self.joint_offsets_store[self.arm_side]["joint5"] = self.joint_offsets["wrist_pitch"]
-        self.joint_offsets_store[self.arm_side]["joint3"] = self.joint_offsets["elbow"]
         
         try:
             with open(config_path, "w") as f:
                 yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
-            self.log_msg(f"[SUCCESS] Saved offsets permanently to joint5_offset.yaml!")
+            self.log_msg(f"[SUCCESS] Saved offsets permanently to joint_offset.yaml!")
         except Exception as e:
-            self.log_msg(f"[ERROR] Failed to save joint5_offset.yaml: {e}")
+            self.log_msg(f"[ERROR] Failed to save joint_offset.yaml: {e}")
+
+    def on_cell_double_clicked(self, row, col):
+        arm = "right" if row == 0 else "left"
+        joint_key = "joint5" if col == 0 else "joint3"
+        mode = "wrist_pitch" if col == 0 else "elbow"
+        
+        current_val = self.joint_offsets_store[arm][joint_key]
+        new_val, ok = QInputDialog.getDouble(
+            self, 
+            "Manual Offset Override", 
+            f"Enter manual staged offset for {arm.upper()} Arm {'Joint 5' if col==0 else 'Joint 3'} (degrees):", 
+            current_val, -45.0, 45.0, 4
+        )
+        if ok:
+            self.joint_offsets_store[arm][joint_key] = new_val
+            self.update_applied_offset_label()
+            self.log_msg(f"[MANUAL OVERRIDE] Staged {arm.upper()} Arm {'Joint 5' if col==0 else 'Joint 3'} offset manually to {new_val:.4f}°. (Not saved to disk yet. Click APPLY OFFSET to save)")
 
     def init_ui(self):
         # 1. Main horizontal split layout to prevent horizontal clipping
@@ -613,7 +580,7 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_arm_sel.currentTextChanged.connect(self.on_arm_side_changed)
         
         self.joint_mode_sel = QComboBox()
-        self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)", "head (Yaw/Pitch Sweep)"])
+        self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"])
         self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
         
         # Unused checkboxes kept for backward compatibility reference, but omitted from layout placement
@@ -629,11 +596,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_start = QPushButton("START SWEEP")
         self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
-        
-        # SHOW RESULT button excluded from layout to satisfy requirements, but instance kept
-        self.btn_joint_result = QPushButton("SHOW RESULT")
-        self.btn_joint_result.clicked.connect(self.show_result_joint)
-        
         # Premium offset monitor dashboard
         self.tbl_offset_monitor = QTableWidget(2, 2)
         self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
@@ -642,6 +604,7 @@ class UnifiedCalibrationApp(QWidget):
         self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.cellDoubleClicked.connect(self.on_cell_double_clicked)
         self.tbl_offset_monitor.setStyleSheet("""
             QTableWidget {
                 background-color: #121212;
@@ -821,8 +784,11 @@ class UnifiedCalibrationApp(QWidget):
 
     # --- Common Helper Functions ---
     def log_msg(self, msg):
-        self.log_text.append(msg)
-        self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+        if hasattr(self, 'log_text') and self.log_text is not None:
+            self.log_text.append(msg)
+            self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
+        else:
+            print(msg)
 
     def connect_robot(self):
         if self.robot:
@@ -970,41 +936,28 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_joint_apply.setVisible(False)
 
     def apply_joint_offset(self):
-        mode_str = self.joint_mode_sel.currentText()
-        mode = "wrist_pitch" if "wrist_pitch" in mode_str else ("elbow" if "elbow" in mode_str else "head")
-        if mode not in ["wrist_pitch", "elbow"]:
-            QMessageBox.warning(self, "Invalid Mode", "Offset can only be applied to wrist_pitch or elbow joints.")
-            return
-            
-        recommended = getattr(self, 'recommended_joint_offset', None)
-        if recommended is not None:
-            self.joint_offsets[mode] = recommended
-            self.joint_calibrator.joint_offsets[mode] = recommended
-            self.marker_calibrator.joint_offsets[mode] = recommended
-            self.save_offsets_to_yaml() # Save permanently to YAML
-            self.update_applied_offset_label()
-            self.log_msg(f"[APPLY] Applied recommended cumulative offset for {mode} to {recommended:.4f}° successfully!")
-            # Keep the recommended offset so they can re-apply if needed, or clear it
-        else:
-            current_val = self.joint_offsets.get(mode, 0.0)
-            new_val, ok = QInputDialog.getDouble(
-                self, 
-                "Manual Offset Override", 
-                f"Enter cumulative home offset for {mode} (degrees):", 
-                current_val, -45.0, 45.0, 4
-            )
-            if ok:
-                self.joint_offsets[mode] = new_val
-                self.joint_calibrator.joint_offsets[mode] = new_val
-                self.marker_calibrator.joint_offsets[mode] = new_val
-                self.save_offsets_to_yaml() # Save permanently to YAML
-                self.update_applied_offset_label()
-                self.log_msg(f"[MANUAL OFFSET] Manually updated cumulative offset for {mode} to {new_val:.4f}°.")
+        # 1. Update the active self.joint_offsets from the staged store (for the active arm side)
+        self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
+        self.joint_offsets["elbow"] = self.joint_offsets_store[self.arm_side]["joint3"]
+        self.joint_calibrator.joint_offsets = self.joint_offsets
+        self.marker_calibrator.joint_offsets = self.joint_offsets
+        
+        # 2. Save the entire store all at once to disk
+        self.save_offsets_to_yaml()
+        
+        # 3. Update UI tables
+        self.update_applied_offset_label()
+        
+        self.log_msg(f"\n" + "="*50)
+        self.log_msg(f"[APPLY] Applied current staged offsets for {self.arm_side.upper()} Arm to active parameters:")
+        self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
+        self.log_msg(f"  - Joint 3 (elbow)      : {self.joint_offsets['elbow']:.4f}°")
+        self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to joint_offset.yaml successfully!")
+        self.log_msg("="*50 + "\n")
 
     def set_controls_enabled(self, enabled):
         self.btn_joint_ready.setEnabled(enabled)
         self.btn_joint_start.setEnabled(enabled)
-        self.btn_joint_result.setEnabled(enabled)
         self.btn_joint_apply.setEnabled(enabled)
         
         self.btn_marker_ready.setEnabled(enabled)
@@ -1018,11 +971,22 @@ class UnifiedCalibrationApp(QWidget):
             self.txt_head_yaw.setEnabled(enabled)
         if hasattr(self, 'txt_head_pitch'):
             self.txt_head_pitch.setEnabled(enabled)
+            
+        # Strict Mutual Exclusion: block model settings & disconnects during runs
+        self.btn_connect.setEnabled(enabled)
+        self.model_input.setEnabled(enabled)
+        self.workflow_tabs.setEnabled(enabled)
+        self.joint_arm_sel.setEnabled(enabled)
+        self.joint_mode_sel.setEnabled(enabled)
+        self.marker_arm_sel.setEnabled(enabled)
+        self.marker_axis_sel.setEnabled(enabled)
 
     def on_action_finished(self):
         self.set_controls_enabled(True)
         if hasattr(self, 'stop_event_mc'):
             self.stop_event_mc.clear()
+        if not self.ui_only and hasattr(self, 'poll_timer') and not self.poll_timer.isActive():
+            self.poll_timer.start(200)
 
     # --- Joint Calibration Workflows ---
     def move_to_ready_pose_joint(self):
@@ -1075,30 +1039,20 @@ class UnifiedCalibrationApp(QWidget):
         mode_str = self.joint_mode_sel.currentText()
         mode = "wrist_pitch" if "wrist_pitch" in mode_str else ("elbow" if "elbow" in mode_str else "head")
 
-        # State machine transition
-        if mode in ["wrist_pitch", "elbow"]:
-            self.joint_calib_state = "running_loop"
-            self.joint_calib_iteration = 1
-            self.original_joint_offset = self.joint_offsets.get(mode, 0.0)
-        else:
-            self.joint_calib_state = "idle"
-            self.joint_calib_iteration = 0
-
+        self.original_joint_offset = self.joint_offsets.get(mode, 0.0)
         self.set_controls_enabled(False)
         if not self.ui_only and hasattr(self, 'poll_timer'):
             self.poll_timer.stop()
 
         self.log_text.clear()
-        self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()} [Iteration 1/{self.joint_calib_max_iterations}]")
+        self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
         
-        use_ht = False
-        use_continuous = True
         curr_offset = self.joint_offsets.get(mode, 0.0)
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
-            ui_only=self.ui_only, use_head_tracking=use_ht, 
+            ui_only=self.ui_only, 
             current_offset_deg=curr_offset,
-            continuous=use_continuous, sweep_duration=60.0
+            sweep_duration=60.0
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
@@ -1111,103 +1065,12 @@ class UnifiedCalibrationApp(QWidget):
             if not self.ui_only and hasattr(self, 'poll_timer'):
                 self.poll_timer.start(200)
             self.log_msg("[ERROR] Joint sweep failed or aborted.")
-            self.joint_calib_state = "idle"
-            self.joint_calib_iteration = 0
             return
 
         mode = res['mode']
-
-        if self.joint_calib_state == "running_loop" and mode in ["wrist_pitch", "elbow"]:
-            optimal_offset = res['optimal_offset']
-            
-            self.log_msg(f"\n[ITERATION {self.joint_calib_iteration}/3 COMPLETED]")
-            self.log_msg(f"  * Measured Relative Offset : {optimal_offset:.4f} deg")
-            self.log_msg(f"  * Circle A Fitting RMSE     : {res['rmse_A']:.4f} mm")
-            self.log_msg(f"  * Circle B Fitting RMSE     : {res['rmse_B']:.4f} mm")
-            
-            if 'marker_6_res' in res and res['marker_6_res']:
-                m6 = res['marker_6_res']
-                self.log_msg(f"\n[SIMULTANEOUS MARKER AXIS 6 ESTIMATION]")
-                self.log_msg(f"    - Fitted Radius           : {m6['radius']:.3f} mm")
-                self.log_msg(f"    - Axis 6 fitting RMSE     : {m6['rmse']:.3f} mm")
-                self.log_msg(f"    - Axis Direction Vector   : {np.round(m6['axis'], 4)}")
-            self.log_msg("-" * 50)
-            
-            # --- 3-Step Polarity & Convergence Verification Engine ---
-            if self.joint_calib_iteration == 1:
-                # STEP 1 COMPLETE: Initial Offset magnitude calculated.
-                self.optimal_offset_1 = optimal_offset
-                
-                # Test positive polarity shift: current_offset = initial + optimal_1
-                self.joint_offsets[mode] = self.original_joint_offset + self.optimal_offset_1
-                self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
-                self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
-                self.update_applied_offset_label()
-                
-                self.joint_calib_iteration = 2
-                self.log_msg(f"\n[STEP 1 COMPLETE] Initial Offset: {self.optimal_offset_1:.4f}° calculated.")
-                self.log_msg(f"[STEP 2: DIRECTION VERIFICATION] Testing offset direction by shifting joint: {self.joint_offsets[mode]:.4f}°")
-                self.log_msg(f"[AUTO-ITERATION] Automatically launching verification sweep 2/3...\n")
-                self.launch_next_sweep_worker(mode)
-                
-            elif self.joint_calib_iteration == 2:
-                # STEP 2 COMPLETE: Polarity direction verification
-                self.optimal_offset_2 = optimal_offset
-                
-                # Verify convergence: error magnitude should reduce to less than 70% of initial error
-                if abs(self.optimal_offset_2) < abs(self.optimal_offset_1) * 0.7:
-                    self.log_msg(f"\n[STEP 2: SUCCESS] Polarity direction is VERIFIED as CORRECT!")
-                    self.log_msg(f"  * Error magnitude successfully reduced from {self.optimal_offset_1:.4f}° to {self.optimal_offset_2:.4f}°.")
-                    
-                    self.recommended_joint_offset = self.joint_offsets[mode] + self.optimal_offset_2
-                    self.finalize_joint_calibration_run(mode, res, converged=True)
-                else:
-                    # Polarity is WRONG (error remained high or increased). Reverse polarity direction!
-                    self.log_msg(f"\n[STEP 2: FAIL] Polarity direction is WRONG (error remained high: {self.optimal_offset_2:.4f}°).")
-                    self.log_msg(f"[STEP 2: CORRECTION] Reversing sweep direction polarity to: {-self.optimal_offset_1:.4f}°")
-                    
-                    # Reverse polarity: current_offset = initial - optimal_1
-                    self.joint_offsets[mode] = self.original_joint_offset - self.optimal_offset_1
-                    self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
-                    self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
-                    self.update_applied_offset_label()
-                    
-                    self.joint_calib_iteration = 3
-                    self.log_msg(f"[STEP 3: FINAL CONFIRMATION] Launching confirmation sweep 3/3 under reversed polarity: {self.joint_offsets[mode]:.4f}°\n")
-                    self.launch_next_sweep_worker(mode)
-                    
-            elif self.joint_calib_iteration >= 3:
-                # STEP 3 COMPLETE: Final check under reversed polarity
-                self.optimal_offset_3 = optimal_offset
-                self.recommended_joint_offset = self.joint_offsets[mode] + self.optimal_offset_3
-                
-                self.log_msg(f"\n[STEP 3 COMPLETE] Final offset confirmed under corrected polarity.")
-                self.finalize_joint_calibration_run(mode, res, converged=True)
-                
-        else: # Head Calibration
-            self.on_action_finished()
-            if not self.ui_only and hasattr(self, 'poll_timer'):
-                self.poll_timer.start(200)
-            self.joint_sweep_data = res
-            self.log_msg("\n[INFO] Head calibration finished.")
-            self.show_result_joint()
-            self.joint_calib_state = "idle"
-            self.joint_calib_iteration = 0
-
-    def launch_next_sweep_worker(self, mode):
-        use_ht = False
-        use_continuous = True
-        curr_offset = self.joint_offsets[mode]
-        self.active_worker = JointCalibrationWorker(
-            self.joint_calibrator, self.arm_side, mode, 
-            ui_only=self.ui_only, use_head_tracking=use_ht, 
-            current_offset_deg=curr_offset,
-            continuous=use_continuous, sweep_duration=60.0
-        )
-        self.active_worker.log_signal.connect(self.log_msg)
-        self.active_worker.status_signal.connect(self.update_marker_indicator)
-        self.active_worker.finished_signal.connect(self.on_calibration_finished_joint)
-        self.active_worker.start()
+        recommended = res.get('recommended_joint_offset', res['optimal_offset'])
+        self.recommended_joint_offset = recommended
+        self.finalize_joint_calibration_run(mode, res, converged=res.get('converged', True))
 
     def finalize_joint_calibration_run(self, mode, res, converged=True):
         self.on_action_finished()
@@ -1222,6 +1085,10 @@ class UnifiedCalibrationApp(QWidget):
             self.plot_label_combined.setPixmap(pix)
             
         self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
+
+        # Stage the newly recommended offset in the memory store
+        joint_key = "joint5" if mode == "wrist_pitch" else "joint3"
+        self.joint_offsets_store[self.arm_side][joint_key] = self.recommended_joint_offset
 
         # Revert active offsets to nominal original values in model (until user clicks APPLY)
         self.joint_offsets[mode] = self.original_joint_offset
@@ -1239,8 +1106,7 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.")
         self.log_msg("="*50 + "\n")
         
-        self.joint_calib_state = "idle"
-        self.joint_calib_iteration = 0
+        self.show_result_joint()
 
     def show_result_joint(self):
         self.log_text.clear()
@@ -1255,24 +1121,16 @@ class UnifiedCalibrationApp(QWidget):
         mode = self.joint_sweep_data['mode']
         self.log_msg(f"\n[1] Calibration Target: {mode}")
         
-        if mode == "head":
-            self.log_msg(f"    - Estimated Head Yaw Offset  : {self.joint_sweep_data['opt_yaw']:.4f} deg")
-            self.log_msg(f"    - Estimated Head Pitch Offset: {self.joint_sweep_data['opt_pitch']:.4f} deg")
-            self.log_msg(f"    - Alignment Residual RMSE    : {self.joint_sweep_data['rmse']:.3f} mm")
-            
-            self.log_msg("\n[2] setting.yaml Head Update suggestion:")
-            self.log_msg("  (Sum these offsets with your current physical zero offsets)")
-            self.log_msg(f"  Head Yaw Calibration Change  : {self.joint_sweep_data['opt_yaw']:.4f} deg")
-            self.log_msg(f"  Head Pitch Calibration Change: {self.joint_sweep_data['opt_pitch']:.4f} deg")
-        else:
-            self.log_msg(f"    - Target Swept Joint       : {'Joint 5' if mode == 'wrist_pitch' else 'Joint 3'}")
-            self.log_msg(f"    - Estimated Optimal Offset : {self.joint_sweep_data['optimal_offset']:.4f} deg")
-            self.log_msg(f"    - Circle A Fitting RMSE     : {self.joint_sweep_data['rmse_A']:.4f} mm")
-            self.log_msg(f"    - Circle B Fitting RMSE     : {self.joint_sweep_data['rmse_B']:.4f} mm")
-            
-            self.log_msg("\n[2] Sugested Joint Home Offset update:")
-            self.log_msg(f"  Add offset: {self.joint_sweep_data['optimal_offset']:.4f} deg to calibration config.")
+        recommended = self.joint_sweep_data.get('recommended_joint_offset', self.joint_sweep_data['optimal_offset'])
+        self.log_msg(f"    - Target Swept Joint       : {'Joint 5' if mode == 'wrist_pitch' else 'Joint 3'}")
+        self.log_msg(f"    - Estimated Optimal Offset : {recommended:.4f} deg")
+        self.log_msg(f"    - Circle A Fitting RMSE     : {self.joint_sweep_data['rmse_A']:.4f} mm")
+        self.log_msg(f"    - Circle B Fitting RMSE     : {self.joint_sweep_data['rmse_B']:.4f} mm")
+        
+        self.log_msg("\n[2] Suggested Joint Home Offset update:")
+        self.log_msg(f"  Add offset: {recommended:.4f} deg to calibration config.")
         self.log_msg("="*50)
+
 
     # --- Marker Bracket Calibration Workflows ---
     def move_to_ready_pose_marker(self):
@@ -1459,80 +1317,43 @@ class UnifiedCalibrationApp(QWidget):
             if not self.marker_data_6: self.log_msg(" -> Axis 6 Sweep (Yaw) data is missing.")
             if not self.marker_data_5: self.log_msg(" -> Axis 5 Sweep (Pitch) data is missing.")
             return
-            
-        L_5_ee = self.get_link_length()
-        if L_5_ee <= 0:
-            L_5_ee = 300.0 # Fallback
 
-        # Vector Math: Align measured axes with nominal EE axes
-        z_e_in_m = self.marker_data_6['axis']
-        y_e_in_m = self.marker_data_5['axis']
-        
-        if self.arm_side == "left":
-            ideal_rpy = [90.0, 0.0, 0.0]
-        else:
-            ideal_rpy = [90.0, 0.0, 180.0]
+        try:
+            res = self.marker_calibrator.compute_unified_bracket_calibration(
+                self.marker_data_5, self.marker_data_6, self.arm_side
+            )
             
-        T_ee_m_ideal = self.marker_calibrator.make_transform([0, 0, 0] + ideal_rpy)
-        R_ee_m_ideal = T_ee_m_ideal[:3, :3]
-        
-        # Check directions
-        if np.dot(z_e_in_m, R_ee_m_ideal[:, 2]) < 0: z_e_in_m = -z_e_in_m
-        if np.dot(y_e_in_m, R_ee_m_ideal[:, 1]) < 0: y_e_in_m = -y_e_in_m
-        
-        # Orthogonalize
-        y_e_in_m = y_e_in_m - np.dot(y_e_in_m, z_e_in_m) * z_e_in_m
-        y_e_in_m /= np.linalg.norm(y_e_in_m)
-        x_e_in_m = np.cross(y_e_in_m, z_e_in_m)
-        
-        R_ee_m_actual = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
-        euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
-        yaw_e, pitch_e, roll_e = euler_deg
-        
-        radius_6 = self.marker_data_6['radius']
-        radius_5 = self.marker_data_5['radius']
-        
-        # Offset translation
-        x_e = 0.0
-        y_e = radius_6 if self.arm_side == "left" else -radius_6
-        z_e = -abs(radius_5 - L_5_ee)
-        
-        self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
-        self.log_msg(f"    - X-Offset: {x_e:.2f} mm")
-        self.log_msg(f"    - Y-Offset: {y_e:.2f} mm")
-        self.log_msg(f"    - Z-Offset: {z_e:.2f} mm")
-        self.log_msg(f"       * (L_5_ee: {L_5_ee:.1f} mm, R6: {radius_6:.2f} mm, R5: {radius_5:.2f} mm)")
+            self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
+            self.log_msg(f"    - X-Offset: {res['x_e']:.2f} mm")
+            self.log_msg(f"    - Y-Offset: {res['y_e']:.2f} mm")
+            self.log_msg(f"    - Z-Offset: {res['z_e']:.2f} mm")
+            self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm)")
+                
+            self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
+            self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")
+            self.log_msg(f"    - Pitch: {res['pitch_e']:.2f} deg")
+            self.log_msg(f"    - Yaw  : {res['yaw_e']:.2f} deg")
             
-        self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
-        self.log_msg(f"    - Roll : {roll_e:.2f} deg")
-        self.log_msg(f"    - Pitch: {pitch_e:.2f} deg")
-        self.log_msg(f"    - Yaw  : {yaw_e:.2f} deg")
-        
-        self.log_msg("\n[3] setting.yaml Config Update values:")
-        x_m, y_m, z_m = x_e/1000.0, y_e/1000.0, z_e/1000.0
-        
-        if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {roll_e:.2f}, {pitch_e:.2f}, {yaw_e:.2f}]")
-        else:
-            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {roll_e:.2f}, {pitch_e:.2f}, {yaw_e:.2f}]")
+            self.log_msg("\n[3] setting.yaml Config Update values:")
+            x_m, y_m, z_m = res['x_e']/1000.0, res['y_e']/1000.0, res['z_e']/1000.0
             
-        # Analysis Orthogonality / Quality metrics
-        dot_val = np.dot(z_e_in_m, y_e_in_m)
-        angle_between = np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0)))
-        ortho_err = abs(90.0 - angle_between)
-        
-        rmse_6 = self.marker_data_6['rmse']
-        rmse_5 = self.marker_data_5['rmse']
-        
-        self.log_msg(f"\n[4] Confidence Metrics:")
-        self.log_msg(f"    - Orthogonality Error  : {ortho_err:.3f} deg")
-        self.log_msg(f"    - Fitting RMSE (A6/A5) : {rmse_6:.3f} / {rmse_5:.3f} mm")
-        
-        if rmse_6 > 0.5 or rmse_5 > 0.5:
-            self.log_msg("\n" + "!"*60)
-            self.log_msg(" [WARNING] Fitting RMSE exceeds 0.5 mm!")
-            self.log_msg("  The marker coordinates may have high noise. Check hardware.")
-            self.log_msg("!"*60)
+            if self.arm_side == "left":
+                self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+            else:
+                self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+                
+            self.log_msg(f"\n[4] Confidence Metrics:")
+            self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
+            self.log_msg(f"    - Fitting RMSE (A6/A5) : {res['rmse_6']:.3f} / {res['rmse_5']:.3f} mm")
+            
+            if res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5:
+                self.log_msg("\n" + "!"*60)
+                self.log_msg(" [WARNING] Fitting RMSE exceeds 0.5 mm!")
+                self.log_msg("  The marker coordinates may have high noise. Check hardware.")
+                self.log_msg("!"*60)
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to calculate bracket calibration: {e}")
+            
         self.log_msg("="*50)
 
 
