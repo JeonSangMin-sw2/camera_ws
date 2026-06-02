@@ -225,6 +225,8 @@ class MarkerCalibrationWorker(QThread):
             )
             
             if res:
+                res['axis_mode'] = self.axis_mode
+                res['axis'] = res['axis_opt']
                 fitting_score = max(0.0, 100.0 * (1.0 - res['rmse'] / 4.0))
                 
                 self.log_signal.emit(f"  [1] Geometric Tracking Stability:")
@@ -472,7 +474,7 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_calibrator.joint_offsets = self.joint_offsets
         
         self.setWindowTitle("Unified Robot Joint & Marker Bracket Calibration")
-        self.resize(1100, 750)
+        self.resize(1000, 700)
         self.setStyleSheet(DARK_STYLESHEET)
         
         self.init_ui()
@@ -491,15 +493,10 @@ class UnifiedCalibrationApp(QWidget):
         self.active_worker = None
 
     def init_ui(self):
-        main_layout = QVBoxLayout()
-        self.tabs = QTabWidget()
-        main_layout.addWidget(self.tabs)
+        # 1. Main horizontal split layout to prevent horizontal clipping
+        main_layout = QHBoxLayout()
         
-        # --- Tab 1: Calibration Panel ---
-        calib_tab = QWidget()
-        calib_layout = QHBoxLayout()
-        
-        # Left Panel (Controls)
+        # --- Left Panel (Controls) ---
         left_panel = QVBoxLayout()
         left_panel.setContentsMargins(5, 5, 5, 5)
         
@@ -551,7 +548,7 @@ class UnifiedCalibrationApp(QWidget):
         status_box.setLayout(status_layout)
         left_panel.addWidget(status_box)
         
-        # Group 3: Nested Calibration Workflow Selector Tabs
+        # Group 3: Nested Workflow Selector Tabs
         workflow_box = QGroupBox("Calibration Workflows")
         workflow_layout = QVBoxLayout()
         self.workflow_tabs = QTabWidget()
@@ -568,38 +565,11 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)", "head (Yaw/Pitch Sweep)"])
         self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
         
+        # Unused checkboxes kept for backward compatibility reference, but omitted from layout placement
         self.cb_joint_head_tracking = QCheckBox("Active Head Tracking")
         self.cb_joint_head_tracking.setChecked(False)
-        self.cb_joint_head_tracking.setToolTip("Active neck control during wrist_pitch sweep to keep marker centered.")
-        
-        self.cb_joint_continuous_sweep = QCheckBox("Continuous Sweep (30s Smooth)")
+        self.cb_joint_continuous_sweep = QCheckBox("Continuous Sweep")
         self.cb_joint_continuous_sweep.setChecked(True)
-        self.cb_joint_continuous_sweep.setToolTip("Sweep motor continuously from -20 to 20 deg while streaming marker poses.")
-        
-        # Manual Head Control GroupBox
-        head_group = QGroupBox("Manual Head Control (헤드 수동 조작)")
-        head_layout = QVBoxLayout()
-        
-        yaw_layout = QHBoxLayout()
-        yaw_layout.addWidget(QLabel("Yaw (deg):"))
-        self.txt_head_yaw = QLineEdit("0.0")
-        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
-        yaw_layout.addWidget(self.txt_head_yaw)
-        
-        pitch_layout = QHBoxLayout()
-        pitch_layout.addWidget(QLabel("Pitch (deg):"))
-        self.txt_head_pitch = QLineEdit("0.0")
-        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
-        pitch_layout.addWidget(self.txt_head_pitch)
-        
-        self.btn_move_head = QPushButton("MOVE HEAD")
-        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
-        self.btn_move_head.clicked.connect(self.move_head_manually)
-        
-        head_layout.addLayout(yaw_layout)
-        head_layout.addLayout(pitch_layout)
-        head_layout.addWidget(self.btn_move_head)
-        head_group.setLayout(head_layout)
         
         self.btn_joint_ready = QPushButton("MOVE TO READY")
         self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
@@ -609,13 +579,18 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
         
+        # SHOW RESULT button excluded from layout to satisfy requirements, but instance kept
         self.btn_joint_result = QPushButton("SHOW RESULT")
-        self.btn_joint_result.setStyleSheet("background-color: #2e7d32; color: white;")
         self.btn_joint_result.clicked.connect(self.show_result_joint)
         
-        self.lbl_applied_offset = QLabel("Applied Offset: 0.0000°")
-        self.lbl_applied_offset.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 13px; margin-top: 10px; qproperty-alignment: AlignCenter;")
+        # Two high-visibility static offset labels inside control panel
+        self.lbl_joint5_offset = QLabel("Joint 5 (Wrist Pitch) Offset: 0.0000°")
+        self.lbl_joint5_offset.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 11px; margin-top: 5px;")
         
+        self.lbl_joint3_offset = QLabel("Joint 3 (Elbow) Offset: 0.0000°")
+        self.lbl_joint3_offset.setStyleSheet("color: #00e5ff; font-weight: bold; font-size: 11px; margin-top: 2px;")
+        
+        # Existing apply offset button kept
         self.btn_joint_apply = QPushButton("APPLY OFFSET")
         self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white;")
         self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
@@ -624,13 +599,10 @@ class UnifiedCalibrationApp(QWidget):
         joint_sublayout.addWidget(self.joint_arm_sel)
         joint_sublayout.addWidget(QLabel("Calibration Mode:"))
         joint_sublayout.addWidget(self.joint_mode_sel)
-        joint_sublayout.addWidget(self.cb_joint_head_tracking)
-        joint_sublayout.addWidget(self.cb_joint_continuous_sweep)
         joint_sublayout.addWidget(self.btn_joint_ready)
-        joint_sublayout.addWidget(head_group)
         joint_sublayout.addWidget(self.btn_joint_start)
-        joint_sublayout.addWidget(self.btn_joint_result)
-        joint_sublayout.addWidget(self.lbl_applied_offset)
+        joint_sublayout.addWidget(self.lbl_joint5_offset)
+        joint_sublayout.addWidget(self.lbl_joint3_offset)
         joint_sublayout.addWidget(self.btn_joint_apply)
         joint_subtab.setLayout(joint_sublayout)
         self.workflow_tabs.addTab(joint_subtab, "1. Joint Calib")
@@ -684,19 +656,56 @@ class UnifiedCalibrationApp(QWidget):
         marker_subtab.setLayout(marker_sublayout)
         self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
         
+        # Sub-tab C: Manual Head Control (New Tab!)
+        head_subtab = QWidget()
+        head_sublayout = QVBoxLayout()
+        
+        head_group = QGroupBox("Manual Head Control (헤드 수동 조작)")
+        head_layout = QVBoxLayout()
+        
+        yaw_layout = QHBoxLayout()
+        yaw_layout.addWidget(QLabel("Yaw (deg):"))
+        self.txt_head_yaw = QLineEdit("0.0")
+        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
+        yaw_layout.addWidget(self.txt_head_yaw)
+        
+        pitch_layout = QHBoxLayout()
+        pitch_layout.addWidget(QLabel("Pitch (deg):"))
+        self.txt_head_pitch = QLineEdit("0.0")
+        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
+        pitch_layout.addWidget(self.txt_head_pitch)
+        
+        self.btn_move_head = QPushButton("MOVE HEAD")
+        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
+        self.btn_move_head.clicked.connect(self.move_head_manually)
+        
+        head_layout.addLayout(yaw_layout)
+        head_layout.addLayout(pitch_layout)
+        head_layout.addWidget(self.btn_move_head)
+        head_group.setLayout(head_layout)
+        
+        head_sublayout.addWidget(head_group)
+        head_sublayout.addStretch()
+        head_subtab.setLayout(head_sublayout)
+        self.workflow_tabs.addTab(head_subtab, "3. Head Control")
+        
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
         left_panel.addWidget(workflow_box)
         
-        # Quit
+        # Quit Button
         self.btn_quit = QPushButton("QUIT")
         self.btn_quit.setStyleSheet("background-color: #b71c1c; color: white;")
         self.btn_quit.clicked.connect(self.close)
         left_panel.addWidget(self.btn_quit)
         left_panel.addStretch()
         
-        # Right Panel (Console Console Log)
-        right_panel = QVBoxLayout()
+        # --- Right Panel (Consolidated Tabs for System Log and Plot Viewer) ---
+        self.right_tabs = QTabWidget()
+        
+        # Tab 1: System Log
+        log_tab = QWidget()
+        log_layout = QVBoxLayout()
         console_title = QLabel("System Log / Execution Console")
         console_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
         console_title.setStyleSheet("color: #2979ff; margin-bottom: 2px;")
@@ -705,15 +714,12 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.setReadOnly(True)
         self.log_text.setFont(QFont("Consolas", 10))
         self.log_text.setStyleSheet("background-color: #0e0e0e; color: #00e676; border: 2px solid #2d2d2d; border-radius: 6px;")
-        right_panel.addWidget(console_title)
-        right_panel.addWidget(self.log_text)
         
-        calib_layout.addLayout(left_panel, 1)
-        calib_layout.addLayout(right_panel, 2)
-        calib_tab.setLayout(calib_layout)
-        self.tabs.addTab(calib_tab, "Main Calibration Panel")
+        log_layout.addWidget(console_title)
+        log_layout.addWidget(self.log_text)
+        log_tab.setLayout(log_layout)
         
-        # --- Tab 2: Plot Viewer ---
+        # Tab 2: Interactive Plot Viewer
         self.plot_tab = QWidget()
         plot_layout = QHBoxLayout()
         
@@ -728,7 +734,13 @@ class UnifiedCalibrationApp(QWidget):
         plot_layout.addWidget(self.plot_label_left)
         plot_layout.addWidget(self.plot_label_right)
         self.plot_tab.setLayout(plot_layout)
-        self.tabs.addTab(self.plot_tab, "Interactive Plot Viewer")
+        
+        self.right_tabs.addTab(log_tab, "System Log")
+        self.right_tabs.addTab(self.plot_tab, "Interactive Plot Viewer")
+        
+        # Assemble Left (Control) and Right (Info tabs) side-by-side
+        main_layout.addLayout(left_panel, 1)
+        main_layout.addWidget(self.right_tabs, 2)
         
         self.setLayout(main_layout)
         
@@ -869,21 +881,18 @@ class UnifiedCalibrationApp(QWidget):
             self.on_action_finished()
 
     def update_applied_offset_label(self):
-        if not hasattr(self, 'lbl_applied_offset') or not hasattr(self, 'btn_joint_apply'):
+        if not hasattr(self, 'lbl_joint5_offset') or not hasattr(self, 'lbl_joint3_offset') or not hasattr(self, 'btn_joint_apply'):
             return
+        
+        j5_val = self.joint_offsets.get("wrist_pitch", 0.0)
+        j3_val = self.joint_offsets.get("elbow", 0.0)
+        self.lbl_joint5_offset.setText(f"Joint 5 (Wrist Pitch) Offset: {j5_val:.4f}°")
+        self.lbl_joint3_offset.setText(f"Joint 3 (Elbow) Offset: {j3_val:.4f}°")
+        
         mode_str = self.joint_mode_sel.currentText()
-        if "wrist_pitch" in mode_str:
-            offset = self.joint_offsets["wrist_pitch"]
-            self.lbl_applied_offset.setText(f"Applied Offset: {offset:.4f}°")
-            self.lbl_applied_offset.setVisible(True)
+        if "wrist_pitch" in mode_str or "elbow" in mode_str:
             self.btn_joint_apply.setVisible(True)
-        elif "elbow" in mode_str:
-            offset = self.joint_offsets["elbow"]
-            self.lbl_applied_offset.setText(f"Applied Offset: {offset:.4f}°")
-            self.lbl_applied_offset.setVisible(True)
-            self.btn_joint_apply.setVisible(True)
-        else: # head mode (no offset applied)
-            self.lbl_applied_offset.setVisible(False)
+        else: # head mode (no offset applied directly)
             self.btn_joint_apply.setVisible(False)
 
     def apply_joint_offset(self):
@@ -1006,8 +1015,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()} [Iteration 1/{self.joint_calib_max_iterations}]")
         
-        use_ht = self.cb_joint_head_tracking.isChecked()
-        use_continuous = self.cb_joint_continuous_sweep.isChecked()
+        use_ht = False
+        use_continuous = True
         curr_offset = self.joint_offsets.get(mode, 0.0)
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
@@ -1035,8 +1044,8 @@ class UnifiedCalibrationApp(QWidget):
         if self.joint_calib_state == "running_loop" and mode in ["wrist_pitch", "elbow"]:
             optimal_offset = res['optimal_offset']
             
-            # Cumulative updates applied directly with polarity correction! (subtract to converge)
-            self.joint_offsets[mode] -= optimal_offset
+            # Cumulative updates applied directly with polarity correction! (add to converge)
+            self.joint_offsets[mode] += optimal_offset
             self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
             self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
             self.update_applied_offset_label()
@@ -1101,8 +1110,8 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg(f"\n[AUTO-ITERATION] Offset {optimal_offset:.4f}° is above convergence threshold ({self.joint_calib_threshold}°).")
                 self.log_msg(f"[AUTO-ITERATION] Automatically launching physical sweep iteration {self.joint_calib_iteration}/{self.joint_calib_max_iterations}...\n")
                 
-                use_ht = self.cb_joint_head_tracking.isChecked()
-                use_continuous = self.cb_joint_continuous_sweep.isChecked()
+                use_ht = False
+                use_continuous = True
                 curr_offset = self.joint_offsets[mode]
                 self.active_worker = JointCalibrationWorker(
                     self.joint_calibrator, self.arm_side, mode, 

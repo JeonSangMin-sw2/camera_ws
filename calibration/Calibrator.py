@@ -1223,6 +1223,8 @@ class PitchHeadCalibrator(BaseCalibrator):
                     sweep_angles, 
                     axis_prior=[1.0, 0.0, 0.0]
                 )
+                if marker_6_res:
+                    marker_6_res['axis'] = marker_6_res['axis_opt']
                 
                 if log_callback and marker_6_res:
                     log_callback("\n" + "-"*50)
@@ -1576,6 +1578,8 @@ class PitchHeadCalibrator(BaseCalibrator):
                     sweep_angles_dummy, 
                     axis_prior=[1.0, 0.0, 0.0]
                 )
+                if marker_6_res:
+                    marker_6_res['axis'] = marker_6_res['axis_opt']
                 
                 if log_callback and marker_6_res:
                     log_callback("\n" + "-"*50)
