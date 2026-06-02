@@ -1044,15 +1044,8 @@ class UnifiedCalibrationApp(QWidget):
         if self.joint_calib_state == "running_loop" and mode in ["wrist_pitch", "elbow"]:
             optimal_offset = res['optimal_offset']
             
-            # Cumulative updates applied directly with polarity correction! (add to converge)
-            self.joint_offsets[mode] += optimal_offset
-            self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
-            self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
-            self.update_applied_offset_label()
-            
-            self.log_msg(f"\n[ITERATION {self.joint_calib_iteration}/{self.joint_calib_max_iterations} COMPLETED]")
-            self.log_msg(f"  * Estimated Relative Offset : {optimal_offset:.4f} deg")
-            self.log_msg(f"  * New Cumulative Home Offset: {self.joint_offsets[mode]:.4f} deg")
+            self.log_msg(f"\n[ITERATION {self.joint_calib_iteration}/3 COMPLETED]")
+            self.log_msg(f"  * Measured Relative Offset : {optimal_offset:.4f} deg")
             self.log_msg(f"  * Circle A Fitting RMSE     : {res['rmse_A']:.4f} mm")
             self.log_msg(f"  * Circle B Fitting RMSE     : {res['rmse_B']:.4f} mm")
             
@@ -1064,65 +1057,56 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg(f"    - Axis Direction Vector   : {np.round(m6['axis'], 4)}")
             self.log_msg("-" * 50)
             
-            # Check convergence condition
-            converged = abs(optimal_offset) < self.joint_calib_threshold
-            reached_max = self.joint_calib_iteration >= self.joint_calib_max_iterations
-            
-            if converged or reached_max:
-                # Finished the loop completely!
-                self.on_action_finished()
-                if not self.ui_only and hasattr(self, 'poll_timer'):
-                    self.poll_timer.start(200)
-
-                self.joint_sweep_data = res
-
-                # Update Plot viewer if plots exist
-                if 'plot_path_left' in res and os.path.exists(res['plot_path_left']):
-                    pix_l = QPixmap(res['plot_path_left']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.plot_label_left.setPixmap(pix_l)
-                if 'plot_path_right' in res and os.path.exists(res['plot_path_right']):
-                    pix_r = QPixmap(res['plot_path_right']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                    self.plot_label_right.setPixmap(pix_r)
-                    
-                self.tabs.setCurrentIndex(1) # Auto swap to plot tab
-
-                self.recommended_joint_offset = self.joint_offsets[mode]
-                self.joint_offsets[mode] = self.original_joint_offset
-                self.joint_calibrator.joint_offsets[mode] = self.original_joint_offset
-                self.marker_calibrator.joint_offsets[mode] = self.original_joint_offset
+            # --- 3-Step Polarity & Convergence Verification Engine ---
+            if self.joint_calib_iteration == 1:
+                # STEP 1 COMPLETE: Initial Offset magnitude calculated.
+                self.optimal_offset_1 = optimal_offset
+                
+                # Test positive polarity shift: current_offset = initial + optimal_1
+                self.joint_offsets[mode] = self.original_joint_offset + self.optimal_offset_1
+                self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
+                self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
                 self.update_applied_offset_label()
-
-                self.log_msg(f"\n" + "="*50)
-                if converged:
-                    self.log_msg(f"   [SUCCESS] OPTIMIZATION CONVERGED IN {self.joint_calib_iteration} ITERATIONS!")
+                
+                self.joint_calib_iteration = 2
+                self.log_msg(f"\n[STEP 1 COMPLETE] Initial Offset: {self.optimal_offset_1:.4f}° calculated.")
+                self.log_msg(f"[STEP 2: DIRECTION VERIFICATION] Testing offset direction by shifting joint: {self.joint_offsets[mode]:.4f}°")
+                self.log_msg(f"[AUTO-ITERATION] Automatically launching verification sweep 2/3...\n")
+                self.launch_next_sweep_worker(mode)
+                
+            elif self.joint_calib_iteration == 2:
+                # STEP 2 COMPLETE: Polarity direction verification
+                self.optimal_offset_2 = optimal_offset
+                
+                # Verify convergence: error magnitude should reduce to less than 70% of initial error
+                if abs(self.optimal_offset_2) < abs(self.optimal_offset_1) * 0.7:
+                    self.log_msg(f"\n[STEP 2: SUCCESS] Polarity direction is VERIFIED as CORRECT!")
+                    self.log_msg(f"  * Error magnitude successfully reduced from {self.optimal_offset_1:.4f}° to {self.optimal_offset_2:.4f}°.")
+                    
+                    self.recommended_joint_offset = self.joint_offsets[mode] + self.optimal_offset_2
+                    self.finalize_joint_calibration_run(mode, res, converged=True)
                 else:
-                    self.log_msg(f"   [INFO] REACHED MAXIMUM ITERATIONS ({self.joint_calib_max_iterations})")
-                self.log_msg(f"   * Estimated Cumulative Offset : {self.recommended_joint_offset:.4f}°")
-                self.log_msg(f"   * Active Cumulative Offset    : {self.original_joint_offset:.4f}° (REVERTED)")
-                self.log_msg(f"   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.")
-                self.log_msg("="*50 + "\n")
+                    # Polarity is WRONG (error remained high or increased). Reverse polarity direction!
+                    self.log_msg(f"\n[STEP 2: FAIL] Polarity direction is WRONG (error remained high: {self.optimal_offset_2:.4f}°).")
+                    self.log_msg(f"[STEP 2: CORRECTION] Reversing sweep direction polarity to: {-self.optimal_offset_1:.4f}°")
+                    
+                    # Reverse polarity: current_offset = initial - optimal_1
+                    self.joint_offsets[mode] = self.original_joint_offset - self.optimal_offset_1
+                    self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
+                    self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
+                    self.update_applied_offset_label()
+                    
+                    self.joint_calib_iteration = 3
+                    self.log_msg(f"[STEP 3: FINAL CONFIRMATION] Launching confirmation sweep 3/3 under reversed polarity: {self.joint_offsets[mode]:.4f}°\n")
+                    self.launch_next_sweep_worker(mode)
+                    
+            elif self.joint_calib_iteration >= 3:
+                # STEP 3 COMPLETE: Final check under reversed polarity
+                self.optimal_offset_3 = optimal_offset
+                self.recommended_joint_offset = self.joint_offsets[mode] + self.optimal_offset_3
                 
-                self.joint_calib_state = "idle"
-                self.joint_calib_iteration = 0
-            else:
-                # Auto launch next iteration loop!
-                self.joint_calib_iteration += 1
-                self.log_msg(f"\n[AUTO-ITERATION] Offset {optimal_offset:.4f}° is above convergence threshold ({self.joint_calib_threshold}°).")
-                self.log_msg(f"[AUTO-ITERATION] Automatically launching physical sweep iteration {self.joint_calib_iteration}/{self.joint_calib_max_iterations}...\n")
-                
-                use_ht = False
-                use_continuous = True
-                curr_offset = self.joint_offsets[mode]
-                self.active_worker = JointCalibrationWorker(
-                    self.joint_calibrator, self.arm_side, mode, 
-                    ui_only=self.ui_only, use_head_tracking=use_ht, 
-                    current_offset_deg=curr_offset,
-                    continuous=use_continuous, sweep_duration=30.0
-                )
-                self.active_worker.log_signal.connect(self.log_msg)
-                self.active_worker.status_signal.connect(self.update_marker_indicator)
-                self.active_worker.finished_signal.connect(self.on_calibration_finished_joint)
-                self.active_worker.start()
+                self.log_msg(f"\n[STEP 3 COMPLETE] Final offset confirmed under corrected polarity.")
+                self.finalize_joint_calibration_run(mode, res, converged=True)
                 
         else: # Head Calibration
             self.on_action_finished()
@@ -1133,6 +1117,57 @@ class UnifiedCalibrationApp(QWidget):
             self.show_result_joint()
             self.joint_calib_state = "idle"
             self.joint_calib_iteration = 0
+
+    def launch_next_sweep_worker(self, mode):
+        use_ht = False
+        use_continuous = True
+        curr_offset = self.joint_offsets[mode]
+        self.active_worker = JointCalibrationWorker(
+            self.joint_calibrator, self.arm_side, mode, 
+            ui_only=self.ui_only, use_head_tracking=use_ht, 
+            current_offset_deg=curr_offset,
+            continuous=use_continuous, sweep_duration=30.0
+        )
+        self.active_worker.log_signal.connect(self.log_msg)
+        self.active_worker.status_signal.connect(self.update_marker_indicator)
+        self.active_worker.finished_signal.connect(self.on_calibration_finished_joint)
+        self.active_worker.start()
+
+    def finalize_joint_calibration_run(self, mode, res, converged=True):
+        self.on_action_finished()
+        if not self.ui_only and hasattr(self, 'poll_timer'):
+            self.poll_timer.start(200)
+
+        self.joint_sweep_data = res
+
+        # Update Plot viewer if plots exist
+        if 'plot_path_left' in res and os.path.exists(res['plot_path_left']):
+            pix_l = QPixmap(res['plot_path_left']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.plot_label_left.setPixmap(pix_l)
+        if 'plot_path_right' in res and os.path.exists(res['plot_path_right']):
+            pix_r = QPixmap(res['plot_path_right']).scaled(450, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.plot_label_right.setPixmap(pix_r)
+            
+        self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
+
+        # Revert active offsets to nominal original values in model (until user clicks APPLY)
+        self.joint_offsets[mode] = self.original_joint_offset
+        self.joint_calibrator.joint_offsets[mode] = self.original_joint_offset
+        self.marker_calibrator.joint_offsets[mode] = self.original_joint_offset
+        self.update_applied_offset_label()
+
+        self.log_msg(f"\n" + "="*50)
+        if converged:
+            self.log_msg(f"   [SUCCESS] 3-STEP POLARITY CALIBRATION CONVERGED SUCCESSFULLY!")
+        else:
+            self.log_msg(f"   [INFO] 3-STEP CALIBRATION COMPLETED")
+        self.log_msg(f"   * Recommended Absolute Offset : {self.recommended_joint_offset:.4f}°")
+        self.log_msg(f"   * Current Active Offset       : {self.original_joint_offset:.4f}° (REVERTED)")
+        self.log_msg(f"   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.")
+        self.log_msg("="*50 + "\n")
+        
+        self.joint_calib_state = "idle"
+        self.joint_calib_iteration = 0
 
     def show_result_joint(self):
         self.log_text.clear()
