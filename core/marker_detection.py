@@ -575,7 +575,7 @@ class Marker_Detection:
         return 0.0
 
     # 마커들의 중심좌표(4*4행렬)
-    def detect(self, color_image, lpf = False, logging = False, depth_image = None):
+    def detect(self, color_image, lpf = False, logging = False, depth_image = None, use_filter = True):
         pnp_dist_coeffs = self.dist_coeffs
         if self.dist_coeffs is not None and np.any(self.dist_coeffs != 0):
             base_cam_mat = np.array([
@@ -797,14 +797,18 @@ class Marker_Detection:
                             meas_array = center_pos_m + rvec_m_list
                             
                             # Step 3: 칼만 필터(Kalman Filter) 6D 도입
-                            kf = self.get_kalman_filter(group_id, initial_meas=meas_array)
-                            kf.predict()
-                            meas = np.array([[m] for m in meas_array], dtype=np.float32)
-                            est = kf.correct(meas)
-                            
-                            center_pos_m = [est[0,0], est[1,0], est[2,0]]
-                            smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
-                            rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
+                            if use_filter:
+                                kf = self.get_kalman_filter(group_id, initial_meas=meas_array)
+                                kf.predict()
+                                meas = np.array([[m] for m in meas_array], dtype=np.float32)
+                                est = kf.correct(meas)
+                                
+                                center_pos_m = [est[0,0], est[1,0], est[2,0]]
+                                smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
+                                rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
+                            else:
+                                center_pos_m = center_pos_m
+                                rot_matrix_smoothed = rot_matrix_m
                             
                             transform_m = [
                                 rot_matrix_smoothed[0,0], rot_matrix_smoothed[0,1], rot_matrix_smoothed[0,2], center_pos_m[0],
@@ -834,11 +838,12 @@ class Marker_Detection:
                                 center_pos_m = tvec_m.flatten().tolist()
                                 
                                 # Step 3: 칼만 필터(Kalman Filter) 도입
-                                kf = self.get_kalman_filter(group_id, initial_meas=center_pos_m)
-                                kf.predict()
-                                meas = np.array([[center_pos_m[0]], [center_pos_m[1]], [center_pos_m[2]]], dtype=np.float32)
-                                est = kf.correct(meas)
-                                center_pos_m = [est[0,0], est[1,0], est[2,0]]
+                                if use_filter:
+                                    kf = self.get_kalman_filter(group_id, initial_meas=center_pos_m)
+                                    kf.predict()
+                                    meas = np.array([[center_pos_m[0]], [center_pos_m[1]], [center_pos_m[2]]], dtype=np.float32)
+                                    est = kf.correct(meas)
+                                    center_pos_m = [est[0,0], est[1,0], est[2,0]]
                                 
                                 transform_m = [
                                     rot_matrix_m[0,0], rot_matrix_m[0,1], rot_matrix_m[0,2], center_pos_m[0],
@@ -881,14 +886,17 @@ class Marker_Detection:
                 kf_id = "plate_left" if marker_id in getattr(self, 'plate_left_ids', []) else ("plate_right" if marker_id in getattr(self, 'plate_right_ids', []) else f"plate_{marker_id}")
                 
                 meas_array = center_pos + rvec_list
-                kf = self.get_kalman_filter(kf_id, initial_meas=meas_array)
-                kf.predict()
-                meas = np.array([[m] for m in meas_array], dtype=np.float32)
-                est = kf.correct(meas)
-                
-                center_pos = [est[0,0], est[1,0], est[2,0]]
-                smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
-                rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
+                if use_filter:
+                    kf = self.get_kalman_filter(kf_id, initial_meas=meas_array)
+                    kf.predict()
+                    meas = np.array([[m] for m in meas_array], dtype=np.float32)
+                    est = kf.correct(meas)
+                    
+                    center_pos = [est[0,0], est[1,0], est[2,0]]
+                    smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
+                    rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
+                else:
+                    rot_matrix_smoothed = rot_matrix
                 
                 transform = [
                     rot_matrix_smoothed[0][0], rot_matrix_smoothed[0][1], rot_matrix_smoothed[0][2], center_pos[0],
@@ -1091,7 +1099,9 @@ class Marker_Transform:
             print("Singular matrix, cannot invert")
             return None
 
-    def get_marker_transform(self, sampling_time=0, side="left"):
+    def get_marker_transform(self, sampling_time=0, side="left", use_filter=None):
+        if use_filter is None:
+            use_filter = (sampling_time == 0)
         lpf = False
         # Collection array for sampling -> dict of lists
         collected_transforms = {} # { marker_id: [tf_vectors...] }
@@ -1113,7 +1123,7 @@ class Marker_Transform:
                     if sampling_time == 0 : return None
                     continue
                 
-                marker_transforms = self.marker_detection.detect(color_img, lpf=lpf, depth_image=depth_img)
+                marker_transforms = self.marker_detection.detect(color_img, lpf=lpf, depth_image=depth_img, use_filter=use_filter)
                 for marker_id_or_group, tf_list in marker_transforms:
                     if marker_id_or_group not in collected_transforms:
                         collected_transforms[marker_id_or_group] = []

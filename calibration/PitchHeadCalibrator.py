@@ -260,7 +260,7 @@ class PitchHeadCalibrator:
             log_callback("[INFO] Ready Pose Reached.")
         return success
 
-    def perform_calibration_sweep_5_or_3(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True):
+    def perform_calibration_sweep_5_or_3(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True, current_offset_deg=0.0):
         if log_callback:
             log_callback("\n" + "="*50)
             log_callback(f"   STARTING {mode.upper()} OFFSET CALIBRATION SWEEP")
@@ -329,9 +329,9 @@ class PitchHeadCalibrator:
             if log_callback:
                 log_callback(f"\n--- [Candidate Step {c_idx+1}/{len(cand_offsets)}] Candidate Joint Offset: {offset_deg} deg ---")
             
-            # 1. Set Candidate joint angle
+            # 1. Set Candidate joint angle (apply baseline cumulative offset + candidate step offset)
             q_cand = list(initial_joint_pos)
-            q_cand[cand_joint] = initial_joint_pos[cand_joint] + np.radians(offset_deg)
+            q_cand[cand_joint] = initial_joint_pos[cand_joint] + np.radians(current_offset_deg) + np.radians(offset_deg)
             
             # First sweep (Joint A)
             pts_A = []
@@ -372,7 +372,8 @@ class PitchHeadCalibrator:
                     self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 time.sleep(0.5)
                 
-                res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+                # 정지 상태에서 측정하므로 칼만 필터를 강제 비활성화(use_filter=False)
+                res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side, use_filter=False)
                 if res:
                     pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                     pts_A.append(pose[:3, 3] * 1000.0) # mm
@@ -449,7 +450,8 @@ class PitchHeadCalibrator:
                     self.movej(self.robot, right_arm=q_sweep, head=head_q_step, minimum_time=1.0)
                 time.sleep(0.5)
                 
-                res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+                # 정지 상태에서 측정하므로 칼만 필터를 강제 비활성화(use_filter=False)
+                res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side, use_filter=False)
                 if res:
                     pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                     pts_B.append(pose[:3, 3] * 1000.0) # mm
@@ -504,7 +506,246 @@ class PitchHeadCalibrator:
             log_callback("="*40)
 
         # Prepare optimal fitting datasets for visualization
-        # Find index closest to optimal or the 0 deg run
+        best_idx = np.argmin(np.abs(np.array(offsets) - optimal_offset))
+        _, _, pts_A_best, pts_B_best = results[best_idx]
+        
+        c3d_A, normal_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A, ex_A, ey_A = self.fit_circle_3d(pts_A_best)
+        c3d_B, normal_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B, ex_B, ey_B = self.fit_circle_3d(pts_B_best)
+
+        return {
+            'mode': mode,
+            'optimal_offset': optimal_offset,
+            'offsets': offsets,
+            'errors': errors,
+            'pts_2d_A': pts_2d_A,
+            'uc_A': uc_A,
+            'vc_A': vc_A,
+            'r_A': r_A,
+            'pts_2d_B': pts_2d_B,
+            'uc_B': uc_B,
+            'vc_B': vc_B,
+            'r_B': r_B,
+            'rmse_A': rmse_A,
+            'rmse_B': rmse_B
+        }
+
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=False, current_offset_deg=0.0, sweep_duration=15.0):
+        import threading
+        
+        class MoveThread(threading.Thread):
+            def __init__(self, calibrator, robot, torso, right_arm, left_arm, head, minimum_time):
+                super().__init__()
+                self.calibrator = calibrator
+                self.robot = robot
+                self.torso = torso
+                self.right_arm = right_arm
+                self.left_arm = left_arm
+                self.head = head
+                self.minimum_time = minimum_time
+                self.success = False
+
+            def run(self):
+                self.success = self.calibrator.movej(
+                    self.robot, torso=self.torso, 
+                    right_arm=self.right_arm, left_arm=self.left_arm, 
+                    head=self.head, minimum_time=self.minimum_time
+                )
+                
+        if log_callback:
+            log_callback("\n" + "="*50)
+            log_callback(f"   STARTING {mode.upper()} CONTINUOUS OFFSET CALIBRATION SWEEP")
+            log_callback("="*50)
+
+        if not self.marker_st:
+            if log_callback: log_callback("[ERROR] Camera system (marker_st) is not initialized.")
+            return None
+
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot not connected.")
+            return None
+
+        # Pre-check marker visibility
+        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+        if not initial_check:
+            if log_callback: log_callback("[ERROR] Marker is not visible.")
+            if status_callback: status_callback(False)
+            return None
+        
+        if status_callback: status_callback(True)
+
+        state = self.robot.get_state()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        initial_joint_pos = list(state.position[arm_idx])
+
+        # Prepare Active Head/Camera Tracking (Optional in Continuous mode)
+        head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
+        q_head_0 = state.position[head_idx].copy() if (head_idx is not None and use_head_tracking and mode == "wrist_pitch") else None
+
+        # Define sweep axes based on mode
+        if mode == "wrist_pitch":
+            cand_joint = 5
+            cand_offsets = [-4, -2, 0, 2, 4]
+            sweep_joint_A = 4
+            sweep_joint_B = 6
+        else: # elbow mode
+            cand_joint = 3
+            cand_offsets = [-4, -2, 0, 2, 4]
+            sweep_joint_A = 2
+            sweep_joint_B = 4
+
+        results = []
+
+        for c_idx, offset_deg in enumerate(cand_offsets):
+            if log_callback:
+                log_callback(f"\n--- [Continuous Candidate {c_idx+1}/{len(cand_offsets)}] Candidate Joint Offset: {offset_deg} deg ---")
+            
+            # Set Candidate joint baseline (apply baseline cumulative offset + candidate step offset)
+            q_cand = list(initial_joint_pos)
+            q_cand[cand_joint] = initial_joint_pos[cand_joint] + np.radians(current_offset_deg) + np.radians(offset_deg)
+
+            # Move arm & head to candidate baseline pose
+            if arm_side == "left":
+                self.movej(self.robot, left_arm=q_cand, head=q_head_0, minimum_time=2.0)
+            else:
+                self.movej(self.robot, right_arm=q_cand, head=q_head_0, minimum_time=2.0)
+            time.sleep(1.0)
+
+            # Sweep Joint A Continuously
+            if log_callback: log_callback(f"  * Commencing Continuous Sweep on Joint A (duration={sweep_duration}s)...")
+            
+            # 1. Move to start position (-20 deg)
+            q_start_A = list(q_cand)
+            q_start_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(-20)
+            if arm_side == "left":
+                self.movej(self.robot, left_arm=q_start_A, head=q_head_0, minimum_time=2.0)
+            else:
+                self.movej(self.robot, right_arm=q_start_A, head=q_head_0, minimum_time=2.0)
+            time.sleep(1.0)
+            
+            # 2. Async command to move from -20 to +20 deg
+            q_end_A = list(q_cand)
+            q_end_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(20)
+            
+            move_thread = MoveThread(
+                self, self.robot, torso=None, 
+                right_arm=q_end_A if arm_side == "right" else None,
+                left_arm=q_end_A if arm_side == "left" else None,
+                head=q_head_0, minimum_time=sweep_duration
+            )
+            
+            pts_A = []
+            move_thread.start()
+            
+            # Collect points in real time
+            while move_thread.is_alive():
+                res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                if res:
+                    pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                    pts_A.append(pose[:3, 3] * 1000.0) # mm
+                time.sleep(0.03) # 30Hz polling
+                
+            move_thread.join()
+            if log_callback: log_callback(f"    -> Swept {len(pts_A)} raw coordinates during Joint A movement.")
+
+            # Return to candidate pose
+            if arm_side == "left":
+                self.movej(self.robot, left_arm=q_cand, head=q_head_0, minimum_time=2.0)
+            else:
+                self.movej(self.robot, right_arm=q_cand, head=q_head_0, minimum_time=2.0)
+            time.sleep(1.0)
+
+            # Sweep Joint B Continuously
+            if log_callback: log_callback(f"  * Commencing Continuous Sweep on Joint B (duration={sweep_duration}s)...")
+            
+            # 1. Move to start position (-20 deg)
+            q_start_B = list(q_cand)
+            q_start_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(-20)
+            if arm_side == "left":
+                self.movej(self.robot, left_arm=q_start_B, head=q_head_0, minimum_time=2.0)
+            else:
+                self.movej(self.robot, right_arm=q_start_B, head=q_head_0, minimum_time=2.0)
+            time.sleep(1.0)
+            
+            # 2. Async command to move from -20 to +20 deg
+            q_end_B = list(q_cand)
+            q_end_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(20)
+            
+            move_thread = MoveThread(
+                self, self.robot, torso=None, 
+                right_arm=q_end_B if arm_side == "right" else None,
+                left_arm=q_end_B if arm_side == "left" else None,
+                head=q_head_0, minimum_time=sweep_duration
+            )
+            
+            pts_B = []
+            move_thread.start()
+            
+            while move_thread.is_alive():
+                res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                if res:
+                    pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                    pts_B.append(pose[:3, 3] * 1000.0) # mm
+                time.sleep(0.03) # 30Hz polling
+                
+            move_thread.join()
+            if log_callback: log_callback(f"    -> Swept {len(pts_B)} raw coordinates during Joint B movement.")
+
+            # Return to candidate baseline pose
+            if arm_side == "left":
+                self.movej(self.robot, left_arm=q_cand, head=q_head_0, minimum_time=2.0)
+            else:
+                self.movej(self.robot, right_arm=q_cand, head=q_head_0, minimum_time=2.0)
+            time.sleep(1.0)
+
+            # Filter points: remove outlier frames that have close to zero values or huge noise
+            pts_A_filtered = [p for p in pts_A if np.linalg.norm(p) > 10.0]
+            pts_B_filtered = [p for p in pts_B if np.linalg.norm(p) > 10.0]
+
+            if len(pts_A_filtered) >= 10 and len(pts_B_filtered) >= 10:
+                # Downsample data to keep circle fit optimization reasonably fast while preserving density (~50 points is ideal)
+                step_A = max(1, len(pts_A_filtered) // 50)
+                step_B = max(1, len(pts_B_filtered) // 50)
+                pts_A_ds = pts_A_filtered[::step_A]
+                pts_B_ds = pts_B_filtered[::step_B]
+                
+                c3d_A, _, r_A, rmse_A, _, _, _, _, _ = self.fit_circle_3d(pts_A_ds)
+                c3d_B, _, r_B, rmse_B, _, _, _, _, _ = self.fit_circle_3d(pts_B_ds)
+                
+                dist_error = np.linalg.norm(c3d_A - c3d_B)
+                if log_callback:
+                    log_callback(f"  * fitted Circle A (rmse={rmse_A:.3f}, pts={len(pts_A_ds)}), B (rmse={rmse_B:.3f}, pts={len(pts_B_ds)})")
+                    log_callback(f"  * Center A: {np.round(c3d_A, 2)}, Center B: {np.round(c3d_B, 2)}")
+                    log_callback(f"  * Center-to-Center Distance Error: {dist_error:.3f} mm")
+                results.append((offset_deg, dist_error, pts_A_ds, pts_B_ds))
+            else:
+                if log_callback: log_callback("  [ERROR] Marker tracking failed to capture enough valid raw points during sweep.")
+                return None
+
+        # Return arm and head to original pose
+        if log_callback: log_callback("\n[INFO] Continuous Sweep finished. Returning arm and head to initial pose...")
+        if arm_side == "left":
+            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
+        else:
+            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.0)
+
+        # Parabolic fitting of errors to find minimum
+        offsets = [r[0] for r in results]
+        errors = [r[1] for r in results]
+        
+        p_coeff = np.polyfit(offsets, errors, 2)
+        a, b, c = p_coeff
+        optimal_offset = -b / (2 * a) if a > 0 else 0.0
+        optimal_offset = np.clip(optimal_offset, -10.0, 10.0)
+
+        if log_callback:
+            log_callback("\n" + "="*40)
+            log_callback(f"   SWEEP ANALYSIS & RESULTS ({mode.upper()} - CONTINUOUS)")
+            log_callback("="*40)
+            log_callback(f"  * Fitted Curve coefficients: a={a:.5f}, b={b:.5f}, c={c:.5f}")
+            log_callback(f"  * Estimated Optimal Offset : {optimal_offset:.3f} deg")
+            log_callback("="*40)
+
         best_idx = np.argmin(np.abs(np.array(offsets) - optimal_offset))
         _, _, pts_A_best, pts_B_best = results[best_idx]
         

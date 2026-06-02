@@ -279,7 +279,7 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True, current_offset_deg=0.0):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True, current_offset_deg=0.0, continuous=False, sweep_duration=15.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
@@ -287,6 +287,8 @@ class JointCalibrationWorker(QThread):
         self.ui_only = ui_only
         self.use_head_tracking = use_head_tracking
         self.current_offset_deg = current_offset_deg
+        self.continuous = continuous
+        self.sweep_duration = sweep_duration
 
     def run(self):
         try:
@@ -313,8 +315,9 @@ class JointCalibrationWorker(QThread):
                     theta = np.linspace(-np.pi, np.pi, 20)
                     pts_2d_A = np.column_stack((np.cos(theta)*45 + 1.0, np.sin(theta)*45 + 2.0))
                     pts_2d_B = np.column_stack((np.cos(theta)*43 - 0.5, np.sin(theta)*43 + 1.5))
-                    # Simulate convergence: if offset already applied, make residual extremely close to zero!
-                    opt_offset = -0.45 if abs(self.current_offset_deg) < 1e-4 else -0.002
+                    # Simulate physical convergence under UI offset -= optimal_offset
+                    # True offset misalignment is -1.5 degrees, offset correction converges it to zero
+                    opt_offset = -1.5 + self.current_offset_deg
                     res = {
                         'mode': self.mode,
                         'optimal_offset': opt_offset,
@@ -339,13 +342,23 @@ class JointCalibrationWorker(QThread):
                         status_callback=self.status_signal.emit
                     )
                 else:
-                    res = self.calibrator.perform_calibration_sweep_5_or_3(
-                        self.arm_side, self.mode,
-                        log_callback=self.log_signal.emit, 
-                        status_callback=self.status_signal.emit,
-                        use_head_tracking=self.use_head_tracking,
-                        current_offset_deg=self.current_offset_deg
-                    )
+                    if self.continuous:
+                        res = self.calibrator.perform_calibration_sweep_continuous(
+                            self.arm_side, self.mode,
+                            log_callback=self.log_signal.emit, 
+                            status_callback=self.status_signal.emit,
+                            use_head_tracking=self.use_head_tracking,
+                            current_offset_deg=self.current_offset_deg,
+                            sweep_duration=self.sweep_duration
+                        )
+                    else:
+                        res = self.calibrator.perform_calibration_sweep_5_or_3(
+                            self.arm_side, self.mode,
+                            log_callback=self.log_signal.emit, 
+                            status_callback=self.status_signal.emit,
+                            use_head_tracking=self.use_head_tracking,
+                            current_offset_deg=self.current_offset_deg
+                        )
 
             if res:
                 self.log_signal.emit("-" * 30)
@@ -559,6 +572,10 @@ class UnifiedCalibrationApp(QWidget):
         self.cb_joint_head_tracking.setChecked(False)
         self.cb_joint_head_tracking.setToolTip("Active neck control during wrist_pitch sweep to keep marker centered.")
         
+        self.cb_joint_continuous_sweep = QCheckBox("Continuous Sweep (15s Smooth)")
+        self.cb_joint_continuous_sweep.setChecked(True)
+        self.cb_joint_continuous_sweep.setToolTip("Sweep motor continuously from -20 to 20 deg while streaming marker poses.")
+        
         # Manual Head Control GroupBox
         head_group = QGroupBox("Manual Head Control (헤드 수동 조작)")
         head_layout = QVBoxLayout()
@@ -608,6 +625,7 @@ class UnifiedCalibrationApp(QWidget):
         joint_sublayout.addWidget(QLabel("Calibration Mode:"))
         joint_sublayout.addWidget(self.joint_mode_sel)
         joint_sublayout.addWidget(self.cb_joint_head_tracking)
+        joint_sublayout.addWidget(self.cb_joint_continuous_sweep)
         joint_sublayout.addWidget(self.btn_joint_ready)
         joint_sublayout.addWidget(head_group)
         joint_sublayout.addWidget(self.btn_joint_start)
@@ -989,11 +1007,13 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()} [Iteration 1/{self.joint_calib_max_iterations}]")
         
         use_ht = self.cb_joint_head_tracking.isChecked()
+        use_continuous = self.cb_joint_continuous_sweep.isChecked()
         curr_offset = self.joint_offsets.get(mode, 0.0)
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, use_head_tracking=use_ht, 
-            current_offset_deg=curr_offset
+            current_offset_deg=curr_offset,
+            continuous=use_continuous, sweep_duration=15.0
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
@@ -1015,8 +1035,8 @@ class UnifiedCalibrationApp(QWidget):
         if self.joint_calib_state == "running_loop" and mode in ["wrist_pitch", "elbow"]:
             optimal_offset = res['optimal_offset']
             
-            # Cumulative updates applied directly!
-            self.joint_offsets[mode] += optimal_offset
+            # Cumulative updates applied directly with polarity correction! (subtract to converge)
+            self.joint_offsets[mode] -= optimal_offset
             self.joint_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
             self.marker_calibrator.joint_offsets[mode] = self.joint_offsets[mode]
             self.update_applied_offset_label()
@@ -1082,11 +1102,13 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg(f"[AUTO-ITERATION] Automatically launching physical sweep iteration {self.joint_calib_iteration}/{self.joint_calib_max_iterations}...\n")
                 
                 use_ht = self.cb_joint_head_tracking.isChecked()
+                use_continuous = self.cb_joint_continuous_sweep.isChecked()
                 curr_offset = self.joint_offsets[mode]
                 self.active_worker = JointCalibrationWorker(
                     self.joint_calibrator, self.arm_side, mode, 
                     ui_only=self.ui_only, use_head_tracking=use_ht, 
-                    current_offset_deg=curr_offset
+                    current_offset_deg=curr_offset,
+                    continuous=use_continuous, sweep_duration=15.0
                 )
                 self.active_worker.log_signal.connect(self.log_msg)
                 self.active_worker.status_signal.connect(self.update_marker_indicator)
