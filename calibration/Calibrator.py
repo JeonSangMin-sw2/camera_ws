@@ -34,6 +34,54 @@ class BaseCalibrator:
             except Exception as e:
                 logging.error(f"Failed to load setting.yaml: {e}")
 
+    def save_debug_points(self, arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback=None):
+        try:
+            config_dir = os.path.abspath(os.path.dirname(__file__))
+            arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
+            
+            # Save dataset A (4축 또는 sweep_joint_A)
+            filename_A = os.path.join(config_dir, f"sweep_points_{arm_side}_joint_A_axis_{sweep_joint_A}.txt")
+            with open(filename_A, "w") as f:
+                f.write("# Joint_A_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm)\n")
+                for q_full, pose in dataset_A:
+                    sa_deg = np.degrees(q_full[arm_idx[sweep_joint_A]] - initial_joint_pos[sweep_joint_A])
+                    p_cam = pose[:3, 3]
+                    
+                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+                    p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+                    
+                    f.write(f"{sa_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
+                            f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
+                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}\n")
+            
+            # Save dataset B (6축 또는 sweep_joint_B)
+            filename_B = os.path.join(config_dir, f"sweep_points_{arm_side}_joint_B_axis_{sweep_joint_B}.txt")
+            with open(filename_B, "w") as f:
+                f.write("# Joint_B_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm)\n")
+                for q_full, pose in dataset_B:
+                    sb_deg = np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B])
+                    p_cam = pose[:3, 3]
+                    
+                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+                    p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+                    
+                    f.write(f"{sb_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
+                            f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
+                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}\n")
+            
+            if log_callback:
+                log_callback(f"[DEBUG] Saved Axis {sweep_joint_A} debug points to {os.path.basename(filename_A)}")
+                log_callback(f"[DEBUG] Saved Axis {sweep_joint_B} debug points to {os.path.basename(filename_B)}")
+        except Exception as e:
+            if log_callback:
+                log_callback(f"[ERROR] Failed to save debug points: {e}")
+
     @staticmethod
     def initialize_robot(address, model, power=".*", servo=".*"):
         robot = rby.create_robot(address, model)
@@ -1033,11 +1081,15 @@ class PitchHeadCalibrator(BaseCalibrator):
             return None
 
         # 3. OFFLINE NUMERICAL OPTIMIZATION (Brent's 1D search)
-        if log_callback: log_callback("\n--- [3] Starting Offline Iterative Brent Optimization (3D Spread Minimization) ---")
-        
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
         T_mount_to_cam = self.make_transform(mount_to_cam)
+
+        # Save captured sweep points to debug txt files before offline optimization
+        self.save_debug_points(
+            arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
+            cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
+        )
 
         def evaluate_offset(offset_rad):
             pts_ee = []
@@ -1203,7 +1255,7 @@ class PitchHeadCalibrator(BaseCalibrator):
             'marker_6_res': marker_6_res
         }
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True, current_offset_deg=0.0, sweep_duration=15.0):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, use_head_tracking=True, current_offset_deg=0.0, sweep_duration=30.0):
         import threading
         
         class MoveThread(threading.Thread):
@@ -1380,6 +1432,16 @@ class PitchHeadCalibrator(BaseCalibrator):
         if len(dataset_A) < 10 or len(dataset_B) < 10:
             if log_callback: log_callback("[ERROR] Too few valid captured points. Calibration failed.")
             return None
+
+        # Load mount_to_cam (transform from head mount "link_head_2" to camera)
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_mount_to_cam = self.make_transform(mount_to_cam)
+
+        # Save FULL captured continuous sweep points to debug txt files before downsampling
+        self.save_debug_points(
+            arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
+            cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
+        )
 
         # Clean/Downsample dataset to make optimization fast but robust
         # Keep up to 60 dense points per sweep
