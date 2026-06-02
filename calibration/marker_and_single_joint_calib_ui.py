@@ -283,7 +283,7 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True, current_offset_deg=0.0, continuous=False, sweep_duration=30.0):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, use_head_tracking=True, current_offset_deg=0.0, continuous=False, sweep_duration=60.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
@@ -1098,7 +1098,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, use_head_tracking=use_ht, 
             current_offset_deg=curr_offset,
-            continuous=use_continuous, sweep_duration=30.0
+            continuous=use_continuous, sweep_duration=60.0
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
@@ -1202,7 +1202,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, use_head_tracking=use_ht, 
             current_offset_deg=curr_offset,
-            continuous=use_continuous, sweep_duration=30.0
+            continuous=use_continuous, sweep_duration=60.0
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
