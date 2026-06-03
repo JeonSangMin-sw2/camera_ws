@@ -1,22 +1,28 @@
 import sys
 import os
+import cv2
 import numpy as np
 import time
 import argparse
 import logging
 import rby1_sdk as rby
+import threading
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog,
                              QTableWidget, QHeaderView, QTableWidgetItem)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
-from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
 
 # Import custom calibrator logic
 from Calibrator import MarkerCalibrator, JointCalibrator
+from IntrinsicsCalibrator import IntrinsicsCalibrator
 
 # --- Premium Dark CSS Stylesheet ---
 DARK_STYLESHEET = """
@@ -117,6 +123,12 @@ QCheckBox::indicator {
 QCheckBox::indicator:checked {
     background-color: #2979ff;
     border: 1px solid #2979ff;
+}
+QTextEdit {
+    background-color: #0e0e0e;
+    color: #00e676;
+    border: 2px solid #2d2d2d;
+    border-radius: 6px;
 }
 """
 
@@ -239,11 +251,11 @@ class MarkerCalibrationWorker(QThread):
                 
                 self.log_signal.emit(f"  [2] Robust Axis Alignment (Median):")
                 if self.axis_mode == 6:
-                    self.log_signal.emit(f"      Roll  (상하 기울기): {res['tilt']:.2f} deg")
-                    self.log_signal.emit(f"      Yaw   (비틀림): {res['yaw']:.2f} deg")
+                    self.log_signal.emit(f"      Roll  (Tilt): {res['tilt']:.2f} deg")
+                    self.log_signal.emit(f"      Yaw   (Torsion): {res['yaw']:.2f} deg")
                 else:
-                    self.log_signal.emit(f"      Tilt  (기울기): {res['tilt']:.2f} deg")
-                    self.log_signal.emit(f"      Yaw   (비틀림): {res['yaw']:.2f} deg")
+                    self.log_signal.emit(f"      Tilt  (Inclination): {res['tilt']:.2f} deg")
+                    self.log_signal.emit(f"      Yaw   (Torsion): {res['yaw']:.2f} deg")
                 self.log_signal.emit("="*40)
                 self.log_signal.emit("\n[SWEEP SUCCESSFUL]\n")
                 
@@ -267,9 +279,13 @@ class MarkerCalibrationWorker(QThread):
                 plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {res['rmse']:.3f})")
                 plt.legend()
                 
-                plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
+                # result_img 디렉토리 아래에 저장하도록 수정
+                result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+                os.makedirs(result_dir, exist_ok=True)
+                plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_axis_{self.axis_mode}.png")
                 plt.savefig(plot_path)
                 plt.close()
+                
                 res['plot_path'] = plot_path
                 self.finished_signal.emit(res)
             else:
@@ -340,9 +356,11 @@ class JointCalibrationWorker(QThread):
                 self.log_signal.emit("-" * 30)
                 self.log_signal.emit("\n[CALIBRATION COMPLETE]\n")
                 
-                # Single Unified Widescreen Plot (1x2 Subplots) split by left/right side
+                # result_img 디렉토리 아래에 저장하도록 수정
+                result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+                os.makedirs(result_dir, exist_ok=True)
                 plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png"
-                plot_path_combined = os.path.join(os.path.dirname(__file__), plot_filename)
+                plot_path_combined = os.path.join(result_dir, plot_filename)
                 
                 plt.figure(figsize=(10, 5))
                 
@@ -406,6 +424,22 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_calibrator = MarkerCalibrator(marker_st, robot)
         self.joint_calibrator = JointCalibrator(marker_st, robot)
         
+        # Intrinsics Calibrator (Tab 3 용)
+        self.intrinsics_calibrator = IntrinsicsCalibrator()
+        # Default: 8x5 squares, 36mm x 27mm, DICT_5X5_100
+        self.intrinsics_calibrator.set_board(8, 5, IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD, 36.0, 27.0, "DICT_5X5_100")
+        
+        try:
+            from marker_detection import Marker_Detection
+            self.marker_detector = Marker_Detection()
+            self.marker_detector.set_marker_type("plate")
+        except ImportError:
+            self.marker_detector = None
+            
+        self.monitor_enabled = False
+        self.captured_images = []
+        self.output_yaml = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config", "camera_intrinsics.yaml"))
+        
         # Saved Calibration Results
         self.marker_data_5 = None
         self.marker_data_6 = None
@@ -416,28 +450,28 @@ class UnifiedCalibrationApp(QWidget):
         self.load_offsets_from_yaml()
         
         self.recommended_joint_offset = None
-
         
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
         
-        self.setWindowTitle("Unified Robot Joint & Marker Bracket Calibration")
-        self.resize(1000, 700)
+        self.setWindowTitle("Unified Robot Calibration Suite")
+        self.resize(1400, 800)
         self.setStyleSheet(DARK_STYLESHEET)
+        
+        # 1. 200ms poll timer (탭 1, 2, 4 용)
+        self.poll_timer = QTimer(self)
+        self.poll_timer.timeout.connect(self.poll_camera_status)
+        
+        # 2. 33ms video timer (탭 3용)
+        self.video_timer = QTimer(self)
+        self.video_timer.timeout.connect(self.update_video_frame)
         
         self.init_ui()
         self.update_applied_offset_label()
         
-        # Poll indicators
-        if not self.ui_only:
-            self.poll_timer = QTimer(self)
-            self.poll_timer.timeout.connect(self.poll_camera_status)
-            self.poll_timer.start(200) # 5 Hz
-        else:
-            self.log_msg("[DEBUG] UI-Only Simulation Mode Enabled.")
-            self.update_marker_indicator(True)
-            self.temp_label.setText("Camera Temp: 34.2 °C (Simulated)")
-            
+        # 초기화 시 탭 상태에 맞춰 타이머 활성화
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
+        
         self.active_worker = None
 
     def load_offsets_from_yaml(self):
@@ -445,7 +479,7 @@ class UnifiedCalibrationApp(QWidget):
         current_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "joint_offset.yaml"))
         try:
-            if not os.path.exists(config_path):
+            if not os.path.exists(config_path) or os.path.getsize(config_path) == 0:
                 os.makedirs(os.path.dirname(config_path), exist_ok=True)
                 self.joint_offsets_store = {
                     "left": {"joint5": 0.0, "joint3": 0.0},
@@ -453,14 +487,21 @@ class UnifiedCalibrationApp(QWidget):
                 }
                 with open(config_path, "w") as f:
                     yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
-                self.log_msg(f"[INFO] Created new calibration file: joint_offset.yaml")
+                self.log_msg(f"[INFO] Initialized calibration file: joint_offset.yaml")
             else:
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f)
                 if data and isinstance(data, dict):
                     self.joint_offsets_store = data
                 else:
-                    raise ValueError("Invalid YAML data format")
+                    # 파일 포맷이 비정상적이면 초기 설정으로 덮어씀
+                    self.joint_offsets_store = {
+                        "left": {"joint5": 0.0, "joint3": 0.0},
+                        "right": {"joint5": 0.0, "joint3": 0.0}
+                    }
+                    with open(config_path, "w") as f:
+                        yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
+                    self.log_msg(f"[WARNING] Reset invalid joint_offset.yaml to default values.")
             
             # Sync current offsets with active arm_side from YAML
             self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
@@ -496,7 +537,6 @@ class UnifiedCalibrationApp(QWidget):
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
         joint_key = "joint5" if col == 0 else "joint3"
-        mode = "wrist_pitch" if col == 0 else "elbow"
         
         current_val = self.joint_offsets_store[arm][joint_key]
         new_val, ok = QInputDialog.getDouble(
@@ -511,14 +551,21 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[MANUAL OVERRIDE] Staged {arm.upper()} Arm {'Joint 5' if col==0 else 'Joint 3'} offset manually to {new_val:.4f}°. (Not saved to disk yet. Click APPLY OFFSET to save)")
 
     def init_ui(self):
-        # 1. Main horizontal split layout to prevent horizontal clipping
+        # Main horizontal split layout
         main_layout = QHBoxLayout()
         
-        # --- Left Panel (Controls) ---
-        left_panel = QVBoxLayout()
-        left_panel.setContentsMargins(5, 5, 5, 5)
+        # --- Left Panel (TabWidget based!) ---
+        self.left_tabs = QTabWidget()
+        self.left_tabs.currentChanged.connect(self.on_left_tab_changed)
         
-        # Group 1: Connection Box
+        # ==========================================
+        # 1. Main Tab (로봇 동작 및 캘리브레이션 모듈)
+        # ==========================================
+        main_tab = QWidget()
+        main_tab_layout = QVBoxLayout()
+        main_tab_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Connection Box
         conn_box = QGroupBox("Robot Connection")
         conn_layout = QVBoxLayout()
         self.ip_input = QLineEdit("192.168.30.1:50051")
@@ -539,9 +586,26 @@ class UnifiedCalibrationApp(QWidget):
         conn_layout.addWidget(self.model_input)
         conn_layout.addWidget(self.btn_connect)
         conn_box.setLayout(conn_layout)
-        left_panel.addWidget(conn_box)
+        main_tab_layout.addWidget(conn_box)
         
-        # Group 2: Status Indicator
+        # Target Arm Selection (Moved to Top-Level Control!)
+        arm_box = QGroupBox("Target Arm Selection")
+        arm_layout = QHBoxLayout()
+        arm_layout.addWidget(QLabel("Active Arm Side:"))
+        self.arm_sel = QComboBox()
+        self.arm_sel.addItems(["Right Arm", "Left Arm"])
+        idx = 1 if self.arm_side == "left" else 0
+        self.arm_sel.setCurrentIndex(idx)
+        self.arm_sel.currentTextChanged.connect(self.on_arm_side_changed)
+        arm_layout.addWidget(self.arm_sel)
+        arm_box.setLayout(arm_layout)
+        main_tab_layout.addWidget(arm_box)
+        
+        # Bind legacy individual combo variables to the single top-level control to prevent attribute errors
+        self.joint_arm_sel = self.arm_sel
+        self.marker_arm_sel = self.arm_sel
+        
+        # Status Indicator
         status_box = QGroupBox("Camera & Marker Status")
         status_layout = QVBoxLayout()
         
@@ -564,30 +628,20 @@ class UnifiedCalibrationApp(QWidget):
         status_layout.addWidget(self.btn_monitor)
         status_layout.addWidget(self.temp_label)
         status_box.setLayout(status_layout)
-        left_panel.addWidget(status_box)
+        main_tab_layout.addWidget(status_box)
         
-        # Group 3: Nested Workflow Selector Tabs
+        # Sub-Workflow Selector Tabs
         workflow_box = QGroupBox("Calibration Workflows")
         workflow_layout = QVBoxLayout()
         self.workflow_tabs = QTabWidget()
         
-        # Sub-tab A: Single Joint Calibration
+        # Sub-tab 1: Joint Calibration
         joint_subtab = QWidget()
         joint_sublayout = QVBoxLayout()
-        
-        self.joint_arm_sel = QComboBox()
-        self.joint_arm_sel.addItems(["Right Arm", "Left Arm"])
-        self.joint_arm_sel.currentTextChanged.connect(self.on_arm_side_changed)
         
         self.joint_mode_sel = QComboBox()
         self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"])
         self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
-        
-        # Unused checkboxes kept for backward compatibility reference, but omitted from layout placement
-        self.cb_joint_head_tracking = QCheckBox("Active Head Tracking")
-        self.cb_joint_head_tracking.setChecked(False)
-        self.cb_joint_continuous_sweep = QCheckBox("Continuous Sweep")
-        self.cb_joint_continuous_sweep.setChecked(True)
         
         self.btn_joint_ready = QPushButton("MOVE TO READY")
         self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
@@ -596,7 +650,7 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_start = QPushButton("START SWEEP")
         self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
-        # Premium offset monitor dashboard
+        
         self.tbl_offset_monitor = QTableWidget(2, 2)
         self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
         self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
@@ -623,13 +677,10 @@ class UnifiedCalibrationApp(QWidget):
             }
         """)
         
-        # Existing apply offset button kept
         self.btn_joint_apply = QPushButton("APPLY OFFSET")
         self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white;")
         self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
         
-        joint_sublayout.addWidget(QLabel("Target Arm:"))
-        joint_sublayout.addWidget(self.joint_arm_sel)
         joint_sublayout.addWidget(QLabel("Calibration Mode:"))
         joint_sublayout.addWidget(self.joint_mode_sel)
         joint_sublayout.addWidget(self.btn_joint_ready)
@@ -640,13 +691,9 @@ class UnifiedCalibrationApp(QWidget):
         joint_subtab.setLayout(joint_sublayout)
         self.workflow_tabs.addTab(joint_subtab, "1. Joint Calib")
         
-        # Sub-tab B: Marker Bracket Calibration
+        # Sub-tab 2: Marker Bracket Calibration
         marker_subtab = QWidget()
         marker_sublayout = QVBoxLayout()
-        
-        self.marker_arm_sel = QComboBox()
-        self.marker_arm_sel.addItems(["Right Arm", "Left Arm"])
-        self.marker_arm_sel.currentTextChanged.connect(self.on_arm_side_changed)
         
         self.marker_axis_sel = QComboBox()
         self.marker_axis_sel.addItems(["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"])
@@ -676,8 +723,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_result.setStyleSheet("background-color: #2e7d32; color: white;")
         self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
         
-        marker_sublayout.addWidget(QLabel("Target Arm:"))
-        marker_sublayout.addWidget(self.marker_arm_sel)
         marker_sublayout.addWidget(QLabel("Sweep Target:"))
         marker_sublayout.addWidget(self.marker_axis_sel)
         marker_sublayout.addLayout(tol_lay)
@@ -689,11 +734,11 @@ class UnifiedCalibrationApp(QWidget):
         marker_subtab.setLayout(marker_sublayout)
         self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
         
-        # Sub-tab C: Manual Head Control (New Tab!)
+        # Sub-tab 3: Head Control (원래 4번 탭, 이제 3번 탭)
         head_subtab = QWidget()
         head_sublayout = QVBoxLayout()
         
-        head_group = QGroupBox("Manual Head Control (헤드 수동 조작)")
+        head_group = QGroupBox("Manual Head Control")
         head_layout = QVBoxLayout()
         
         yaw_layout = QHBoxLayout()
@@ -724,16 +769,130 @@ class UnifiedCalibrationApp(QWidget):
         
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
-        left_panel.addWidget(workflow_box)
+        main_tab_layout.addWidget(workflow_box)
         
         # Quit Button
         self.btn_quit = QPushButton("QUIT")
         self.btn_quit.setStyleSheet("background-color: #b71c1c; color: white;")
         self.btn_quit.clicked.connect(self.close)
-        left_panel.addWidget(self.btn_quit)
-        left_panel.addStretch()
+        main_tab_layout.addWidget(self.btn_quit)
+        main_tab_layout.addStretch()
         
-        # --- Right Panel (Consolidated Tabs for System Log and Plot Viewer) ---
+        main_tab.setLayout(main_tab_layout)
+        self.left_tabs.addTab(main_tab, "1. Main")
+        
+        # ==========================================
+        # 2. Camera Tab (카메라 내부 파라미터 보정 전용)
+        # ==========================================
+        camera_tab = QWidget()
+        camera_tab_layout = QHBoxLayout()
+        
+        int_left = QVBoxLayout()
+        self.video_label = QLabel("Camera Feed Loading...")
+        self.video_label.setAlignment(Qt.AlignCenter)
+        self.video_label.setMinimumSize(640, 480)
+        self.video_label.setStyleSheet("background-color: black; color: white; border: 2px solid #2d2d2d; border-radius: 8px;")
+        int_left.addWidget(self.video_label, 3)
+        
+        instr_box = QGroupBox("Calibration Guidelines")
+        instr_box.setStyleSheet("QGroupBox::title { color: #ff1744; font-weight: bold; }")
+        instr_layout = QVBoxLayout()
+        instructions = [
+            "1. Ensure the calibration board is recognized correctly (green overlay).",
+            "2. Tilt the board at various angles while capturing.",
+            "3. Acquire data covering the entire camera field of view.",
+            "4. Keep the board as steady as possible during each capture."
+        ]
+        for text in instructions:
+            lbl = QLabel(text)
+            lbl.setStyleSheet("color: #ff5252; font-weight: bold;")
+            instr_layout.addWidget(lbl)
+        instr_box.setLayout(instr_layout)
+        int_left.addWidget(instr_box, 1)
+
+        stats_box = QGroupBox("Capture Stats")
+        stats_layout = QHBoxLayout()
+        self.lbl_captured = QLabel("Captured Frames: 0")
+        self.lbl_captured.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        self.lbl_captured.setStyleSheet("color: #2979ff;")
+        
+        self.lbl_temp = QLabel("Camera Temp: -- °C")
+        self.lbl_temp.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        self.lbl_temp.setStyleSheet("color: #ff5500;")
+        
+        stats_layout.addWidget(self.lbl_captured)
+        stats_layout.addStretch()
+        stats_layout.addWidget(self.lbl_temp)
+        stats_box.setLayout(stats_layout)
+        int_left.addWidget(stats_box, 1)
+        
+        int_right = QVBoxLayout()
+        
+        monitor_box = QGroupBox("Marker 3D Monitoring")
+        monitor_layout = QVBoxLayout()
+        
+        side_layout = QHBoxLayout()
+        side_layout.addWidget(QLabel("Arm Side:"))
+        self.int_side_sel = QComboBox()
+        self.int_side_sel.addItems(["Left Arm", "Right Arm"])
+        idx = 1 if self.arm_side == "left" else 0
+        self.int_side_sel.setCurrentIndex(idx)
+        self.int_side_sel.currentTextChanged.connect(self.on_arm_side_changed)
+        side_layout.addWidget(self.int_side_sel)
+        monitor_layout.addLayout(side_layout)
+        
+        self.btn_int_monitor = QPushButton("ENABLE MONITORING")
+        self.btn_int_monitor.setCheckable(True)
+        self.btn_int_monitor.setStyleSheet("background-color: #1e1e1e; color: white;")
+        self.btn_int_monitor.toggled.connect(self.toggle_intrinsics_monitoring)
+        monitor_layout.addWidget(self.btn_int_monitor)
+        
+        self.lbl_marker_pos = QLabel("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+        self.lbl_marker_pos.setAlignment(Qt.AlignCenter)
+        self.lbl_marker_pos.setStyleSheet("font-size: 14px; font-weight: bold; color: #00e5ff; background-color: #0e0e0e; padding: 8px; border-radius: 4px; border: 1px solid #2d2d2d;")
+        monitor_layout.addWidget(self.lbl_marker_pos)
+        
+        monitor_box.setLayout(monitor_layout)
+        int_right.addWidget(monitor_box)
+
+        controls_box = QGroupBox("Calibration Controls")
+        controls_layout = QVBoxLayout()
+        
+        self.btn_int_capture = QPushButton("CAPTURE FRAME (C)")
+        self.btn_int_capture.setMinimumHeight(45)
+        self.btn_int_capture.setStyleSheet("background-color: #1565c0; color: white; font-size: 13px;")
+        self.btn_int_capture.clicked.connect(self.capture_intrinsics_frame)
+        controls_layout.addWidget(self.btn_int_capture)
+        
+        self.btn_int_calibrate = QPushButton("RUN CALIBRATION")
+        self.btn_int_calibrate.setMinimumHeight(45)
+        self.btn_int_calibrate.setStyleSheet("background-color: #2e7d32; color: white; font-size: 13px;")
+        self.btn_int_calibrate.clicked.connect(self.run_intrinsics_calibration)
+        controls_layout.addWidget(self.btn_int_calibrate)
+        
+        self.btn_int_save = QPushButton("SAVE PARAMETERS")
+        self.btn_int_save.setMinimumHeight(45)
+        self.btn_int_save.setStyleSheet("background-color: #e65100; color: white; font-size: 13px;")
+        self.btn_int_save.clicked.connect(self.save_intrinsics_calibration)
+        self.btn_int_save.setEnabled(False)
+        controls_layout.addWidget(self.btn_int_save)
+        
+        self.btn_int_reset = QPushButton("RESET CAPTURES")
+        self.btn_int_reset.setMinimumHeight(30)
+        self.btn_int_reset.setStyleSheet("background-color: #37474f; color: white;")
+        self.btn_int_reset.clicked.connect(self.reset_intrinsics_captures)
+        controls_layout.addWidget(self.btn_int_reset)
+        
+        controls_box.setLayout(controls_layout)
+        int_right.addWidget(controls_box)
+        int_right.addStretch()
+        
+        camera_tab_layout.addLayout(int_left, 2)
+        camera_tab_layout.addLayout(int_right, 1)
+        camera_tab.setLayout(camera_tab_layout)
+        self.left_tabs.addTab(camera_tab, "2. Camera")
+        
+        # --- Right Panel ---
         self.right_tabs = QTabWidget()
         
         # Tab 1: System Log
@@ -746,17 +905,16 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setFont(QFont("Consolas", 10))
-        self.log_text.setStyleSheet("background-color: #0e0e0e; color: #00e676; border: 2px solid #2d2d2d; border-radius: 6px;")
         
         log_layout.addWidget(console_title)
         log_layout.addWidget(self.log_text)
         log_tab.setLayout(log_layout)
         
-        # Tab 2: Interactive Plot Viewer
+        # Tab 2: Interactive Plot Viewer (Plot & Img)
         self.plot_tab = QWidget()
         plot_layout = QVBoxLayout()
         
-        self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations (1x2 Unified Subplots)")
+        self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations")
         self.plot_label_combined.setAlignment(Qt.AlignCenter)
         self.plot_label_combined.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
         
@@ -764,22 +922,23 @@ class UnifiedCalibrationApp(QWidget):
         self.plot_tab.setLayout(plot_layout)
         
         self.right_tabs.addTab(log_tab, "System Log")
-        self.right_tabs.addTab(self.plot_tab, "Interactive Plot Viewer")
+        self.right_tabs.addTab(self.plot_tab, "Plot / Img")
         
-        # Assemble Left (Control) and Right (Info tabs) side-by-side
-        main_layout.addLayout(left_panel, 1)
-        main_layout.addWidget(self.right_tabs, 2)
+        # Assemble side-by-side (Stretch factor 4:6)
+        main_layout.addWidget(self.left_tabs, 4)
+        main_layout.addWidget(self.right_tabs, 6)
         
         self.setLayout(main_layout)
         
         # Startup info
         self.log_msg("="*60)
-        self.log_msg("  UNIFIED CALIBRATION TOOL LOADED SUCCESSFULLY")
+        self.log_msg("  UNIFIED ROBOT CALIBRATION SUITE LOADED")
         self.log_msg("="*60)
         self.log_msg("[RECOMMENDED SEQUENCE]")
-        self.log_msg("  1. Calibrate joint offsets first using '1. Joint Calib' subtab.")
-        self.log_msg("  2. Perform marker bracket sweeps using '2. Marker Calib' subtab.")
-        self.log_msg("  3. Calibrate head yaw/pitch joint offsets after marker calibration.")
+        self.log_msg("  1. Calibrate camera intrinsics first if needed ('2. Camera' tab).")
+        self.log_msg("  2. Calibrate joint offsets using '1. Joint Calib' subtab.")
+        self.log_msg("  3. Perform marker bracket sweeps using '2. Marker Calib' subtab.")
+        self.log_msg("  4. Control head and verify offsets as a final check.")
         self.log_msg("="*60)
 
     # --- Common Helper Functions ---
@@ -838,14 +997,16 @@ class UnifiedCalibrationApp(QWidget):
             self.load_offsets_from_yaml()
             self.update_applied_offset_label()
             
-            # Sync dropdown indexes between workflow tabs
-            self.joint_arm_sel.blockSignals(True)
-            self.marker_arm_sel.blockSignals(True)
+            # Sync dropdown indexes between controls (blocking signals to avoid cycles)
+            self.arm_sel.blockSignals(True)
+            self.int_side_sel.blockSignals(True)
+            
             idx = 1 if self.arm_side == "left" else 0
-            self.joint_arm_sel.setCurrentIndex(idx)
-            self.marker_arm_sel.setCurrentIndex(idx)
-            self.joint_arm_sel.blockSignals(False)
-            self.marker_arm_sel.blockSignals(False)
+            self.arm_sel.setCurrentIndex(idx)
+            self.int_side_sel.setCurrentIndex(idx)
+            
+            self.arm_sel.blockSignals(False)
+            self.int_side_sel.blockSignals(False)
 
     def on_monitor_toggled(self, checked):
         if checked:
@@ -865,6 +1026,10 @@ class UnifiedCalibrationApp(QWidget):
             self.status_label.setStyleSheet("color: #ff1744;")
 
     def poll_camera_status(self):
+        # 탭 3(Camera Intrinsics)이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
+        if self.workflow_tabs.currentIndex() == 2:
+            return
+            
         try:
             res = self.marker_st.get_marker_transform(sampling_time=0, side=self.arm_side)
             detected = bool(res and len(res) > 0)
@@ -883,45 +1048,28 @@ class UnifiedCalibrationApp(QWidget):
         except Exception:
             pass
 
-    def move_head_to_zero(self):
-        if not self.robot:
-            self.log_msg("[ERROR] Robot is not connected!")
+    def on_left_tab_changed(self, index):
+        # 방어적 코드: 타이머 객체가 아직 미생성된 상태이면 처리를 생략
+        if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
             return
 
-        self.log_msg("[INFO] Centering head to zero...")
-        if self.ui_only:
-            self.log_msg("[MOCK] Head centered to zero.")
-            return
-
-        try:
-            head_zero = np.zeros(len(self.robot.model().head_idx))
-            self.set_controls_enabled(False)
-            
-            class CenterHeadWorker(QThread):
-                done_sig = Signal()
-                def __init__(self, calibrator, robot, q_zero):
-                    super().__init__()
-                    self.calibrator = calibrator
-                    self.robot = robot
-                    self.q_zero = q_zero
-                def run(self):
-                    self.calibrator.movej(self.robot, head=self.q_zero, minimum_time=3.0)
-                    self.done_sig.emit()
-            
-            self.head_worker = CenterHeadWorker(self.joint_calibrator, self.robot, head_zero)
-            self.head_worker.done_sig.connect(self.on_action_finished)
-            self.head_worker.start()
-        except Exception as e:
-            self.log_msg(f"[ERROR] Failed to center head: {e}")
-            self.on_action_finished()
+        if index == 1: # Camera Tab
+            # poll_timer 끄고 video_timer 가동
+            if self.poll_timer.isActive():
+                self.poll_timer.stop()
+            self.video_timer.start(33)
+            self.log_msg("[SYSTEM] Switched to Camera tab. High-speed video stream activated.")
+        else: # Main Tab
+            # video_timer 끄고 poll_timer 기동
+            if self.video_timer.isActive():
+                self.video_timer.stop()
+            if not self.ui_only and self.marker_st is not None:
+                self.poll_timer.start(200)
 
     def update_applied_offset_label(self):
         if not hasattr(self, 'tbl_offset_monitor') or not hasattr(self, 'btn_joint_apply'):
             return
         
-        # Populate QTableWidget from self.joint_offsets_store
-        # Row 0: Right Arm, Row 1: Left Arm
-        # Col 0: Joint 5, Col 1: Joint 3
         for row_idx, arm in enumerate(["right", "left"]):
             for col_idx, joint_key in enumerate(["joint5", "joint3"]):
                 val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
@@ -932,20 +1080,16 @@ class UnifiedCalibrationApp(QWidget):
         mode_str = self.joint_mode_sel.currentText()
         if "wrist_pitch" in mode_str or "elbow" in mode_str:
             self.btn_joint_apply.setVisible(True)
-        else: # head mode (no offset applied directly)
+        else:
             self.btn_joint_apply.setVisible(False)
 
     def apply_joint_offset(self):
-        # 1. Update the active self.joint_offsets from the staged store (for the active arm side)
         self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
         self.joint_offsets["elbow"] = self.joint_offsets_store[self.arm_side]["joint3"]
         self.joint_calibrator.joint_offsets = self.joint_offsets
         self.marker_calibrator.joint_offsets = self.joint_offsets
         
-        # 2. Save the entire store all at once to disk
         self.save_offsets_to_yaml()
-        
-        # 3. Update UI tables
         self.update_applied_offset_label()
         
         self.log_msg(f"\n" + "="*50)
@@ -965,6 +1109,10 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_start.setEnabled(enabled)
         self.btn_marker_result.setEnabled(enabled)
         
+        self.btn_int_capture.setEnabled(enabled)
+        self.btn_int_calibrate.setEnabled(enabled)
+        self.btn_int_reset.setEnabled(enabled)
+        
         if hasattr(self, 'btn_move_head'):
             self.btn_move_head.setEnabled(enabled)
         if hasattr(self, 'txt_head_yaw'):
@@ -972,21 +1120,21 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'txt_head_pitch'):
             self.txt_head_pitch.setEnabled(enabled)
             
-        # Strict Mutual Exclusion: block model settings & disconnects during runs
         self.btn_connect.setEnabled(enabled)
         self.model_input.setEnabled(enabled)
         self.workflow_tabs.setEnabled(enabled)
-        self.joint_arm_sel.setEnabled(enabled)
+        self.arm_sel.setEnabled(enabled)
         self.joint_mode_sel.setEnabled(enabled)
-        self.marker_arm_sel.setEnabled(enabled)
+        self.int_side_sel.setEnabled(enabled)
         self.marker_axis_sel.setEnabled(enabled)
 
     def on_action_finished(self):
         self.set_controls_enabled(True)
         if hasattr(self, 'stop_event_mc'):
             self.stop_event_mc.clear()
-        if not self.ui_only and hasattr(self, 'poll_timer') and not self.poll_timer.isActive():
-            self.poll_timer.start(200)
+        
+        # 탭 상태에 맞춰 타이머 활성화
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
 
     # --- Joint Calibration Workflows ---
     def move_to_ready_pose_joint(self):
@@ -998,35 +1146,13 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         mode_str = self.joint_mode_sel.currentText()
-        mode = "wrist_pitch" if "wrist_pitch" in mode_str else ("elbow" if "elbow" in mode_str else "head")
+        mode = "wrist_pitch" if "wrist_pitch" in mode_str else "elbow"
         
         self.set_controls_enabled(False)
         self.ready_worker = MoveToReadyWorker(self.joint_calibrator, self.arm_side, mode)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
         self.ready_worker.start()
-
-    def move_head_manually(self):
-        if not self.ui_only and not self.robot:
-            self.log_msg("[ERROR] Robot is not connected!")
-            return
-        try:
-            yaw = float(self.txt_head_yaw.text())
-            pitch = float(self.txt_head_pitch.text())
-        except ValueError:
-            QMessageBox.warning(self, "Invalid Inputs", "Head angles must be valid numbers.")
-            return
-            
-        self.log_msg(f"[MANUAL HEAD] Commands sent - Yaw: {yaw:.2f}°, Pitch: {pitch:.2f}°")
-        if self.ui_only:
-            self.log_msg("[MOCK] Moved head to target angles.")
-            return
-            
-        self.set_controls_enabled(False)
-        self.head_worker = ManualHeadWorker(self.joint_calibrator, np.radians(yaw), np.radians(pitch))
-        self.head_worker.log_signal.connect(self.log_msg)
-        self.head_worker.finished_signal.connect(self.on_action_finished)
-        self.head_worker.start()
 
     def start_calibration_joint(self):
         if not self.ui_only and not self.robot:
@@ -1037,11 +1163,11 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         mode_str = self.joint_mode_sel.currentText()
-        mode = "wrist_pitch" if "wrist_pitch" in mode_str else ("elbow" if "elbow" in mode_str else "head")
+        mode = "wrist_pitch" if "wrist_pitch" in mode_str else "elbow"
 
         self.original_joint_offset = self.joint_offsets.get(mode, 0.0)
         self.set_controls_enabled(False)
-        if not self.ui_only and hasattr(self, 'poll_timer'):
+        if self.poll_timer.isActive():
             self.poll_timer.stop()
 
         self.log_text.clear()
@@ -1062,9 +1188,6 @@ class UnifiedCalibrationApp(QWidget):
     def on_calibration_finished_joint(self, res):
         if not res:
             self.on_action_finished()
-            if not self.ui_only and hasattr(self, 'poll_timer'):
-                self.poll_timer.start(200)
-            self.log_msg("[ERROR] Joint sweep failed or aborted.")
             return
 
         mode = res['mode']
@@ -1074,9 +1197,6 @@ class UnifiedCalibrationApp(QWidget):
 
     def finalize_joint_calibration_run(self, mode, res, converged=True):
         self.on_action_finished()
-        if not self.ui_only and hasattr(self, 'poll_timer'):
-            self.poll_timer.start(200)
-
         self.joint_sweep_data = res
 
         # Update Plot viewer if plots exist
@@ -1197,7 +1317,7 @@ class UnifiedCalibrationApp(QWidget):
         use_head = self.cb_head_tracking.isChecked()
 
         self.set_controls_enabled(False)
-        if not self.ui_only and hasattr(self, 'poll_timer'):
+        if self.poll_timer.isActive():
             self.poll_timer.stop()
 
         self.log_text.clear()
@@ -1208,9 +1328,10 @@ class UnifiedCalibrationApp(QWidget):
             class MockMarkerWorker(QThread):
                 log_sig = Signal(str)
                 finished_sig = Signal(dict)
-                def __init__(self, axis_mode):
+                def __init__(self, axis_mode, arm_side):
                     super().__init__()
                     self.axis_mode = axis_mode
+                    self.arm_side = arm_side
                 def run(self):
                     time.sleep(1.0)
                     self.log_sig.emit("[MOCK] Running sweeps...")
@@ -1251,13 +1372,17 @@ class UnifiedCalibrationApp(QWidget):
                     plt.gca().add_patch(plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False))
                     plt.title(f"Mock Axis {self.axis_mode}")
                     plt.grid(True)
-                    plot_path = os.path.join(os.path.dirname(__file__), f"circle_fit_axis_{self.axis_mode}.png")
+                    
+                    result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+                    os.makedirs(result_dir, exist_ok=True)
+                    plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_axis_{self.axis_mode}.png")
+                    
                     plt.savefig(plot_path)
                     plt.close()
                     res['plot_path'] = plot_path
                     self.finished_sig.emit(res)
             
-            self.active_worker = MockMarkerWorker(axis_mode)
+            self.active_worker = MockMarkerWorker(axis_mode, self.arm_side)
             self.active_worker.log_sig.connect(self.log_msg)
             self.active_worker.finished_sig.connect(self.on_calibration_finished_marker)
             self.active_worker.start()
@@ -1270,8 +1395,6 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_calibration_finished_marker(self, res):
         self.on_action_finished()
-        if not self.ui_only and hasattr(self, 'poll_timer'):
-            self.poll_timer.start(200)
 
         if res:
             if res['axis_mode'] == 6:
@@ -1286,25 +1409,6 @@ class UnifiedCalibrationApp(QWidget):
             self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
         else:
             self.log_msg("[ERROR] Marker sweep failed.")
-
-    def get_link_length(self):
-        if self.ui_only:
-            return 300.0
-        if not self.robot: return 0.0
-        try:
-            dyn_model = self.robot.get_dynamics()
-            names = self.robot.model().robot_joint_names
-            state = dyn_model.make_state(
-                [f"link_{self.arm_side}_arm_5", f"ee_{self.arm_side}"],
-                names
-            )
-            state.set_q(self.robot.get_state().position)
-            dyn_model.compute_forward_kinematics(state)
-            T = dyn_model.compute_transformation(state, 0, 1)
-            return np.linalg.norm(T[:3, 3]) * 1000.0 # m to mm
-        except Exception as e:
-            self.log_msg(f"[WARN] Failed to get link kinematics: {e}")
-            return 0.0
 
     def show_unified_result_marker(self):
         self.log_text.clear()
@@ -1356,9 +1460,245 @@ class UnifiedCalibrationApp(QWidget):
             
         self.log_msg("="*50)
 
+    # --- Head Control and Manual Operations ---
+    def move_head_manually(self):
+        if not self.ui_only and not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        try:
+            yaw = float(self.txt_head_yaw.text())
+            pitch = float(self.txt_head_pitch.text())
+        except ValueError:
+            QMessageBox.warning(self, "Invalid Inputs", "Head angles must be valid numbers.")
+            return
+            
+        self.log_msg(f"[MANUAL HEAD] Commands sent - Yaw: {yaw:.2f}°, Pitch: {pitch:.2f}°")
+        if self.ui_only:
+            self.log_msg("[MOCK] Moved head to target angles.")
+            return
+            
+        self.set_controls_enabled(False)
+        self.head_worker = ManualHeadWorker(self.joint_calibrator, np.radians(yaw), np.radians(pitch))
+        self.head_worker.log_signal.connect(self.log_msg)
+        self.head_worker.finished_signal.connect(self.on_action_finished)
+        self.head_worker.start()
+
+    # --- Camera Intrinsics Calibration Workflows (Tab 3) ---
+    def toggle_intrinsics_monitoring(self, checked):
+        self.monitor_enabled = checked
+        if checked:
+            self.btn_int_monitor.setText("STOP MONITORING")
+            self.btn_int_monitor.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold;")
+        else:
+            self.btn_int_monitor.setText("ENABLE MONITORING")
+            self.btn_int_monitor.setStyleSheet("background-color: #1e1e1e; color: white;")
+            self.lbl_marker_pos.setText("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+
+    def update_video_frame(self):
+        # 왼쪽 Camera 탭(인덱스 1)이 활성화되어 있을 때만 비디오 피드를 업데이트한다.
+        if self.left_tabs.currentIndex() != 1:
+            return
+
+        if not self.ui_only and self.marker_st is not None:
+            self.marker_st.camera.capture_image()
+            img = self.marker_st.camera.get_color_image()
+        else:
+            # Mock image
+            img = np.zeros((720, 1280, 3), dtype=np.uint8)
+            cv2.putText(img, "UI-ONLY MODE", (440, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (100, 100, 100), 3)
+
+        if img is None:
+            return
+            
+        self.current_frame = img.copy()
+        display_img = img.copy()
+        
+        # Simple board detection for preview
+        gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
+        
+        # 1. Intrinsics Board Detection
+        if self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD:
+            try:
+                detector = cv2.aruco.CharucoDetector(self.intrinsics_calibrator.charuco_board)
+                charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
+                if charuco_ids is not None:
+                    cv2.aruco.drawDetectedCornersCharuco(display_img, charuco_corners, charuco_ids)
+            except Exception:
+                pass
+        elif self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHESSBOARD:
+            try:
+                ret, corners = cv2.findChessboardCorners(gray, self.intrinsics_calibrator.board_size, None)
+                if ret:
+                    cv2.drawChessboardCorners(display_img, self.intrinsics_calibrator.board_size, corners, ret)
+            except Exception:
+                pass
+
+        # Update Temperature
+        if not self.ui_only and self.marker_st is not None and hasattr(self.marker_st.camera, 'get_camera_temperature'):
+            temp = self.marker_st.camera.get_camera_temperature()
+            if temp is not None:
+                self.lbl_temp.setText(f"Camera Temp: {temp:.1f} °C")
+
+        # 2. Marker Monitoring
+        if self.monitor_enabled and self.marker_detector is not None:
+            if self.intrinsics_calibrator.cameraMatrix is not None and np.any(self.intrinsics_calibrator.cameraMatrix != 0) and self.intrinsics_calibrator.cameraMatrix[0, 0] > 100:
+                self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
+                self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
+                self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
+                self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
+            elif not self.ui_only and self.marker_st is not None:
+                self.marker_detector.fx = self.marker_st.camera.fx
+                self.marker_detector.fy = self.marker_st.camera.fy
+                self.marker_detector.principal_point = self.marker_st.camera.principal_point
+                self.marker_detector.dist_coeffs = self.marker_st.camera.dist_coeffs
+
+            side_text = self.int_side_sel.currentText()
+            side = "left" if "Left" in side_text else "right"
+            target_ids = [10, 11, 12, 13, 14] if side == "left" else [30, 31, 32, 33, 34]
+            self.marker_detector.marker_id = target_ids
+            
+            try:
+                res = self.marker_detector.detect(img.copy(), use_filter=False)
+                if res and len(res) > 0:
+                    T = res[0][1]
+                    if isinstance(T, list):
+                        T = np.array(T).reshape(4, 4)
+                    x, y, z = T[:3, 3] * 1000.0 # m to mm
+                    self.lbl_marker_pos.setText(f"X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} (mm)")
+                    cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
+                else:
+                    self.lbl_marker_pos.setText("Marker Not Detected")
+            except Exception:
+                pass
+
+        # Convert to QImage and display
+        h, w, ch = display_img.shape
+        bytes_per_line = ch * w
+        display_img = cv2.cvtColor(display_img, cv2.COLOR_BGR2RGB)
+        qimg = QImage(display_img.data, w, h, bytes_per_line, QImage.Format_RGB888)
+        pixmap = QPixmap.fromImage(qimg)
+        
+        self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key_C and self.workflow_tabs.currentIndex() == 2:
+            self.capture_intrinsics_frame()
+        super().keyPressEvent(event)
+
+    def capture_intrinsics_frame(self):
+        if hasattr(self, 'current_frame'):
+            self.captured_images.append(self.current_frame.copy())
+            self.lbl_captured.setText(f"Captured Frames: {len(self.captured_images)}")
+            self.log_msg(f"[INTRINSICS] Frame {len(self.captured_images)} captured.")
+
+    def reset_intrinsics_captures(self):
+        self.captured_images.clear()
+        self.lbl_captured.setText(f"Captured Frames: 0")
+        self.btn_int_save.setEnabled(False)
+        self.log_msg("[INTRINSICS] Capture memory cleared.")
+
+    def run_intrinsics_calibration(self):
+        if len(self.captured_images) < 5:
+            self.log_msg("[ERROR] Need at least 5 frames to run calibration!")
+            return
+            
+        self.log_msg(f"\n[INTRINSICS] Running calibration on {len(self.captured_images)} images. Please wait...")
+        
+        QApplication.setOverrideCursor(Qt.WaitCursor)
+        QApplication.processEvents()
+        
+        success = self.intrinsics_calibrator.run_calibration_with_images(self.captured_images, None)
+        
+        QApplication.restoreOverrideCursor()
+        
+        if success:
+            self.log_msg(f"[SUCCESS] Calibration complete! RMS Error: {self.intrinsics_calibrator.rms_error:.4f}")
+            self.log_msg("[INTRINSICS] Click 'SAVE PARAMETERS' to apply changes.")
+            self.btn_int_save.setEnabled(True)
+            self.show_intrinsics_verification()
+        else:
+            self.log_msg("[ERROR] Calibration failed. Check images and board settings.")
+
+    def save_intrinsics_calibration(self):
+        if self.intrinsics_calibrator.cameraMatrix is None:
+            self.log_msg("[ERROR] No calibration data to save!")
+            return
+            
+        import yaml
+        try:
+            data = {
+                "camera_matrix": self.intrinsics_calibrator.cameraMatrix.tolist(),
+                "dist_coeffs": self.intrinsics_calibrator.distCoeffs.tolist(),
+                "rms_error": float(self.intrinsics_calibrator.rms_error),
+                "width": int(self.captured_images[0].shape[1]),
+                "height": int(self.captured_images[0].shape[0])
+            }
+            os.makedirs(os.path.dirname(self.output_yaml), exist_ok=True)
+            with open(self.output_yaml, "w") as f:
+                yaml.dump(data, f)
+            self.log_msg(f"[SUCCESS] Intrinsic parameters saved to: {self.output_yaml}")
+            
+            # Sync with the local marker detector instances
+            if self.marker_detector is not None:
+                self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
+                self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
+                self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
+                self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
+        except Exception as e:
+            self.log_msg(f"[ERROR] Save failed: {e}")
+
+    def show_intrinsics_verification(self):
+        if len(self.captured_images) == 0:
+            return
+            
+        test_img = self.captured_images[-1]
+        h, w = test_img.shape[:2]
+        
+        new_mtx, _ = cv2.getOptimalNewCameraMatrix(self.intrinsics_calibrator.cameraMatrix, self.intrinsics_calibrator.distCoeffs, (w, h), 1, (w, h))
+        undistorted = cv2.undistort(test_img, self.intrinsics_calibrator.cameraMatrix, self.intrinsics_calibrator.distCoeffs, None, new_mtx)
+        
+        combined_res = np.hstack((test_img, undistorted))
+        h_res, w_res = combined_res.shape[:2]
+
+        grid_size = 60
+        for y in range(0, h_res, grid_size):
+            cv2.line(combined_res, (0, y), (w_res, y), (0, 255, 0), 1)
+        for x in range(0, w_res, grid_size):
+            cv2.line(combined_res, (x, 0), (x, h_res), (0, 255, 0), 1)
+
+        cv2.putText(combined_res, "Original", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, "Undistorted", (w + 30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, f"RMS Error: {self.intrinsics_calibrator.rms_error:.4f}", (w + 30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+
+        # Save to result_img folder
+        result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+        os.makedirs(result_dir, exist_ok=True)
+        save_path = os.path.join(result_dir, "camera_intrinsics_verification.png")
+        cv2.imwrite(save_path, combined_res)
+        
+        # Load inside Plot & Img tab
+        pix = QPixmap(save_path).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        self.plot_label_combined.setPixmap(pix)
+        self.right_tabs.setCurrentIndex(1) # Switch to Plot / Img tab
+        
+        self.log_msg(f"[INTRINSICS] Verification image loaded to Plot / Img tab and saved to: {save_path}")
+
+    def closeEvent(self, event):
+        if self.video_timer.isActive():
+            self.video_timer.stop()
+        if self.poll_timer.isActive():
+            self.poll_timer.stop()
+            
+        if not self.ui_only and self.marker_st is not None:
+            try:
+                self.marker_st.camera.stream_off()
+                print("Camera stream closed.")
+            except Exception:
+                pass
+        event.accept()
 
 def main():
-    parser = argparse.ArgumentParser(description="Unified Robot Joint & Marker Bracket Calibration GUI")
+    parser = argparse.ArgumentParser(description="Unified Robot Calibration Suite GUI")
     parser.add_argument("--ui", action="store_true", help="Start only UI for debugging/simulation")
     args = parser.parse_args()
 
