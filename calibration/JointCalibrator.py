@@ -506,7 +506,7 @@ class JointCalibrator(BaseCalibrator):
         
         # Calculate angle between normals (exactly as in debug_joint_plotter.py)
         angle_between_normals = np.degrees(np.arccos(np.clip(abs(np.dot(n_A, n_B)), -1.0, 1.0)))
-        offset_magnitude_deg = 90.0 - angle_between_normals
+        offset_magnitude_deg = angle_between_normals
         
         # Evaluate direction/sign in ee frame
         def evaluate_ee_ortho_error(offset_deg):
@@ -843,7 +843,7 @@ class JointCalibrator(BaseCalibrator):
         
         # Calculate angle between normals (exactly as in debug_joint_plotter.py)
         angle_between_normals = np.degrees(np.arccos(np.clip(abs(np.dot(n_A, n_B)), -1.0, 1.0)))
-        offset_magnitude_deg = 90.0 - angle_between_normals
+        offset_magnitude_deg = angle_between_normals
         
         # Evaluate direction/sign in ee frame
         def evaluate_ee_ortho_error(offset_deg):
