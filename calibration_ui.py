@@ -20,6 +20,7 @@ from core.calibration_core import (
     split_arm_offsets,
     validate_dataset,
     generate_sim_measurements,
+    check_calibration_state,
 )
 from core.calibration_optimizer import (
     DEFAULT_LAMBDA_CAM_POS,
@@ -36,8 +37,11 @@ from core.robot_motion import (
     reset_motion_state,
 )
 from homeoffset_core import (
-    apply_home_offset_from_json,
+    load_offset_from_json,
     move_robot_to_zero_pose,
+    move_to_offset_candidate_from_json,
+    reset_current_pose_home_offsets,
+    save_home_reset_baseline_json,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -73,7 +77,11 @@ class CalibrationUI:
 
         self.warning_img = None
         self.last_result_path = None
+        self.last_home_reset_path = None
         self.last_dataset_path = None
+
+        self.dataset_saved_in_session = False
+        self.current_session_dataset_path = None
 
         self.build_ui()
         self.update_head_pose_status()
@@ -109,17 +117,9 @@ class CalibrationUI:
         self.dev_cal_with_head_cb = ttk.Checkbutton(self.sidebar, text="cal_with_head", variable=self.dev_cal_with_head)
         self.dev_cal_with_head_cb.pack(anchor="w", padx=15, pady=10)
 
-        self.dev_use_camera_ext = tk.BooleanVar(value=True)
-        self.dev_use_camera_ext_cb = ttk.Checkbutton(self.sidebar, text="use_camera_ext", variable=self.dev_use_camera_ext)
-        self.dev_use_camera_ext_cb.pack(anchor="w", padx=15, pady=10)
-
         self.dev_use_sag = tk.BooleanVar(value=False)
         self.dev_use_sag_cb = ttk.Checkbutton(self.sidebar, text="use_sag", variable=self.dev_use_sag)
         self.dev_use_sag_cb.pack(anchor="w", padx=15, pady=10)
-
-        self.dev_use_noise = tk.BooleanVar(value=False)
-        self.dev_use_noise_cb = ttk.Checkbutton(self.sidebar, text="use_noise", variable=self.dev_use_noise)
-        self.dev_use_noise_cb.pack(anchor="w", padx=15, pady=10)
 
         self.build_main_ui(self.main_content)
 
@@ -189,16 +189,10 @@ class CalibrationUI:
 
         self.dev_mode_info = tk.StringVar(value="In live mode, Auto Motion records once and All Auto Motion runs the full sweep; Stop interrupts between steps.")
 
-        ttk.Label(cfg, text="lambda_cam").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.dev_lambda_cam_pos = tk.StringVar(value=str(DEFAULT_LAMBDA_CAM_POS))
-        self.dev_lambda_cam_rot = tk.StringVar(value=str(DEFAULT_LAMBDA_CAM_ROT))
-        ttk.Entry(cfg, textvariable=self.dev_lambda_cam_pos, width=6).grid(row=2, column=1, padx=5, pady=5, sticky="w")
-        ttk.Entry(cfg, textvariable=self.dev_lambda_cam_rot, width=6).grid(row=2, column=2, padx=5, pady=5, sticky="w")
-
-        ttk.Label(cfg, text="Solver").grid(row=2, column=3, padx=5, pady=5, sticky="w")
-        self.dev_solver = tk.StringVar(value="Least Squares")
+        ttk.Label(cfg, text="Solver").grid(row=2, column=0, padx=5, pady=5, sticky="w")
+        self.dev_solver = tk.StringVar(value="QP Solver")
         self.solver_cb = ttk.Combobox(cfg, textvariable=self.dev_solver, values=["Least Squares", "QP Solver"], state="readonly", width=12)
-        self.solver_cb.grid(row=2, column=4, padx=5, pady=5, sticky="w")
+        self.solver_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
 
         try:
             import qpsolvers
@@ -257,9 +251,13 @@ class CalibrationUI:
         ttk.Button(act, text="4-1) Calculate", command=self.dev_calculate).grid(row=3, column=0, padx=5, pady=5, sticky="ew")
         ttk.Button(act, text="4-2) Clear Samples", command=self.clear_samples).grid(row=3, column=1, padx=5, pady=5, sticky="ew")
         ttk.Button(act, text="5) Apply Home Offset", command=self.dev_apply_home_offset).grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        
+        ttk.Button(act, text="6) Home Offset Reset", command=self.dev_home_offset_reset).grid(row=5, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="7) Check Calibration State", command=self.dev_check_calibration_state).grid(row=5, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="8) Save Dataset", command=self.dev_save_dataset_manually).grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
 
         self.dev_count = tk.StringVar(value="Shared Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=5, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=7, column=0, columnspan=2, padx=5, pady=5, sticky="w")
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
@@ -310,6 +308,44 @@ class CalibrationUI:
 
         self.last_result_path = result_files[0]
         return self.last_result_path
+
+    def get_latest_home_reset_path(self, required=True):
+        if self.last_home_reset_path is not None and self.last_home_reset_path.exists():
+            return self.last_home_reset_path
+
+        result_dir = self.ensure_result_dir()
+        reset_files = sorted(
+            result_dir.glob("home_reset_*.json"),
+            key=lambda file_path: file_path.stat().st_mtime,
+            reverse=True,
+        )
+        if not reset_files:
+            if required:
+                raise RuntimeError(f"No home reset baseline JSON found in {result_dir}")
+            return None
+
+        self.last_home_reset_path = reset_files[0]
+        return self.last_home_reset_path
+
+    def get_home_reset_path_for_result(self, result_path):
+        try:
+            with open(result_path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return self.get_latest_home_reset_path(required=False)
+
+        baseline_path = data.get("home_reset_baseline_path")
+        if baseline_path is None:
+            baseline_path = data.get("metadata", {}).get("home_reset_baseline_path")
+        if baseline_path:
+            path = Path(baseline_path).expanduser()
+            if not path.is_absolute():
+                path = BASE_DIR / path
+            if path.exists():
+                self.last_home_reset_path = path
+                return path
+
+        return self.get_latest_home_reset_path(required=False)
     
     def resolve_input_path(self, raw_path):
         input_path = Path(raw_path).expanduser()
@@ -344,9 +380,48 @@ class CalibrationUI:
         self.head_move_count = 0
         self.auto_base_head_q = None
         self.auto_ready_done = False
+        self.dataset_saved_in_session = False
+        self.current_session_dataset_path = None
         self.update_sample_counts()
         self.update_head_pose_status()
         self.log(self.dev_text, "Shared samples cleared.")
+
+    def auto_save_current_dataset(self, text_widget):
+        if len(self.shared_arm_q_list) == 0:
+            return
+        
+        q_arm_list = np.array(self.shared_arm_q_list)
+        q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
+        T_meas_list = np.array(self.shared_T_list)
+        
+        # Auto-slice for single-arm mode if data has both
+        active_arms = self.get_active_arms()
+        optimize_head = self.dev_cal_with_head.get()
+        if len(active_arms) == 1:
+            if q_arm_list.shape[1] == 14:
+                if active_arms[0] == "right":
+                    q_arm_list = q_arm_list[:, :7]
+                else:
+                    q_arm_list = q_arm_list[:, 7:]
+            if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                if active_arms[0] == "right":
+                    T_meas_list = T_meas_list[:, 0]
+                else:
+                    T_meas_list = T_meas_list[:, 1]
+                    
+        try:
+            validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
+            
+            if not self.dataset_saved_in_session or self.current_session_dataset_path is None:
+                dataset_path, _ = self.build_output_paths()
+                self.current_session_dataset_path = dataset_path
+                self.dataset_saved_in_session = True
+                
+            save_npz_dataset(self.current_session_dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
+            self.last_dataset_path = self.current_session_dataset_path
+            self.log(text_widget, f"[Auto-Save] Dataset saved/updated in: {self.current_session_dataset_path}")
+        except Exception as e:
+            self.log(text_widget, f"[Auto-Save Error] {e}")
 
     
 
@@ -460,7 +535,7 @@ class CalibrationUI:
             ))
         except Exception as e:
             self.log(text_widget, f"Init pose failed: {e}")
-            self.root.after(0, lambda: messagebox.showerror("Init Error", str(e)))
+            self.root.after(0, lambda err=e: messagebox.showerror("Init Error", str(err)))
         finally:
             self.auto_motion_running = False
             self.auto_motion_thread = None
@@ -470,10 +545,11 @@ class CalibrationUI:
             self.run_auto_motion_step_blocking(text_widget, tab)
         except Exception as e:
             self.log(text_widget, f"Auto motion failed: {e}")
-            self.root.after(0, lambda: messagebox.showerror("Auto Motion Error", str(e)))
+            self.root.after(0, lambda err=e: messagebox.showerror("Auto Motion Error", str(err)))
         finally:
             self.auto_motion_running = False
             self.auto_motion_thread = None
+            self.auto_save_current_dataset(text_widget)
 
     def run_auto_motion_step_blocking(self, text_widget, tab="dev"):
         if self.robot is None:
@@ -615,6 +691,7 @@ class CalibrationUI:
         finally:
             self.auto_motion_running = False
             self.auto_motion_thread = None
+            self.auto_save_current_dataset(text_widget)
 
     def move_to_all_auto_motions(self, text_widget, tab="dev"):
         if not self.auto_ready_done:
@@ -705,7 +782,6 @@ class CalibrationUI:
         lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
         solver_type="Least Squares",
         use_sag=False,
-        use_noise=False,
     ):
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
@@ -736,7 +812,7 @@ class CalibrationUI:
                 optimize_head=optimize_head,
                 optimize_camera=optimize_camera,
                 active_arms=active_arms,
-                estimate_measurement_noise=use_noise,
+                estimate_measurement_noise=True,
             )
         else:
             optimizer = CalibrationOptimizer(
@@ -755,7 +831,7 @@ class CalibrationUI:
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
-                estimate_measurement_noise=use_noise,
+                estimate_measurement_noise=True,
             )
 
         q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(
@@ -814,6 +890,9 @@ class CalibrationUI:
             "xi_cam": np.array(xi_cam).tolist(),
             "measurement_noise": optimizer.noise_estimator.as_dict(),
         }
+
+        if self.last_home_reset_path is not None and self.last_home_reset_path.exists():
+            result_dict["home_reset_baseline_path"] = str(self.last_home_reset_path)
 
         if optimize_head:
             result_dict["xi_mount_cam"] = result_dict["xi_cam"]
@@ -878,35 +957,213 @@ class CalibrationUI:
         popup.wait_window()
         return result["ok"]
 
-    def apply_home_offset_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
-        result_path = self.get_latest_result_path()
+    def ensure_home_offset_robot(self, text_widget):
+        if self.robot is None or self.model is None:
+            self.log(text_widget, "Robot is not connected. Connecting before home offset operation...")
+            self.dev_connect()
+        if self.robot is None or self.model is None:
+            raise RuntimeError("Robot is not connected.")
 
-        proceed = self.confirm_home_offset_action()
-        if not proceed:
-            self.log(text_widget, "Apply home offset cancelled.")
-            return
+    def format_home_offset_compare_summary(self, result_path, baseline_path):
+        lines = [
+            "Preview moves use the same convention as Apply Home Offset:",
+            "the robot moves to zero pose first, then to -joint_offset.",
+            "",
+            f"Optimized result: {result_path}",
+        ]
+        if baseline_path is None:
+            lines.append("Baseline reset: not found")
+            return "\n".join(lines)
 
-        result = apply_home_offset_from_json(
-            address=ip,
-            model_name=model_name,
+        lines.append(f"Baseline reset: {baseline_path}")
+        try:
+            opt_arm, opt_head = load_offset_from_json(str(result_path))
+            base_arm, base_head = load_offset_from_json(str(baseline_path))
+            if len(opt_arm) == len(base_arm):
+                diff_arm_deg = np.rad2deg(base_arm - opt_arm)
+                lines.append("")
+                lines.append("Baseline - Optimized arm diff (deg):")
+                lines.append(np.array2string(np.round(diff_arm_deg, 4), separator=", "))
+            else:
+                lines.append("")
+                lines.append(
+                    f"Arm diff unavailable: optimized has {len(opt_arm)} values, baseline has {len(base_arm)}."
+                )
+
+            if opt_head is not None and base_head is not None:
+                if len(opt_head) == len(base_head):
+                    diff_head_deg = np.rad2deg(base_head - opt_head)
+                    lines.append("")
+                    lines.append("Baseline - Optimized head diff (deg):")
+                    lines.append(np.array2string(np.round(diff_head_deg, 4), separator=", "))
+                else:
+                    lines.append("")
+                    lines.append(
+                        f"Head diff unavailable: optimized has {len(opt_head)} values, baseline has {len(base_head)}."
+                    )
+        except Exception as e:
+            lines.append("")
+            lines.append(f"Failed to compute diff: {e}")
+        return "\n".join(lines)
+
+    def move_home_offset_candidate_path(
+        self,
+        json_path,
+        label,
+        arm,
+        include_head,
+        text_widget,
+    ):
+        self.ensure_home_offset_robot(text_widget)
+        result = move_to_offset_candidate_from_json(
+            robot=self.robot,
+            model=self.model,
             arm=arm,
-            json_path=str(result_path),
-            power=".*",
-            servo=servo_regex,
+            json_path=str(json_path),
             include_head=include_head,
+            minimum_time=10,
+            move_zero_first=True,
         )
 
-        self.log(text_widget, "Home offset applied successfully.")
+        self.log(text_widget, f"\n===== HOME OFFSET PREVIEW: {label} =====")
+        self.log(text_widget, f"JSON: {json_path}")
         self.log(text_widget, f"Arm: {result['arm']}")
-        self.log(text_widget, f"Source: {result['source']}")
-        self.log(text_widget, f"JSON: {result['json_path']}")
         if result.get("right_offset_deg") is not None:
-            self.log(text_widget, f"Right Offset (deg): {result['right_offset_deg']}")
+            self.log(text_widget, f"Right move offset (deg): {result['right_offset_deg']}")
         if result.get("left_offset_deg") is not None:
-            self.log(text_widget, f"Left Offset (deg): {result['left_offset_deg']}")
-        self.log(text_widget, f"Offset (deg): {result['offset_deg']}")
+            self.log(text_widget, f"Left move offset (deg): {result['left_offset_deg']}")
         if result.get("head_offset_deg") is not None:
-            self.log(text_widget, f"Head Offset (deg): {result['head_offset_deg']}")
+            self.log(text_widget, f"Head move offset (deg): {result['head_offset_deg']}")
+        self.log(text_widget, "Preview move complete. Inspect the robot pose before applying.")
+        return result
+
+    def infer_home_offset_apply_arm(self, requested_arm, json_path):
+        try:
+            offset_rad, _ = load_offset_from_json(str(json_path))
+        except Exception:
+            return requested_arm
+
+        if self.model is not None:
+            both_dof = len(self.model.right_arm_idx) + len(self.model.left_arm_idx)
+            if len(offset_rad) == both_dof:
+                return "both"
+
+        if len(offset_rad) == 14:
+            return "both"
+        return requested_arm
+
+    def apply_current_pose_home_offset(self, arm, include_head, text_widget):
+        self.ensure_home_offset_robot(text_widget)
+        result = reset_current_pose_home_offsets(
+            self.robot,
+            self.model,
+            arm=arm,
+            include_head=include_head,
+            log_cb=lambda msg: self.log(text_widget, msg),
+        )
+
+        self.log(text_widget, "Re-connecting and initializing robot...")
+        self.dev_connect()
+        self.log(text_widget, "Current pose home offset apply complete.")
+        return result
+
+    def apply_home_offset_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
+        result_path = self.get_latest_result_path()
+        baseline_path = self.get_home_reset_path_for_result(result_path)
+        current_apply_arm = {"value": self.infer_home_offset_apply_arm(arm, result_path)}
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Apply Home Offset")
+        popup.geometry("780x520")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        msg = (
+            "Compare the original baseline zero and the optimized zero before applying.\n\n"
+            "1. Move to Baseline Zero to inspect the zero pose before calibration reset.\n"
+            "2. Move to Optimized Zero to inspect the computed calibration zero.\n"
+            "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
+            "Make sure the workspace is clear before each move."
+        )
+        ttk.Label(popup, text=msg, justify="left").pack(padx=15, pady=(15, 8), anchor="w")
+
+        summary = self.format_home_offset_compare_summary(result_path, baseline_path)
+        summary_box = tk.Text(popup, height=12, wrap="word")
+        summary_box.insert("1.0", summary)
+        summary_box.config(state="disabled")
+        summary_box.pack(fill="both", expand=True, padx=15, pady=8)
+
+        btn_frame = ttk.Frame(popup)
+        btn_frame.pack(fill="x", padx=15, pady=15)
+
+        def move_baseline():
+            if baseline_path is None:
+                messagebox.showerror("Baseline Missing", "No home reset baseline JSON was found.")
+                return
+            try:
+                result = self.move_home_offset_candidate_path(
+                    baseline_path,
+                    "Baseline Zero",
+                    arm,
+                    include_head,
+                    text_widget,
+                )
+                current_apply_arm["value"] = result["arm"]
+                messagebox.showinfo("Preview Complete", "Moved to baseline zero candidate.")
+            except Exception as e:
+                messagebox.showerror("Baseline Preview Error", str(e))
+                self.log(text_widget, f"Baseline preview failed: {e}")
+
+        def move_optimized():
+            try:
+                result = self.move_home_offset_candidate_path(
+                    result_path,
+                    "Optimized Zero",
+                    arm,
+                    include_head,
+                    text_widget,
+                )
+                current_apply_arm["value"] = result["arm"]
+                messagebox.showinfo("Preview Complete", "Moved to optimized zero candidate.")
+            except Exception as e:
+                messagebox.showerror("Optimized Preview Error", str(e))
+                self.log(text_widget, f"Optimized preview failed: {e}")
+
+        def apply_current():
+            msg = (
+                "This will redefine the selected joints' home offset using the robot's CURRENT pose.\n\n"
+                "Only continue if the robot is currently at the zero pose you want to keep."
+            )
+            if not messagebox.askokcancel("Apply Current Pose", msg):
+                return
+            try:
+                result = self.apply_current_pose_home_offset(
+                    current_apply_arm["value"],
+                    include_head,
+                    text_widget,
+                )
+                popup.destroy()
+                if result["success"]:
+                    messagebox.showinfo("Success", "Home offset applied from current pose.")
+                else:
+                    messagebox.showwarning(
+                        "Warning",
+                        "Home offset apply finished, but some joints failed to reset. Please check the logs.",
+                    )
+            except Exception as e:
+                messagebox.showerror("Apply Current Pose Error", str(e))
+                self.log(text_widget, f"Apply current pose failed: {e}")
+
+        baseline_btn = ttk.Button(btn_frame, text="Move to Baseline Zero", command=move_baseline)
+        baseline_btn.pack(side="left", padx=(0, 8))
+        if baseline_path is None:
+            baseline_btn.config(state="disabled")
+
+        ttk.Button(btn_frame, text="Move to Optimized Zero", command=move_optimized).pack(side="left", padx=8)
+        ttk.Button(btn_frame, text="Apply Current Pose", command=apply_current).pack(side="left", padx=8)
+        ttk.Button(btn_frame, text="Close", command=popup.destroy).pack(side="right")
+
+        popup.wait_window()
 
     def show_zero_pose_check_popup(self):
         popup = tk.Toplevel(self.root)
@@ -982,7 +1239,7 @@ class CalibrationUI:
     def dev_connect(self):
         parts = []
         if self.servo_body.get():
-            parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+            parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
         if self.servo_head.get():
             parts.append(r"head_.*")
         servo_regex = "|".join(parts) if parts else r"^$"
@@ -1000,7 +1257,7 @@ class CalibrationUI:
         try:
             parts = []
             if self.servo_body.get():
-                parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+                parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
             if self.servo_head.get():
                 parts.append(r"head_.*")
             servo_regex = "|".join(parts) if parts else r"^$"
@@ -1068,6 +1325,7 @@ class CalibrationUI:
     def dev_stop_auto_motion(self):
         try:
             self.request_stop_all_auto_motion(self.dev_text)
+            self.auto_save_current_dataset(self.dev_text)
         except Exception as e:
             messagebox.showerror("Stop Error", str(e))
             self.log(self.dev_text, f"Stop failed: {e}")
@@ -1086,32 +1344,10 @@ class CalibrationUI:
                 self.shared_head_q_list.append(q_head)
             self.shared_T_list.append(T_meas)
             self.update_sample_counts()
+            self.auto_save_current_dataset(self.dev_text)
         except Exception as e:
             messagebox.showerror("Record Error", str(e))
             self.log(self.dev_text, f"Record failed: {e}")
-
-    def dev_get_lambda_cam(self):
-        raw_value = self.dev_lambda_cam_pos.get().strip()
-        if not raw_value:
-            raise ValueError("lambda_cam is empty.")
-
-        lambda_cam = float(raw_value)
-        if lambda_cam < 0.0:
-            raise ValueError("lambda_cam must be greater than or equal to 0.")
-
-        return lambda_cam
-    
-    def dev_get_lambda_cam_rot(self):
-        raw_value = self.dev_lambda_cam_rot.get().strip()
-        if not raw_value:
-            raise ValueError("lambda_cam is empty.")
-
-        lambda_cam_rot = float(raw_value)
-        if lambda_cam_rot < 0.0:
-            raise ValueError("lambda_cam must be greater than or equal to 0.")
-
-        return lambda_cam_rot
-
 
     def dev_calculate(self):
         try:
@@ -1122,10 +1358,10 @@ class CalibrationUI:
                 raise NotImplementedError("Torso calibration is not implemented yet.")
             active_arms = ["right", "left"] if arm_val == "both_arm" else [arm_val.replace("_arm", "")]
             optimize_head = self.dev_cal_with_head.get()
-            optimize_camera = self.dev_use_camera_ext.get()
+            optimize_camera = False
             
-            lambda_cam_pos = self.dev_get_lambda_cam()
-            lambda_cam_rot = self.dev_get_lambda_cam_rot()
+            lambda_cam_pos = 1.0
+            lambda_cam_rot = 1.0
             if self.model is None:
                 raise RuntimeError("Robot is not connected.")
 
@@ -1189,11 +1425,11 @@ class CalibrationUI:
 
             else:  # sim
                 sample_count = 100
-                q_arm_list = np.random.uniform(np.deg2rad(-5.0), np.deg2rad(5.0), (sample_count, 7 * len(active_arms)))
+                q_arm_list = np.random.uniform(-5, 5, (sample_count, 7 * len(active_arms)))
                 if optimize_head:
                     q_head_list = np.column_stack([
-                        np.random.uniform(np.deg2rad(-5.0), np.deg2rad(5.0), sample_count),
-                        np.random.uniform(np.deg2rad(-5.0), np.deg2rad(5.0), sample_count),
+                        np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
+                        np.random.uniform(np.deg2rad(-15.0), np.deg2rad(15.0), sample_count),
                     ])
                 else:
                     q_head_ref = self.robot.get_state().position[head_cfg["head_idx"]].copy()
@@ -1218,11 +1454,10 @@ class CalibrationUI:
                 )
                 self.log(self.dev_text, f"Simulation dataset generated. samples = {sample_count}")
 
-            dataset_path, result_path = self.build_output_paths()
+            _, result_path = self.build_output_paths()
             validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
-            save_npz_dataset(dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
-            self.last_dataset_path = dataset_path
-            self.log(self.dev_text, f"Dataset saved to {dataset_path}")
+            if mode == "live":
+                self.auto_save_current_dataset(self.dev_text)
 
             self.run_optimizer(
                 active_arms=active_arms,
@@ -1237,18 +1472,61 @@ class CalibrationUI:
                 lambda_cam_rot=lambda_cam_rot,
                 solver_type=self.dev_solver.get(),
                 use_sag=self.dev_use_sag.get(),
-                use_noise=self.dev_use_noise.get(),
             )
 
         except Exception as e:
             messagebox.showerror("Calculate Error", str(e))
             self.log(self.dev_text, f"Calculate failed: {e}")
 
+    def dev_save_dataset_manually(self):
+        if len(self.shared_arm_q_list) == 0:
+            messagebox.showwarning("Warning", "No samples to save.")
+            return
+        
+        from tkinter import filedialog
+        selected_path = filedialog.asksaveasfilename(
+            initialdir=str(RESULT_DIR),
+            title="Save Dataset As",
+            defaultextension=".npz",
+            filetypes=[("NPZ files", "*.npz"), ("All files", "*.*")]
+        )
+        
+        if not selected_path:
+            return
+            
+        q_arm_list = np.array(self.shared_arm_q_list)
+        q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
+        T_meas_list = np.array(self.shared_T_list)
+        
+        active_arms = self.get_active_arms()
+        optimize_head = self.dev_cal_with_head.get()
+        if len(active_arms) == 1:
+            if q_arm_list.shape[1] == 14:
+                if active_arms[0] == "right":
+                    q_arm_list = q_arm_list[:, :7]
+                else:
+                    q_arm_list = q_arm_list[:, 7:]
+            if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                if active_arms[0] == "right":
+                    T_meas_list = T_meas_list[:, 0]
+                else:
+                    T_meas_list = T_meas_list[:, 1]
+                    
+        try:
+            validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
+            save_npz_dataset(selected_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
+            self.last_dataset_path = selected_path
+            self.log(self.dev_text, f"[Save] Dataset manually saved to: {selected_path}")
+            messagebox.showinfo("Success", f"Dataset saved to:\n{selected_path}")
+        except Exception as e:
+            messagebox.showerror("Save Error", str(e))
+            self.log(self.dev_text, f"Manual save failed: {e}")
+
     def dev_apply_home_offset(self):
         try:
             parts = []
             if self.servo_body.get():
-                parts.append(r"torso_.*|right_arm_.*|left_arm_.*")
+                parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
             if self.servo_head.get():
                 parts.append(r"head_.*")
             servo_regex = "|".join(parts) if parts else r"^$"
@@ -1264,6 +1542,147 @@ class CalibrationUI:
         except Exception as e:
             messagebox.showerror("Apply Home Offset Error", str(e))
             self.log(self.dev_text, f"Apply home offset failed: {e}")
+
+    def dev_home_offset_reset(self):
+        if self.robot is None or self.model is None:
+            messagebox.showerror("Error", "Robot is not connected.")
+            return
+
+        msg = (
+            "Warning: Home Offset Reset will physically redefine the zero offset positions of your robot joints.\n\n"
+            "Steps:\n"
+            "1. Manually teach/move BOTH arms close to their home pose using direct teaching.\n"
+            "2. Ensure the head is also centered/aligned if you want to reset head offsets.\n"
+            "3. Click OK to save the current pose as a baseline JSON and start the reset.\n\n"
+            "During this, the control manager will disable, 48v power will cycle, and the robot connection will automatically restart."
+        )
+        if not messagebox.askokcancel("Confirm Home Offset Reset", msg):
+            return
+
+        # Start background worker thread
+        t = threading.Thread(target=self.home_offset_reset_worker)
+        t.daemon = True
+        t.start()
+
+    def home_offset_reset_worker(self):
+        try:
+            baseline_path, _ = save_home_reset_baseline_json(
+                self.robot,
+                self.model,
+                RESULT_DIR,
+                model_name=self.dev_model.get(),
+                include_head=self.servo_head.get(),
+            )
+            self.last_home_reset_path = Path(baseline_path)
+            self.log(self.dev_text, f"Home reset baseline saved to: {baseline_path}")
+
+            result = reset_current_pose_home_offsets(
+                self.robot,
+                self.model,
+                arm="both",
+                include_head=self.servo_head.get(),
+                log_cb=lambda msg: self.log(self.dev_text, msg),
+            )
+            success = result["success"]
+            
+            # Re-connect robot using dev_connect
+            self.log(self.dev_text, "Re-connecting and initializing robot...")
+            self.dev_connect()
+            self.log(self.dev_text, "Home Offset Reset complete!")
+            if success:
+                messagebox.showinfo("Success", "Home Offset Reset completed successfully!")
+            else:
+                messagebox.showwarning("Warning", "Home Offset Reset finished, but some joints failed to reset. Please check the logs.")
+        except Exception as e:
+            self.log(self.dev_text, f"Home Offset Reset worker error: {e}")
+            messagebox.showerror("Error", f"Home Offset Reset failed: {e}")
+
+    def dev_check_calibration_state(self):
+        if self.robot is None:
+            messagebox.showerror("Error", "Robot is not connected.")
+            return
+
+        self.check_state_moved = False
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Check Calibration State")
+        popup.geometry("380x280")
+        popup.transient(self.root)
+        
+        # Grid layout for inputs
+        ttk.Label(popup, text="X Position (m):").grid(row=0, column=0, padx=10, pady=10, sticky="w")
+        x_var = tk.StringVar(value="0.35")
+        x_entry = ttk.Entry(popup, textvariable=x_var, width=15)
+        x_entry.grid(row=0, column=1, padx=10, pady=10, sticky="w")
+
+        ttk.Label(popup, text="Y Position (m):").grid(row=1, column=0, padx=10, pady=10, sticky="w")
+        y_var = tk.StringVar(value="0.0")
+        y_entry = ttk.Entry(popup, textvariable=y_var, width=15)
+        y_entry.grid(row=1, column=1, padx=10, pady=10, sticky="w")
+
+        ttk.Label(popup, text="Z Position (m):").grid(row=2, column=0, padx=10, pady=10, sticky="w")
+        z_var = tk.StringVar(value="0.0")
+        z_entry = ttk.Entry(popup, textvariable=z_var, width=15)
+        z_entry.grid(row=2, column=1, padx=10, pady=10, sticky="w")
+
+        ttk.Label(popup, text="Y Offset (m):").grid(row=3, column=0, padx=10, pady=10, sticky="w")
+        offset_var = tk.StringVar(value="0.175")
+        offset_entry = ttk.Entry(popup, textvariable=offset_var, width=15)
+        offset_entry.grid(row=3, column=1, padx=10, pady=10, sticky="w")
+
+        # Action Buttons frame
+        btn_frm = ttk.Frame(popup)
+        btn_frm.grid(row=4, column=0, columnspan=2, pady=20)
+
+        status_lbl = ttk.Label(popup, text="Status: Ready", foreground="blue")
+        status_lbl.grid(row=5, column=0, columnspan=2, padx=10, pady=5, sticky="w")
+
+        def on_move():
+            try:
+                x = float(x_var.get())
+                y = float(y_var.get())
+                z = float(z_var.get())
+                offset = float(offset_var.get())
+            except ValueError:
+                messagebox.showerror("Input Error", "Please enter valid floating-point numbers.")
+                return
+
+            status_lbl.config(text="Status: Moving...", foreground="orange")
+            
+            def move_worker():
+                try:
+                    active_arms = self.get_active_arms()
+                    
+                    # Delegate logic directly to check_calibration_state in core
+                    check_calibration_state(
+                        self.robot,
+                        self.dev_model.get(),
+                        active_arms,
+                        [x, y, z],
+                        offset,
+                        log_cb=lambda msg: self.log(self.dev_text, f"[Check State] {msg}"),
+                        skip_ready=self.check_state_moved
+                    )
+                    
+                    self.check_state_moved = True
+                    self.log(self.dev_text, "[Check State] Symmetrical move completed successfully.")
+                    popup.after(0, lambda: status_lbl.config(text="Status: Move OK", foreground="green"))
+                except Exception as ex:
+                    self.log(self.dev_text, f"[Check State Error] {ex}")
+                    popup.after(0, lambda err=ex: status_lbl.config(text="Status: Error", foreground="red"))
+
+            t = threading.Thread(target=move_worker)
+            t.daemon = True
+            t.start()
+
+        def on_close():
+            self.check_state_moved = False
+            popup.destroy()
+
+        popup.protocol("WM_DELETE_WINDOW", on_close)
+
+        ttk.Button(btn_frm, text="Move", command=on_move).pack(side="left", padx=10)
+        ttk.Button(btn_frm, text="Close", command=on_close).pack(side="left", padx=10)
 
     # ============================================================
     # cleanup

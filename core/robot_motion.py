@@ -490,3 +490,163 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
 
         time.sleep(config.settle_time)
         return motion_plan_step
+
+
+def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb=None, skip_ready=False):
+    # Ensure Control Manager is enabled
+    cm_state = robot.get_control_manager_state()
+    if cm_state.state in [rby.ControlManagerState.State.MinorFault, rby.ControlManagerState.State.MajorFault]:
+        if log_cb is not None:
+            log_cb("[ControlManager] Control manager in fault state. Resetting...")
+        robot.reset_fault_control_manager()
+        time.sleep(1.0)
+        
+    cm_state = robot.get_control_manager_state()
+    if cm_state.state != rby.ControlManagerState.State.Enabled:
+        if log_cb is not None:
+            log_cb("[ControlManager] Enabling control manager...")
+        robot.enable_control_manager()
+        time.sleep(1.0)
+
+    q_torso = np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R
+    if not skip_ready:
+        if log_cb is not None:
+            log_cb("Step 1: Moving to Joint Ready Pose...")
+        
+        # 1. Joint Ready Pose
+        if "right" in active_arms:
+            q_right = np.array([-45, -30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
+        else:
+            q_right = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
+            
+        if "left" in active_arms:
+            q_left = np.array([-45, 30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
+        else:
+            q_left = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
+            
+        q_ready = np.concatenate([q_torso, q_right, q_left])
+        
+        cmd1 = rby.RobotCommandBuilder().set_command(
+            rby.ComponentBasedCommandBuilder().set_body_command(
+                rby.JointPositionCommandBuilder()
+                .set_position(q_ready)
+                .set_minimum_time(5.0)
+            )
+        )
+        rv1 = robot.send_command(cmd1, 10).get()
+        if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Failed to move to Joint Ready Pose: {rv1.finish_code}")
+            
+        time.sleep(1.0)
+    else:
+        if log_cb is not None:
+            log_cb("Skipping Joint Ready Pose (Subsequent Move)...")
+        
+    if log_cb is not None:
+        log_cb("Step 2: Moving to Cartesian Symmetrical Checking Pose...")
+        
+    # 2. Cartesian Symmetrical Pose
+    # Compute transformations
+    import math
+    roll_r = 90 * math.pi / 180
+    pitch_r = -90 * math.pi / 180
+    yaw_r = 0.0
+    
+    # Right transform
+    cr_r = math.cos(roll_r); sr_r = math.sin(roll_r)
+    cp_r = math.cos(pitch_r); sp_r = math.sin(pitch_r)
+    cy_r = math.cos(yaw_r); sy_r = math.sin(yaw_r)
+    
+    T_right = np.eye(4, dtype=np.float64)
+    T_right[0, 0] = cy_r * cp_r
+    T_right[0, 1] = sr_r * sp_r * cy_r - cr_r * sy_r
+    T_right[0, 2] = cr_r * sp_r * cy_r + sr_r * sy_r
+    T_right[0, 3] = data[0]
+    
+    T_right[1, 0] = sy_r * cp_r
+    T_right[1, 1] = sr_r * sp_r * sy_r + cr_r * cy_r
+    T_right[1, 2] = cr_r * sp_r * sy_r - sr_r * cy_r
+    T_right[1, 3] = data[1] - offset
+    
+    T_right[2, 0] = -sp_r
+    T_right[2, 1] = cp_r * sr_r
+    T_right[2, 2] = cp_r * cr_r
+    T_right[2, 3] = data[2]
+
+    roll_l = -90 * math.pi / 180
+    pitch_l = -90 * math.pi / 180
+    yaw_l = 0.0
+    
+    # Left transform
+    cr_l = math.cos(roll_l); sr_l = math.sin(roll_l)
+    cp_l = math.cos(pitch_l); sp_l = math.sin(pitch_l)
+    cy_l = math.cos(yaw_l); sy_l = math.sin(yaw_l)
+    
+    T_left = np.eye(4, dtype=np.float64)
+    T_left[0, 0] = cy_l * cp_l
+    T_left[0, 1] = sr_l * sp_l * cy_l - cr_l * sy_l
+    T_left[0, 2] = cr_l * sp_l * cy_l + sr_l * sy_l
+    T_left[0, 3] = data[0]
+    
+    T_left[1, 0] = sy_l * cp_l
+    T_left[1, 1] = sr_l * sp_l * sy_l + cr_l * cy_l
+    T_left[1, 2] = cr_l * sp_l * sy_l - sr_l * cy_l
+    T_left[1, 3] = data[1] + offset
+    
+    T_left[2, 0] = -sp_l
+    T_left[2, 1] = cp_l * sr_l
+    T_left[2, 2] = cp_l * cr_l
+    T_left[2, 3] = data[2]
+
+    MINIMUM_TIME = 5.0
+    LINEAR_VELOCITY_LIMIT = 1.5
+    ANGULAR_VELOCITY_LIMIT = math.pi * 1.5
+    ACCELERATION_LIMIT = 1.0
+    STOP_ORIENTATION_TRACKING_ERROR = 1e-4
+    STOP_POSITION_TRACKING_ERROR = 1e-3
+
+    body = rby.BodyComponentBasedCommandBuilder()
+    body.set_torso_command(
+        rby.JointPositionCommandBuilder()
+        .set_position(q_torso)
+        .set_minimum_time(MINIMUM_TIME)
+    )
+
+    if "right" in active_arms:
+        body.set_right_arm_command(
+            rby.CartesianCommandBuilder()
+            .add_target("link_torso_5", "ee_right", T_right, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
+            .set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
+            .set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
+            .set_minimum_time(MINIMUM_TIME)
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
+        )
+    else:
+        body.set_right_arm_command(
+            rby.JointPositionCommandBuilder()
+            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+            .set_minimum_time(MINIMUM_TIME)
+        )
+
+    if "left" in active_arms:
+        body.set_left_arm_command(
+            rby.CartesianCommandBuilder()
+            .add_target("link_torso_5", "ee_left", T_left, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
+            .set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
+            .set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
+            .set_minimum_time(MINIMUM_TIME)
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
+        )
+    else:
+        body.set_left_arm_command(
+            rby.JointPositionCommandBuilder()
+            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+            .set_minimum_time(MINIMUM_TIME)
+        )
+
+    cmd2 = rby.RobotCommandBuilder().set_command(
+        rby.ComponentBasedCommandBuilder().set_body_command(body)
+    )
+    rv2 = robot.send_command(cmd2, 10).get()
+    if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+        raise RuntimeError(f"Failed to move to Cartesian Checking Pose. FinishCode: {rv2.finish_code}")
