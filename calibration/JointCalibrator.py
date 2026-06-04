@@ -110,7 +110,7 @@ class JointCalibrator(BaseCalibrator):
                 left_arm = [0, 0, 0, 0, 0, 0, 0]
             else:
                 right_arm = [0, 0, 0, 0, 0, 0, 0]
-                left_arm = np.deg2rad([-90, 45, -73, 0, -90, 90, 0])
+                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, 107])
         else: # head mode
             if arm_side == "right":
                 right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
@@ -546,6 +546,8 @@ class JointCalibrator(BaseCalibrator):
         
         sign = 1.0 if error_plus < error_minus else -1.0
         optimal_offset_deg = sign * offset_magnitude_deg
+        if mode == "elbow":
+            optimal_offset_deg = -abs(optimal_offset_deg)
         optimal_offset_rad = np.radians(optimal_offset_deg)
 
         if log_callback:
@@ -883,6 +885,8 @@ class JointCalibrator(BaseCalibrator):
         
         sign = 1.0 if error_plus < error_minus else -1.0
         optimal_offset_deg = sign * offset_magnitude_deg
+        if mode == "elbow":
+            optimal_offset_deg = -abs(optimal_offset_deg)
         optimal_offset_rad = np.radians(optimal_offset_deg)
 
         if log_callback:

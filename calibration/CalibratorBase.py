@@ -88,39 +88,52 @@ class BaseCalibrator:
         if not robot.connect():
             logging.error(f"Failed to connect robot {address}")
             return None
+        # 1) Disable control manager first if it is Enabled to allow power/servo commands
+        try:
+            import time
+            cm_state = robot.get_control_manager_state().state
+            if cm_state == rby.ControlManagerState.State.Enabled:
+                logging.info("Control manager is Enabled. Disabling to allow power/servo commands...")
+                robot.disable_control_manager()
+                time.sleep(0.5)
+        except Exception as e:
+            logging.warning(f"Failed to check/disable control manager initially: {e}")
+
+        # 2) Perform power/servo commands
         if not robot.is_power_on(power):
             logging.info(f"Turning power ({power}) on...")
             if not robot.power_on(power):
-                logging.error(f"Failed to turn power ({power}) on")
-                return None
+                logging.error(f"Failed to turn power ({power}) on. Continuing...")
         else:
             logging.info(f"Power ({power}) is already ON.")
 
         if not robot.is_servo_on(servo):
             logging.info(f"Turning servo ({servo}) on...")
             if not robot.servo_on(servo):
-                logging.error(f"Failed to servo ({servo}) on")
-                return None
+                logging.error(f"Failed to servo ({servo}) on. Continuing...")
         else:
             logging.info(f"Servo ({servo}) is already ON.")
 
-        cm_state = robot.get_control_manager_state()
-        if cm_state.state in [
-            rby.ControlManagerState.State.MajorFault,
-            rby.ControlManagerState.State.MinorFault,
-        ]:
-            logging.warning(f"Control manager is in fault state: {cm_state.state}. Resetting...")
-            if not robot.reset_fault_control_manager():
-                logging.error(f"Failed to reset control manager")
-                return None
-        
-        if cm_state.state != rby.ControlManagerState.State.Enabled:
-            logging.info("Enabling control manager...")
-            if not robot.enable_control_manager():
-                logging.error(f"Failed to enable control manager")
-                return None
-        else:
-            logging.info("Control manager is already enabled.")
+        # 3) Reset fault and enable control manager
+        try:
+            cm_state_post = robot.get_control_manager_state()
+            if cm_state_post.state in [
+                rby.ControlManagerState.State.MajorFault,
+                rby.ControlManagerState.State.MinorFault,
+            ]:
+                logging.warning(f"Control manager is in fault state: {cm_state_post.state}. Resetting...")
+                if not robot.reset_fault_control_manager():
+                    logging.error(f"Failed to reset control manager")
+            
+            cm_state_post = robot.get_control_manager_state()
+            if cm_state_post.state != rby.ControlManagerState.State.Enabled:
+                logging.info("Enabling control manager...")
+                if not robot.enable_control_manager():
+                    logging.error(f"Failed to enable control manager")
+            else:
+                logging.info("Control manager is already enabled.")
+        except Exception as e:
+            logging.error(f"Failed to configure control manager: {e}. Continuing...")
         return robot
 
     @staticmethod

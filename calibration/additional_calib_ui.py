@@ -952,7 +952,7 @@ class UnifiedCalibrationApp(QWidget):
     def connect_robot(self):
         if self.robot:
             self.log_msg("[INFO] Disconnecting from robot...")
-            if not self.ui_only:
+            if self.robot != "mock_robot":
                 MarkerCalibrator.terminate_robot(self.robot)
             self.robot = None
             self.marker_calibrator.robot = None
@@ -968,8 +968,16 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[INFO] Connecting to robot at {addr} ({model})...")
             
             if self.ui_only:
-                self.robot = "mock_robot"
-                self.log_msg("[MOCK] Connected successfully to mock robot.")
+                try:
+                    self.log_msg(f"[INFO] (UI Mode) Trying to connect to actual robot at {addr} ({model})...")
+                    self.robot = MarkerCalibrator.initialize_robot(addr, model)
+                except Exception as e:
+                    self.log_msg(f"[INFO] Actual robot connection raised exception: {e}.")
+                    self.robot = None
+                
+                if not self.robot:
+                    self.log_msg("[INFO] Actual robot connection failed. Fallback to mock.")
+                    self.robot = "mock_robot"
             else:
                 self.robot = MarkerCalibrator.initialize_robot(addr, model)
                 
@@ -1138,10 +1146,10 @@ class UnifiedCalibrationApp(QWidget):
 
     # --- Joint Calibration Workflows ---
     def move_to_ready_pose_joint(self):
-        if not self.ui_only and not self.robot:
+        if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        if self.ui_only:
+        if self.robot == "mock_robot":
             self.log_msg("[MOCK] Moved to joint ready pose.")
             return
 
@@ -1257,7 +1265,7 @@ class UnifiedCalibrationApp(QWidget):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        if self.ui_only:
+        if self.robot == "mock_robot":
             self.log_msg("[MOCK] Moved to marker ready pose.")
             return
 
@@ -1271,7 +1279,7 @@ class UnifiedCalibrationApp(QWidget):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        if self.ui_only:
+        if self.robot == "mock_robot":
             self.log_msg("[MOCK] Moved to center (Marker mode).")
             return
 
