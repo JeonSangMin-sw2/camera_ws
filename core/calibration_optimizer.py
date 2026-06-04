@@ -295,7 +295,7 @@ class QPCalibrationOptimizer:
         arm_idx,
         ee_links,
         mount_to_cam_nom,
-        t5_to_cam_nom=None,
+        head_base_to_cam_nom=None,
         ee_to_marker_nom=None,
         head_idx=None,
         camera_link="link_head_2",
@@ -331,7 +331,7 @@ class QPCalibrationOptimizer:
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
         self.ee_links = dict(ee_links)
         self.mount_to_cam_nom = mount_to_cam_nom
-        self.t5_to_cam_nom = t5_to_cam_nom
+        self.head_base_to_cam_nom = head_base_to_cam_nom
         self.ee_to_marker_nom = dict(ee_to_marker_nom)
         self.camera_link = camera_link
 
@@ -354,8 +354,8 @@ class QPCalibrationOptimizer:
             self.base_link = self.camera_link
             self.T_mount_to_cam_nom = make_transform(self.mount_to_cam_nom) if self.mount_to_cam_nom else np.eye(4)
         else:
-            self.base_link = "link_torso_5"
-            self.T_mount_to_cam_nom = make_transform(self.t5_to_cam_nom) if self.t5_to_cam_nom else np.eye(4)
+            self.base_link = "link_head_0"
+            self.T_mount_to_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
 
         # Sag Estimators
         self.sag_estimators = {
@@ -827,17 +827,17 @@ class QPCalibrationOptimizer:
             xi_mount_cam += dxi
         return q_arm_offset, q_head_offset, xi_mount_cam
 
-    def get_calibrated_t5_to_cam(self, xi_mount_cam):
+    def get_calibrated_head_base_to_cam(self, xi_mount_cam):
         T_mount_to_cam = self.get_nominal_mount_to_cam() @ se3_exp(xi_mount_cam)
         if self.use_head_kinematics:
-            _, T_t5_to_mount = compute_fk(
+            _, T_head_base_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,
                 q_full=self.q_nominal,
                 ee_link=self.camera_link,
-                base_link="link_torso_5",
+                base_link="link_head_0",
             )
-            T_calib = T_t5_to_mount @ T_mount_to_cam
+            T_calib = T_head_base_to_mount @ T_mount_to_cam
         else:
             T_calib = T_mount_to_cam
 
@@ -902,8 +902,8 @@ class QPCalibrationOptimizer:
                 break
 
         mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_mount_cam)
-        t5_to_cam_new = self.get_calibrated_t5_to_cam(xi_mount_cam)
-        return q_arm_offset, q_head_offset, xi_mount_cam, mount_to_cam_new, t5_to_cam_new
+        head_base_to_cam_new = self.get_calibrated_head_base_to_cam(xi_mount_cam)
+        return q_arm_offset, q_head_offset, xi_mount_cam, mount_to_cam_new, head_base_to_cam_new
 
 class CalibrationOptimizer:
     def __init__(
@@ -912,7 +912,7 @@ class CalibrationOptimizer:
         arm_idx,
         ee_links,
         mount_to_cam_nom,
-        t5_to_cam_nom,
+        head_base_to_cam_nom,
         ee_to_marker_nom,
         active_arms=["right", "left"],
         optimize_arm=True,
@@ -938,7 +938,7 @@ class CalibrationOptimizer:
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
         self.ee_links = dict(ee_links)
         self.mount_to_cam_nom = mount_to_cam_nom
-        self.t5_to_cam_nom = t5_to_cam_nom
+        self.head_base_to_cam_nom = head_base_to_cam_nom
         self.ee_to_marker_nom = dict(ee_to_marker_nom)
         self.camera_link = camera_link
         self.active_arms = active_arms
@@ -973,8 +973,8 @@ class CalibrationOptimizer:
             self.base_link = self.camera_link
             self.T_cam_nom = make_transform(self.mount_to_cam_nom) if self.mount_to_cam_nom else np.eye(4)
         else:
-            self.base_link = "link_torso_5"
-            self.T_cam_nom = make_transform(self.t5_to_cam_nom) if self.t5_to_cam_nom else np.eye(4)
+            self.base_link = "link_head_0"
+            self.T_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
 
     def joint_param_dim(self):
         dim = 0
@@ -1192,17 +1192,17 @@ class CalibrationOptimizer:
             xi_mount_cam += dxi
         return q_arm_offset, q_head_offset, xi_mount_cam
 
-    def get_calibrated_t5_to_cam(self, xi_cam):
+    def get_calibrated_head_base_to_cam(self, xi_cam):
         T_cam_calib = self.get_nominal_cam_transform() @ se3_exp(xi_cam)
         if self.use_head_kinematics:
-            _, T_t5_to_mount = compute_fk(
+            _, T_head_base_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,
                 q_full=self.q_nominal,
                 ee_link=self.camera_link,
-                base_link="link_torso_5",
+                base_link="link_head_0",
             )
-            T_calib = T_t5_to_mount @ T_cam_calib
+            T_calib = T_head_base_to_mount @ T_cam_calib
         else:
             T_calib = T_cam_calib
 
@@ -1264,5 +1264,5 @@ class CalibrationOptimizer:
                 break
 
         mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_cam)
-        t5_to_cam_new = self.get_calibrated_t5_to_cam(xi_cam)
-        return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, t5_to_cam_new
+        head_base_to_cam_new = self.get_calibrated_head_base_to_cam(xi_cam)
+        return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new

@@ -10,10 +10,10 @@ camera:
 
   # Camera extrinsic calibrations
   # `mount_to_cam`: used when head is included (base: camera_mount_link)
-  # `T5_to_cam`: used for headless/torso-mount configurations (base: link_torso_5)
+  # `head_base_to_cam`: used for headless/torso-mount configurations (base: link_head_0)
   camera_mount_link: link_head_2
   mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
-  T5_to_cam: [0.124, 0.009, 0.175, -90.0, 0.0, -90.0]
+  head_base_to_cam: [0.102, 0.009, 0.44, -90.0, 0.0, -90.0]
   
   width: 1280
   height: 720

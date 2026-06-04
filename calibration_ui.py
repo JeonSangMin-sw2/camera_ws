@@ -40,6 +40,7 @@ from core.robot_motion import (
 from homeoffset_core import (
     apply_home_offset_from_json,
     move_robot_to_zero_pose,
+    movej,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -762,7 +763,7 @@ class CalibrationUI:
                 arm_idx=cfg["arm_idx"],
                 ee_links=ee_links,
                 mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                t5_to_cam_nom=cfg.get("t5_to_cam_nom"),
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
                 ee_to_marker_nom=ee_to_marker_nom,
                 head_idx=head_cfg["head_idx"],
                 lambda_cam_pos=lambda_cam_pos,
@@ -779,7 +780,7 @@ class CalibrationUI:
                 arm_idx=cfg["arm_idx"],
                 ee_links=ee_links,
                 mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                t5_to_cam_nom=cfg.get("t5_to_cam_nom"),
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
                 ee_to_marker_nom=ee_to_marker_nom,
                 active_arms=active_arms,
                 optimize_arm=True,
@@ -793,7 +794,7 @@ class CalibrationUI:
                 estimate_measurement_noise=True,
             )
 
-        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, t5_to_cam_new = optimizer.optimize(
+        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
             q_arm_list,
             q_head_list,
             T_meas_list,
@@ -811,7 +812,7 @@ class CalibrationUI:
             right_arm_offset = q_arm_offset[:7]
             left_arm_offset = q_arm_offset[7:]
 
-        t5_to_cam_new = [float(x) for x in t5_to_cam_new] if t5_to_cam_new else None
+        head_base_to_cam_new = [float(x) for x in head_base_to_cam_new] if head_base_to_cam_new else None
         mount_to_cam_new = [float(x) for x in mount_to_cam_new] if mount_to_cam_new else None
 
         self.log(text_widget, "\n===== RESULT =====")
@@ -836,10 +837,10 @@ class CalibrationUI:
             self.log(text_widget, "mount_to_cam_new:")
             self.log(text_widget, str(mount_to_cam_new))
         else:
-            self.log(text_widget, "T5-to-camera xi:")
+            self.log(text_widget, "head_base-to-camera xi:")
             self.log(text_widget, str(xi_cam))
-            self.log(text_widget, "t5_to_cam_new:")
-            self.log(text_widget, str(t5_to_cam_new))
+            self.log(text_widget, "head_base_to_cam_new:")
+            self.log(text_widget, str(head_base_to_cam_new))
 
         result_dict = {
             "joint_offset_deg": np.rad2deg(q_arm_offset).tolist(),
@@ -853,7 +854,7 @@ class CalibrationUI:
         if optimize_head:
             result_dict["xi_mount_cam"] = result_dict["xi_cam"]
         else:
-            result_dict["xi_t5_cam"] = result_dict["xi_cam"]
+            result_dict["xi_head_base_cam"] = result_dict["xi_cam"]
 
         with open(result_path, "w") as f:
             json.dump(result_dict, f, indent=4)
@@ -1227,6 +1228,7 @@ class CalibrationUI:
                     active_arms,
                     ee_links,
                     cfg["mount_to_cam_nom"],
+                    cfg.get("head_base_to_cam_nom"),
                     ee_to_marker_nom,
                     camera_link=head_cfg["camera_link"],
                 )
@@ -1344,16 +1346,80 @@ class CalibrationUI:
 
     def home_offset_reset_worker(self):
         try:
-            # Delegate entire business logic to core function
+            # Reconnect flow similar to apply_home_offset to avoid freezing
+            old_robot = self.robot
             success = reset_home_offsets(
-                self.robot,
+                old_robot,
                 self.model,
                 log_cb=lambda msg: self.log(self.dev_text, msg),
             )
             
-            # Re-connect robot using dev_connect
+            if old_robot is not None:
+                try:
+                    old_robot.disconnect()
+                except Exception as e:
+                    self.log(self.dev_text, f"Disconnect failed: {e}")
+            self.robot = None
+            self.model = None
+            self.dyn_model = None
+            self.dev_status.set("Disconnected")
+
+            # 48v 끄고 2초 대기 (apply_home_offset 참고)
+            self.log(self.dev_text, "Waiting for power cycle to complete (2 seconds)...")
+            time.sleep(2.0)
+
+            # Re-connect and initialize robot
             self.log(self.dev_text, "Re-connecting and initializing robot...")
-            self.dev_connect()
+            
+            # Recreate connection with correct servo regex
+            parts = []
+            if self.servo_body.get():
+                parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
+            if self.servo_head.get():
+                parts.append(r"head_.*")
+            servo_regex = "|".join(parts) if parts else r"^$"
+
+            self.include_head_motion = self.servo_head.get()
+            self.robot = create_robot(
+                self.dev_ip.get(),
+                self.dev_model.get(),
+                power_regex=".*",
+                servo_regex=servo_regex,
+            )
+            self.dyn_model = self.robot.get_dynamics()
+            self.model = self.robot.model()
+
+            if len(self.model.head_idx) == 0:
+                self.dev_cal_with_head.set(False)
+                self.dev_cal_with_head_cb.config(state="disabled")
+            else:
+                self.dev_cal_with_head_cb.config(state="normal")
+
+            self.auto_motion_running = False
+            self.auto_stop_requested = False
+            self.auto_motion_after_id = None
+            self.auto_base_head_q = None
+            self.auto_ready_done = False
+            self.dev_status.set("Connected")
+            self.log(self.dev_text, "Re-connection successful.")
+            self.update_head_pose_status()
+
+            # Move to zero pose after reset (apply_home_offset 참고)
+            self.log(self.dev_text, "Moving to zero pose after home offset reset...")
+            right_zero_pose = np.zeros(len(self.model.right_arm_idx))
+            left_zero_pose = np.zeros(len(self.model.left_arm_idx))
+            head_zero_pose = np.zeros(len(self.model.head_idx)) if self.servo_head.get() else None
+            
+            ok = movej(
+                self.robot,
+                right_arm=right_zero_pose,
+                left_arm=left_zero_pose,
+                head=head_zero_pose,
+                minimum_time=5,
+            )
+            if not ok:
+                self.log(self.dev_text, "Failed to move robot to zero pose after reset.")
+
             self.log(self.dev_text, "Home Offset Reset complete!")
             if success:
                 messagebox.showinfo("Success", "Home Offset Reset completed successfully!")

@@ -122,11 +122,11 @@ def load_camera_nominals():
 
     camera_cfg = config.get("camera", {})
     mount_to_cam_nom = camera_cfg.get("mount_to_cam")
-    t5_to_cam_nom = camera_cfg.get("T5_to_cam")
+    head_base_to_cam_nom = camera_cfg.get("head_base_to_cam")
 
     return {
         "mount_to_cam_nom": mount_to_cam_nom,
-        "t5_to_cam_nom": t5_to_cam_nom,
+        "head_base_to_cam_nom": head_base_to_cam_nom,
         "camera_mount_link": camera_cfg.get("camera_mount_link", "link_head_2"),
         "ee_to_marker_left": camera_cfg["Tf_to_marker_left"],
         "ee_to_marker_right": camera_cfg["Tf_to_marker_right"],
@@ -136,7 +136,7 @@ def get_arm_config(model, arm):
     camera_nominals = load_camera_nominals()
     base_config = {
         "mount_to_cam_nom": camera_nominals["mount_to_cam_nom"],
-        "t5_to_cam_nom": camera_nominals["t5_to_cam_nom"],
+        "head_base_to_cam_nom": camera_nominals["head_base_to_cam_nom"],
         "camera_mount_link": camera_nominals["camera_mount_link"],
     }
 
@@ -163,7 +163,7 @@ def get_both_arm_config(model):
             "left": "ee_left",
         },
         "mount_to_cam_nom": camera_nominals["mount_to_cam_nom"],
-        "t5_to_cam_nom": camera_nominals["t5_to_cam_nom"],
+        "head_base_to_cam_nom": camera_nominals["head_base_to_cam_nom"],
         "camera_mount_link": camera_nominals["camera_mount_link"],
         "ee_to_marker_nom": {
             "right": camera_nominals["ee_to_marker_right"],
@@ -247,6 +247,7 @@ def generate_sim_measurements(
     active_arms,
     ee_links,
     mount_to_cam_nom,
+    head_base_to_cam_nom,
     ee_to_marker_nom,
     camera_link="link_head_2",
     camera_position_noise_std_m=0.0005,
@@ -273,8 +274,8 @@ def generate_sim_measurements(
             if optimize_camera else T_mount_to_cam_nom
         )
     else:
-        base_link = "link_torso_5"
-        T_mount_to_cam_nom = make_transform(mount_to_cam_nom)
+        base_link = "link_head_0"
+        T_mount_to_cam_nom = make_transform(head_base_to_cam_nom)
         T_mount_to_cam_true = (
             T_mount_to_cam_nom @ se3_exp(xi_t5_cam_true)
             if optimize_camera else T_mount_to_cam_nom

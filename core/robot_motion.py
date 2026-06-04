@@ -454,7 +454,7 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
                 T_right=None,
                 T_left=None,
                 active_arms=active_arms,
-                head_position=_motion_state["q_head_baseline"],
+                head_position=_motion_state["q_head_baseline"] if include_head_motion else None,
                 min_time=config.move_time,
                 hold_time=config.hold_time,
                 q_right=_motion_state["q_right_baseline"],
