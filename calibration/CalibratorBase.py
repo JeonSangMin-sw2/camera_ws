@@ -241,16 +241,24 @@ class BaseCalibrator:
     @staticmethod
     def fit_circle_3d(points):
         """
-        Fits a 3D circle to points with robust worst-inlier outlier rejection (up to 3 points).
+        Fits a 3D circle to points with robust worst-inlier outlier rejection (up to 15 points).
         Returns (center_3d, R_circle, radius, rmse, pts_2d, uc, vc)
         where R_circle is the 3x3 rotation matrix in robot coordinate system: [ex, ey, normal]
         """
         points = np.array(points)
+        
+        # Apply 3D Moving Median Filter (window size 5) to smooth out camera sensor jitter
+        if len(points) >= 5:
+            smoothed = np.copy(points)
+            for i in range(2, len(points) - 2):
+                smoothed[i] = np.median(points[i - 2 : i + 3], axis=0)
+            points = smoothed
+            
         inlier_mask = np.ones(len(points), dtype=bool)
         
-        for out_iter in range(3):
+        for out_iter in range(15):
             pts_in = points[inlier_mask]
-            if len(pts_in) < 6:
+            if len(pts_in) < 10:
                 break
                 
             centroid = np.mean(pts_in, axis=0)
@@ -293,7 +301,7 @@ class BaseCalibrator:
             worst_global_idx = inlier_indices[worst_inlier_idx_in_inliers]
             worst_error = inlier_errors[worst_inlier_idx_in_inliers]
             
-            if worst_error > 0.5:
+            if worst_error > 0.1:
                 inlier_mask[worst_global_idx] = False
             else:
                 break
