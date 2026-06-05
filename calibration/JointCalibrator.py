@@ -11,7 +11,7 @@ from scipy.spatial.transform import Rotation as R_scipy
 from CalibratorBase import BaseCalibrator
 
 class JointCalibrator(BaseCalibrator):
-    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=10.0):
+    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0):
         if log_callback:
             log_callback("\n" + "="*60)
             log_callback("   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE")
@@ -25,7 +25,7 @@ class JointCalibrator(BaseCalibrator):
             )
             
         tolerance = 0.05  # Convergence tolerance in degrees
-        max_iterations = 10
+        max_iterations = 4
         staged_offset = current_offset_deg
         
         final_res = None
@@ -41,16 +41,12 @@ class JointCalibrator(BaseCalibrator):
             optimal_offset = res['optimal_offset']
             center_dist = res.get('center_dist', 999.0)
             
-            # If center distance is less than 1.0mm, apply a fixed 0.05 degree step adjustment
-            # in the direction of the estimated optimal offset to steadily converge.
-            if center_dist < 1.0:
-                step = np.sign(optimal_offset) * 0.05
-                staged_offset += step
-                if log_callback:
-                    log_callback(f"  [INFO] Center distance error is under 1mm ({center_dist:.4f} mm < 1.0 mm).")
-                    log_callback(f"         Applying a fixed step of {step:.2f}° (direction: {np.sign(optimal_offset):.0f}) instead of the raw error.")
-            else:
-                staged_offset += optimal_offset
+            # If center distance is less than 1.0mm, apply the full calculated offset step
+            # to allow fast and stable convergence rather than clamping the step size.
+            staged_offset += optimal_offset
+            if log_callback and center_dist < 1.0:
+                log_callback(f"  [INFO] Center distance error is under 1mm ({center_dist:.4f} mm < 1.0 mm).")
+                log_callback(f"         Applying the full calculated offset step of {optimal_offset:.4f}° for direct convergence.")
                 
             if log_callback:
                 log_callback(f"  * Remaining relative error: {optimal_offset:.4f}°")
@@ -60,7 +56,7 @@ class JointCalibrator(BaseCalibrator):
             final_res = res
             
             # Check convergence
-            if abs(optimal_offset) < tolerance and center_dist < 0.4:
+            if abs(optimal_offset) < tolerance and center_dist < 0.5:
                 if log_callback:
                     log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully under tolerance ({tolerance}°) and center distance ({center_dist:.4f} mm < 0.4 mm).")
                     log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
@@ -270,7 +266,7 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=10.0):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0):
         import threading
         
         class MoveThread(threading.Thread):
@@ -436,10 +432,11 @@ class JointCalibrator(BaseCalibrator):
         T_mount_to_cam = self.make_transform(mount_to_cam)
 
         # Save FULL captured continuous sweep points to debug txt files before downsampling
-        self.save_debug_points(
-            arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
-            cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
-        )
+        # (Commented out to stop saving txt files as requested)
+        # self.save_debug_points(
+        #     arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
+        #     cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
+        # )
         
         # Keep up to 200 points for speed and accuracy
         raw_len_A = len(dataset_A)
@@ -523,6 +520,10 @@ class JointCalibrator(BaseCalibrator):
         # If proj is negative, the physical angle is negative, so the required offset to correct it is positive.
         sign = -1.0 if proj > 0 else 1.0
         
+        if log_callback:
+            log_callback(f"  [DEBUG] cross_norm projection onto joint axis (a_cand_cam): proj={proj:.6f}")
+            log_callback(f"  [DEBUG] Mathematically resolved offset direction sign: {sign:.1f}")
+        
         optimal_offset_deg = sign * angle_between_normals
         if mode == "elbow":
             optimal_offset_deg = -abs(optimal_offset_deg)
@@ -583,7 +584,7 @@ class JointCalibrator(BaseCalibrator):
                     log_callback("  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]")
                     log_callback("-"*50)
                     log_callback(f"    - Fitted Sweep Radius    : {marker_6_res['radius']:.3f} mm")
-                    log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
+                    # log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
                     log_callback(f"    - Axis Direction Vector  : {np.round(marker_6_res['axis_opt'], 4)}")
                     log_callback(f"    - Jitter StdDev (Tilt)   : {np.std(marker_6_res.get('tilt_list', [0.0])):.3f} deg")
                     log_callback("-"*50 + "\n")

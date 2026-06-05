@@ -326,7 +326,7 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=10.0):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=20.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
@@ -379,7 +379,7 @@ class JointCalibrationWorker(QThread):
                 self.log_signal.emit(f"  [1] Calibration Target: {self.mode}")
                 recommended = res.get('recommended_joint_offset', res['optimal_offset'])
                 self.log_signal.emit(f"      Estimated Optimal Offset: {recommended:.3f} deg")
-                self.log_signal.emit(f"      Sweep RMSE (A/B)       : {res['rmse_A']:.3f} / {res['rmse_B']:.3f}")
+                # self.log_signal.emit(f"      Sweep RMSE (A/B)       : {res['rmse_A']:.3f} / {res['rmse_B']:.3f}")
                 self.log_signal.emit("-" * 30)
                 self.log_signal.emit("\n[CALIBRATION COMPLETE]\n")
                 
@@ -1274,7 +1274,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
             current_offset_deg=curr_offset,
-            sweep_duration=10.0
+            sweep_duration=20.0
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
@@ -1340,8 +1340,8 @@ class UnifiedCalibrationApp(QWidget):
         recommended = self.joint_sweep_data.get('recommended_joint_offset', self.joint_sweep_data['optimal_offset'])
         self.log_msg(f"    - Target Swept Joint       : {'Joint 5' if mode == 'wrist_pitch' else 'Joint 3'}")
         self.log_msg(f"    - Estimated Optimal Offset : {recommended:.4f} deg")
-        self.log_msg(f"    - Circle A Fitting RMSE     : {self.joint_sweep_data['rmse_A']:.4f} mm")
-        self.log_msg(f"    - Circle B Fitting RMSE     : {self.joint_sweep_data['rmse_B']:.4f} mm")
+        # self.log_msg(f"    - Circle A Fitting RMSE     : {self.joint_sweep_data['rmse_A']:.4f} mm")
+        # self.log_msg(f"    - Circle B Fitting RMSE     : {self.joint_sweep_data['rmse_B']:.4f} mm")
         
         self.log_msg("\n[2] Suggested Joint Home Offset update:")
         self.log_msg(f"  Add offset: {recommended:.4f} deg to calibration config.")
@@ -1544,7 +1544,7 @@ class UnifiedCalibrationApp(QWidget):
                 
             self.log_msg(f"\n[4] Confidence Metrics:")
             self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
-            self.log_msg(f"    - Fitting RMSE (A6/A5) : {res['rmse_6']:.3f} / {res['rmse_5']:.3f} mm")
+            #self.log_msg(f"    - Fitting RMSE (A6/A5) : {res['rmse_6']:.3f} / {res['rmse_5']:.3f} mm")
             
             if res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5:
                 self.log_msg("\n" + "!"*60)
@@ -1612,64 +1612,100 @@ class UnifiedCalibrationApp(QWidget):
         self.current_frame = img.copy()
         display_img = img.copy()
         
-        # Simple board detection for preview (full resolution)
-        gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
-        
-        # 1. Intrinsics Board Detection
-        if self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD:
-            try:
-                detector = cv2.aruco.CharucoDetector(self.intrinsics_calibrator.charuco_board)
-                charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
-                if charuco_ids is not None:
-                    cv2.aruco.drawDetectedCornersCharuco(display_img, charuco_corners, charuco_ids)
-            except Exception:
-                pass
-        elif self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHESSBOARD:
-            try:
-                ret, corners = cv2.findChessboardCorners(gray, self.intrinsics_calibrator.board_size, None)
-                if ret:
-                    cv2.drawChessboardCorners(display_img, self.intrinsics_calibrator.board_size, corners, ret)
-            except Exception:
-                pass
+        # 1. Main Tab (Index 0): AprilTag marker recognition and drawing
+        if self.left_tabs.currentIndex() == 0:
+            if self.marker_detector is not None:
+                # Apply intrinsics if available, otherwise camera defaults
+                if self.intrinsics_calibrator.cameraMatrix is not None and np.any(self.intrinsics_calibrator.cameraMatrix != 0) and self.intrinsics_calibrator.cameraMatrix[0, 0] > 100:
+                    self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
+                    self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
+                    self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
+                    self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
+                elif not self.ui_only and self.marker_st is not None:
+                    self.marker_detector.fx = self.marker_st.camera.fx
+                    self.marker_detector.fy = self.marker_st.camera.fy
+                    self.marker_detector.principal_point = self.marker_st.camera.principal_point
+                    self.marker_detector.dist_coeffs = self.marker_st.camera.dist_coeffs
 
-        # Update Temperature
-        if not self.ui_only and self.marker_st is not None and hasattr(self.marker_st.camera, 'get_camera_temperature'):
-            temp = self.marker_st.camera.get_camera_temperature()
-            if temp is not None:
-                self.lbl_temp.setText(f"Camera Temp: {temp:.1f} °C")
-                self.temp_label.setText(f"Camera Temp: {temp:.1f} °C")
+                target_ids = self.marker_detector.plate_left_ids if self.arm_side == "left" else self.marker_detector.plate_right_ids
+                if not target_ids:
+                    target_ids = [7] if self.arm_side == "left" else [8]
+                self.marker_detector.marker_id = target_ids
+                
+                try:
+                    res = self.marker_detector.detect(img.copy(), use_filter=False)
+                    detected = bool(res and len(res) > 0)
+                    self.update_marker_indicator(detected)
+                    
+                    if detected:
+                        T = res[0][1]
+                        if isinstance(T, list):
+                            T = np.array(T).reshape(4, 4)
+                        x, y, z = T[:3, 3] * 1000.0 # m to mm
+                        self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
+                        
+                        # Draw detected markers/corners on feed
+                        gray_marker = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
+                        corners, ids, _ = cv2.aruco.detectMarkers(gray_marker, self.marker_detector.dictionary, parameters=self.marker_detector.parameters)
+                        if ids is not None and len(ids) > 0:
+                            cv2.aruco.drawDetectedMarkers(display_img, corners, ids)
+                    else:
+                        self.lbl_marker_pos.setText("Position: Marker Not Detected")
+                except Exception:
+                    pass
 
-        # 2. Marker Monitoring
-        if self.monitor_enabled and self.marker_detector is not None:
-            if self.intrinsics_calibrator.cameraMatrix is not None and np.any(self.intrinsics_calibrator.cameraMatrix != 0) and self.intrinsics_calibrator.cameraMatrix[0, 0] > 100:
-                self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
-                self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
-                self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
-                self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
-            elif not self.ui_only and self.marker_st is not None:
-                self.marker_detector.fx = self.marker_st.camera.fx
-                self.marker_detector.fy = self.marker_st.camera.fy
-                self.marker_detector.principal_point = self.marker_st.camera.principal_point
-                self.marker_detector.dist_coeffs = self.marker_st.camera.dist_coeffs
-
-            side_text = self.int_side_sel.currentText()
-            side = "left" if "Left" in side_text else "right"
-            target_ids = [10, 11, 12, 13, 14] if side == "left" else [30, 31, 32, 33, 34]
-            self.marker_detector.marker_id = target_ids
+        # 2. Camera Tab (Index 1): Intrinsics Calibration Board Detection & Optional Marker Monitoring
+        elif self.left_tabs.currentIndex() == 1:
+            gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
             
-            try:
-                res = self.marker_detector.detect(img.copy(), use_filter=False)
-                if res and len(res) > 0:
-                    T = res[0][1]
-                    if isinstance(T, list):
-                        T = np.array(T).reshape(4, 4)
-                    x, y, z = T[:3, 3] * 1000.0 # m to mm
-                    self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
-                    cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
-                else:
-                    self.lbl_marker_pos.setText("Position: Marker Not Detected")
-            except Exception:
-                pass
+            # Intrinsics Board Detection
+            if self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD:
+                try:
+                    detector = cv2.aruco.CharucoDetector(self.intrinsics_calibrator.charuco_board)
+                    charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
+                    if charuco_ids is not None:
+                        cv2.aruco.drawDetectedCornersCharuco(display_img, charuco_corners, charuco_ids)
+                except Exception:
+                    pass
+            elif self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHESSBOARD:
+                try:
+                    ret, corners = cv2.findChessboardCorners(gray, self.intrinsics_calibrator.board_size, None)
+                    if ret:
+                        cv2.drawChessboardCorners(display_img, self.intrinsics_calibrator.board_size, corners, ret)
+                except Exception:
+                    pass
+
+            # Optional Marker Monitoring
+            if self.monitor_enabled and self.marker_detector is not None:
+                if self.intrinsics_calibrator.cameraMatrix is not None and np.any(self.intrinsics_calibrator.cameraMatrix != 0) and self.intrinsics_calibrator.cameraMatrix[0, 0] > 100:
+                    self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
+                    self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
+                    self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
+                    self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
+                elif not self.ui_only and self.marker_st is not None:
+                    self.marker_detector.fx = self.marker_st.camera.fx
+                    self.marker_detector.fy = self.marker_st.camera.fy
+                    self.marker_detector.principal_point = self.marker_st.camera.principal_point
+                    self.marker_detector.dist_coeffs = self.marker_st.camera.dist_coeffs
+
+                side_text = self.int_side_sel.currentText()
+                side = "left" if "Left" in side_text else "right"
+                target_ids = [10, 11, 12, 13, 14] if side == "left" else [30, 31, 32, 33, 34]
+                self.marker_detector.marker_id = target_ids
+                
+                try:
+                    res = self.marker_detector.detect(img.copy(), use_filter=False)
+                    if res and len(res) > 0:
+                        T = res[0][1]
+                        if isinstance(T, list):
+                            T = np.array(T).reshape(4, 4)
+                        x, y, z = T[:3, 3] * 1000.0 # m to mm
+                        self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
+                        cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
+                    else:
+                        self.lbl_marker_pos.setText("Position: Marker Not Detected")
+                except Exception:
+                    pass
 
         # Convert to QImage and display
         h, w, ch = display_img.shape
