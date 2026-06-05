@@ -578,9 +578,9 @@ class JointCalibrator(BaseCalibrator):
         cross_val = np.cross(a_B_cam_nom, n_B)
         proj = np.dot(cross_val, a_cand_cam)
         
-        # If proj is positive, it means the physical angle is positive, so the required offset to correct it is negative.
-        # If proj is negative, the physical angle is negative, so the required offset to correct it is positive.
-        sign = -1.0 if proj > 0 else 1.0
+        # If proj is positive, it means the physical angle is positive, so the required offset to correct it is positive.
+        # If proj is negative, the physical angle is negative, so the required offset to correct it is negative.
+        sign = 1.0 if proj > 0 else -1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
