@@ -40,34 +40,42 @@ class JointCalibrator(BaseCalibrator):
                 
             optimal_offset = res['optimal_offset']
             center_dist = res.get('center_dist', 999.0)
+            r_A = res.get('r_A', 0.0)
+            r_B = res.get('r_B', 0.0)
+            size_error = abs(r_A - r_B)
             
-            # If center distance is less than 1.0mm, apply the full calculated offset step
-            # to allow fast and stable convergence rather than clamping the step size.
             staged_offset += optimal_offset
-            if log_callback and center_dist < 1.0:
-                log_callback(f"  [INFO] Center distance error is under 1mm ({center_dist:.4f} mm < 1.0 mm).")
-                log_callback(f"         Applying the full calculated offset step of {optimal_offset:.4f}° for direct convergence.")
-                
+            
+            # Elbow Safety Check: Elbow offset must unconditionally be negative or zero.
+            if mode == "elbow" and staged_offset > 0.0:
+                if log_callback:
+                    log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
+                staged_offset = 0.0
+            
             if log_callback:
-                log_callback(f"  * Remaining relative error: {optimal_offset:.4f}°")
-                log_callback(f"  * Center distance error: {center_dist:.4f} mm")
-                log_callback(f"  * Updated absolute staged offset: {staged_offset:.4f}°")
+                log_callback(f"  * Calculated Offset Step      : {optimal_offset:.4f}°")
+                log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm (Target <= 1.0 mm)")
+                log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm (Target <= 0.5 mm)")
+                log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
             final_res = res
             
-            # Check convergence
-            if abs(optimal_offset) < tolerance and center_dist < 0.5:
+            # Check convergence based on circle size difference (<= 1.0 mm) and center distance (<= 0.5 mm)
+            if size_error <= 1.0 and center_dist <= 0.5:
                 if log_callback:
-                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully under tolerance ({tolerance}°) and center distance ({center_dist:.4f} mm < 0.4 mm).")
+                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
+                    log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")
+                    log_callback(f"  * Center distance error: {center_dist:.4f} mm <= 0.5 mm")
                     log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
                 final_res['recommended_joint_offset'] = staged_offset
                 final_res['converged'] = True
                 return final_res
                 
-        # If it reached max_iterations without converging below tolerance
-        if log_callback:
-            log_callback(f"\n[WARNING] Calibration finished maximum iterations ({max_iterations}) without converging below {tolerance}° and center distance < 0.4 mm.")
-            log_callback(f"  * Last Recommended Absolute Offset: {staged_offset:.4f}°")
+        # If it reached max_iterations without converging below targets
+        if mode == "elbow" and staged_offset > 0.0:
+            if log_callback:
+                log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping final positive offset {staged_offset:.4f}° to 0.0° for safety!")
+            staged_offset = 0.0
             
         final_res['recommended_joint_offset'] = staged_offset
         final_res['converged'] = True  # Mark as True so the UI can proceed with the best estimate
@@ -90,11 +98,11 @@ class JointCalibrator(BaseCalibrator):
                 left_arm = np.deg2rad([-55, 45, -25, -127, -90, 0, 0])
         elif mode == "elbow":
             if arm_side == "right":
-                right_arm = np.deg2rad([-107, -17, 0, 0, 73, -90, -107])
+                right_arm = np.deg2rad([-107, -17, 0, 0, 73, -90, 73])
                 left_arm = None
             else:
                 right_arm = None
-                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, 107])
+                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, -107])
         else: # head mode
             if arm_side == "right":
                 right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
@@ -491,6 +499,21 @@ class JointCalibrator(BaseCalibrator):
         uc_B = res_B['uc_opt']
         vc_B = res_B['vc_opt']
         
+        # Compute center distance in camera frame
+        try:
+            pts_a_cam = [pose[:3, 3] * 1000.0 for _, pose in dataset_A]
+            pts_b_cam = [pose[:3, 3] * 1000.0 for _, pose in dataset_B]
+            
+            c_A_c, R_c_A_c, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_a_cam)
+            c_B_c, R_c_B_c, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_b_cam)
+            n_A_c = R_c_A_c[:, 2]
+            diff_centers = c_B_c - c_A_c
+            center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A_c) * n_A_c)
+        except Exception as e:
+            if log_callback:
+                log_callback(f"[WARN] Failed to compute center distance in camera frame: {e}")
+            center_dist = 999.0
+
         # Calculate angle between normals (the magnitude of the misalignment)
         angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
         
@@ -524,38 +547,27 @@ class JointCalibrator(BaseCalibrator):
             log_callback(f"  [DEBUG] cross_norm projection onto joint axis (a_cand_cam): proj={proj:.6f}")
             log_callback(f"  [DEBUG] Mathematically resolved offset direction sign: {sign:.1f}")
         
-        optimal_offset_deg = sign * angle_between_normals
-        if mode == "elbow":
-            optimal_offset_deg = -abs(optimal_offset_deg)
-        optimal_offset_rad = np.radians(optimal_offset_deg)
+        # Proportional correction based on circle size error (radii difference) and center distance error
+        size_error = abs(r_A - r_B)
+        error_metric = max(size_error, center_dist)
         
-        # Compute center distance in camera frame
-        try:
-            pts_a_cam = [pose[:3, 3] * 1000.0 for _, pose in dataset_A]
-            pts_b_cam = [pose[:3, 3] * 1000.0 for _, pose in dataset_B]
-            
-            c_A_c, R_c_A_c, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_a_cam)
-            c_B_c, R_c_B_c, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_b_cam)
-            n_A_c = R_c_A_c[:, 2]
-            diff_centers = c_B_c - c_A_c
-            center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A_c) * n_A_c)
-        except Exception as e:
-            if log_callback:
-                log_callback(f"[WARN] Failed to compute center distance in camera frame: {e}")
-            center_dist = 999.0
+        optimal_offset_deg = sign * error_metric * 0.5
+        optimal_offset_rad = np.radians(optimal_offset_deg)
 
         if log_callback:
             log_callback("\n" + "="*50)
             log_callback(f"   SWEEP ANALYSIS & RESULTS ({mode.upper()} - CONTINUOUS)")
             log_callback("="*50)
-            log_callback(f"  * Camera Circle Normals Angle : {angle_between_normals:.4f} deg")
-            log_callback(f"  * Estimated Circle Center Distance (Camera Frame): {center_dist:.4f} mm")
-            log_callback(f"  * Estimated Optimal Offset     : {optimal_offset_deg:.6f} deg")
+            log_callback(f"  * Camera Circle Normals Angle (Reference): {angle_between_normals:.4f} deg")
+            log_callback(f"  * Circle Sizes (r_A / r_B)               : {r_A:.2f} / {r_B:.2f} mm")
+            log_callback(f"  * Circle Size Error (abs: r_A - r_B)     : {size_error:.4f} mm")
+            log_callback(f"  * Estimated Circle Center Distance       : {center_dist:.4f} mm")
+            log_callback(f"  * Calculated Offset Correction           : {optimal_offset_deg:.6f} deg")
             log_callback("="*50)
 
-        # Simultaneously generate and save orthogonal debug plot
+        # Simultaneously generate and save orthogonal debug plot (using camera frame)
         self.save_debug_orthogonal_plot(
-            arm_side, "torso", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
+            arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
             optimal_offset_rad, ee_name, arm_idx, cand_joint, 
             angle_error_deg=angle_between_normals, log_callback=log_callback
         )
