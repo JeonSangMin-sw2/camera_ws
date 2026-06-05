@@ -55,17 +55,18 @@ class JointCalibrator(BaseCalibrator):
             # Direct correction
             staged_offset += sign * angle_error
             final_res = res
+            
+            # Elbow Safety Check: Elbow offset must unconditionally be negative.
+            if mode == "elbow" and staged_offset > 0.0:
+                if log_callback:
+                    log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Changing sign of positive staged offset {staged_offset:.4f}° to {-staged_offset:.4f}° for safety!")
+                staged_offset = -staged_offset
                 
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
             # Convergence check based on circle size difference (<= 1.0 mm) and center distance (<= 0.5 mm)
             if size_error <= 1.0 and center_dist <= 0.5:
-                if mode == "elbow" and staged_offset > 0.0:
-                    if log_callback:
-                        log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Changing sign of final positive offset {staged_offset:.4f}° to {-staged_offset:.4f}° for safety!")
-                    staged_offset = -staged_offset
-
                 if log_callback:
                     log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
                     log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")

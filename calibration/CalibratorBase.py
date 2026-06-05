@@ -128,7 +128,7 @@ class BaseCalibrator:
         else:
             logging.info("Power and Servos are already ON and Control Manager is Enabled. Skipping redundant power/servo commands.")
 
-        # 3) Reset fault and enable control manager
+        # 3) Reset fault and enable control manager in unlimited mode
         try:
             cm_state_post = robot.get_control_manager_state()
             if cm_state_post.state in [
@@ -140,12 +140,17 @@ class BaseCalibrator:
                     logging.error(f"Failed to reset control manager")
             
             cm_state_post = robot.get_control_manager_state()
-            if cm_state_post.state != rby.ControlManagerState.State.Enabled:
-                logging.info("Enabling control manager...")
-                if not robot.enable_control_manager():
-                    logging.error(f"Failed to enable control manager")
-            else:
-                logging.info("Control manager is already enabled.")
+            if cm_state_post.state == rby.ControlManagerState.State.Enabled:
+                logging.info("Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
+                try:
+                    robot.disable_control_manager()
+                    time.sleep(0.5)
+                except Exception as e:
+                    logging.warning(f"Failed to disable control manager: {e}")
+            
+            logging.info("Enabling control manager with unlimited_mode_enabled=True...")
+            if not robot.enable_control_manager(unlimited_mode_enabled=True):
+                logging.error(f"Failed to enable control manager with unlimited_mode_enabled=True")
         except Exception as e:
             logging.error(f"Failed to configure control manager: {e}. Continuing...")
         return robot
