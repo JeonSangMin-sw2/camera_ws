@@ -24,11 +24,13 @@ class JointCalibrator(BaseCalibrator):
                 current_offset_deg=offset, sweep_duration=sweep_duration
             )
             
-        tolerance = 0.05  # Convergence tolerance in degrees
-        max_iterations = 4
+        max_iterations = 8
         staged_offset = current_offset_deg
-        
+        previous_error = None
+        in_fine_tuning = False
         final_res = None
+        last_step_deg = 0.0
+        
         for i in range(1, max_iterations + 1):
             if log_callback:
                 log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping with staged offset {staged_offset:.4f}°...")
@@ -38,47 +40,90 @@ class JointCalibrator(BaseCalibrator):
                 if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
                 return None
                 
-            optimal_offset = res['optimal_offset']
+            angle_error = res.get('angle_between_normals', 0.0)
+            sign = res.get('sign', 1.0)
             center_dist = res.get('center_dist', 999.0)
             r_A = res.get('r_A', 0.0)
             r_B = res.get('r_B', 0.0)
             size_error = abs(r_A - r_B)
+            current_error = max(size_error, center_dist)
             
-            staged_offset += optimal_offset
+            # Print iteration summary
+            if log_callback:
+                log_callback(f"  * Angle Error between normals : {angle_error:.4f}°")
+                log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
+                log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
+                log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
+            
+            if in_fine_tuning:
+                if current_error > previous_error:
+                    # Cancel the last step and terminate
+                    staged_offset -= last_step_deg
+                    # Elbow Safety Check: Elbow offset must unconditionally be negative or zero.
+                    if mode == "elbow" and staged_offset > 0.0:
+                        if log_callback:
+                            log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
+                        staged_offset = 0.0
+                        
+                    if log_callback:
+                        log_callback(f"\n[FINE-TUNING] Error increased from {previous_error:.4f} mm to {current_error:.4f} mm.")
+                        log_callback(f"  * Reverting last step ({last_step_deg:.4f}°) -> Recommended Absolute Offset: {staged_offset:.4f}°")
+                        log_callback(f"[SUCCESS] Calibration finished on rollback.")
+                    
+                    final_res['recommended_joint_offset'] = staged_offset
+                    final_res['converged'] = True
+                    return final_res
+                else:
+                    if log_callback:
+                        log_callback(f"  * [FINE-TUNING] Error decreased/maintained (prev: {previous_error:.4f} mm, curr: {current_error:.4f} mm). Continuing.")
+                    final_res = res
+                    previous_error = current_error
+                    
+                    last_step_deg = sign * 0.05
+                    staged_offset += last_step_deg
+            else:
+                if angle_error <= 0.25:
+                    in_fine_tuning = True
+                    if log_callback:
+                        log_callback(f"  * [STAGE A -> FINE-TUNING] Angle error {angle_error:.4f}° <= 0.25°. Switching to 0.05° steps.")
+                    final_res = res
+                    previous_error = current_error
+                    
+                    last_step_deg = sign * 0.05
+                    staged_offset += last_step_deg
+                else:
+                    if log_callback:
+                        log_callback(f"  * [STAGE A] Angle error {angle_error:.4f}° > 0.25°. Adjusting offset by angle error.")
+                    final_res = res
+                    previous_error = current_error
+                    
+                    last_step_deg = sign * angle_error
+                    # Safety clamp for Stage A coarse adjustment
+                    max_coarse_step = 5.0
+                    if abs(last_step_deg) > max_coarse_step:
+                        if log_callback:
+                            log_callback(f"  [SAFETY CONTROL] Clamping coarse step {last_step_deg:.4f}° to max limit ±{max_coarse_step}°")
+                        last_step_deg = np.clip(last_step_deg, -max_coarse_step, max_coarse_step)
+                    
+                    staged_offset += last_step_deg
             
             # Elbow Safety Check: Elbow offset must unconditionally be negative or zero.
             if mode == "elbow" and staged_offset > 0.0:
                 if log_callback:
                     log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
                 staged_offset = 0.0
-            
+                
             if log_callback:
-                log_callback(f"  * Calculated Offset Step      : {optimal_offset:.4f}°")
-                log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm (Target <= 1.0 mm)")
-                log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm (Target <= 0.5 mm)")
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
-                
-            final_res = res
-            
-            # Check convergence based on circle size difference (<= 1.0 mm) and center distance (<= 0.5 mm)
-            if size_error <= 1.0 and center_dist <= 0.5:
-                if log_callback:
-                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                    log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")
-                    log_callback(f"  * Center distance error: {center_dist:.4f} mm <= 0.5 mm")
-                    log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
-                final_res['recommended_joint_offset'] = staged_offset
-                final_res['converged'] = True
-                return final_res
-                
-        # If it reached max_iterations without converging below targets
+
+        # If it reached max_iterations without triggering rollback
         if mode == "elbow" and staged_offset > 0.0:
             if log_callback:
                 log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping final positive offset {staged_offset:.4f}° to 0.0° for safety!")
             staged_offset = 0.0
             
         final_res['recommended_joint_offset'] = staged_offset
-        final_res['converged'] = True  # Mark as True so the UI can proceed with the best estimate
+        final_res['converged'] = True
         return final_res
 
     def perform_move_to_ready_pose(self, arm_side, mode, log_callback=None):
@@ -376,7 +421,7 @@ class JointCalibrator(BaseCalibrator):
                 q_full_captured = np.array(self.robot.get_state().position)
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     dataset_A.append((q_full_captured, pose))
-            time.sleep(0.03) # 30Hz polling
+            time.sleep(0.01) # 100Hz polling (consistent with Joint B)
             
         move_thread.join()
         if log_callback: log_callback(f"    -> Swept {len(dataset_A)} dense raw coordinate frames during Joint A motion.")
@@ -648,6 +693,8 @@ class JointCalibrator(BaseCalibrator):
         return {
             'mode': mode,
             'optimal_offset': optimal_offset_deg,
+            'angle_between_normals': angle_between_normals,
+            'sign': sign,
             'center_dist': center_dist,
             'pts_2d_A': pts_2d_A,
             'uc_A': uc_A,
