@@ -338,8 +338,10 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
+        active_offset = self.joint_offsets.get(mode, 0.0)
+        nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
-        q_cand[cand_joint] = initial_joint_pos[cand_joint] + np.radians(current_offset_deg)
+        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
 
         # 1. PHYSICAL SWEEP JOINT A
         if log_callback: log_callback(f"\n--- [1/2] Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
@@ -517,41 +519,80 @@ class JointCalibrator(BaseCalibrator):
         # Calculate angle between normals (the magnitude of the misalignment)
         angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
         
-        # Calculate candidate joint rotation axis in camera frame at ready/baseline pose
-        q_ready = dataset_A[0][0]
+        # Calculate nominal axes in camera frame at nominal ready pose (without current_offset_deg)
+        q_ready = np.array(dataset_A[0][0])
+        active_offset = self.joint_offsets.get(mode, 0.0)
+        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
+        
+        a_cand_local = np.array([0.0, 1.0, 0.0])
+        a_A_local = np.array([0.0, 0.0, 1.0])
         if mode == "wrist_pitch":
-            parent_link = f"link_{arm_side}_arm_4"
-        else: # elbow mode
-            parent_link = f"link_{arm_side}_arm_2"
-            
+            a_B_local = np.array([1.0, 0.0, 0.0])
+        else:
+            a_B_local = np.array([0.0, 0.0, 1.0])
+
         T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, "link_head_2", "link_torso_5")
         T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-        T_t5_to_parent = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link, base_link="link_torso_5")
         
-        T_cam_to_parent = np.linalg.inv(T_t5_to_cam) @ T_t5_to_parent
-        R_parent_to_cam = T_cam_to_parent[:3, :3]
+        parent_link_A = f"link_{arm_side}_arm_{sweep_joint_A}"
+        parent_link_B = f"link_{arm_side}_arm_{sweep_joint_B}"
         
-        # Candidate joint (pitch joint) rotates about Y axis in parent frame
-        a_cand_cam = R_parent_to_cam[:, 1]
+        T_t5_to_parent_A = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_A, base_link="link_torso_5")
+        T_t5_to_parent_B = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_B, base_link="link_torso_5")
+        
+        # Transform local axes to torso frame
+        a_cand_t5 = T_t5_to_parent_A[:3, :3] @ a_cand_local
+        a_A_t5 = T_t5_to_parent_A[:3, :3] @ a_A_local
+        a_B_t5 = T_t5_to_parent_B[:3, :3] @ a_B_local
+        
+        # Transform from torso frame to camera frame (R_torso_to_cam = T_t5_to_cam[:3, :3].T)
+        R_t5_to_cam = T_t5_to_cam[:3, :3].T
+        a_cand_cam = R_t5_to_cam @ a_cand_t5
+        a_A_cam = R_t5_to_cam @ a_A_t5
+        a_B_cam_nom = R_t5_to_cam @ a_B_t5
+        
         a_cand_cam /= np.linalg.norm(a_cand_cam)
+        a_A_cam /= np.linalg.norm(a_A_cam)
+        a_B_cam_nom /= np.linalg.norm(a_B_cam_nom)
         
-        # Determine sign using the cross product projection onto the candidate joint axis in camera frame
-        cross_norm = np.cross(n_A, n_B)
-        proj = np.dot(cross_norm, a_cand_cam)
+        # Enforce that normal vectors point in the direction of the physical kinematic axes
+        n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
+        n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
+        
+        # Project the cross product of the nominal axis and the actual axis onto the candidate joint axis
+        cross_val = np.cross(a_B_cam_nom, n_B)
+        proj = np.dot(cross_val, a_cand_cam)
         
         # If proj is positive, it means the physical angle is positive, so the required offset to correct it is negative.
         # If proj is negative, the physical angle is negative, so the required offset to correct it is positive.
         sign = -1.0 if proj > 0 else 1.0
         
         if log_callback:
-            log_callback(f"  [DEBUG] cross_norm projection onto joint axis (a_cand_cam): proj={proj:.6f}")
+            log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
+            log_callback(f"  [DEBUG] Physically aligned n_B: {np.round(n_B, 4)}")
+            log_callback(f"  [DEBUG] Nominal a_B_cam_nom: {np.round(a_B_cam_nom, 4)}")
+            log_callback(f"  [DEBUG] cross(a_B_cam_nom, n_B) projection onto a_cand_cam: proj={proj:.6f}")
             log_callback(f"  [DEBUG] Mathematically resolved offset direction sign: {sign:.1f}")
         
         # Proportional correction based on circle size error (radii difference) and center distance error
         size_error = abs(r_A - r_B)
-        error_metric = max(size_error, center_dist)
         
-        optimal_offset_deg = sign * error_metric * 0.5
+        # Safeguard: check if circle fitting failed or is completely invalid
+        if center_dist > 100.0 or size_error > 100.0:
+            if log_callback:
+                log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
+            optimal_offset_deg = 0.0
+        else:
+            error_metric = max(size_error, center_dist)
+            optimal_offset_deg = sign * error_metric * 0.5
+            
+            # Maximum step size clamp to prevent excessive joint movements
+            max_step_deg = 5.0
+            if abs(optimal_offset_deg) > max_step_deg:
+                if log_callback:
+                    log_callback(f"  [SAFETY CONTROL] Clamping calculated step {optimal_offset_deg:.4f}° to max limit ±{max_step_deg}°")
+                optimal_offset_deg = np.clip(optimal_offset_deg, -max_step_deg, max_step_deg)
+                
         optimal_offset_rad = np.radians(optimal_offset_deg)
 
         if log_callback:
