@@ -1,5 +1,14 @@
 import sys
 import os
+# Ensure local core module is imported first
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
+core_dir = os.path.abspath(os.path.join(parent_dir, "core"))
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
+if parent_dir not in sys.path:
+    sys.path.insert(1, parent_dir)
+
 import cv2
 import numpy as np
 import time
