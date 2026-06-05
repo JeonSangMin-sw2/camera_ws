@@ -815,7 +815,6 @@ class UnifiedCalibrationApp(QWidget):
         monitor_layout.addWidget(self.btn_int_monitor)
         
         # Relocated permanently to the Right Panel
-        monitor_layout.addWidget(self.lbl_marker_pos)
         
         monitor_box.setLayout(monitor_layout)
         int_right.addWidget(monitor_box)
@@ -864,13 +863,15 @@ class UnifiedCalibrationApp(QWidget):
         
         # 1. Calibration Status & Monitoring Dashboard
         dash_box = QGroupBox("Calibration Status & Monitoring")
-        dash_layout = QHBoxLayout()
+        dash_layout = QVBoxLayout()
+        dash_layout.setSpacing(3)
+        dash_layout.setContentsMargins(8, 4, 8, 4)
         
         # Monitoring Table
         self.tbl_offset_monitor = QTableWidget(2, 2)
         self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
         self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
-        self.tbl_offset_monitor.setFixedHeight(95)
+        self.tbl_offset_monitor.setFixedHeight(75)
         self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -888,28 +889,37 @@ class UnifiedCalibrationApp(QWidget):
                 background-color: #1a1a1a;
                 color: #888888;
                 font-weight: bold;
-                padding: 4px;
+                padding: 2px;
                 border: 1px solid #2d2d2d;
             }
         """)
-        dash_layout.addWidget(self.tbl_offset_monitor, 6)
+        dash_layout.addWidget(self.tbl_offset_monitor)
         
-        # Side controls layout
-        side_lay = QVBoxLayout()
+        # Marker pose layout
+        pose_layout = QHBoxLayout()
+        pose_layout.setSpacing(6)
         
-        self.lbl_marker_pos = QLabel("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+        self.lbl_marker_pos = QLabel("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
         self.lbl_marker_pos.setAlignment(Qt.AlignCenter)
-        self.lbl_marker_pos.setStyleSheet("font-size: 13px; font-weight: bold; color: #00e5ff; background-color: #0e0e0e; padding: 6px; border-radius: 4px; border: 1px solid #2d2d2d;")
-        self.lbl_marker_pos.setFixedHeight(35)
-        side_lay.addWidget(self.lbl_marker_pos)
+        self.lbl_marker_pos.setStyleSheet("font-size: 10px; font-weight: bold; color: #00e5ff; background-color: #0e0e0e; padding: 3px; border-radius: 4px; border: 1px solid #2d2d2d;")
+        self.lbl_marker_pos.setFixedHeight(22)
+        pose_layout.addWidget(self.lbl_marker_pos)
         
+        self.lbl_marker_rot = QLabel("Rotation: R: 0.0, P: 0.0, Y: 0.0 deg")
+        self.lbl_marker_rot.setAlignment(Qt.AlignCenter)
+        self.lbl_marker_rot.setStyleSheet("font-size: 10px; font-weight: bold; color: #ffab40; background-color: #0e0e0e; padding: 3px; border-radius: 4px; border: 1px solid #2d2d2d;")
+        self.lbl_marker_rot.setFixedHeight(22)
+        pose_layout.addWidget(self.lbl_marker_rot)
+        
+        dash_layout.addLayout(pose_layout)
+        
+        # Apply button
         self.btn_joint_apply = QPushButton("APPLY OFFSET")
-        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 12px;")
+        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 11px;")
         self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
-        self.btn_joint_apply.setFixedHeight(35)
-        side_lay.addWidget(self.btn_joint_apply)
+        self.btn_joint_apply.setFixedHeight(24)
+        dash_layout.addWidget(self.btn_joint_apply)
         
-        dash_layout.addLayout(side_lay, 4)
         dash_box.setLayout(dash_layout)
         right_panel_layout.addWidget(dash_box)
         
@@ -947,9 +957,9 @@ class UnifiedCalibrationApp(QWidget):
         
         right_panel_layout.addWidget(self.right_tabs)
         
-        # Assemble side-by-side (Stretch factor 4:6)
-        main_layout.addWidget(self.left_tabs, 4)
-        main_layout.addWidget(right_panel_container, 6)
+        # Assemble side-by-side (Stretch factor 3:7)
+        main_layout.addWidget(self.left_tabs, 3)
+        main_layout.addWidget(right_panel_container, 7)
         
         self.setLayout(main_layout)
         
@@ -1070,10 +1080,24 @@ class UnifiedCalibrationApp(QWidget):
             self.update_marker_indicator(detected)
             
             if detected:
+                pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                x, y, z = pose[:3, 3] * 1000.0
+                R = pose[:3, :3]
+                rpy = R_scipy.from_matrix(R).as_euler('ZYX', degrees=True)
+                yaw, pitch, roll = rpy
+                
                 if self.btn_monitor.isChecked():
-                    pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                    x, y, z = pose[:3, 3] * 1000.0
                     self.log_msg(f"[LIVE] Marker X:{x:.1f} Y:{y:.1f} Z:{z:.1f} mm")
+                
+                if hasattr(self, 'lbl_marker_pos'):
+                    self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
+                if hasattr(self, 'lbl_marker_rot'):
+                    self.lbl_marker_rot.setText(f"Rotation: R: {roll:.1f}, P: {pitch:.1f}, Y: {yaw:.1f} deg")
+            else:
+                if hasattr(self, 'lbl_marker_pos'):
+                    self.lbl_marker_pos.setText("Position: Marker Not Detected")
+                if hasattr(self, 'lbl_marker_rot'):
+                    self.lbl_marker_rot.setText("Rotation: Marker Not Detected")
             
             self.marker_st.camera.get_color_image()
             temp = self.marker_st.camera.get_camera_temperature()
@@ -1522,7 +1546,8 @@ class UnifiedCalibrationApp(QWidget):
         else:
             self.btn_int_monitor.setText("ENABLE MONITORING")
             self.btn_int_monitor.setStyleSheet("background-color: #1e1e1e; color: white;")
-            self.lbl_marker_pos.setText("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+            self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
+            self.lbl_marker_rot.setText("Rotation: R: 0.0, P: 0.0, Y: 0.0 deg")
 
     def update_video_frame(self):
         # 왼쪽 Camera 탭(인덱스 1)이 활성화되어 있을 때만 비디오 피드를 업데이트한다.
@@ -1594,10 +1619,15 @@ class UnifiedCalibrationApp(QWidget):
                     if isinstance(T, list):
                         T = np.array(T).reshape(4, 4)
                     x, y, z = T[:3, 3] * 1000.0 # m to mm
-                    self.lbl_marker_pos.setText(f"X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} (mm)")
+                    R = T[:3, :3]
+                    rpy = R_scipy.from_matrix(R).as_euler('ZYX', degrees=True)
+                    yaw, pitch, roll = rpy
+                    self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
+                    self.lbl_marker_rot.setText(f"Rotation: R: {roll:.1f}, P: {pitch:.1f}, Y: {yaw:.1f} deg")
                     cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
                 else:
-                    self.lbl_marker_pos.setText("Marker Not Detected")
+                    self.lbl_marker_pos.setText("Position: Marker Not Detected")
+                    self.lbl_marker_rot.setText("Rotation: Marker Not Detected")
             except Exception:
                 pass
 
