@@ -11,7 +11,7 @@ import threading
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog,
-                             QTableWidget, QHeaderView, QTableWidgetItem)
+                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
 
@@ -150,6 +150,24 @@ class IndicatorWidget(QWidget):
         painter.setBrush(color)
         painter.setPen(QPen(Qt.black, 1.5))
         painter.drawEllipse(2, 2, 26, 26)
+
+class CameraFeedDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Camera Live Feed")
+        self.resize(640, 480)
+        
+        layout = QVBoxLayout(self)
+        self.lbl_feed = QLabel("Waiting for camera frame...")
+        self.lbl_feed.setAlignment(Qt.AlignCenter)
+        self.lbl_feed.setStyleSheet("background-color: black; color: white; border: 1px solid #2d2d2d; border-radius: 4px;")
+        self.lbl_feed.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
+        layout.addWidget(self.lbl_feed)
+        
+    def closeEvent(self, event):
+        if self.parent() and hasattr(self.parent(), "on_feed_dialog_closed"):
+            self.parent().on_feed_dialog_closed()
+        super().closeEvent(event)
 
 # --- Common Worker Threads ---
 class MoveCenterWorker(QThread):
@@ -618,14 +636,21 @@ class UnifiedCalibrationApp(QWidget):
         ind_layout.addWidget(self.status_label)
         ind_layout.addStretch()
         
+        btn_layout = QHBoxLayout()
         self.btn_monitor = QPushButton("Marker Monitor: OFF")
         self.btn_monitor.setCheckable(True)
         self.btn_monitor.toggled.connect(self.on_monitor_toggled)
         
+        self.btn_camera_feed = QPushButton("Camera Feed")
+        self.btn_camera_feed.clicked.connect(self.toggle_camera_feed_dialog)
+        
+        btn_layout.addWidget(self.btn_monitor)
+        btn_layout.addWidget(self.btn_camera_feed)
+        
         self.temp_label = QLabel("Camera Temp: -- °C")
         
         status_layout.addLayout(ind_layout)
-        status_layout.addWidget(self.btn_monitor)
+        status_layout.addLayout(btn_layout)
         status_layout.addWidget(self.temp_label)
         status_box.setLayout(status_layout)
         main_tab_layout.addWidget(status_box)
@@ -905,12 +930,6 @@ class UnifiedCalibrationApp(QWidget):
         self.lbl_marker_pos.setFixedHeight(22)
         pose_layout.addWidget(self.lbl_marker_pos)
         
-        self.lbl_marker_rot = QLabel("Rotation: R: 0.0, P: 0.0, Y: 0.0 deg")
-        self.lbl_marker_rot.setAlignment(Qt.AlignCenter)
-        self.lbl_marker_rot.setStyleSheet("font-size: 10px; font-weight: bold; color: #ffab40; background-color: #0e0e0e; padding: 3px; border-radius: 4px; border: 1px solid #2d2d2d;")
-        self.lbl_marker_rot.setFixedHeight(22)
-        pose_layout.addWidget(self.lbl_marker_rot)
-        
         dash_layout.addLayout(pose_layout)
         
         # Apply button
@@ -1060,6 +1079,19 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_monitor.setText("Marker Monitor: OFF")
             self.btn_monitor.setStyleSheet("")
 
+    def toggle_camera_feed_dialog(self):
+        if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:
+            self.feed_dialog.close()
+            return
+            
+        self.feed_dialog = CameraFeedDialog(self)
+        self.feed_dialog.show()
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
+
+    def on_feed_dialog_closed(self):
+        self.feed_dialog = None
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
+
     def update_marker_indicator(self, detected):
         self.indicator.set_detected(detected)
         if detected:
@@ -1075,6 +1107,12 @@ class UnifiedCalibrationApp(QWidget):
             return
             
         try:
+            if not self.btn_monitor.isChecked():
+                self.update_marker_indicator(False)
+                if hasattr(self, 'lbl_marker_pos'):
+                    self.lbl_marker_pos.setText("Position: Monitor Off")
+                return
+                
             res = self.marker_st.get_marker_transform(sampling_time=0, side=self.arm_side)
             detected = bool(res and len(res) > 0)
             self.update_marker_indicator(detected)
@@ -1082,22 +1120,14 @@ class UnifiedCalibrationApp(QWidget):
             if detected:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 x, y, z = pose[:3, 3] * 1000.0
-                R = pose[:3, :3]
-                rpy = R_scipy.from_matrix(R).as_euler('ZYX', degrees=True)
-                yaw, pitch, roll = rpy
                 
-                if self.btn_monitor.isChecked():
-                    self.log_msg(f"[LIVE] Marker X:{x:.1f} Y:{y:.1f} Z:{z:.1f} mm")
+                self.log_msg(f"[LIVE] Marker X:{x:.1f} Y:{y:.1f} Z:{z:.1f} mm")
                 
                 if hasattr(self, 'lbl_marker_pos'):
                     self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
-                if hasattr(self, 'lbl_marker_rot'):
-                    self.lbl_marker_rot.setText(f"Rotation: R: {roll:.1f}, P: {pitch:.1f}, Y: {yaw:.1f} deg")
             else:
                 if hasattr(self, 'lbl_marker_pos'):
                     self.lbl_marker_pos.setText("Position: Marker Not Detected")
-                if hasattr(self, 'lbl_marker_rot'):
-                    self.lbl_marker_rot.setText("Rotation: Marker Not Detected")
             
             self.marker_st.camera.get_color_image()
             temp = self.marker_st.camera.get_camera_temperature()
@@ -1111,13 +1141,13 @@ class UnifiedCalibrationApp(QWidget):
         if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
             return
 
-        if index == 1: # Camera Tab
+        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        if index == 1 or dialog_visible: # Camera Tab or popup feed dialog is open
             # poll_timer 끄고 video_timer 가동
             if self.poll_timer.isActive():
                 self.poll_timer.stop()
-            self.video_timer.start(33)
-            self.log_msg("[SYSTEM] Switched to Camera tab. High-speed video stream activated.")
-        else: # Main Tab
+            self.video_timer.start(50)
+        else: # Main Tab (no popup feed dialog open)
             # video_timer 끄고 poll_timer 기동
             if self.video_timer.isActive():
                 self.video_timer.stop()
@@ -1181,6 +1211,8 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_mode_sel.setEnabled(enabled)
         self.int_side_sel.setEnabled(enabled)
         self.marker_axis_sel.setEnabled(enabled)
+        if hasattr(self, 'btn_camera_feed'):
+            self.btn_camera_feed.setEnabled(enabled)
 
     def on_action_finished(self):
         self.set_controls_enabled(True)
@@ -1547,11 +1579,11 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_int_monitor.setText("ENABLE MONITORING")
             self.btn_int_monitor.setStyleSheet("background-color: #1e1e1e; color: white;")
             self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
-            self.lbl_marker_rot.setText("Rotation: R: 0.0, P: 0.0, Y: 0.0 deg")
 
     def update_video_frame(self):
-        # 왼쪽 Camera 탭(인덱스 1)이 활성화되어 있을 때만 비디오 피드를 업데이트한다.
-        if self.left_tabs.currentIndex() != 1:
+        # 왼쪽 Camera 탭(인덱스 1)이 활성화되어 있거나, Camera Feed 대화상자가 열려있을 때 업데이트
+        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        if self.left_tabs.currentIndex() != 1 and not dialog_visible:
             return
 
         if not self.ui_only and self.marker_st is not None:
@@ -1568,7 +1600,7 @@ class UnifiedCalibrationApp(QWidget):
         self.current_frame = img.copy()
         display_img = img.copy()
         
-        # Simple board detection for preview
+        # Simple board detection for preview (full resolution)
         gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
         
         # 1. Intrinsics Board Detection
@@ -1593,6 +1625,7 @@ class UnifiedCalibrationApp(QWidget):
             temp = self.marker_st.camera.get_camera_temperature()
             if temp is not None:
                 self.lbl_temp.setText(f"Camera Temp: {temp:.1f} °C")
+                self.temp_label.setText(f"Camera Temp: {temp:.1f} °C")
 
         # 2. Marker Monitoring
         if self.monitor_enabled and self.marker_detector is not None:
@@ -1619,15 +1652,10 @@ class UnifiedCalibrationApp(QWidget):
                     if isinstance(T, list):
                         T = np.array(T).reshape(4, 4)
                     x, y, z = T[:3, 3] * 1000.0 # m to mm
-                    R = T[:3, :3]
-                    rpy = R_scipy.from_matrix(R).as_euler('ZYX', degrees=True)
-                    yaw, pitch, roll = rpy
                     self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
-                    self.lbl_marker_rot.setText(f"Rotation: R: {roll:.1f}, P: {pitch:.1f}, Y: {yaw:.1f} deg")
                     cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
                 else:
                     self.lbl_marker_pos.setText("Position: Marker Not Detected")
-                    self.lbl_marker_rot.setText("Rotation: Marker Not Detected")
             except Exception:
                 pass
 
@@ -1638,7 +1666,12 @@ class UnifiedCalibrationApp(QWidget):
         qimg = QImage(display_img.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
         
-        self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        if self.left_tabs.currentIndex() == 1:
+            self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
+        if dialog_visible:
+            w_lbl = max(20, self.feed_dialog.lbl_feed.width())
+            h_lbl = max(20, self.feed_dialog.lbl_feed.height())
+            self.feed_dialog.lbl_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_C and self.workflow_tabs.currentIndex() == 2:
@@ -1744,6 +1777,11 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"[INTRINSICS] Verification image loaded to Plot / Img tab and saved to: {save_path}")
 
     def closeEvent(self, event):
+        if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:
+            try:
+                self.feed_dialog.close()
+            except Exception:
+                pass
         if self.video_timer.isActive():
             self.video_timer.stop()
         if self.poll_timer.isActive():
