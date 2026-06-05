@@ -299,7 +299,7 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=15.0):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=10.0):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
@@ -651,43 +651,10 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
         
-        self.tbl_offset_monitor = QTableWidget(2, 2)
-        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
-        self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
-        self.tbl_offset_monitor.setFixedHeight(95)
-        self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_offset_monitor.cellDoubleClicked.connect(self.on_cell_double_clicked)
-        self.tbl_offset_monitor.setStyleSheet("""
-            QTableWidget {
-                background-color: #121212;
-                color: #00e5ff;
-                gridline-color: #2d2d2d;
-                font-weight: bold;
-                border: 1px solid #2d2d2d;
-                border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #888888;
-                font-weight: bold;
-                padding: 4px;
-                border: 1px solid #2d2d2d;
-            }
-        """)
-        
-        self.btn_joint_apply = QPushButton("APPLY OFFSET")
-        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white;")
-        self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
-        
         joint_sublayout.addWidget(QLabel("Calibration Mode:"))
         joint_sublayout.addWidget(self.joint_mode_sel)
         joint_sublayout.addWidget(self.btn_joint_ready)
         joint_sublayout.addWidget(self.btn_joint_start)
-        joint_sublayout.addWidget(QLabel("Offset Monitoring Dashboard:"))
-        joint_sublayout.addWidget(self.tbl_offset_monitor)
-        joint_sublayout.addWidget(self.btn_joint_apply)
         joint_subtab.setLayout(joint_sublayout)
         self.workflow_tabs.addTab(joint_subtab, "1. Joint Calib")
         
@@ -847,9 +814,7 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_int_monitor.toggled.connect(self.toggle_intrinsics_monitoring)
         monitor_layout.addWidget(self.btn_int_monitor)
         
-        self.lbl_marker_pos = QLabel("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
-        self.lbl_marker_pos.setAlignment(Qt.AlignCenter)
-        self.lbl_marker_pos.setStyleSheet("font-size: 14px; font-weight: bold; color: #00e5ff; background-color: #0e0e0e; padding: 8px; border-radius: 4px; border: 1px solid #2d2d2d;")
+        # Relocated permanently to the Right Panel
         monitor_layout.addWidget(self.lbl_marker_pos)
         
         monitor_box.setLayout(monitor_layout)
@@ -893,6 +858,62 @@ class UnifiedCalibrationApp(QWidget):
         self.left_tabs.addTab(camera_tab, "2. Camera")
         
         # --- Right Panel ---
+        right_panel_container = QWidget()
+        right_panel_layout = QVBoxLayout(right_panel_container)
+        right_panel_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 1. Calibration Status & Monitoring Dashboard
+        dash_box = QGroupBox("Calibration Status & Monitoring")
+        dash_layout = QHBoxLayout()
+        
+        # Monitoring Table
+        self.tbl_offset_monitor = QTableWidget(2, 2)
+        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
+        self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
+        self.tbl_offset_monitor.setFixedHeight(95)
+        self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        self.tbl_offset_monitor.setStyleSheet("""
+            QTableWidget {
+                background-color: #121212;
+                color: #00e5ff;
+                gridline-color: #2d2d2d;
+                font-weight: bold;
+                border: 1px solid #2d2d2d;
+                border-radius: 4px;
+            }
+            QHeaderView::section {
+                background-color: #1a1a1a;
+                color: #888888;
+                font-weight: bold;
+                padding: 4px;
+                border: 1px solid #2d2d2d;
+            }
+        """)
+        dash_layout.addWidget(self.tbl_offset_monitor, 6)
+        
+        # Side controls layout
+        side_lay = QVBoxLayout()
+        
+        self.lbl_marker_pos = QLabel("X: 0.0, Y: 0.0, Z: 0.0 (mm)")
+        self.lbl_marker_pos.setAlignment(Qt.AlignCenter)
+        self.lbl_marker_pos.setStyleSheet("font-size: 13px; font-weight: bold; color: #00e5ff; background-color: #0e0e0e; padding: 6px; border-radius: 4px; border: 1px solid #2d2d2d;")
+        self.lbl_marker_pos.setFixedHeight(35)
+        side_lay.addWidget(self.lbl_marker_pos)
+        
+        self.btn_joint_apply = QPushButton("APPLY OFFSET")
+        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 12px;")
+        self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
+        self.btn_joint_apply.setFixedHeight(35)
+        side_lay.addWidget(self.btn_joint_apply)
+        
+        dash_layout.addLayout(side_lay, 4)
+        dash_box.setLayout(dash_layout)
+        right_panel_layout.addWidget(dash_box)
+        
+        # 2. Right Tabs
         self.right_tabs = QTabWidget()
         
         # Tab 1: System Log
@@ -924,9 +945,11 @@ class UnifiedCalibrationApp(QWidget):
         self.right_tabs.addTab(log_tab, "System Log")
         self.right_tabs.addTab(self.plot_tab, "Plot / Img")
         
+        right_panel_layout.addWidget(self.right_tabs)
+        
         # Assemble side-by-side (Stretch factor 4:6)
         main_layout.addWidget(self.left_tabs, 4)
-        main_layout.addWidget(self.right_tabs, 6)
+        main_layout.addWidget(right_panel_container, 6)
         
         self.setLayout(main_layout)
         
@@ -1001,8 +1024,11 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_data_6 = None
             self.joint_sweep_data = None
             
-            # Reload offsets from yaml and sync with active arm_side
-            self.load_offsets_from_yaml()
+            # Sync current offsets with active arm_side from memory store (do not reload from yaml disk)
+            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
+            self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
+            self.marker_calibrator.joint_offsets = self.joint_offsets
+            self.joint_calibrator.joint_offsets = self.joint_offsets
             self.update_applied_offset_label()
             
             # Sync dropdown indexes between controls (blocking signals to avoid cycles)
@@ -1085,11 +1111,7 @@ class UnifiedCalibrationApp(QWidget):
                 item.setTextAlignment(Qt.AlignCenter)
                 self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
         
-        mode_str = self.joint_mode_sel.currentText()
-        if "wrist_pitch" in mode_str or "elbow" in mode_str:
-            self.btn_joint_apply.setVisible(True)
-        else:
-            self.btn_joint_apply.setVisible(False)
+        # Keeps the apply button permanently visible on the Right Panel dashboard
 
     def apply_joint_offset(self):
         self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
@@ -1186,7 +1208,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
             current_offset_deg=curr_offset,
-            sweep_duration=15.0
+            sweep_duration=10.0
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)

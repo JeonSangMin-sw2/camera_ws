@@ -354,9 +354,9 @@ class MarkerCalibrator(BaseCalibrator):
         
         if arm_side == "right":
             right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
-            left_arm = [0, 0, 0, 0, 0, 0, 0]
+            left_arm = None
         else:
-            right_arm = [0, 0, 0, 0, 0, 0, 0]
+            right_arm = None
             left_arm = np.deg2rad([-90, 45, -73, -107, -90, 90, 0])
             
         success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)

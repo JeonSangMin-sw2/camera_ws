@@ -88,31 +88,45 @@ class BaseCalibrator:
         if not robot.connect():
             logging.error(f"Failed to connect robot {address}")
             return None
-        # 1) Disable control manager first if it is Enabled to allow power/servo commands
+        
+        # Check if control manager is already enabled and power/servo are already ON
         try:
             import time
             cm_state = robot.get_control_manager_state().state
-            if cm_state == rby.ControlManagerState.State.Enabled:
-                logging.info("Control manager is Enabled. Disabling to allow power/servo commands...")
-                robot.disable_control_manager()
-                time.sleep(0.5)
+            is_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
         except Exception as e:
-            logging.warning(f"Failed to check/disable control manager initially: {e}")
+            logging.warning(f"Failed to check control manager state: {e}")
+            is_enabled = False
 
-        # 2) Perform power/servo commands
-        if not robot.is_power_on(power):
-            logging.info(f"Turning power ({power}) on...")
-            if not robot.power_on(power):
-                logging.error(f"Failed to turn power ({power}) on. Continuing...")
-        else:
-            logging.info(f"Power ({power}) is already ON.")
+        need_power = not robot.is_power_on(power)
+        need_servo = not robot.is_servo_on(servo)
 
-        if not robot.is_servo_on(servo):
-            logging.info(f"Turning servo ({servo}) on...")
-            if not robot.servo_on(servo):
-                logging.error(f"Failed to servo ({servo}) on. Continuing...")
+        if need_power or need_servo:
+            # 1) Disable control manager first if it is Enabled to allow power/servo commands
+            if is_enabled:
+                logging.info("Control manager is Enabled. Disabling to allow power/servo commands...")
+                try:
+                    robot.disable_control_manager()
+                    time.sleep(0.5)
+                except Exception as e:
+                    logging.warning(f"Failed to disable control manager: {e}")
+
+            # 2) Perform power/servo commands
+            if need_power:
+                logging.info(f"Turning power ({power}) on...")
+                if not robot.power_on(power):
+                    logging.error(f"Failed to turn power ({power}) on. Continuing...")
+            else:
+                logging.info(f"Power ({power}) is already ON.")
+            
+            if need_servo:
+                logging.info(f"Turning servo ({servo}) on...")
+                if not robot.servo_on(servo):
+                    logging.error(f"Failed to servo ({servo}) on. Continuing...")
+            else:
+                logging.info(f"Servo ({servo}) is already ON.")
         else:
-            logging.info(f"Servo ({servo}) is already ON.")
+            logging.info("Power and Servos are already ON and Control Manager is Enabled. Skipping redundant power/servo commands.")
 
         # 3) Reset fault and enable control manager
         try:
