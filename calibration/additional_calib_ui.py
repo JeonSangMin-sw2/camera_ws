@@ -1235,6 +1235,8 @@ class UnifiedCalibrationApp(QWidget):
         mode = "wrist_pitch" if "wrist_pitch" in mode_str else "elbow"
         
         self.set_controls_enabled(False)
+        if self.poll_timer.isActive(): self.poll_timer.stop()
+        if self.video_timer.isActive(): self.video_timer.stop()
         self.ready_worker = MoveToReadyWorker(self.joint_calibrator, self.arm_side, mode)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
@@ -1244,9 +1246,6 @@ class UnifiedCalibrationApp(QWidget):
         if not self.ui_only and not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        if not self.ui_only and not self.indicator.is_detected:
-            QMessageBox.warning(self, "Marker Not Detected", "Marker is not visible.")
-            return
 
         mode_str = self.joint_mode_sel.currentText()
         mode = "wrist_pitch" if "wrist_pitch" in mode_str else "elbow"
@@ -1255,6 +1254,8 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
+        if self.video_timer.isActive():
+            self.video_timer.stop()
 
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
@@ -1348,6 +1349,8 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         self.set_controls_enabled(False)
+        if self.poll_timer.isActive(): self.poll_timer.stop()
+        if self.video_timer.isActive(): self.video_timer.stop()
         self.ready_worker = MoveToReadyWorker(self.marker_calibrator, self.arm_side)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
@@ -1366,10 +1369,6 @@ class UnifiedCalibrationApp(QWidget):
             self.stop_event_mc.set()
             return
 
-        if not self.indicator.is_detected:
-            QMessageBox.warning(self, "Marker Not Detected", "Marker is not visible. Teach target position first.")
-            return
-
         axis_str = self.marker_axis_sel.currentText()
         target_dist = 180.0 if "Axis 6" in axis_str else 200.0
         self.log_msg(f"[INFO] Move to Center (Marker Calibration) -> target: {target_dist} mm")
@@ -1378,6 +1377,9 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_center.setStyleSheet("background-color: #b71c1c; color: white;")
         self.set_controls_enabled(False)
         self.btn_marker_center.setEnabled(True)
+        
+        if self.poll_timer.isActive(): self.poll_timer.stop()
+        if self.video_timer.isActive(): self.video_timer.stop()
 
         import threading
         self.stop_event_mc = threading.Event()
@@ -1395,9 +1397,6 @@ class UnifiedCalibrationApp(QWidget):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        if not self.ui_only and not self.indicator.is_detected:
-            QMessageBox.warning(self, "Marker Not Detected", "Marker is not visible.")
-            return
 
         axis_mode = 6 if "6" in self.marker_axis_sel.currentText() else 5
         use_head = self.cb_head_tracking.isChecked()
@@ -1405,6 +1404,8 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
+        if self.video_timer.isActive():
+            self.video_timer.stop()
 
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Marker Sweep: Axis {axis_mode} (Head Tracking: {use_head})")
@@ -1564,6 +1565,8 @@ class UnifiedCalibrationApp(QWidget):
             return
             
         self.set_controls_enabled(False)
+        if self.poll_timer.isActive(): self.poll_timer.stop()
+        if self.video_timer.isActive(): self.video_timer.stop()
         self.head_worker = ManualHeadWorker(self.joint_calibrator, np.radians(yaw), np.radians(pitch))
         self.head_worker.log_signal.connect(self.log_msg)
         self.head_worker.finished_signal.connect(self.on_action_finished)
