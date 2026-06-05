@@ -352,11 +352,24 @@ class MarkerCalibrator(BaseCalibrator):
         if log_callback: log_callback(f"[INFO] Moving {arm_side} arm to Marker Ready Pose...")
         torso = [0, 0, 0, 0, 0, 0]
         
+        # 1. First move the inactive arm to zero pose to avoid collision
+        if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
+        if arm_side == "right":
+            success_other = self.movej(self.robot, left_arm=[0.0]*7, head=None, minimum_time=3.0)
+        else:
+            success_other = self.movej(self.robot, right_arm=[0.0]*7, head=None, minimum_time=3.0)
+            
+        if not success_other:
+            if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")
+            return False
+            
+        # 2. Move active arm and head/torso to ready pose
+        if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
         if arm_side == "right":
             right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
-            left_arm = [0.0]*7
+            left_arm = None
         else:
-            right_arm = [0.0]*7
+            right_arm = None
             left_arm = np.deg2rad([-90, 45, -73, -107, -90, 90, 0])
             
         success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)

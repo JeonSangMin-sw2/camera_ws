@@ -19,7 +19,7 @@ import threading
 
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
-                             QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog,
+                             QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
                              QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
@@ -494,6 +494,7 @@ class UnifiedCalibrationApp(QWidget):
         self.video_timer.timeout.connect(self.update_video_frame)
         
         self.init_ui()
+        self.load_bracket_design_values()
         self.update_applied_offset_label()
         
         # 초기화 시 탭 상태에 맞춰 타이머 활성화
@@ -607,11 +608,16 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
         self.btn_connect.clicked.connect(self.connect_robot)
         
+        self.btn_stop_motion = QPushButton("STOP MOTION")
+        self.btn_stop_motion.setStyleSheet("background-color: #ff1744; color: #ffffff; font-weight: bold;")
+        self.btn_stop_motion.clicked.connect(self.stop_motion)
+        
         conn_layout.addWidget(QLabel("IP / Port:"))
         conn_layout.addWidget(self.ip_input)
         conn_layout.addWidget(QLabel("Robot Model:"))
         conn_layout.addWidget(self.model_input)
         conn_layout.addWidget(self.btn_connect)
+        conn_layout.addWidget(self.btn_stop_motion)
         conn_box.setLayout(conn_layout)
         main_tab_layout.addWidget(conn_box)
         
@@ -929,24 +935,78 @@ class UnifiedCalibrationApp(QWidget):
         """)
         dash_layout.addWidget(self.tbl_offset_monitor)
         
-        # Marker pose layout
-        pose_layout = QHBoxLayout()
-        pose_layout.setSpacing(6)
+        # Marker Bracket Design Offset UI GroupBox
+        bracket_box = QGroupBox("Marker Bracket Design Offset (Tf_to_marker)")
+        bracket_layout = QVBoxLayout()
+        bracket_layout.setSpacing(4)
+        bracket_layout.setContentsMargins(6, 6, 6, 6)
         
-        self.lbl_marker_pos = QLabel("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
-        self.lbl_marker_pos.setAlignment(Qt.AlignCenter)
-        self.lbl_marker_pos.setStyleSheet("font-size: 10px; font-weight: bold; color: #00e5ff; background-color: #0e0e0e; padding: 3px; border-radius: 4px; border: 1px solid #2d2d2d;")
-        self.lbl_marker_pos.setFixedHeight(22)
-        pose_layout.addWidget(self.lbl_marker_pos)
+        input_style = "background-color: #1c1c1c; color: #00e5ff; border: 1px solid #3d3d3d; border-radius: 3px; padding: 2px;"
         
-        dash_layout.addLayout(pose_layout)
+        grid = QGridLayout()
+        grid.setSpacing(6)
         
-        # Apply button
+        # Row 0: Translation X, Y, Z
+        grid.addWidget(QLabel("X (m):"), 0, 0)
+        self.txt_bracket_x = QLineEdit()
+        self.txt_bracket_x.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_x, 0, 1)
+        
+        grid.addWidget(QLabel("Y (m):"), 0, 2)
+        self.txt_bracket_y = QLineEdit()
+        self.txt_bracket_y.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_y, 0, 3)
+        
+        grid.addWidget(QLabel("Z (m):"), 0, 4)
+        self.txt_bracket_z = QLineEdit()
+        self.txt_bracket_z.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_z, 0, 5)
+        
+        # Row 1: Rotation Roll, Pitch, Yaw
+        grid.addWidget(QLabel("Roll (deg):"), 1, 0)
+        self.txt_bracket_roll = QLineEdit()
+        self.txt_bracket_roll.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_roll, 1, 1)
+        
+        grid.addWidget(QLabel("Pitch (deg):"), 1, 2)
+        self.txt_bracket_pitch = QLineEdit()
+        self.txt_bracket_pitch.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_pitch, 1, 3)
+        
+        grid.addWidget(QLabel("Yaw (deg):"), 1, 4)
+        self.txt_bracket_yaw = QLineEdit()
+        self.txt_bracket_yaw.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_yaw, 1, 5)
+        
+        bracket_layout.addLayout(grid)
+        
+        self.btn_apply_bracket = QPushButton("APPLY BRACKET")
+        self.btn_apply_bracket.setStyleSheet("background-color: #2979ff; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_apply_bracket.setFixedHeight(24)
+        self.btn_apply_bracket.clicked.connect(self.apply_bracket_design_values)
+        bracket_layout.addWidget(self.btn_apply_bracket)
+        
+        bracket_box.setLayout(bracket_layout)
+        dash_layout.addWidget(bracket_box)
+        
+        # Apply & Clear buttons
+        btn_joint_layout = QHBoxLayout()
+        btn_joint_layout.setSpacing(6)
+        
         self.btn_joint_apply = QPushButton("APPLY OFFSET")
         self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 11px;")
         self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
         self.btn_joint_apply.setFixedHeight(24)
-        dash_layout.addWidget(self.btn_joint_apply)
+        
+        self.btn_joint_clear = QPushButton("CLEAR OFFSET")
+        self.btn_joint_clear.setStyleSheet("background-color: #555555; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_joint_clear.clicked.connect(self.clear_joint_offset)
+        self.btn_joint_clear.setFixedHeight(24)
+        
+        btn_joint_layout.addWidget(self.btn_joint_apply)
+        btn_joint_layout.addWidget(self.btn_joint_clear)
+        
+        dash_layout.addLayout(btn_joint_layout)
         
         dash_box.setLayout(dash_layout)
         right_panel_layout.addWidget(dash_box)
@@ -1068,6 +1128,8 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
             self.update_applied_offset_label()
+            
+            self.load_bracket_design_values()
             
             # Sync dropdown indexes between controls (blocking signals to avoid cycles)
             self.arm_sel.blockSignals(True)
@@ -1192,10 +1254,125 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to joint_offset.yaml successfully!")
         self.log_msg("="*50 + "\n")
 
+    def stop_motion(self):
+        if self.robot:
+            self.log_msg("[STOP] Sending cancel_control to robot!")
+            if self.robot != "mock_robot":
+                self.robot.cancel_control()
+            else:
+                self.log_msg("[STOP] (Mock Mode) Cancel control called.")
+        else:
+            self.log_msg("[STOP] No robot connected to cancel control.")
+
+    def clear_joint_offset(self):
+        reply = QMessageBox.question(
+            self, 
+            "Clear Joint Offset", 
+            f"Are you sure you want to reset all staged/saved joint offsets for {self.arm_side.upper()} arm to 0.0?",
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.joint_offsets_store[self.arm_side]["joint5"] = 0.0
+            self.joint_offsets_store[self.arm_side]["joint3"] = 0.0
+            
+            self.joint_offsets["wrist_pitch"] = 0.0
+            self.joint_offsets["elbow"] = 0.0
+            self.joint_calibrator.joint_offsets = self.joint_offsets
+            self.marker_calibrator.joint_offsets = self.joint_offsets
+            
+            self.save_offsets_to_yaml()
+            self.update_applied_offset_label()
+            
+            self.log_msg(f"[CLEAR] Staged and saved offsets cleared to 0.0 for {self.arm_side.upper()} Arm.")
+
+    def load_bracket_design_values(self):
+        import yaml
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    data = yaml.safe_load(f)
+                if data and "camera" in data:
+                    key = f"Tf_to_marker_{self.arm_side}"
+                    val_list = data["camera"].get(key, None)
+                    if val_list and len(val_list) == 6:
+                        self.txt_bracket_x.setText(f"{val_list[0]:.5f}")
+                        self.txt_bracket_y.setText(f"{val_list[1]:.5f}")
+                        self.txt_bracket_z.setText(f"{val_list[2]:.5f}")
+                        self.txt_bracket_roll.setText(f"{val_list[3]:.2f}")
+                        self.txt_bracket_pitch.setText(f"{val_list[4]:.2f}")
+                        self.txt_bracket_yaw.setText(f"{val_list[5]:.2f}")
+                        self.log_msg(f"[INFO] Loaded {key} from setting.yaml: {val_list}")
+                        return
+            self.log_msg(f"[WARNING] Could not load bracket design values for {self.arm_side} from setting.yaml.")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to load setting.yaml: {e}")
+
+    def apply_bracket_design_values(self):
+        import yaml
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
+        try:
+            try:
+                x = float(self.txt_bracket_x.text())
+                y = float(self.txt_bracket_y.text())
+                z = float(self.txt_bracket_z.text())
+                roll = float(self.txt_bracket_roll.text())
+                pitch = float(self.txt_bracket_pitch.text())
+                yaw = float(self.txt_bracket_yaw.text())
+            except ValueError:
+                QMessageBox.critical(self, "Invalid Inputs", "Please enter valid numeric values for all bracket design fields.")
+                return
+            
+            data = {}
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    data = yaml.safe_load(f) or {}
+            
+            if "camera" not in data:
+                data["camera"] = {}
+            
+            key = f"Tf_to_marker_{self.arm_side}"
+            new_vals = [x, y, z, roll, pitch, yaw]
+            data["camera"][key] = new_vals
+            
+            with open(config_path, "w") as f:
+                yaml.safe_dump(data, f, default_flow_style=None)
+                
+            self.log_msg(f"[SUCCESS] Saved {key} to setting.yaml: {new_vals}")
+            QMessageBox.information(self, "Success", f"Bracket design values saved for {self.arm_side.upper()} arm!")
+            
+            if not self.ui_only and self.marker_st is not None:
+                detector = self.marker_st.marker_detection
+                if hasattr(detector, 'camera_config'):
+                    detector.camera_config[key] = new_vals
+                    tf_vec_l = detector.camera_config.get("Tf_to_marker_left", [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0])
+                    tf_vec_r = detector.camera_config.get("Tf_to_marker_right", [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0])
+                    detector.Tf_to_marker_tf_left = detector.make_transform(tf_vec_l)
+                    detector.Tf_to_marker_tf_right = detector.make_transform(tf_vec_r)
+                    self.log_msg("[INFO] Dynamically updated marker detector Tf_to_marker transforms in memory.")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to save bracket values: {e}")
+            QMessageBox.critical(self, "Error", f"Failed to save bracket values: {e}")
+
     def set_controls_enabled(self, enabled):
         self.btn_joint_ready.setEnabled(enabled)
         self.btn_joint_start.setEnabled(enabled)
         self.btn_joint_apply.setEnabled(enabled)
+        if hasattr(self, 'btn_joint_clear'):
+            self.btn_joint_clear.setEnabled(enabled)
+        if hasattr(self, 'btn_apply_bracket'):
+            self.btn_apply_bracket.setEnabled(enabled)
+            
+        if hasattr(self, 'txt_bracket_x'):
+            self.txt_bracket_x.setEnabled(enabled)
+            self.txt_bracket_y.setEnabled(enabled)
+            self.txt_bracket_z.setEnabled(enabled)
+            self.txt_bracket_roll.setEnabled(enabled)
+            self.txt_bracket_pitch.setEnabled(enabled)
+            self.txt_bracket_yaw.setEnabled(enabled)
         
         self.btn_marker_ready.setEnabled(enabled)
         self.btn_marker_center.setEnabled(enabled)
@@ -1221,7 +1398,7 @@ class UnifiedCalibrationApp(QWidget):
         self.int_side_sel.setEnabled(enabled)
         self.marker_axis_sel.setEnabled(enabled)
         if hasattr(self, 'btn_camera_feed'):
-            self.btn_camera_feed.setEnabled(enabled)
+            self.btn_camera_feed.setEnabled(True) # Keep camera feed button enabled always!
 
     def on_action_finished(self):
         self.set_controls_enabled(True)
@@ -1245,7 +1422,6 @@ class UnifiedCalibrationApp(QWidget):
         
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
-        if self.video_timer.isActive(): self.video_timer.stop()
         self.ready_worker = MoveToReadyWorker(self.joint_calibrator, self.arm_side, mode)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
@@ -1263,8 +1439,6 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
-        if self.video_timer.isActive():
-            self.video_timer.stop()
 
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
@@ -1358,7 +1532,6 @@ class UnifiedCalibrationApp(QWidget):
 
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
-        if self.video_timer.isActive(): self.video_timer.stop()
         self.ready_worker = MoveToReadyWorker(self.marker_calibrator, self.arm_side)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
@@ -1387,7 +1560,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_center.setEnabled(True)
         
         if self.poll_timer.isActive(): self.poll_timer.stop()
-        if self.video_timer.isActive(): self.video_timer.stop()
 
         import threading
         self.stop_event_mc = threading.Event()
@@ -1412,8 +1584,6 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
-        if self.video_timer.isActive():
-            self.video_timer.stop()
 
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Marker Sweep: Axis {axis_mode} (Head Tracking: {use_head})")
@@ -1574,7 +1744,6 @@ class UnifiedCalibrationApp(QWidget):
             
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
-        if self.video_timer.isActive(): self.video_timer.stop()
         self.head_worker = ManualHeadWorker(self.joint_calibrator, np.radians(yaw), np.radians(pitch))
         self.head_worker.log_signal.connect(self.log_msg)
         self.head_worker.finished_signal.connect(self.on_action_finished)
@@ -1589,7 +1758,8 @@ class UnifiedCalibrationApp(QWidget):
         else:
             self.btn_int_monitor.setText("ENABLE MONITORING")
             self.btn_int_monitor.setStyleSheet("background-color: #1e1e1e; color: white;")
-            self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
+            if hasattr(self, 'lbl_marker_pos'):
+                self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
 
     def update_video_frame(self):
         # 왼쪽 Camera 탭(인덱스 1)이 활성화되어 있거나, Camera Feed 대화상자가 열려있을 때 업데이트
@@ -1611,101 +1781,6 @@ class UnifiedCalibrationApp(QWidget):
         self.current_frame = img.copy()
         display_img = img.copy()
         
-        # 1. Main Tab (Index 0): AprilTag marker recognition and drawing
-        if self.left_tabs.currentIndex() == 0:
-            if self.marker_detector is not None:
-                # Apply intrinsics if available, otherwise camera defaults
-                if self.intrinsics_calibrator.cameraMatrix is not None and np.any(self.intrinsics_calibrator.cameraMatrix != 0) and self.intrinsics_calibrator.cameraMatrix[0, 0] > 100:
-                    self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
-                    self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
-                    self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
-                    self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
-                elif not self.ui_only and self.marker_st is not None:
-                    self.marker_detector.fx = self.marker_st.camera.fx
-                    self.marker_detector.fy = self.marker_st.camera.fy
-                    self.marker_detector.principal_point = self.marker_st.camera.principal_point
-                    self.marker_detector.dist_coeffs = self.marker_st.camera.dist_coeffs
-
-                target_ids = self.marker_detector.plate_left_ids if self.arm_side == "left" else self.marker_detector.plate_right_ids
-                if not target_ids:
-                    target_ids = [7] if self.arm_side == "left" else [8]
-                self.marker_detector.marker_id = target_ids
-                
-                try:
-                    res = self.marker_detector.detect(img.copy(), use_filter=False)
-                    detected = bool(res and len(res) > 0)
-                    self.update_marker_indicator(detected)
-                    
-                    if detected:
-                        T = res[0][1]
-                        if isinstance(T, list):
-                            T = np.array(T).reshape(4, 4)
-                        x, y, z = T[:3, 3] * 1000.0 # m to mm
-                        self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
-                        
-                        # Draw detected markers/corners on feed
-                        gray_marker = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
-                        corners, ids, _ = cv2.aruco.detectMarkers(gray_marker, self.marker_detector.dictionary, parameters=self.marker_detector.parameters)
-                        if ids is not None and len(ids) > 0:
-                            cv2.aruco.drawDetectedMarkers(display_img, corners, ids)
-                    else:
-                        self.lbl_marker_pos.setText("Position: Marker Not Detected")
-                except Exception:
-                    pass
-
-        # 2. Camera Tab (Index 1): Intrinsics Calibration Board Detection & Optional Marker Monitoring
-        elif self.left_tabs.currentIndex() == 1:
-            gray = cv2.cvtColor(display_img, cv2.COLOR_BGR2GRAY)
-            
-            # Intrinsics Board Detection
-            if self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD:
-                try:
-                    detector = cv2.aruco.CharucoDetector(self.intrinsics_calibrator.charuco_board)
-                    charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
-                    if charuco_ids is not None:
-                        cv2.aruco.drawDetectedCornersCharuco(display_img, charuco_corners, charuco_ids)
-                except Exception:
-                    pass
-            elif self.intrinsics_calibrator.pattern == IntrinsicsCalibrator.BoardPattern.CHESSBOARD:
-                try:
-                    ret, corners = cv2.findChessboardCorners(gray, self.intrinsics_calibrator.board_size, None)
-                    if ret:
-                        cv2.drawChessboardCorners(display_img, self.intrinsics_calibrator.board_size, corners, ret)
-                except Exception:
-                    pass
-
-            # Optional Marker Monitoring
-            if self.monitor_enabled and self.marker_detector is not None:
-                if self.intrinsics_calibrator.cameraMatrix is not None and np.any(self.intrinsics_calibrator.cameraMatrix != 0) and self.intrinsics_calibrator.cameraMatrix[0, 0] > 100:
-                    self.marker_detector.fx = self.intrinsics_calibrator.cameraMatrix[0, 0]
-                    self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
-                    self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
-                    self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
-                elif not self.ui_only and self.marker_st is not None:
-                    self.marker_detector.fx = self.marker_st.camera.fx
-                    self.marker_detector.fy = self.marker_st.camera.fy
-                    self.marker_detector.principal_point = self.marker_st.camera.principal_point
-                    self.marker_detector.dist_coeffs = self.marker_st.camera.dist_coeffs
-
-                side_text = self.int_side_sel.currentText()
-                side = "left" if "Left" in side_text else "right"
-                target_ids = [10, 11, 12, 13, 14] if side == "left" else [30, 31, 32, 33, 34]
-                self.marker_detector.marker_id = target_ids
-                
-                try:
-                    res = self.marker_detector.detect(img.copy(), use_filter=False)
-                    if res and len(res) > 0:
-                        T = res[0][1]
-                        if isinstance(T, list):
-                            T = np.array(T).reshape(4, 4)
-                        x, y, z = T[:3, 3] * 1000.0 # m to mm
-                        self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
-                        cv2.drawMarker(display_img, (640, 360), (0, 255, 0), cv2.MARKER_CROSS, 20, 2)
-                    else:
-                        self.lbl_marker_pos.setText("Position: Marker Not Detected")
-                except Exception:
-                    pass
-
         # Convert to QImage and display
         h, w, ch = display_img.shape
         bytes_per_line = ch * w
