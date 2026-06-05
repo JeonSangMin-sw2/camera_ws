@@ -97,23 +97,23 @@ class JointCalibrator(BaseCalibrator):
         if mode == "wrist_pitch":
             if arm_side == "right":
                 right_arm = np.deg2rad([-55, -45, 25, -127, 90, 0, 0])
-                left_arm = None
+                left_arm = [0.0]*7
             else:
-                right_arm = None
+                right_arm = [0.0]*7
                 left_arm = np.deg2rad([-55, 45, -25, -127, -90, 0, 0])
         elif mode == "elbow":
             if arm_side == "right":
                 right_arm = np.deg2rad([-107, -17, 0, 0, 73, -90, 73])
-                left_arm = None
+                left_arm = [0.0]*7
             else:
-                right_arm = None
+                right_arm = [0.0]*7
                 left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, -107])
         else: # head mode
             if arm_side == "right":
                 right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
-                left_arm = None
+                left_arm = [0.0]*7
             else:
-                right_arm = None
+                right_arm = [0.0]*7
                 left_arm = np.deg2rad([-90, 45, -73, -107, -90, 90, 0])
 
         success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)

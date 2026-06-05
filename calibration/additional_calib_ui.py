@@ -1302,9 +1302,8 @@ class UnifiedCalibrationApp(QWidget):
             
         self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
 
-        # Stage the newly recommended offset in the memory store
         joint_key = "joint5" if mode == "wrist_pitch" else "joint3"
-        self.joint_offsets_store[self.arm_side][joint_key] = self.recommended_joint_offset
+        self.joint_offsets_store[self.arm_side][joint_key] = float(self.recommended_joint_offset)
 
         # Revert active offsets to nominal original values in model (until user clicks APPLY)
         self.joint_offsets[mode] = self.original_joint_offset
