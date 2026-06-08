@@ -438,8 +438,15 @@ class MarkerCalibrator(BaseCalibrator):
         x_e_in_m = np.cross(y_e_in_m, z_e_in_m)
         
         R_ee_m_actual = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
-        euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
-        yaw_e, pitch_e, roll_e = euler_deg
+        
+        # Enforce zero Z-axis twist constraint: Yaw is always 0.0 (left) or 180.0 (right)
+        yaw_fixed = 0.0 if arm_side == "left" else 180.0
+        R_z = R_scipy.from_euler('z', yaw_fixed, degrees=True).as_matrix()
+        # Strip the target Yaw component to solve pure Pitch and Roll on R_yx
+        R_yx = R_z.T @ R_ee_m_actual
+        euler_deg_fixed = R_scipy.from_matrix(R_yx).as_euler('ZYX', degrees=True)
+        _, pitch_e, roll_e = euler_deg_fixed
+        yaw_e = yaw_fixed
         
         radius_6 = marker_data_6['radius']
         radius_5 = marker_data_5['radius']
