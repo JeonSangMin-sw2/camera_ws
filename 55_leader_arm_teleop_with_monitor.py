@@ -921,8 +921,8 @@ def main(address, model_name, power, servo, control_mode):
         if not robot.power_on(power):
             logging.error(f"Failed to turn power ({power}) on")
             exit(1)
-    if not robot.is_servo_on(servo):
-        if not robot.servo_on(servo):
+    if not robot.is_servo_on("^(right_wheel|left_wheel|right_arm_0|right_arm_1|right_arm_2|right_arm_3|right_arm_4|right_arm_5|right_arm_6|left_arm_0|left_arm_1|left_arm_2|left_arm_3|left_arm_4|left_arm_5|left_arm_6|head_0|head_1)$"):
+        if not robot.servo_on("^(right_wheel|left_wheel|right_arm_0|right_arm_1|right_arm_2|right_arm_3|right_arm_4|right_arm_5|right_arm_6|left_arm_0|left_arm_1|left_arm_2|left_arm_3|left_arm_4|left_arm_5|left_arm_6|head_0|head_1)$"):
             logging.error(f"Failed to servo ({servo}) on")
             exit(1)
     robot.reset_fault_control_manager()
