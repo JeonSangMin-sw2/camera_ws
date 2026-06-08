@@ -35,6 +35,7 @@ class JointCalibrator(BaseCalibrator):
         max_iterations = 6
         staged_offset = current_offset_deg
         final_res = None
+        first_res = None
         
         for i in range(1, max_iterations + 1):
             if log_callback:
@@ -45,6 +46,9 @@ class JointCalibrator(BaseCalibrator):
                 if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
                 return None
                 
+            if first_res is None:
+                first_res = res
+
             angle_error = res.get('angle_between_normals', 0.0)
             sign = res.get('sign', 1.0)
             center_dist = res.get('center_dist', 999.0)
@@ -104,6 +108,9 @@ class JointCalibrator(BaseCalibrator):
             if converged:
                 final_res['recommended_joint_offset'] = staged_offset
                 final_res['converged'] = True
+                if first_res:
+                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
+                    final_res['plot_path_combined'] = plot_path
                 return final_res
 
         # If it reached max_iterations without converging below targets
@@ -114,6 +121,9 @@ class JointCalibrator(BaseCalibrator):
             
         final_res['recommended_joint_offset'] = staged_offset
         final_res['converged'] = True
+        if first_res:
+            plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
+            final_res['plot_path_combined'] = plot_path
         return final_res
 
     def perform_move_to_ready_pose(self, arm_side, mode, log_callback=None):
@@ -127,9 +137,9 @@ class JointCalibrator(BaseCalibrator):
         # 1. First move the inactive arm to zero pose to avoid collision
         if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
         if arm_side == "right":
-            success_other = self.movej(self.robot, left_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0)
         else:
-            success_other = self.movej(self.robot, right_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0)
             
         if not success_other:
             if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")
@@ -150,7 +160,7 @@ class JointCalibrator(BaseCalibrator):
                 left_arm = None
             else:
                 right_arm = None
-                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, -107])
+                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, -73])
         else: # head mode
             if arm_side == "right":
                 right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
@@ -321,6 +331,132 @@ class JointCalibrator(BaseCalibrator):
         except Exception as e:
             if log_callback:
                 log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
+
+    def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None):
+        try:
+            import os
+            import numpy as np
+            import matplotlib.pyplot as plt
+            from mpl_toolkits.mplot3d import Axes3D
+
+            fig = plt.figure(figsize=(16, 14))
+
+            def plot_column(res, col_idx, stage_name):
+                pts_a = res['pts_a_cam']
+                pts_b = res['pts_b_cam']
+                c_A = res['c_A']
+                c_B = res['c_B']
+                n_A = res['n_A']
+                n_B = res['n_B']
+                r_A = res['r_A']
+                r_B = res['r_B']
+                rmse_A = res['rmse_A']
+                rmse_B = res['rmse_B']
+                angle_error = res['angle_between_normals']
+                center_dist = res['center_dist']
+
+                # Fit circles again to retrieve the local coordinate frames R_c_A, R_c_B
+                c_A_fit, R_c_A, r_A_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_a)
+                c_B_fit, R_c_B, r_B_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_b)
+
+                theta = np.linspace(0, 2 * np.pi, 200)
+
+                # --- 1. 2D SUBPLOT (Row 0, Col col_idx) ---
+                pts_a_proj = (pts_a - c_A) @ R_c_A[:, :2]
+                pts_b_proj = (pts_b - c_A) @ R_c_A[:, :2]
+                c_B_proj = (c_B - c_A) @ R_c_A[:, :2]
+
+                circle_A_2d_x = r_A * np.cos(theta)
+                circle_A_2d_y = r_A * np.sin(theta)
+
+                circle_B_3d = c_B + r_B * (np.cos(theta)[:, None] * R_c_B[:, 0] + np.sin(theta)[:, None] * R_c_B[:, 1])
+                circle_B_proj = (circle_B_3d - c_A) @ R_c_A[:, :2]
+
+                ax_2d = fig.add_subplot(2, 2, col_idx + 1)
+                
+                # Plot Sweep A
+                ax_2d.scatter(pts_a_proj[:, 0], pts_a_proj[:, 1], c='red', s=15, alpha=0.5, label=f'Sweep A (r={r_A:.1f}mm, RMSE={rmse_A:.2f}mm)')
+                ax_2d.plot(circle_A_2d_x, circle_A_2d_y, 'r--', linewidth=2)
+                ax_2d.scatter([0], [0], c='darkred', marker='X', s=100, label='Center A (0,0)')
+
+                # Plot Sweep B
+                ax_2d.scatter(pts_b_proj[:, 0], pts_b_proj[:, 1], c='blue', s=15, alpha=0.5, label=f'Sweep B (r={r_B:.1f}mm, RMSE={rmse_B:.2f}mm)')
+                ax_2d.plot(circle_B_proj[:, 0], circle_B_proj[:, 1], 'b--', linewidth=2)
+                ax_2d.scatter([c_B_proj[0]], [c_B_proj[1]], c='darkblue', marker='X', s=100, label=f'Center B ({c_B_proj[0]:.1f},{c_B_proj[1]:.1f})')
+
+                ax_2d.plot([0, c_B_proj[0]], [0, c_B_proj[1]], color='purple', linestyle=':', linewidth=2, label=f'Center Shift = {center_dist:.2f}mm')
+
+                ax_2d.set_xlabel('U (mm)')
+                ax_2d.set_ylabel('V (mm)')
+                ax_2d.set_title(f'[{stage_name}] 2D Combined Circle Fit')
+                ax_2d.set_aspect('equal')
+                ax_2d.grid(True)
+                ax_2d.legend(loc='upper right')
+
+                # --- 2. 3D SUBPLOT (Row 1, Col col_idx) ---
+                ax_3d = fig.add_subplot(2, 2, col_idx + 3, projection='3d')
+
+                ax_3d.scatter(pts_a[:, 0], pts_a[:, 1], pts_a[:, 2], c='red', s=10, alpha=0.4)
+                ax_3d.scatter(pts_b[:, 0], pts_b[:, 1], pts_b[:, 2], c='blue', s=10, alpha=0.4)
+
+                circle_A_3d = c_A + r_A * (np.cos(theta)[:, None] * R_c_A[:, 0] + np.sin(theta)[:, None] * R_c_A[:, 1])
+                ax_3d.plot(circle_A_3d[:, 0], circle_A_3d[:, 1], circle_A_3d[:, 2], 'r-', linewidth=2, label='Sweep A Fit')
+                ax_3d.plot(circle_B_3d[:, 0], circle_B_3d[:, 1], circle_B_3d[:, 2], 'b-', linewidth=2, label='Sweep B Fit')
+
+                ax_3d.scatter([c_A[0]], [c_A[1]], [c_A[2]], c='darkred', marker='X', s=120)
+                ax_3d.scatter([c_B[0]], [c_B[1]], [c_B[2]], c='darkblue', marker='X', s=120)
+
+                scale = min(r_A, r_B) * 0.5
+                ax_3d.quiver(c_A[0], c_A[1], c_A[2], n_A[0]*scale, n_A[1]*scale, n_A[2]*scale, color='darkred', linewidth=3, arrow_length_ratio=0.15, label=f'Normal A: {np.round(n_A,2)}')
+                ax_3d.quiver(c_B[0], c_B[1], c_B[2], n_B[0]*scale, n_B[1]*scale, n_B[2]*scale, color='darkblue', linewidth=3, arrow_length_ratio=0.15, label=f'Normal B: {np.round(n_B,2)}')
+
+                ax_3d.plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], [c_A[2], c_B[2]], color='purple', linestyle=':', linewidth=2)
+
+                # Set equal aspect ratio for 3D plot
+                pts_all = np.vstack((pts_a, pts_b))
+                max_range = np.array([pts_all[:, 0].max() - pts_all[:, 0].min(),
+                                      pts_all[:, 1].max() - pts_all[:, 1].min(),
+                                      pts_all[:, 2].max() - pts_all[:, 2].min()]).max() / 2.0
+                mid_x = (pts_all[:, 0].max() + pts_all[:, 0].min()) * 0.5
+                mid_y = (pts_all[:, 1].max() + pts_all[:, 1].min()) * 0.5
+                mid_z = (pts_all[:, 2].max() + pts_all[:, 2].min()) * 0.5
+                ax_3d.set_xlim(mid_x - max_range, mid_x + max_range)
+                ax_3d.set_ylim(mid_y - max_range, mid_y + max_range)
+                ax_3d.set_zlim(mid_z - max_range, mid_z + max_range)
+
+                ax_3d.set_xlabel('X (mm)')
+                ax_3d.set_ylabel('Y (mm)')
+                ax_3d.set_zlabel('Z (mm)')
+                ax_3d.set_title(f'[{stage_name}] 3D Rotation Axes\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm')
+                ax_3d.legend()
+
+            plot_column(first_res, 0, "BEFORE")
+            plot_column(final_res, 1, "AFTER")
+
+            fig.suptitle(
+                f"Joint Calibration Comparison: {arm_side.upper()} Arm - {mode.upper()}\n"
+                f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm\n"
+                f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm",
+                fontsize=16, fontweight='bold'
+            )
+            plt.tight_layout()
+
+            result_dir = os.path.join(os.path.dirname(__file__), "result_img")
+            os.makedirs(result_dir, exist_ok=True)
+            plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
+            plt.savefig(plot_save_path, dpi=150)
+            plt.close()
+
+            if log_callback:
+                log_callback(f"[SUCCESS] Saved combined calibration comparison plot to: {plot_save_path}")
+            return plot_save_path
+        except Exception as e:
+            if log_callback:
+                log_callback(f"[WARN] Failed to generate comparison plot: {e}")
+            import traceback
+            if log_callback:
+                log_callback(traceback.format_exc())
+            return None
 
     def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None):
         if use_angle_based_fitting is None:
@@ -609,8 +745,17 @@ class JointCalibrator(BaseCalibrator):
         n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
         n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
         
-        # Project the cross product of the nominal axis and the actual axis onto the candidate joint axis
-        cross_val = np.cross(a_B_cam_nom, n_B)
+        # Define reference direction for B based on measured normal A and candidate axis
+        ref_B = np.cross(a_cand_cam, n_A)
+        if np.linalg.norm(ref_B) > 1e-6:
+            ref_B /= np.linalg.norm(ref_B)
+            if np.dot(ref_B, a_B_cam_nom) < 0:
+                ref_B = -ref_B
+        else:
+            ref_B = a_B_cam_nom
+
+        # Project the cross product of the reference direction and actual axis onto the candidate joint axis
+        cross_val = np.cross(ref_B, n_B)
         proj = np.dot(cross_val, a_cand_cam)
         
         # If proj is positive, it means the physical angle is positive, so the required offset to correct it is positive.
@@ -716,5 +861,11 @@ class JointCalibrator(BaseCalibrator):
             'r_B': r_B,
             'rmse_A': rmse_A,
             'rmse_B': rmse_B,
-            'marker_6_res': marker_6_res
+            'marker_6_res': marker_6_res,
+            'pts_a_cam': np.array(pts_a_cam),
+            'pts_b_cam': np.array(pts_b_cam),
+            'c_A': c_A_c,
+            'c_B': c_B_c,
+            'n_A': n_A,
+            'n_B': n_B
         }

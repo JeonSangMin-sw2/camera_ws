@@ -108,9 +108,9 @@ class MarkerCalibrator(BaseCalibrator):
         # 1. First move the inactive arm to zero pose to avoid collision
         if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
         if arm_side == "right":
-            success_other = self.movej(self.robot, left_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0)
         else:
-            success_other = self.movej(self.robot, right_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0)
             
         if not success_other:
             if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")

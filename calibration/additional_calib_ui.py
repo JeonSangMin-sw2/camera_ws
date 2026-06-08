@@ -389,47 +389,49 @@ class JointCalibrationWorker(QThread):
                 plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png"
                 plot_path_combined = os.path.join(result_dir, plot_filename)
                 
-                plt.figure(figsize=(10, 5))
-                
-                # Trajectory representations based on mode
-                if self.mode == "wrist_pitch":
-                    title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                    title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                else: # elbow mode
-                    title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                    title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
+                    self.log_signal.emit(f"      [INFO] Detailed 2x2 comparison plot already exists: {res['plot_path_combined']}")
+                else:
+                    plt.figure(figsize=(10, 5))
                     
-                # Subplot 1: Circle A
-                plt.subplot(1, 2, 1)
-                plt.scatter(res['pts_2d_A'][:, 0], res['pts_2d_A'][:, 1], c='r', label='Sweep Axis A')
-                circle_A = plt.Circle((res['uc_A'], res['vc_A']), res['r_A'], color='r', fill=False, label='Fit A')
-                plt.gca().add_patch(circle_A)
-                plt.plot(res['uc_A'], res['vc_A'], 'rx', markersize=8)
-                plt.title(title_A)
-                plt.xlabel("U coord (mm) [Fitting Local Plane X]")
-                plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
-                plt.gca().set_aspect('equal')
-                plt.grid(True)
-                plt.legend()
-                
-                # Subplot 2: Circle B
-                plt.subplot(1, 2, 2)
-                plt.scatter(res['pts_2d_B'][:, 0], res['pts_2d_B'][:, 1], c='b', label='Sweep Axis B')
-                circle_B = plt.Circle((res['uc_B'], res['vc_B']), res['r_B'], color='b', fill=False, label='Fit B')
-                plt.gca().add_patch(circle_B)
-                plt.plot(res['uc_B'], res['vc_B'], 'bx', markersize=8)
-                plt.title(title_B)
-                plt.xlabel("U coord (mm) [Fitting Local Plane X]")
-                plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
-                plt.gca().set_aspect('equal')
-                plt.grid(True)
-                plt.legend()
-                
-                plt.tight_layout()
-                plt.savefig(plot_path_combined, dpi=120)
-                plt.close()
-                
-                res['plot_path_combined'] = plot_path_combined
+                    # Trajectory representations based on mode
+                    if self.mode == "wrist_pitch":
+                        title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                        title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                    else: # elbow mode
+                        title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                        title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                        
+                    # Subplot 1: Circle A
+                    plt.subplot(1, 2, 1)
+                    plt.scatter(res['pts_2d_A'][:, 0], res['pts_2d_A'][:, 1], c='r', label='Sweep Axis A')
+                    circle_A = plt.Circle((res['uc_A'], res['vc_A']), res['r_A'], color='r', fill=False, label='Fit A')
+                    plt.gca().add_patch(circle_A)
+                    plt.plot(res['uc_A'], res['vc_A'], 'rx', markersize=8)
+                    plt.title(title_A)
+                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
+                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
+                    plt.gca().set_aspect('equal')
+                    plt.grid(True)
+                    plt.legend()
+                    
+                    # Subplot 2: Circle B
+                    plt.subplot(1, 2, 2)
+                    plt.scatter(res['pts_2d_B'][:, 0], res['pts_2d_B'][:, 1], c='b', label='Sweep Axis B')
+                    circle_B = plt.Circle((res['uc_B'], res['vc_B']), res['r_B'], color='b', fill=False, label='Fit B')
+                    plt.gca().add_patch(circle_B)
+                    plt.plot(res['uc_B'], res['vc_B'], 'bx', markersize=8)
+                    plt.title(title_B)
+                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
+                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
+                    plt.gca().set_aspect('equal')
+                    plt.grid(True)
+                    plt.legend()
+                    
+                    plt.tight_layout()
+                    plt.savefig(plot_path_combined, dpi=120)
+                    plt.close()
+                    res['plot_path_combined'] = plot_path_combined
                 self.finished_signal.emit(res)
             else:
                 self.finished_signal.emit(None)
