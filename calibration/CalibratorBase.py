@@ -21,6 +21,7 @@ class BaseCalibrator:
         
         # Active joint home offsets to apply to commanded trajectories
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        self.stop_requested = False
 
     def load_camera_config(self):
         # Locate setting.yaml
@@ -195,6 +196,8 @@ class BaseCalibrator:
         return vector * cos_t + np.cross(axis, vector) * sin_t + axis * np.dot(axis, vector) * (1 - cos_t)
 
     def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
+        if getattr(self, 'stop_requested', False):
+            return False
         if not robot:
             return False
             

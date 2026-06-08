@@ -39,6 +39,9 @@ class JointCalibrator(BaseCalibrator):
         converged = False
         
         for i in range(1, max_iterations + 1):
+            if getattr(self, 'stop_requested', False):
+                if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
+                return None
             if log_callback:
                 log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping with staged offset {staged_offset:.4f}°...")
                 
@@ -104,6 +107,10 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Changing sign of final positive offset {staged_offset:.4f}° to {-staged_offset:.4f}° for safety!")
             staged_offset = -staged_offset
 
+        if getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
+            return None
+
         # Run one final validation sweep with the recommended joint offset
         if log_callback:
             log_callback(f"\n[VALIDATION SWEEP] Running final validation sweep with recommended offset {staged_offset:.4f}°...")
@@ -116,6 +123,9 @@ class JointCalibrator(BaseCalibrator):
                 validation_res['plot_path_combined'] = plot_path
             return validation_res
         else:
+            if getattr(self, 'stop_requested', False):
+                if log_callback: log_callback("[INFO] Joint calibration aborted during validation sweep.")
+                return None
             if log_callback:
                 log_callback("[WARN] Validation sweep failed. Returning last calibration result.")
             if final_res:
@@ -459,6 +469,9 @@ class JointCalibrator(BaseCalibrator):
             return None
 
     def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None):
+        if getattr(self, 'stop_requested', False):
+            return None
+
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -506,6 +519,9 @@ class JointCalibrator(BaseCalibrator):
             return None
         if status_callback: status_callback(True)
 
+        if getattr(self, 'stop_requested', False):
+            return None
+
         state = self.robot.get_state()
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
@@ -533,13 +549,21 @@ class JointCalibrator(BaseCalibrator):
         # 1. PHYSICAL SWEEP JOINT A
         if log_callback: log_callback(f"\n--- [1/2] Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
         
+        if getattr(self, 'stop_requested', False):
+            return None
+
         # Move to start position (-20 deg)
         q_start_A = list(q_cand)
         q_start_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(-20.0)
         if arm_side == "left":
-            self.movej(self.robot, left_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
+            
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to move to Joint A start pose or stop was requested.")
+            return None
+            
         time.sleep(1.0)
 
         # Launch motion thread to move from -20 to +20 deg
@@ -557,6 +581,11 @@ class JointCalibrator(BaseCalibrator):
         move_thread.start()
         
         while move_thread.is_alive():
+            if getattr(self, 'stop_requested', False):
+                if self.robot and self.robot != "mock_robot":
+                    self.robot.cancel_control()
+                move_thread.join()
+                return None
             res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
@@ -566,25 +595,44 @@ class JointCalibrator(BaseCalibrator):
             time.sleep(0.01) # 100Hz polling (consistent with Joint B)
             
         move_thread.join()
+        if not move_thread.success:
+            if log_callback: log_callback("[ERROR] Joint A sweep motion failed or was cancelled.")
+            return None
         if log_callback: log_callback(f"    -> Swept {len(dataset_A)} dense raw coordinate frames during Joint A motion.")
+
+        if getattr(self, 'stop_requested', False):
+            return None
 
         # Return to baseline candidate pose
         if arm_side == "left":
-            self.movej(self.robot, left_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
+            
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to return to baseline candidate pose or stop was requested.")
+            return None
+            
         time.sleep(1.0)
 
         # 2. PHYSICAL SWEEP JOINT B
         if log_callback: log_callback(f"\n--- [2/2] Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
         
+        if getattr(self, 'stop_requested', False):
+            return None
+
         # Move to start position (-20 deg)
         q_start_B = list(q_cand)
         q_start_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(-20.0)
         if arm_side == "left":
-            self.movej(self.robot, left_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
+            
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to move to Joint B start pose or stop was requested.")
+            return None
+            
         time.sleep(1.0)
 
         # Launch motion thread to move from -20 to +20 deg
@@ -602,6 +650,11 @@ class JointCalibrator(BaseCalibrator):
         move_thread.start()
         
         while move_thread.is_alive():
+            if getattr(self, 'stop_requested', False):
+                if self.robot and self.robot != "mock_robot":
+                    self.robot.cancel_control()
+                move_thread.join()
+                return None
             res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
@@ -611,14 +664,24 @@ class JointCalibrator(BaseCalibrator):
             time.sleep(0.01) # 30Hz polling
             
         move_thread.join()
+        if not move_thread.success:
+            if log_callback: log_callback("[ERROR] Joint B sweep motion failed or was cancelled.")
+            return None
         if log_callback: log_callback(f"    -> Swept {len(dataset_B)} dense raw coordinate frames during Joint B motion.")
+
+        if getattr(self, 'stop_requested', False):
+            return None
 
         # Return arm to original ready pose (head=None)
         if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm to initial pose...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
+
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to return arm to initial pose or stop was requested.")
+            return None
 
         if len(dataset_A) < 10 or len(dataset_B) < 10:
             if log_callback: log_callback("[ERROR] Too few valid captured points. Calibration failed.")
@@ -760,7 +823,7 @@ class JointCalibrator(BaseCalibrator):
         
         # If proj is positive, it means the physical angle is positive, so the required offset to correct it is negative.
         # If proj is negative, the physical angle is negative, so the required offset to correct it is positive.
-        sign = -1.0 if proj > 0 else 1.0
+        sign = 1.0 if proj > 0 else -1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")

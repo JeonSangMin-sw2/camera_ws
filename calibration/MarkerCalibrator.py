@@ -28,7 +28,7 @@ class MarkerCalibrator(BaseCalibrator):
             if stop_event and stop_event.is_set():
                 if log_callback: log_callback("[INFO] Move canceled by user.")
                 self.robot.cancel_control()
-                break
+                return False
                 
             if log_callback: log_callback(f"[Attempt {attempt + 1}/5] Capturing marker pose...")
             time.sleep(1.0)
@@ -131,6 +131,8 @@ class MarkerCalibrator(BaseCalibrator):
         return success
 
     def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True):
+        if getattr(self, 'stop_requested', False):
+            return None
         import threading
         
         class MoveThread(threading.Thread):
@@ -172,6 +174,8 @@ class MarkerCalibrator(BaseCalibrator):
             if status_callback: status_callback(False)
             return None
         if status_callback: status_callback(True)
+        if getattr(self, 'stop_requested', False):
+            return None
 
         state = self.robot.get_state()
         model = self.robot.model()
@@ -292,13 +296,22 @@ class MarkerCalibrator(BaseCalibrator):
         # 1. Move to start position (-20 or -10 deg)
         if log_callback: log_callback(f"[INFO] Moving to start sweep position...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=q_start_arm, head=q_head_start, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=q_start_arm, head=q_head_start, minimum_time=2.5, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=q_start_arm, head=q_head_start, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=q_start_arm, head=q_head_start, minimum_time=2.5, apply_offsets=False)
+            
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to move to start sweep position or stop was requested.")
+            return None
+            
         time.sleep(1.0)
 
         # 2. Continuous sweep from start to end position (30s duration)
         if log_callback: log_callback(f"[INFO] Commencing Continuous Sweep on Marker Axis {axis_mode} (duration=30s)...")
+        
+        if getattr(self, 'stop_requested', False):
+            return None
+            
         move_thread = MoveThread(
             self, self.robot, torso=None,
             right_arm=q_end_arm if arm_side == "right" else None,
@@ -314,6 +327,11 @@ class MarkerCalibrator(BaseCalibrator):
         
         # High speed data collection
         while move_thread.is_alive():
+            if getattr(self, 'stop_requested', False):
+                if self.robot and self.robot != "mock_robot":
+                    self.robot.cancel_control()
+                move_thread.join()
+                return None
             lpf_results = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
             if lpf_results:
                 pose = np.array(lpf_results[0]).reshape(4, 4) if isinstance(lpf_results, list) else np.array(list(lpf_results.values())[0]).reshape(4, 4)
@@ -326,14 +344,25 @@ class MarkerCalibrator(BaseCalibrator):
             time.sleep(0.01) # 100Hz polling
 
         move_thread.join()
+        if not move_thread.success:
+            if log_callback: log_callback("[ERROR] Marker sweep motion failed or was cancelled.")
+            return None
+            
+        if getattr(self, 'stop_requested', False):
+            return None
+            
         if log_callback: log_callback(f"    -> Swept {len(captured_poses)} dense raw coordinate frames.")
 
         # Return arm and head to original ready pose
         if log_callback: log_callback("\n[INFO] Sweep complete. Returning to initial ready pose...")
         if arm_side == "left":
-            self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=initial_joint_pos, head=q_head_0, minimum_time=2.5, apply_offsets=False)
         else:
-            self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=initial_joint_pos, head=q_head_0, minimum_time=2.5, apply_offsets=False)
+
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to return to initial ready pose or stop was requested.")
+            return None
 
         if len(captured_poses) < 10:
             if log_callback: log_callback("[ERROR] Too few valid marker poses. Calibration failed.")

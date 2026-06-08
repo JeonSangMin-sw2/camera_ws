@@ -1257,6 +1257,11 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("="*50 + "\n")
 
     def stop_motion(self):
+        self.log_msg("[STOP] Stop requested by user.")
+        self.joint_calibrator.stop_requested = True
+        self.marker_calibrator.stop_requested = True
+        if hasattr(self, 'stop_event_mc') and self.stop_event_mc:
+            self.stop_event_mc.set()
         if self.robot:
             self.log_msg("[STOP] Sending cancel_control to robot!")
             if self.robot != "mock_robot":
@@ -1424,6 +1429,8 @@ class UnifiedCalibrationApp(QWidget):
         
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         self.ready_worker = MoveToReadyWorker(self.joint_calibrator, self.arm_side, mode)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
@@ -1442,6 +1449,8 @@ class UnifiedCalibrationApp(QWidget):
         if self.poll_timer.isActive():
             self.poll_timer.stop()
 
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
         
@@ -1533,6 +1542,8 @@ class UnifiedCalibrationApp(QWidget):
 
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         self.ready_worker = MoveToReadyWorker(self.marker_calibrator, self.arm_side)
         self.ready_worker.log_signal.connect(self.log_msg)
         self.ready_worker.finished_signal.connect(self.on_action_finished)
@@ -1562,6 +1573,8 @@ class UnifiedCalibrationApp(QWidget):
         
         if self.poll_timer.isActive(): self.poll_timer.stop()
 
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         import threading
         self.stop_event_mc = threading.Event()
         self.active_worker = MoveCenterWorker(self.marker_calibrator, self.arm_side, self.stop_event_mc, target_dist=target_dist)
@@ -1586,6 +1599,8 @@ class UnifiedCalibrationApp(QWidget):
         if self.poll_timer.isActive():
             self.poll_timer.stop()
 
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Marker Sweep: Axis {axis_mode} (Head Tracking: {use_head})")
 
@@ -1744,6 +1759,8 @@ class UnifiedCalibrationApp(QWidget):
             
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         self.head_worker = ManualHeadWorker(self.joint_calibrator, np.radians(yaw), np.radians(pitch))
         self.head_worker.log_signal.connect(self.log_msg)
         self.head_worker.finished_signal.connect(self.on_action_finished)
