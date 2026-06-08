@@ -194,11 +194,45 @@ class MarkerCalibrator(BaseCalibrator):
         q_head_0 = state.position[head_idx].copy() if head_idx is not None else None
         dyn_model = self.robot.get_dynamics()
         
-        # Compute start and end arm poses
+        # Retrieve joint limits for the global joint index of the active joint
+        try:
+            state_lim = dyn_model.make_state([f"ee_{arm_side}"], model.robot_joint_names)
+            q_lower_all = np.array(dyn_model.get_limit_q_lower(state_lim))
+            q_upper_all = np.array(dyn_model.get_limit_q_upper(state_lim))
+            global_joint_idx = arm_idx[joint_i]
+            q_min = q_lower_all[global_joint_idx]
+            q_max = q_upper_all[global_joint_idx]
+            if log_callback:
+                log_callback(f"[INFO] Active joint {global_joint_idx} limits: min={np.degrees(q_min):.2f}°, max={np.degrees(q_max):.2f}°")
+        except Exception as e:
+            if log_callback:
+                log_callback(f"[WARN] Failed to retrieve joint limits: {e}")
+            q_min = -np.inf
+            q_max = np.inf
+
+        # Compute start and end arm poses with joint limit safety clamping (0.5 degree margin)
+        safety_margin = np.radians(0.5)
+        q_start_val = initial_joint_pos[joint_i] + np.radians(start_deg)
+        q_end_val = initial_joint_pos[joint_i] + np.radians(end_deg)
+
+        if q_start_val < q_min + safety_margin:
+            q_start_val_new = q_min + safety_margin
+            if log_callback:
+                log_callback(f"[WARN] Start angle ({np.degrees(q_start_val):.2f}°) exceeds/overlaps min limit ({np.degrees(q_min):.2f}°). Clamping to {np.degrees(q_start_val_new):.2f}° with 0.5° safety margin.")
+            q_start_val = q_start_val_new
+            start_deg = np.degrees(q_start_val - initial_joint_pos[joint_i])
+
+        if q_end_val > q_max - safety_margin:
+            q_end_val_new = q_max - safety_margin
+            if log_callback:
+                log_callback(f"[WARN] End angle ({np.degrees(q_end_val):.2f}°) exceeds/overlaps max limit ({np.degrees(q_max):.2f}°). Clamping to {np.degrees(q_end_val_new):.2f}° with 0.5° safety margin.")
+            q_end_val = q_end_val_new
+            end_deg = np.degrees(q_end_val - initial_joint_pos[joint_i])
+        
         q_start_arm = list(initial_joint_pos)
-        q_start_arm[joint_i] = initial_joint_pos[joint_i] + np.radians(start_deg)
+        q_start_arm[joint_i] = q_start_val
         q_end_arm = list(initial_joint_pos)
-        q_end_arm[joint_i] = initial_joint_pos[joint_i] + np.radians(end_deg)
+        q_end_arm[joint_i] = q_end_val
         
         q_full_start = np.array(state.position)
         q_full_end = np.array(state.position)

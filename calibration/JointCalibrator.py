@@ -32,10 +32,11 @@ class JointCalibrator(BaseCalibrator):
                 use_angle_based_fitting=use_angle_based_fitting
             )
             
-        max_iterations = 6
+        max_iterations = 8
         staged_offset = current_offset_deg
         final_res = None
         first_res = None
+        converged = False
         
         for i in range(1, max_iterations + 1):
             if log_callback:
@@ -87,44 +88,43 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
-            # Convergence check
-            converged = False
-            if mode == "elbow" and use_angle_based_fitting:
-                if angle_error <= 0.1:
-                    converged = True
-                    if log_callback:
-                        log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully (Angle-based):")
-                        log_callback(f"  * Circle Normals Angle Error: {angle_error:.4f}° <= 0.1°")
-                        log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
-            else:
-                if size_error <= 1.0 and center_dist <= 0.5:
-                    converged = True
-                    if log_callback:
-                        log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully (Distance-based):")
-                        log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")
-                        log_callback(f"  * Center distance error: {center_dist:.4f} mm <= 0.5 mm")
-                        log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
-            
-            if converged:
-                final_res['recommended_joint_offset'] = staged_offset
-                final_res['converged'] = True
-                if first_res:
-                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
-                    final_res['plot_path_combined'] = plot_path
-                return final_res
+            # Convergence check: angle error <= 0.1° and center distance <= 0.1 mm
+            if angle_error <= 0.1 and center_dist <= 0.1:
+                converged = True
+                if log_callback:
+                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
+                    log_callback(f"  * Circle Normals Angle Error: {angle_error:.4f}° <= 0.1°")
+                    log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
+                    log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
+                break
 
-        # If it reached max_iterations without converging below targets
+        # Elbow Safety Check on final recommended offset
         if mode == "elbow" and staged_offset > 0.0:
             if log_callback:
                 log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Changing sign of final positive offset {staged_offset:.4f}° to {-staged_offset:.4f}° for safety!")
             staged_offset = -staged_offset
-            
-        final_res['recommended_joint_offset'] = staged_offset
-        final_res['converged'] = True
-        if first_res:
-            plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
-            final_res['plot_path_combined'] = plot_path
-        return final_res
+
+        # Run one final validation sweep with the recommended joint offset
+        if log_callback:
+            log_callback(f"\n[VALIDATION SWEEP] Running final validation sweep with recommended offset {staged_offset:.4f}°...")
+        validation_res = run_single_sweep(staged_offset)
+        if validation_res:
+            validation_res['recommended_joint_offset'] = staged_offset
+            validation_res['converged'] = converged
+            if first_res:
+                plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
+                validation_res['plot_path_combined'] = plot_path
+            return validation_res
+        else:
+            if log_callback:
+                log_callback("[WARN] Validation sweep failed. Returning last calibration result.")
+            if final_res:
+                final_res['recommended_joint_offset'] = staged_offset
+                final_res['converged'] = converged
+                if first_res:
+                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
+                    final_res['plot_path_combined'] = plot_path
+            return final_res
 
     def perform_move_to_ready_pose(self, arm_side, mode, log_callback=None):
         if not self.robot:
@@ -758,9 +758,9 @@ class JointCalibrator(BaseCalibrator):
         cross_val = np.cross(ref_B, n_B)
         proj = np.dot(cross_val, a_cand_cam)
         
-        # If proj is positive, it means the physical angle is positive, so the required offset to correct it is positive.
-        # If proj is negative, the physical angle is negative, so the required offset to correct it is negative.
-        sign = 1.0 if proj > 0 else -1.0
+        # If proj is positive, it means the physical angle is positive, so the required offset to correct it is negative.
+        # If proj is negative, the physical angle is negative, so the required offset to correct it is positive.
+        sign = -1.0 if proj > 0 else 1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")

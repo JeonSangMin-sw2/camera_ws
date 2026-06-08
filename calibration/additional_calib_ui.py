@@ -1500,7 +1500,6 @@ class UnifiedCalibrationApp(QWidget):
         self.show_result_joint()
 
     def show_result_joint(self):
-        self.log_text.clear()
         self.log_msg("\n" + "="*50)
         self.log_msg("       JOINT CALIBRATION ESTIMATED RESULTS")
         self.log_msg("="*50)
@@ -1678,7 +1677,6 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[ERROR] Marker sweep failed.")
 
     def show_unified_result_marker(self):
-        self.log_text.clear()
         self.log_msg("\n" + "="*50)
         self.log_msg("       UNIFIED BRACKET CALIBRATION RESULTS")
         self.log_msg("="*50)
