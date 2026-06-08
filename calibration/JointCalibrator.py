@@ -11,7 +11,14 @@ from scipy.spatial.transform import Rotation as R_scipy
 from CalibratorBase import BaseCalibrator
 
 class JointCalibrator(BaseCalibrator):
-    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0):
+    def __init__(self, marker_st=None, robot=None):
+        super().__init__(marker_st, robot)
+        self.use_angle_based_fitting = True
+
+    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None):
+        if use_angle_based_fitting is None:
+            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
+
         if log_callback:
             log_callback("\n" + "="*60)
             log_callback("   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE")
@@ -21,7 +28,8 @@ class JointCalibrator(BaseCalibrator):
         def run_single_sweep(offset):
             return self.perform_calibration_sweep_continuous(
                 arm_side, mode, log_callback=log_callback, status_callback=status_callback,
-                current_offset_deg=offset, sweep_duration=sweep_duration
+                current_offset_deg=offset, sweep_duration=sweep_duration,
+                use_angle_based_fitting=use_angle_based_fitting
             )
             
         max_iterations = 6
@@ -53,7 +61,17 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
             
             # Direct correction
-            staged_offset += sign * angle_error
+            # When looking at angle error (use_angle_based_fitting is True), we deactivate the 0.05 deg step correction.
+            # Otherwise (when use_angle_based_fitting is False), if circle center distance is close (<= 1.0 mm),
+            # we apply a 0.05 deg step correction instead of the raw angle_error.
+            if (not use_angle_based_fitting) and (center_dist <= 1.0):
+                step_correction = 0.05
+                if log_callback:
+                    log_callback(f"  [STEP CONTROL] Center distance {center_dist:.4f} mm is close (<= 1.0 mm). Applying 0.05° step correction instead of {angle_error:.4f}°.")
+            else:
+                step_correction = angle_error
+
+            staged_offset += sign * step_correction
             final_res = res
             
             # Elbow Safety Check: Elbow offset must unconditionally be negative.
@@ -65,13 +83,25 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
-            # Convergence check based on circle size difference (<= 1.0 mm) and center distance (<= 0.5 mm)
-            if size_error <= 1.0 and center_dist <= 0.5:
-                if log_callback:
-                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                    log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")
-                    log_callback(f"  * Center distance error: {center_dist:.4f} mm <= 0.5 mm")
-                    log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
+            # Convergence check
+            converged = False
+            if mode == "elbow" and use_angle_based_fitting:
+                if angle_error <= 0.1:
+                    converged = True
+                    if log_callback:
+                        log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully (Angle-based):")
+                        log_callback(f"  * Circle Normals Angle Error: {angle_error:.4f}° <= 0.1°")
+                        log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
+            else:
+                if size_error <= 1.0 and center_dist <= 0.5:
+                    converged = True
+                    if log_callback:
+                        log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully (Distance-based):")
+                        log_callback(f"  * Circle size error: {size_error:.4f} mm <= 1.0 mm")
+                        log_callback(f"  * Center distance error: {center_dist:.4f} mm <= 0.5 mm")
+                        log_callback(f"  * Final Recommended Absolute Offset: {staged_offset:.4f}°")
+            
+            if converged:
                 final_res['recommended_joint_offset'] = staged_offset
                 final_res['converged'] = True
                 return final_res
@@ -292,7 +322,10 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None):
+        if use_angle_based_fitting is None:
+            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
+
         import threading
         
         class MoveThread(threading.Thread):
@@ -601,15 +634,20 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            error_metric = max(size_error, center_dist)
-            optimal_offset_deg = sign * error_metric * 0.5
-            
-            # Maximum step size clamp to prevent excessive joint movements
-            max_step_deg = 5.0
-            if abs(optimal_offset_deg) > max_step_deg:
+            if (not use_angle_based_fitting) and (center_dist <= 1.0):
+                optimal_offset_deg = sign * 0.05
                 if log_callback:
-                    log_callback(f"  [SAFETY CONTROL] Clamping calculated step {optimal_offset_deg:.4f}° to max limit ±{max_step_deg}°")
-                optimal_offset_deg = np.clip(optimal_offset_deg, -max_step_deg, max_step_deg)
+                    log_callback(f"  [STEP CONTROL] Center distance {center_dist:.4f} mm is close (<= 1.0 mm). Applying 0.05° step correction.")
+            else:
+                error_metric = max(size_error, center_dist)
+                optimal_offset_deg = sign * error_metric * 0.5
+                
+                # Maximum step size clamp to prevent excessive joint movements
+                max_step_deg = 5.0
+                if abs(optimal_offset_deg) > max_step_deg:
+                    if log_callback:
+                        log_callback(f"  [SAFETY CONTROL] Clamping calculated step {optimal_offset_deg:.4f}° to max limit ±{max_step_deg}°")
+                    optimal_offset_deg = np.clip(optimal_offset_deg, -max_step_deg, max_step_deg)
                 
         optimal_offset_rad = np.radians(optimal_offset_deg)
 
