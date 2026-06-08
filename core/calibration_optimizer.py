@@ -393,20 +393,20 @@ class QPCalibrationOptimizer:
             urdf_q_lower_arm = self.q_lower[self.arm_idx]
             q_lower = urdf_q_lower_arm.copy()
             q_lower[ 1] =  0.0 * D2R # rsr
-            q_lower[ 5] =  0.0 * D2R # rsr
+            # q_lower[ 5] =  0.0 * D2R # rsr
             q_lower[ 8] =-10.0 * D2R # lsr
             q_lower[ 3] =  0.0 * D2R # rep
             q_lower[10] =  0.0 * D2R # le[]
-            q_lower[12] =  0.0 * D2R # le[]
+            # q_lower[12] =  0.0 * D2R # le[]
 
             urdf_q_upper_arm = self.q_upper[self.arm_idx]
             q_upper = urdf_q_upper_arm.copy()
             q_upper[ 1] = 10.0 * D2R# rsr
-            q_upper[ 5] = 0.1 * D2R# rsr
+            # q_upper[ 5] = 0.1 * D2R# rsr
             q_upper[ 8] =  0.0 * D2R# lsr
             q_upper[ 3] =  2.0 * D2R# rep
             q_upper[10] =  2.0 * D2R# lep
-            q_upper[12] =  0.1 * D2R# lep
+            # q_upper[12] =  0.1 * D2R# lep
 
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)
