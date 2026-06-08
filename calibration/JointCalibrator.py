@@ -560,13 +560,12 @@ class JointCalibrator(BaseCalibrator):
         a_A_cam /= np.linalg.norm(a_A_cam)
         a_B_cam_nom /= np.linalg.norm(a_B_cam_nom)
 
-        from MarkerCalibrator import MarkerCalibrator
         # Fit Sweep A rotation axis in camera frame using constrained circle fitting (using nominal axis as prior)
-        res_A = MarkerCalibrator.fit_circle_3d_and_6dof_misalignment(
+        res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
             poses_A, angles_A, axis_prior=a_A_cam
         )
         # Fit Sweep B rotation axis in camera frame using constrained circle fitting (using nominal axis as prior)
-        res_B = MarkerCalibrator.fit_circle_3d_and_6dof_misalignment(
+        res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
             poses_B, angles_B, axis_prior=a_B_cam_nom
         )
         
@@ -680,7 +679,7 @@ class JointCalibrator(BaseCalibrator):
                     T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
                     captured_poses_torso.append(T_t5_to_marker)
                     
-                marker_6_res = MarkerCalibrator.fit_circle_3d_and_6dof_misalignment(
+                marker_6_res = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
                     captured_poses_torso, 
                     np.linspace(-20.0, 20.0, len(dataset_B)), 
                     axis_prior=[1.0, 0.0, 0.0]
