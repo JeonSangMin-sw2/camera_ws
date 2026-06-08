@@ -81,12 +81,18 @@ class JointCalibrator(BaseCalibrator):
 
             staged_offset += sign * step_correction
             final_res = res
-            
             # Elbow Safety Check: Elbow offset must unconditionally be negative.
-            if mode == "elbow" and staged_offset > 0.0:
-                if log_callback:
-                    log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Changing sign of positive staged offset {staged_offset:.4f}° to {-staged_offset:.4f}° for safety!")
-                staged_offset = -staged_offset
+            if mode == "elbow":
+                if i == 1:
+                    if log_callback:
+                        log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Forcing first staged offset {staged_offset:.4f}° to {-abs(staged_offset):.4f}° for safety!")
+                    staged_offset = -abs(staged_offset)
+                else:
+                    if staged_offset > 0.0:
+                        if log_callback:
+                            log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
+                        staged_offset = 0.0
+                    staged_offset = min(staged_offset, 0.0)
                 
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
@@ -102,10 +108,12 @@ class JointCalibrator(BaseCalibrator):
                 break
 
         # Elbow Safety Check on final recommended offset
-        if mode == "elbow" and staged_offset > 0.0:
-            if log_callback:
-                log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Changing sign of final positive offset {staged_offset:.4f}° to {-staged_offset:.4f}° for safety!")
-            staged_offset = -staged_offset
+        if mode == "elbow":
+            if staged_offset > 0.0:
+                if log_callback:
+                    log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping final positive offset {staged_offset:.4f}° to 0.0° for safety!")
+                staged_offset = 0.0
+            staged_offset = min(staged_offset, 0.0)
 
         if getattr(self, 'stop_requested', False):
             if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
@@ -372,15 +380,15 @@ class JointCalibrator(BaseCalibrator):
                 theta = np.linspace(0, 2 * np.pi, 200)
 
                 # --- 1. 2D SUBPLOT (Row 0, Col col_idx) ---
-                pts_a_proj = (pts_a - c_A) @ R_c_A[:, :2]
-                pts_b_proj = (pts_b - c_A) @ R_c_A[:, :2]
-                c_B_proj = (c_B - c_A) @ R_c_A[:, :2]
+                pts_a_proj = (pts_a - c_A_fit) @ R_c_A[:, :2]
+                pts_b_proj = (pts_b - c_A_fit) @ R_c_A[:, :2]
+                c_B_proj = (c_B_fit - c_A_fit) @ R_c_A[:, :2]
 
-                circle_A_2d_x = r_A * np.cos(theta)
-                circle_A_2d_y = r_A * np.sin(theta)
+                circle_A_2d_x = r_A_fit * np.cos(theta)
+                circle_A_2d_y = r_A_fit * np.sin(theta)
 
-                circle_B_3d = c_B + r_B * (np.cos(theta)[:, None] * R_c_B[:, 0] + np.sin(theta)[:, None] * R_c_B[:, 1])
-                circle_B_proj = (circle_B_3d - c_A) @ R_c_A[:, :2]
+                circle_B_3d = c_B_fit + r_B_fit * (np.cos(theta)[:, None] * R_c_B[:, 0] + np.sin(theta)[:, None] * R_c_B[:, 1])
+                circle_B_proj = (circle_B_3d - c_A_fit) @ R_c_A[:, :2]
 
                 ax_2d = fig.add_subplot(2, 2, col_idx + 1)
                 
@@ -832,6 +840,11 @@ class JointCalibrator(BaseCalibrator):
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
         sign = 1.0 if diff_angle > 0.0 else -1.0
+        if mode == "elbow":
+            # The physical motor driver rotation direction for Joint 3 (Elbow) is inverted 
+            # relative to the kinematics library (Dynamics FK) definition, despite sharing 
+            # the same Y-axis rotation as Wrist Pitch. We flip the control sign to match the hardware.
+            sign = -sign
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")

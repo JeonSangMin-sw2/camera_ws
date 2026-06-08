@@ -374,7 +374,9 @@ class MarkerCalibrator(BaseCalibrator):
         
         # Back-project marker poses into end-effector frame to get true 3D offset
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        T_mount_to_cam = self.make_transform(mount_to_cam)
+        # Zero out the translation offset as requested and keep only rotation components
+        mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
+        T_mount_to_cam = self.make_transform(mount_to_cam_rot_only)
         pts_ee = []
         for q_full, pose_cam_to_marker in zip(captured_q_full, captured_poses):
             try:
