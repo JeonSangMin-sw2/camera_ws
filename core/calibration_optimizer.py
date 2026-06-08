@@ -379,7 +379,8 @@ class QPCalibrationOptimizer:
         self.camera_pos_bound_m = camera_pos_bound_m
 
     def get_joint_limit(self):
-        state = self.dyn_model.make_state([self.base_link], self.model.robot_joint_names)
+        links = [self.base_link] + list(self.ee_links.values())
+        state = self.dyn_model.make_state(links, self.model.robot_joint_names)
         q_lower = self.dyn_model.get_limit_q_lower(state)
         q_upper = self.dyn_model.get_limit_q_upper(state)
         q_lower = np.asarray(q_lower, dtype=np.float64).reshape(-1)

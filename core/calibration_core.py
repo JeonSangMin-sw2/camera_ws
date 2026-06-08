@@ -261,7 +261,7 @@ def generate_sim_measurements(
     xi_t5_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
 
     optimize_head = optimize_head and q_head_list is not None and head_idx is not None
-    use_head_kinematics = q_head_list is not None and head_idx is not None
+    use_head_kinematics = optimize_head
 
 
     if use_head_kinematics:
