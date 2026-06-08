@@ -808,28 +808,36 @@ class JointCalibrator(BaseCalibrator):
         n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
         n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
         
-        # Define reference direction for B based on measured normal A and candidate axis
-        ref_B = np.cross(a_cand_cam, n_A)
-        if np.linalg.norm(ref_B) > 1e-6:
-            ref_B /= np.linalg.norm(ref_B)
-            if np.dot(ref_B, a_B_cam_nom) < 0:
-                ref_B = -ref_B
-        else:
-            ref_B = a_B_cam_nom
-
-        # Project the cross product of the reference direction and actual axis onto the candidate joint axis
-        cross_val = np.cross(ref_B, n_B)
-        proj = np.dot(cross_val, a_cand_cam)
+        # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
+        a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
+        a_B_proj = a_B_cam_nom - np.dot(a_B_cam_nom, a_cand_cam) * a_cand_cam
+        if np.linalg.norm(a_A_proj) > 1e-6:
+            a_A_proj /= np.linalg.norm(a_A_proj)
+        if np.linalg.norm(a_B_proj) > 1e-6:
+            a_B_proj /= np.linalg.norm(a_B_proj)
+            
+        nominal_angle = np.arctan2(np.dot(np.cross(a_A_proj, a_B_proj), a_cand_cam), np.dot(a_A_proj, a_B_proj))
         
-        # If proj is positive, it means the physical angle is positive, so the required offset to correct it is negative.
-        # If proj is negative, the physical angle is negative, so the required offset to correct it is positive.
-        sign = 1.0 if proj > 0 else -1.0
+        n_A_proj = n_A - np.dot(n_A, a_cand_cam) * a_cand_cam
+        n_B_proj = n_B - np.dot(n_B, a_cand_cam) * a_cand_cam
+        if np.linalg.norm(n_A_proj) > 1e-6:
+            n_A_proj /= np.linalg.norm(n_A_proj)
+        if np.linalg.norm(n_B_proj) > 1e-6:
+            n_B_proj /= np.linalg.norm(n_B_proj)
+            
+        actual_angle = np.arctan2(np.dot(np.cross(n_A_proj, n_B_proj), a_cand_cam), np.dot(n_A_proj, n_B_proj))
+        
+        diff_angle = actual_angle - nominal_angle
+        # Wrap diff_angle to [-pi, pi]
+        diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
+        
+        sign = 1.0 if diff_angle > 0.0 else -1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
             log_callback(f"  [DEBUG] Physically aligned n_B: {np.round(n_B, 4)}")
-            log_callback(f"  [DEBUG] Nominal a_B_cam_nom: {np.round(a_B_cam_nom, 4)}")
-            log_callback(f"  [DEBUG] cross(a_B_cam_nom, n_B) projection onto a_cand_cam: proj={proj:.6f}")
+            log_callback(f"  [DEBUG] Nominal angles in perp plane (deg): nominal={np.degrees(nominal_angle):.4f}, actual={np.degrees(actual_angle):.4f}")
+            log_callback(f"  [DEBUG] Perpendicular plane angle difference (deg): diff_angle={np.degrees(diff_angle):.4f}")
             log_callback(f"  [DEBUG] Mathematically resolved offset direction sign: {sign:.1f}")
         
         # Proportional correction based on circle size error (radii difference) and center distance error
