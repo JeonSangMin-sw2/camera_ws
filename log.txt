@@ -1,9 +1,104 @@
+[INFO] Starting Joint Sweep: ELBOW
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: ELBOW
+============================================================
+
+
+[ITERATION 1/8] Sweeping with staged offset 0.0000°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
+    -> Swept 49 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 49 dense raw coordinate frames during Joint A motion... downsampled to 49 for optimization.
+Swept 48 dense raw coordinate frames during Joint B motion... downsampled to 48 for optimization.
+
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-[ERROR] Worker exception: fit_circle_3d_and_6dof_misalignment: least_squares stage 1 failed: `x0` violates bound constraints.
-  init_params: [ 1.31475937e+02 -4.55334473e+01  3.49574951e+02  1.00000000e+00
-  2.22044605e-16  2.22044605e-16  0.00000000e+00 -6.87957168e-01
- -7.25751281e-01  2.17652603e+02]
-  lower_bounds: [ -68.52406311 -245.53344727  149.57495117   -1.5          -1.5
-   -1.5          -1.5          -1.5          -1.5          50.        ]
-  upper_bounds: [331.47595215 154.46655273 549.57495117   1.5          1.5
-   1.5          1.5          1.5          1.5        450.        ]
+  [DEBUG] Physically aligned n_A: [ 0.197   0.2264 -0.9539]
+  [DEBUG] Physically aligned n_B: [ 0.1998  0.1948 -0.9603]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=0.0000, actual=4.7086
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=4.7086
+  [DEBUG] Mathematically resolved offset direction sign: 1.0
+  [ANGLE CONTROL] Using angle-based calibration error: 4.7086°. Applying damped correction step: 4.4732°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+==================================================
+  * Camera Circle Normals Angle (Reference): 1.8549 deg
+  * Circle Sizes (r_A / r_B)               : 215.41 / 218.17 mm
+  * Circle Size Error (abs: r_A - r_B)     : 2.7582 mm
+  * Estimated Circle Center Distance       : 8.5508 mm
+  * Calculated Offset Correction           : 4.473205 deg
+==================================================
+[SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
+  * Alignment check: WARNING (Angle error = 1.8549°, Center distance = 8.5508 mm)
+  * Angle Error (Deviation)     : 1.8549°
+  * Circle Size Error (r_A-r_B) : 2.7582 mm
+  * Center Distance Error       : 8.5508 mm
+  * Max Fitting Error Metric    : 8.5508 mm
+  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Forcing first staged offset 4.4732° to -4.4732° for safety!
+  * Updated Absolute Offset     : -4.4732°
+
+[ITERATION 2/8] Sweeping with staged offset -4.4732°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -4.4732°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
+    -> Swept 52 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
+    -> Swept 51 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 52 dense raw coordinate frames during Joint A motion... downsampled to 52 for optimization.
+Swept 51 dense raw coordinate frames during Joint B motion... downsampled to 51 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [DEBUG] Physically aligned n_A: [ 0.1916  0.2294 -0.9543]
+  [DEBUG] Physically aligned n_B: [ 0.1933  0.2648 -0.9447]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=0.0000, actual=-3.7418
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-3.7418
+  [DEBUG] Mathematically resolved offset direction sign: -1.0
+  [ANGLE CONTROL] Using angle-based calibration error: -3.7418°. Applying damped correction step: -3.5547°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+==================================================
+  * Camera Circle Normals Angle (Reference): 2.1032 deg
+  * Circle Sizes (r_A / r_B)               : 221.85 / 217.68 mm
+  * Circle Size Error (abs: r_A - r_B)     : 4.1759 mm
+  * Estimated Circle Center Distance       : 9.0531 mm
+  * Calculated Offset Correction           : -3.554713 deg
+==================================================
+[SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
+  * Alignment check: WARNING (Angle error = 2.1032°, Center distance = 9.0531 mm)
+  * Angle Error (Deviation)     : 2.1032°
+  * Circle Size Error (r_A-r_B) : 4.1759 mm
+  * Center Distance Error       : 9.0531 mm
+  * Max Fitting Error Metric    : 9.0531 mm
+  * Updated Absolute Offset     : -8.0279°
+
+[ITERATION 3/8] Sweeping with staged offset -8.0279°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -8.0279°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
+[STOP] Stop requested by user.
+[STOP] Sending cancel_control to robot!
+[ERROR] Joint A sweep motion failed or was cancelled.
+[ERROR] Iteration 3 sweep failed. Aborting calibration.
