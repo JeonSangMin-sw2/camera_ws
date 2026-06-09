@@ -828,12 +828,8 @@ class JointCalibrator(BaseCalibrator):
         # Wrap diff_angle to [-pi, pi]
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
-        sign = 1.0 if diff_angle > 0.0 else -1.0
-        if mode == "elbow":
-            # The physical motor driver rotation direction for Joint 3 (Elbow) is inverted 
-            # relative to the kinematics library (Dynamics FK) definition, despite sharing 
-            # the same Y-axis rotation as Wrist Pitch. We flip the control sign to match the hardware.
-            sign = -sign
+        # Invert the sign for both wrist_pitch and elbow modes to match the physical motor driver rotations
+        sign = -1.0 if diff_angle > 0.0 else 1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
