@@ -88,6 +88,15 @@ class JointCalibrator(BaseCalibrator):
                             log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
                         staged_offset = 0.0
                     staged_offset = min(staged_offset, 0.0)
+            
+            # General range safety limits (0 to -3.0 degrees for elbow)
+            if mode == "elbow":
+                min_val, max_val = -3.0, 0.0
+                if staged_offset < min_val or staged_offset > max_val:
+                    if log_callback:
+                        log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{min_val}°, {max_val}°]!")
+                        log_callback(f"                   Possible fitting failure, loose bracket, or joint twist. Clamping to boundary.")
+                    staged_offset = np.clip(staged_offset, min_val, max_val)
                 
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
@@ -102,13 +111,14 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                 break
 
-        # Elbow Safety Check on final recommended offset
+        # General range safety limits on final recommended offset
         if mode == "elbow":
-            if staged_offset > 0.0:
+            min_val, max_val = -3.0, 0.0
+            if staged_offset < min_val or staged_offset > max_val:
                 if log_callback:
-                    log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping final positive offset {staged_offset:.4f}° to 0.0° for safety!")
-                staged_offset = 0.0
-            staged_offset = min(staged_offset, 0.0)
+                    log_callback(f"  [SAFETY WARNING] Recommended final offset {staged_offset:.4f}° exceeds safe bounds [{min_val}°, {max_val}°]!")
+                    log_callback(f"                   Clamping recommended offset to safe boundary.")
+                staged_offset = np.clip(staged_offset, min_val, max_val)
 
         if getattr(self, 'stop_requested', False):
             if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
@@ -735,10 +745,38 @@ class JointCalibrator(BaseCalibrator):
         # R_rob_to_cam represents the rotation from robot torso (base) to camera frame
         R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
 
-        # Nominal axes in robot torso (base) frame
-        a_cand_t5 = np.array([0.0, 1.0, 0.0])
-        a_A_t5 = np.array([0.0, 0.0, 1.0])
-        a_B_t5 = np.array([0.0, 0.0, 1.0])
+        # Calculate nominal axes dynamically using robot kinematics (Dynamics model FK)
+        # to account for intermediate joint rotations in the ready pose.
+        try:
+            if self.robot and self.robot != "mock_robot":
+                # Determine parent links for candidate and sweep joints in URDF structure
+                parent_cand = f"link_torso_5" if cand_joint == 0 else f"link_{arm_side}_arm_{cand_joint - 1}"
+                parent_A = f"link_torso_5" if sweep_joint_A == 0 else f"link_{arm_side}_arm_{sweep_joint_A - 1}"
+                parent_B = f"link_torso_5" if sweep_joint_B == 0 else f"link_{arm_side}_arm_{sweep_joint_B - 1}"
+
+                # Compute FK relative to link_torso_5
+                T_t5_to_parent_cand = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_cand, "link_torso_5")
+                T_t5_to_parent_A = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_A, "link_torso_5")
+                T_t5_to_parent_B = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_B, "link_torso_5")
+
+                R_t5_to_parent_cand = T_t5_to_parent_cand[:3, :3]
+                R_t5_to_parent_A = T_t5_to_parent_A[:3, :3]
+                R_t5_to_parent_B = T_t5_to_parent_B[:3, :3]
+
+                # Rotate nominal axes from local parent link frames to torso (link_torso_5) frame
+                a_cand_t5 = R_t5_to_parent_cand @ np.array([0.0, 1.0, 0.0])
+                a_A_t5 = R_t5_to_parent_A @ np.array([0.0, 0.0, 1.0])
+                a_B_t5 = R_t5_to_parent_B @ np.array([0.0, 0.0, 1.0])
+            else:
+                a_cand_t5 = np.array([0.0, 1.0, 0.0])
+                a_A_t5 = np.array([0.0, 0.0, 1.0])
+                a_B_t5 = np.array([0.0, 0.0, 1.0])
+        except Exception as e:
+            if log_callback:
+                log_callback(f"[WARN] Failed to compute nominal axes via FK: {e}. Falling back to hardcoded torso axes.")
+            a_cand_t5 = np.array([0.0, 1.0, 0.0])
+            a_A_t5 = np.array([0.0, 0.0, 1.0])
+            a_B_t5 = np.array([0.0, 0.0, 1.0])
 
         # Transform nominal axes directly to camera frame using fixed rotation
         a_cand_cam = R_rob_to_cam @ a_cand_t5
@@ -825,11 +863,10 @@ class JointCalibrator(BaseCalibrator):
         # Wrap diff_angle to [-pi, pi]
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
-        # Match the physical motor driver rotations (wrist_pitch and elbow modes have opposite polarities)
-        if mode == "wrist_pitch":
-            sign = 1.0 if diff_angle > 0.0 else -1.0
-        else: # elbow mode
-            sign = -1.0 if diff_angle > 0.0 else 1.0
+        # With FK-based axes, the math is naturally aligned.
+        # But we still respect any motor driver/controller inversions.
+        # Unifying the polarity since correct projection resolves the 90-degree twist in wrist_pitch.
+        sign = -1.0 if diff_angle > 0.0 else 1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
