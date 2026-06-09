@@ -738,10 +738,7 @@ class JointCalibrator(BaseCalibrator):
         # Nominal axes in robot torso (base) frame
         a_cand_t5 = np.array([0.0, 1.0, 0.0])
         a_A_t5 = np.array([0.0, 0.0, 1.0])
-        if mode == "wrist_pitch":
-            a_B_t5 = np.array([1.0, 0.0, 0.0])
-        else:
-            a_B_t5 = np.array([0.0, 0.0, 1.0])
+        a_B_t5 = np.array([0.0, 0.0, 1.0])
 
         # Transform nominal axes directly to camera frame using fixed rotation
         a_cand_cam = R_rob_to_cam @ a_cand_t5
@@ -847,7 +844,11 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            if (not use_angle_based_fitting) and (center_dist <= 1.0):
+            if use_angle_based_fitting:
+                optimal_offset_deg = sign * abs(np.degrees(diff_angle)) *0.95
+                if log_callback:
+                    log_callback(f"  [ANGLE CONTROL] Using angle-based calibration error: {np.degrees(diff_angle):.4f}°. Applying damped correction step: {optimal_offset_deg:.4f}°")
+            elif center_dist <= 1.0:
                 optimal_offset_deg = sign * 0.05
                 if log_callback:
                     log_callback(f"  [STEP CONTROL] Center distance {center_dist:.4f} mm is close (<= 1.0 mm). Applying 0.05° step correction.")
@@ -855,12 +856,12 @@ class JointCalibrator(BaseCalibrator):
                 error_metric = max(size_error, center_dist)
                 optimal_offset_deg = sign * error_metric * 0.5
                 
-                # Maximum step size clamp to prevent excessive joint movements
-                max_step_deg = 5.0
-                if abs(optimal_offset_deg) > max_step_deg:
-                    if log_callback:
-                        log_callback(f"  [SAFETY CONTROL] Clamping calculated step {optimal_offset_deg:.4f}° to max limit ±{max_step_deg}°")
-                    optimal_offset_deg = np.clip(optimal_offset_deg, -max_step_deg, max_step_deg)
+            # Maximum step size clamp to prevent excessive joint movements
+            max_step_deg = 20.0
+            if abs(optimal_offset_deg) > max_step_deg:
+                if log_callback:
+                    log_callback(f"  [SAFETY CONTROL] Clamping calculated step {optimal_offset_deg:.4f}° to max limit ±{max_step_deg}°")
+                optimal_offset_deg = np.clip(optimal_offset_deg, -max_step_deg, max_step_deg)
                 
         optimal_offset_rad = np.radians(optimal_offset_deg)
 
