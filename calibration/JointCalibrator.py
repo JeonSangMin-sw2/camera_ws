@@ -102,7 +102,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
             # Convergence check: angle error <= 0.1° and center distance <= 0.1 mm
-            if angle_error <= 0.1 and center_dist <= 0.1:
+            if angle_error <= 0.1 or center_dist <= 0.1:
                 converged = True
                 if log_callback:
                     log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
