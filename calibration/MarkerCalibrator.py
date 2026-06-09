@@ -372,17 +372,17 @@ class MarkerCalibrator(BaseCalibrator):
         n_nom = [1.0, 0.0, 0.0] if "6" in str(axis_mode).lower() else [0.0, 1.0, 0.0]
         res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom)
         
-        # Back-project marker poses into end-effector frame to get true 3D offset
+        # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        # Zero out the translation offset as requested and keep only rotation components
+        # Force camera translation components to zero as requested and use fixed rotation
         mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
-        T_mount_to_cam = self.make_transform(mount_to_cam_rot_only)
+        T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+        
         pts_ee = []
         for q_full, pose_cam_to_marker in zip(captured_q_full, captured_poses):
             try:
-                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
+                # Use strictly fixed transformation with zero translation and no live FK
+                T_t5_to_marker = T_t5_to_cam_fixed @ pose_cam_to_marker
                 T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
                 p_ee = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker @ np.array([0, 0, 0, 1])
                 pts_ee.append(p_ee[:3] * 1000.0) # in mm
@@ -417,8 +417,13 @@ class MarkerCalibrator(BaseCalibrator):
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side):
         L_5_ee = self.get_link_length(arm_side)
 
-        z_e_in_m = marker_data_6['axis']
-        y_e_in_m = marker_data_5['axis']
+        # Define fixed camera-to-robot rotation relationship (ZYX Euler: [-90.0, 0.0, -90.0])
+        R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
+        R_cam_to_rob = R_rob_to_cam.T
+
+        # Transform fitted camera axis vectors directly to the robot torso (base) frame
+        z_e_in_rob = R_cam_to_rob @ marker_data_6['axis']
+        y_e_in_rob = R_cam_to_rob @ marker_data_5['axis']
         
         if arm_side == "left":
             ideal_rpy = [90.0, 0.0, 0.0]
@@ -428,16 +433,16 @@ class MarkerCalibrator(BaseCalibrator):
         T_ee_m_ideal = self.make_transform([0, 0, 0] + ideal_rpy)
         R_ee_m_ideal = T_ee_m_ideal[:3, :3]
         
-        # Check directions
-        if np.dot(z_e_in_m, R_ee_m_ideal[:, 2]) < 0: z_e_in_m = -z_e_in_m
-        if np.dot(y_e_in_m, R_ee_m_ideal[:, 1]) < 0: y_e_in_m = -y_e_in_m
+        # Check directions in robot frame
+        if np.dot(z_e_in_rob, R_ee_m_ideal[:, 2]) < 0: z_e_in_rob = -z_e_in_rob
+        if np.dot(y_e_in_rob, R_ee_m_ideal[:, 1]) < 0: y_e_in_rob = -y_e_in_rob
         
-        # Orthogonalize
-        y_e_in_m = y_e_in_m - np.dot(y_e_in_m, z_e_in_m) * z_e_in_m
-        y_e_in_m /= np.linalg.norm(y_e_in_m)
-        x_e_in_m = np.cross(y_e_in_m, z_e_in_m)
+        # Orthogonalize in robot frame
+        y_e_in_rob = y_e_in_rob - np.dot(y_e_in_rob, z_e_in_rob) * z_e_in_rob
+        y_e_in_rob /= np.linalg.norm(y_e_in_rob)
+        x_e_in_rob = np.cross(y_e_in_rob, z_e_in_rob)
         
-        R_ee_m_actual = np.column_stack((x_e_in_m, y_e_in_m, z_e_in_m))
+        R_ee_m_actual = np.column_stack((x_e_in_rob, y_e_in_rob, z_e_in_rob))
         
         # Enforce zero Z-axis twist constraint: Yaw is always 0.0 (left) or 180.0 (right)
         yaw_fixed = 0.0 if arm_side == "left" else 180.0
@@ -451,28 +456,14 @@ class MarkerCalibrator(BaseCalibrator):
         radius_6 = marker_data_6['radius']
         radius_5 = marker_data_5['radius']
         
-        # Back-projected marker points average to estimate offset
-        pts_ee_5 = marker_data_5.get('pts_ee', np.zeros((0, 3)))
-        pts_ee_6 = marker_data_6.get('pts_ee', np.zeros((0, 3)))
-        
-        all_pts_ee = []
-        if len(pts_ee_5) > 0:
-            all_pts_ee.extend(pts_ee_5)
-        if len(pts_ee_6) > 0:
-            all_pts_ee.extend(pts_ee_6)
-            
-        if len(all_pts_ee) > 0:
-            mean_pt_ee = np.mean(all_pts_ee, axis=0)
-            x_e = mean_pt_ee[0]
-            y_e = mean_pt_ee[1]
-            z_e = mean_pt_ee[2]
-        else:
-            x_e = 0.0
-            y_e = radius_6 if arm_side == "left" else -radius_6
-            z_e = -abs(radius_5 - L_5_ee)
+        # Calculate offsets directly from circle radii and physical link length
+        # strictly bypassing back-projected coordinates average as requested by the user
+        x_e = 0.0
+        y_e = radius_6 if arm_side == "left" else -radius_6
+        z_e = -abs(radius_5 - L_5_ee)
             
         # Analysis Orthogonality / Quality metrics
-        dot_val = np.dot(z_e_in_m, y_e_in_m)
+        dot_val = np.dot(z_e_in_rob, y_e_in_rob)
         angle_between = np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0)))
         ortho_err = abs(90.0 - angle_between)
         

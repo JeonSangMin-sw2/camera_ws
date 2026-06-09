@@ -249,49 +249,74 @@ class MarkerCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
     
-    def __init__(self, calibrator, arm_side, axis_mode, use_head_tracking=True):
+    def __init__(self, calibrator, arm_side, use_head_tracking=True):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
-        self.axis_mode = axis_mode  # 6 or 5
         self.use_head_tracking = use_head_tracking
         
     def run(self):
         try:
-            res = self.calibrator.perform_calibration_sweep(
-                self.arm_side, self.axis_mode, 
+            self.log_signal.emit("\n" + "="*50)
+            self.log_signal.emit("   STARTING TWO-STAGE UNIFIED MARKER SWEEP")
+            self.log_signal.emit("   [Stage 1/2] Sweeping Axis 6 (Roll)...")
+            self.log_signal.emit("="*50 + "\n")
+            
+            # 1. Axis 6 sweep
+            res_6 = self.calibrator.perform_calibration_sweep(
+                self.arm_side, 6, 
                 log_callback=self.log_signal.emit, 
                 status_callback=self.status_signal.emit,
                 use_head_tracking=self.use_head_tracking
             )
+            if not res_6:
+                self.log_signal.emit("[ERROR] Stage 1 (Axis 6) sweep failed. Aborting.")
+                self.finished_signal.emit(None)
+                return
+                
+            res_6['axis_mode'] = 6
+            res_6['axis'] = res_6['axis_opt']
             
-            if res:
-                res['axis_mode'] = self.axis_mode
-                res['axis'] = res['axis_opt']
-                fitting_score = max(0.0, 100.0 * (1.0 - res['rmse'] / 4.0))
+            if getattr(self.calibrator, 'stop_requested', False):
+                self.finished_signal.emit(None)
+                return
                 
-                self.log_signal.emit(f"  [1] Geometric Tracking Stability:")
-                self.log_signal.emit(f"      Radius (Center-to-Axis): {res['radius']:.2f} mm")
-                self.log_signal.emit(f"      Quality Score (FIT): {fitting_score:.1f}%")
-                self.log_signal.emit(f"      Jitter (StdDev): {np.std(res['tilt_list']):.2f} deg")
-                self.log_signal.emit("-" * 30)
+            time.sleep(1.0)
+            
+            self.log_signal.emit("\n" + "="*50)
+            self.log_signal.emit("   [Stage 2/2] Sweeping Axis 5 (Pitch)...")
+            self.log_signal.emit("="*50 + "\n")
+            
+            # 2. Axis 5 sweep
+            res_5 = self.calibrator.perform_calibration_sweep(
+                self.arm_side, 5, 
+                log_callback=self.log_signal.emit, 
+                status_callback=self.status_signal.emit,
+                use_head_tracking=self.use_head_tracking
+            )
+            if not res_5:
+                self.log_signal.emit("[ERROR] Stage 2 (Axis 5) sweep failed. Aborting.")
+                self.finished_signal.emit(None)
+                return
                 
-                self.log_signal.emit(f"  [2] Robust Axis Alignment (Median):")
-                if self.axis_mode == 6:
-                    self.log_signal.emit(f"      Roll  (Tilt): {res['tilt']:.2f} deg")
-                    self.log_signal.emit(f"      Yaw   (Torsion): {res['yaw']:.2f} deg")
-                else:
-                    self.log_signal.emit(f"      Tilt  (Inclination): {res['tilt']:.2f} deg")
-                    self.log_signal.emit(f"      Yaw   (Torsion): {res['yaw']:.2f} deg")
-                self.log_signal.emit("="*40)
-                self.log_signal.emit("\n[SWEEP SUCCESSFUL]\n")
-                
-                # Plotting
-                plt.figure(figsize=(6, 6))
-                plt.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c='b', label='Captured Points')
+            res_5['axis_mode'] = 5
+            res_5['axis'] = res_5['axis_opt']
+            
+            # 3. Compute unified bracket calibration
+            self.log_signal.emit("\n[PROCESSING] Computing unified bracket calibration parameters...")
+            unified_res = self.calibrator.compute_unified_bracket_calibration(res_5, res_6, self.arm_side)
+            
+            unified_res['res_5'] = res_5
+            unified_res['res_6'] = res_6
+            
+            # 4. Generate combined single plot (1 row, 2 columns)
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            
+            def plot_single_axis(ax, res, axis_num, color):
+                ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured Points')
                 circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fitted Circle')
-                plt.gca().add_patch(circle)
-                plt.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
+                ax.add_patch(circle)
+                ax.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
                 
                 x_min, x_max = res['pts_2d'][:, 0].min(), res['pts_2d'][:, 0].max()
                 y_min, y_max = res['pts_2d'][:, 1].min(), res['pts_2d'][:, 1].max()
@@ -299,26 +324,33 @@ class MarkerCalibrationWorker(QThread):
                 margin = max(1.0, span * 0.5)
                 cx = (x_max + x_min) / 2
                 cy = (y_max + y_min) / 2
-                plt.xlim(cx - span/2 - margin, cx + span/2 + margin)
-                plt.ylim(cy - span/2 - margin, cy + span/2 + margin)
-                plt.gca().set_aspect('equal')
-                plt.grid(True)
-                plt.title(f"Axis {self.axis_mode} Sweep (RMSE: {res['rmse']:.3f})")
-                plt.legend()
-                
-                # result_img 디렉토리 아래에 저장하도록 수정
-                result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
-                os.makedirs(result_dir, exist_ok=True)
-                plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_axis_{self.axis_mode}.png")
-                plt.savefig(plot_path)
-                plt.close()
-                
-                res['plot_path'] = plot_path
-                self.finished_signal.emit(res)
-            else:
-                self.finished_signal.emit(None)
+                ax.set_xlim(cx - span/2 - margin, cx + span/2 + margin)
+                ax.set_ylim(cy - span/2 - margin, cy + span/2 + margin)
+                ax.set_aspect('equal')
+                ax.grid(True)
+                ax.set_title(f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {res['rmse']:.3f})")
+                ax.legend()
+            
+            plot_single_axis(ax1, res_6, 6, 'blue')
+            plot_single_axis(ax2, res_5, 5, 'green')
+            
+            fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
+                         f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
+                         f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}°", fontsize=12, fontweight='bold')
+            plt.tight_layout()
+            
+            result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+            os.makedirs(result_dir, exist_ok=True)
+            plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_marker_unified.png")
+            plt.savefig(plot_path, dpi=150)
+            plt.close()
+            
+            unified_res['plot_path_combined'] = plot_path
+            self.finished_signal.emit(unified_res)
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Worker exception: {e}")
+            import traceback
+            self.log_signal.emit(traceback.format_exc())
             self.finished_signal.emit(None)
 
 class JointCalibrationWorker(QThread):
@@ -732,14 +764,11 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_result.setStyleSheet("background-color: #2e7d32; color: white;")
         self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
         
-        marker_sublayout.addWidget(QLabel("Sweep Target:"))
-        marker_sublayout.addWidget(self.marker_axis_sel)
         marker_sublayout.addLayout(tol_lay)
         marker_sublayout.addWidget(self.cb_head_tracking)
         marker_sublayout.addWidget(self.btn_marker_ready)
         marker_sublayout.addWidget(self.btn_marker_center)
         marker_sublayout.addWidget(self.btn_marker_start)
-        marker_sublayout.addWidget(self.btn_marker_result)
         marker_subtab.setLayout(marker_sublayout)
         self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
         
@@ -1384,7 +1413,8 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_ready.setEnabled(enabled)
         self.btn_marker_center.setEnabled(enabled)
         self.btn_marker_start.setEnabled(enabled)
-        self.btn_marker_result.setEnabled(enabled)
+        if hasattr(self, 'btn_marker_result'):
+            self.btn_marker_result.setEnabled(enabled)
         
         self.btn_int_capture.setEnabled(enabled)
         self.btn_int_calibrate.setEnabled(enabled)
@@ -1403,7 +1433,8 @@ class UnifiedCalibrationApp(QWidget):
         self.arm_sel.setEnabled(enabled)
         self.joint_mode_sel.setEnabled(enabled)
         self.int_side_sel.setEnabled(enabled)
-        self.marker_axis_sel.setEnabled(enabled)
+        if hasattr(self, 'marker_axis_sel'):
+            self.marker_axis_sel.setEnabled(enabled)
         if hasattr(self, 'btn_camera_feed'):
             self.btn_camera_feed.setEnabled(True) # Keep camera feed button enabled always!
 
@@ -1592,7 +1623,6 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
-        axis_mode = 6 if "6" in self.marker_axis_sel.currentText() else 5
         use_head = self.cb_head_tracking.isChecked()
 
         self.set_controls_enabled(False)
@@ -1602,73 +1632,103 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_calibrator.stop_requested = False
         self.marker_calibrator.stop_requested = False
         self.log_text.clear()
-        self.log_msg(f"[INFO] Starting Marker Sweep: Axis {axis_mode} (Head Tracking: {use_head})")
+        self.log_msg(f"[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: {use_head})")
 
         if self.ui_only:
-            # Simulate marker sweep results
+            # Simulate unified marker sweep results
             class MockMarkerWorker(QThread):
                 log_sig = Signal(str)
                 finished_sig = Signal(dict)
-                def __init__(self, axis_mode, arm_side):
+                def __init__(self, arm_side):
                     super().__init__()
-                    self.axis_mode = axis_mode
                     self.arm_side = arm_side
                 def run(self):
+                    time.sleep(0.5)
+                    self.log_sig.emit("[MOCK] Starting Stage 1 (Axis 6 sweep)...")
                     time.sleep(1.0)
-                    self.log_sig.emit("[MOCK] Running sweeps...")
-                    theta = np.linspace(-np.pi/6, np.pi/6, 11)
-                    if self.axis_mode == 6:
-                        pts = np.column_stack((np.cos(theta)*74.8 + 0.1, np.sin(theta)*74.8 - 0.2))
-                        res = {
-                            'axis_mode': 6,
-                            'radius': 74.85,
-                            'rmse': 0.12,
-                            'axis': np.array([0.01, -0.999, 0.02]),
-                            'center': np.array([0.5, 1.2, 0.3]),
-                            'pts_2d': pts,
-                            'uc_opt': 0.1,
-                            'vc_opt': -0.2,
-                            'tilt': 89.48,
-                            'yaw': 1.4,
-                            'tilt_list': [89.48]*11
-                        }
-                    else:
-                        pts = np.column_stack((np.cos(theta)*280.2 + 0.5, np.sin(theta)*280.2 + 0.4))
-                        res = {
-                            'axis_mode': 5,
-                            'radius': 280.15,
-                            'rmse': 0.18,
-                            'axis': np.array([0.02, 0.03, 0.999]),
-                            'center': np.array([1.2, 0.8, -0.4]),
-                            'pts_2d': pts,
-                            'uc_opt': 0.5,
-                            'vc_opt': 0.4,
-                            'tilt': 0.25,
-                            'yaw': -20.68,
-                            'tilt_list': [0.25]*11
-                        }
+                    self.log_sig.emit("[MOCK] Stage 1 finished. Starting Stage 2 (Axis 5 sweep)...")
+                    time.sleep(1.0)
+                    self.log_sig.emit("[MOCK] Stage 2 finished. Calculating unified results...")
                     
-                    plt.figure(figsize=(5, 5))
-                    plt.scatter(pts[:, 0], pts[:, 1], c='b')
-                    plt.gca().add_patch(plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False))
-                    plt.title(f"Mock Axis {self.axis_mode}")
-                    plt.grid(True)
+                    theta = np.linspace(-np.pi/6, np.pi/6, 11)
+                    res_6 = {
+                        'axis_mode': 6,
+                        'radius': 74.85,
+                        'rmse': 0.12,
+                        'axis': np.array([0.01, -0.999, 0.02]),
+                        'center': np.array([0.5, 1.2, 0.3]),
+                        'pts_2d': np.column_stack((np.cos(theta)*74.8 + 0.1, np.sin(theta)*74.8 - 0.2)),
+                        'uc_opt': 0.1,
+                        'vc_opt': -0.2,
+                        'tilt': 89.48,
+                        'yaw': 1.4,
+                        'tilt_list': [89.48]*11
+                    }
+                    res_5 = {
+                        'axis_mode': 5,
+                        'radius': 280.15,
+                        'rmse': 0.18,
+                        'axis': np.array([0.02, 0.03, 0.999]),
+                        'center': np.array([1.2, 0.8, -0.4]),
+                        'pts_2d': np.column_stack((np.cos(theta)*280.2 + 0.5, np.sin(theta)*280.2 + 0.4)),
+                        'uc_opt': 0.5,
+                        'vc_opt': 0.4,
+                        'tilt': 0.25,
+                        'yaw': -20.68,
+                        'tilt_list': [0.25]*11
+                    }
+                    
+                    unified_res = {
+                        'x_e': 0.0,
+                        'y_e': 74.85 if self.arm_side == "left" else -74.85,
+                        'z_e': -50.15,
+                        'roll_e': 0.15,
+                        'pitch_e': -0.25,
+                        'yaw_e': 0.0 if self.arm_side == "left" else 180.0,
+                        'L_5_ee': 330.0,
+                        'radius_6': 74.85,
+                        'radius_5': 280.15,
+                        'ortho_err': 0.1,
+                        'rmse_6': 0.12,
+                        'rmse_5': 0.18,
+                        'rot_err_deg': 0.2,
+                        'tilt_diff': 0.05
+                    }
+                    unified_res['res_5'] = res_5
+                    unified_res['res_6'] = res_6
+                    
+                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+                    def plot_single(ax, res, axis_num, color):
+                        ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured')
+                        circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fit')
+                        ax.add_patch(circle)
+                        ax.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
+                        ax.set_aspect('equal')
+                        ax.grid(True)
+                        ax.set_title(f"Axis {axis_num} Sweep (MOCK)")
+                        ax.legend()
+                        
+                    plot_single(ax1, res_6, 6, 'blue')
+                    plot_single(ax2, res_5, 5, 'green')
+                    
+                    fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK")
+                    plt.tight_layout()
                     
                     result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
                     os.makedirs(result_dir, exist_ok=True)
-                    plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_axis_{self.axis_mode}.png")
-                    
-                    plt.savefig(plot_path)
+                    plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_marker_unified.png")
+                    plt.savefig(plot_path, dpi=150)
                     plt.close()
-                    res['plot_path'] = plot_path
-                    self.finished_sig.emit(res)
+                    
+                    unified_res['plot_path_combined'] = plot_path
+                    self.finished_sig.emit(unified_res)
             
-            self.active_worker = MockMarkerWorker(axis_mode, self.arm_side)
+            self.active_worker = MockMarkerWorker(self.arm_side)
             self.active_worker.log_sig.connect(self.log_msg)
             self.active_worker.finished_sig.connect(self.on_calibration_finished_marker)
             self.active_worker.start()
         else:
-            self.active_worker = MarkerCalibrationWorker(self.marker_calibrator, self.arm_side, axis_mode, use_head_tracking=use_head)
+            self.active_worker = MarkerCalibrationWorker(self.marker_calibrator, self.arm_side, use_head_tracking=use_head)
             self.active_worker.log_signal.connect(self.log_msg)
             self.active_worker.status_signal.connect(self.update_marker_indicator)
             self.active_worker.finished_signal.connect(self.on_calibration_finished_marker)
@@ -1678,18 +1738,52 @@ class UnifiedCalibrationApp(QWidget):
         self.on_action_finished()
 
         if res:
-            if res['axis_mode'] == 6:
-                self.marker_data_6 = res
-            else:
-                self.marker_data_5 = res
+            self.marker_data_unified = res
+            self.marker_data_5 = res['res_5']
+            self.marker_data_6 = res['res_6']
                 
-            if 'plot_path' in res and os.path.exists(res['plot_path']):
-                pix = QPixmap(res['plot_path']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
+                pix = QPixmap(res['plot_path_combined']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 self.plot_label_combined.setPixmap(pix)
             
             self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
+            self.show_unified_result_marker_direct(res)
         else:
             self.log_msg("[ERROR] Marker sweep failed.")
+
+    def show_unified_result_marker_direct(self, res):
+        self.log_msg("\n" + "="*50)
+        self.log_msg("       UNIFIED BRACKET CALIBRATION RESULTS")
+        self.log_msg("="*50)
+        
+        self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
+        self.log_msg(f"    - X-Offset: {res['x_e']:.2f} mm")
+        self.log_msg(f"    - Y-Offset: {res['y_e']:.2f} mm")
+        self.log_msg(f"    - Z-Offset: {res['z_e']:.2f} mm")
+        self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm)")
+            
+        self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
+        self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")
+        self.log_msg(f"    - Pitch: {res['pitch_e']:.2f} deg")
+        self.log_msg(f"    - Yaw  : {res['yaw_e']:.2f} deg")
+        
+        self.log_msg("\n[3] setting.yaml Config Update values:")
+        x_m, y_m, z_m = res['x_e']/1000.0, res['y_e']/1000.0, res['z_e']/1000.0
+        
+        if self.arm_side == "left":
+            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+        else:
+            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+            
+        self.log_msg(f"\n[4] Confidence Metrics:")
+        self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
+        
+        if res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5:
+            self.log_msg("\n" + "!"*60)
+            self.log_msg(" [WARNING] Fitting RMSE exceeds 0.5 mm!")
+            self.log_msg("  The marker coordinates may have high noise. Check hardware.")
+            self.log_msg("!"*60)
+        self.log_msg("="*50)
 
     def show_unified_result_marker(self):
         self.log_msg("\n" + "="*50)

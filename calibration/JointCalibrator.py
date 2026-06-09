@@ -72,14 +72,9 @@ class JointCalibrator(BaseCalibrator):
             # When looking at angle error (use_angle_based_fitting is True), we deactivate the 0.05 deg step correction.
             # Otherwise (when use_angle_based_fitting is False), if circle center distance is close (<= 1.0 mm),
             # we apply a 0.05 deg step correction instead of the raw angle_error.
-            if (not use_angle_based_fitting) and (center_dist <= 1.0):
-                step_correction = 0.05
-                if log_callback:
-                    log_callback(f"  [STEP CONTROL] Center distance {center_dist:.4f} mm is close (<= 1.0 mm). Applying 0.05° step correction instead of {angle_error:.4f}°.")
-            else:
-                step_correction = angle_error
-
-            staged_offset += sign * step_correction
+            # Use the pre-calculated damped optimal offset correction to ensure convergence
+            step_correction = res.get('optimal_offset', 0.0)
+            staged_offset += step_correction
             final_res = res
             # Elbow Safety Check: Elbow offset must unconditionally be negative.
             if mode == "elbow":
@@ -611,17 +606,17 @@ class JointCalibrator(BaseCalibrator):
         if getattr(self, 'stop_requested', False):
             return None
 
-        # Return to baseline candidate pose
-        if arm_side == "left":
-            ok = self.movej(self.robot, left_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
-        else:
-            ok = self.movej(self.robot, right_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
+        # # Return to baseline candidate pose
+        # if arm_side == "left":
+        #     ok = self.movej(self.robot, left_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
+        # else:
+        #     ok = self.movej(self.robot, right_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
             
-        if not ok or getattr(self, 'stop_requested', False):
-            if log_callback: log_callback("[ERROR] Failed to return to baseline candidate pose or stop was requested.")
-            return None
+        # if not ok or getattr(self, 'stop_requested', False):
+        #     if log_callback: log_callback("[ERROR] Failed to return to baseline candidate pose or stop was requested.")
+        #     return None
             
-        time.sleep(1.0)
+        time.sleep(0.5)
 
         # 2. PHYSICAL SWEEP JOINT B
         if log_callback: log_callback(f"\n--- [2/2] Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
@@ -736,32 +731,26 @@ class JointCalibrator(BaseCalibrator):
         active_offset = self.joint_offsets.get(mode, 0.0)
         q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
         
-        a_cand_local = np.array([0.0, 1.0, 0.0])
-        a_A_local = np.array([0.0, 0.0, 1.0])
-        if mode == "wrist_pitch":
-            a_B_local = np.array([1.0, 0.0, 0.0])
-        else:
-            a_B_local = np.array([0.0, 0.0, 1.0])
+        # Define fixed camera-to-robot rotation relationship (ZYX Euler: [-90.0, 0.0, -90.0])
+        # R_rob_to_cam represents the rotation from robot torso (base) to camera frame
+        R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
 
-        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, "link_head_2", "link_torso_5")
-        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-        
-        parent_link_A = f"link_{arm_side}_arm_{sweep_joint_A}"
-        parent_link_B = f"link_{arm_side}_arm_{sweep_joint_B}"
-        
-        T_t5_to_parent_A = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_A, base_link="link_torso_5")
-        T_t5_to_parent_B = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, parent_link_B, base_link="link_torso_5")
-        
-        # Transform local axes to torso frame
-        a_cand_t5 = T_t5_to_parent_A[:3, :3] @ a_cand_local
-        a_A_t5 = T_t5_to_parent_A[:3, :3] @ a_A_local
-        a_B_t5 = T_t5_to_parent_B[:3, :3] @ a_B_local
-        
-        # Transform from torso frame to camera frame (R_torso_to_cam = T_t5_to_cam[:3, :3].T)
-        R_t5_to_cam = T_t5_to_cam[:3, :3].T
-        a_cand_cam = R_t5_to_cam @ a_cand_t5
-        a_A_cam = R_t5_to_cam @ a_A_t5
-        a_B_cam_nom = R_t5_to_cam @ a_B_t5
+        # Nominal axes in robot torso (base) frame
+        a_cand_t5 = np.array([0.0, 1.0, 0.0])
+        a_A_t5 = np.array([0.0, 0.0, 1.0])
+        if mode == "wrist_pitch":
+            a_B_t5 = np.array([1.0, 0.0, 0.0])
+        else:
+            a_B_t5 = np.array([0.0, 0.0, 1.0])
+
+        # Transform nominal axes directly to camera frame using fixed rotation
+        a_cand_cam = R_rob_to_cam @ a_cand_t5
+        a_A_cam = R_rob_to_cam @ a_A_t5
+        a_B_cam_nom = R_rob_to_cam @ a_B_t5
+
+        # Define T_t5_to_cam using fixed rotation and zero translation (strictly camera fixed, no FK)
+        T_t5_to_cam = np.eye(4)
+        T_t5_to_cam[:3, :3] = R_rob_to_cam #->
         
         a_cand_cam /= np.linalg.norm(a_cand_cam)
         a_A_cam /= np.linalg.norm(a_A_cam)
@@ -902,9 +891,8 @@ class JointCalibrator(BaseCalibrator):
         if mode == "wrist_pitch":
             try:
                 captured_poses_torso = []
-                for q_full, pose_cam_to_marker in dataset_B:
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                for _, pose_cam_to_marker in dataset_B:
+                    # T_t5_to_cam is fixed camera rotation matrix
                     T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
                     captured_poses_torso.append(T_t5_to_marker)
                     
