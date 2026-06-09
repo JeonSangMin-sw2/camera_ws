@@ -13,14 +13,21 @@
 ==================================================
 
 --- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 48 dense raw coordinate frames during Joint A motion.
+    -> Swept 146 dense raw coordinate frames during Joint A motion.
 
 --- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 48 dense raw coordinate frames during Joint B motion.
+    -> Swept 149 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 48 dense raw coordinate frames during Joint A motion... downsampled to 48 for optimization.
-Swept 48 dense raw coordinate frames during Joint B motion... downsampled to 48 for optimization.
+Swept 146 dense raw coordinate frames during Joint A motion... downsampled to 146 for optimization.
+Swept 149 dense raw coordinate frames during Joint B motion... downsampled to 149 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
 [ERROR] Worker exception: `x0` violates bound constraints.
+
+
+
+2026-06-09 13:49:31,517 [INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
+2026-06-09 13:49:32,019 [INFO] Enabling control manager with unlimited_mode_enabled=True...
+2026-06-09 13:49:39,941 [ERROR] Failed to conduct movej. Finish code: FinishCode.Unknown
+
