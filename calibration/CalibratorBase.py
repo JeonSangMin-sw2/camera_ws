@@ -431,8 +431,8 @@ class BaseCalibrator:
                 r_dir_init /= np.linalg.norm(r_dir_init)
             
             init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
-            lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
-            upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+            lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
+            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])
             # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
             init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
             
@@ -487,8 +487,8 @@ class BaseCalibrator:
                 break
                 
             init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
-            lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
-            upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+            lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
+            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])
             # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
             init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
             
@@ -565,8 +565,8 @@ class BaseCalibrator:
                 residuals.extend(pt - pred_pt)
             return np.array(residuals)
             
-        lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
-        upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+        lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
+        upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])
         # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
         init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
         
