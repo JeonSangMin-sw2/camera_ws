@@ -1,278 +1,490 @@
-[INFO] Starting Joint Sweep: ELBOW
+[INFO] Starting Joint Sweep: WRIST_PITCH
 
 ============================================================
    STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
-   Target Arm: RIGHT | Joint Target: ELBOW
+   Target Arm: RIGHT | Joint Target: WRIST_PITCH
 ============================================================
 
 
-[ITERATION 1/8] Sweeping with staged offset 0.0000°...
+[ITERATION 1/8] Sweeping with staged offset -5.7566°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7566°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 57 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 62 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 47 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 57 dense raw coordinate frames during Joint A motion... downsampled to 57 for optimization.
-Swept 62 dense raw coordinate frames during Joint B motion... downsampled to 62 for optimization.
+Swept 48 dense raw coordinate frames during Joint A motion... downsampled to 48 for optimization.
+Swept 47 dense raw coordinate frames during Joint B motion... downsampled to 47 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [DEBUG] Physically aligned n_A: [ 0.1785  0.2325 -0.9561]
-  [DEBUG] Physically aligned n_B: [-0.1784 -0.1953  0.9644]
-  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.0002, actual=-170.7694
-  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-170.7692
+  [DEBUG] Physically aligned n_A: [ 0.914   0.2674 -0.3051]
+  [DEBUG] Physically aligned n_B: [ 0.9157  0.2604 -0.3059]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3810, actual=-0.3937
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-0.0128
   [DEBUG] Mathematically resolved offset direction sign: 1.0
-  [ANGLE CONTROL] Using angle-based calibration error: -170.7692°. Applying damped correction step: 162.2307°
-  [SAFETY CONTROL] Clamping calculated step 162.2307° to max limit ±20.0°
+  [ANGLE CONTROL] Using angle-based calibration error: -0.0128°. Applying damped correction step: 0.0121°
 
 ==================================================
-   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 2.1845 deg
-  * Circle Sizes (r_A / r_B)               : 215.60 / 218.57 mm
-  * Circle Size Error (abs: r_A - r_B)     : 2.9728 mm
-  * Estimated Circle Center Distance       : 8.4626 mm
-  * Calculated Offset Correction           : 20.000000 deg
+  * Camera Circle Normals Angle (Reference): 0.4137 deg
+  * Circle Sizes (r_A / r_B)               : 68.84 / 68.77 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.0698 mm
+  * Estimated Circle Center Distance       : 1.7124 mm
+  * Calculated Offset Correction           : 0.012120 deg
 ==================================================
 [SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
-  * Alignment check: WARNING (Angle error = 2.1845°, Center distance = 8.4626 mm)
-  * Angle Error (Deviation)     : 2.1845°
-  * Circle Size Error (r_A-r_B) : 2.9728 mm
-  * Center Distance Error       : 8.4626 mm
-  * Max Fitting Error Metric    : 8.4626 mm
-  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Forcing first staged offset 20.0000° to -20.0000° for safety!
-  [SAFETY WARNING] Staged offset -20.0000° exceeds safe bounds [-3.0°, 0.0°]!
-                   Possible fitting failure, loose bracket, or joint twist. Clamping to boundary.
-  * Updated Absolute Offset     : -3.0000°
+  * Alignment check: WARNING (Angle error = 0.4137°, Center distance = 1.7124 mm)
 
-[ITERATION 2/8] Sweeping with staged offset -3.0000°...
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 69.367 mm
+    - Axis Direction Vector  : [-0.3059 -0.9157 -0.2604]
+    - Jitter StdDev (Tilt)   : 11.144 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.4137°
+  * Circle Size Error (r_A-r_B) : 0.0698 mm
+  * Center Distance Error       : 1.7124 mm
+  * Max Fitting Error Metric    : 1.7124 mm
+  * Updated Absolute Offset     : -5.7445°
+
+[ITERATION 2/8] Sweeping with staged offset -5.7445°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -3.0000°]
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7445°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 58 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 47 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 61 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 49 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 58 dense raw coordinate frames during Joint A motion... downsampled to 58 for optimization.
-Swept 61 dense raw coordinate frames during Joint B motion... downsampled to 61 for optimization.
+Swept 47 dense raw coordinate frames during Joint A motion... downsampled to 47 for optimization.
+Swept 49 dense raw coordinate frames during Joint B motion... downsampled to 49 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [DEBUG] Physically aligned n_A: [ 0.2043  0.2286 -0.9519]
-  [DEBUG] Physically aligned n_B: [ 0.2087  0.2423 -0.9475]
-  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.0002, actual=-2.5810
-  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-2.5808
+  [DEBUG] Physically aligned n_A: [ 0.9138  0.2671 -0.306 ]
+  [DEBUG] Physically aligned n_B: [ 0.916   0.2607 -0.3049]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3810, actual=-0.3967
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-0.0157
   [DEBUG] Mathematically resolved offset direction sign: 1.0
-  [ANGLE CONTROL] Using angle-based calibration error: -2.5808°. Applying damped correction step: 2.4518°
+  [ANGLE CONTROL] Using angle-based calibration error: -0.0157°. Applying damped correction step: 0.0149°
 
 ==================================================
-   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 0.8635 deg
-  * Circle Sizes (r_A / r_B)               : 219.47 / 218.01 mm
-  * Circle Size Error (abs: r_A - r_B)     : 1.4534 mm
-  * Estimated Circle Center Distance       : 3.2676 mm
-  * Calculated Offset Correction           : 2.451778 deg
+  * Camera Circle Normals Angle (Reference): 0.3967 deg
+  * Circle Sizes (r_A / r_B)               : 68.87 / 68.76 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.1024 mm
+  * Estimated Circle Center Distance       : 1.2802 mm
+  * Calculated Offset Correction           : 0.014910 deg
 ==================================================
 [SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
-  * Alignment check: WARNING (Angle error = 0.8635°, Center distance = 3.2676 mm)
-  * Angle Error (Deviation)     : 0.8635°
-  * Circle Size Error (r_A-r_B) : 1.4534 mm
-  * Center Distance Error       : 3.2676 mm
-  * Max Fitting Error Metric    : 3.2676 mm
-  * Updated Absolute Offset     : -0.5482°
+  * Alignment check: WARNING (Angle error = 0.3967°, Center distance = 1.2802 mm)
 
-[ITERATION 3/8] Sweeping with staged offset -0.5482°...
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 69.630 mm
+    - Axis Direction Vector  : [0.3051 0.916  0.2607]
+    - Jitter StdDev (Tilt)   : 11.165 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.3967°
+  * Circle Size Error (r_A-r_B) : 0.1024 mm
+  * Center Distance Error       : 1.2802 mm
+  * Max Fitting Error Metric    : 1.2802 mm
+  * Updated Absolute Offset     : -5.7296°
+
+[ITERATION 3/8] Sweeping with staged offset -5.7296°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -0.5482°]
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7296°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 64 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 64 dense raw coordinate frames during Joint A motion... downsampled to 64 for optimization.
-Swept 68 dense raw coordinate frames during Joint B motion... downsampled to 68 for optimization.
+Swept 48 dense raw coordinate frames during Joint A motion... downsampled to 48 for optimization.
+Swept 48 dense raw coordinate frames during Joint B motion... downsampled to 48 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [DEBUG] Physically aligned n_A: [ 0.2015  0.2276 -0.9527]
-  [DEBUG] Physically aligned n_B: [ 0.1671  0.2033 -0.9648]
-  [DEBUG] Nominal angles in perp plane (deg): nominal=0.0000, actual=3.4155
-  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=3.4155
+  [DEBUG] Physically aligned n_A: [ 0.9143  0.2672 -0.3045]
+  [DEBUG] Physically aligned n_B: [ 0.916   0.2607 -0.3049]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3805, actual=-0.3729
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=0.0077
   [DEBUG] Mathematically resolved offset direction sign: -1.0
-  [ANGLE CONTROL] Using angle-based calibration error: 3.4155°. Applying damped correction step: -3.2447°
+  [ANGLE CONTROL] Using angle-based calibration error: 0.0077°. Applying damped correction step: -0.0073°
 
 ==================================================
-   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 2.5087 deg
-  * Circle Sizes (r_A / r_B)               : 216.63 / 218.48 mm
-  * Circle Size Error (abs: r_A - r_B)     : 1.8575 mm
-  * Estimated Circle Center Distance       : 6.2052 mm
-  * Calculated Offset Correction           : -3.244738 deg
+  * Camera Circle Normals Angle (Reference): 0.3855 deg
+  * Circle Sizes (r_A / r_B)               : 68.77 / 68.88 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.1098 mm
+  * Estimated Circle Center Distance       : 1.2935 mm
+  * Calculated Offset Correction           : -0.007268 deg
 ==================================================
 [SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
-  * Alignment check: WARNING (Angle error = 2.5087°, Center distance = 6.2052 mm)
-  * Angle Error (Deviation)     : 2.5087°
-  * Circle Size Error (r_A-r_B) : 1.8575 mm
-  * Center Distance Error       : 6.2052 mm
-  * Max Fitting Error Metric    : 6.2052 mm
-  [SAFETY WARNING] Staged offset -3.7930° exceeds safe bounds [-3.0°, 0.0°]!
-                   Possible fitting failure, loose bracket, or joint twist. Clamping to boundary.
-  * Updated Absolute Offset     : -3.0000°
+  * Alignment check: WARNING (Angle error = 0.3855°, Center distance = 1.2935 mm)
 
-[ITERATION 4/8] Sweeping with staged offset -3.0000°...
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 71.086 mm
+    - Axis Direction Vector  : [-0.3047 -0.9161 -0.2607]
+    - Jitter StdDev (Tilt)   : 11.373 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.3855°
+  * Circle Size Error (r_A-r_B) : 0.1098 mm
+  * Center Distance Error       : 1.2935 mm
+  * Max Fitting Error Metric    : 1.2935 mm
+  * Updated Absolute Offset     : -5.7369°
+
+[ITERATION 4/8] Sweeping with staged offset -5.7369°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -3.0000°]
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7369°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 63 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 47 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 58 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 49 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 63 dense raw coordinate frames during Joint A motion... downsampled to 63 for optimization.
-Swept 58 dense raw coordinate frames during Joint B motion... downsampled to 58 for optimization.
+Swept 47 dense raw coordinate frames during Joint A motion... downsampled to 47 for optimization.
+Swept 49 dense raw coordinate frames during Joint B motion... downsampled to 49 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [DEBUG] Physically aligned n_A: [ 0.1946  0.2291 -0.9538]
-  [DEBUG] Physically aligned n_B: [ 0.183   0.2404 -0.9533]
-  [DEBUG] Nominal angles in perp plane (deg): nominal=0.0002, actual=-3.5509
-  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-3.5511
+  [DEBUG] Physically aligned n_A: [ 0.9139  0.2673 -0.3054]
+  [DEBUG] Physically aligned n_B: [ 0.916   0.2607 -0.305 ]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3847, actual=-0.3934
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-0.0087
   [DEBUG] Mathematically resolved offset direction sign: 1.0
-  [ANGLE CONTROL] Using angle-based calibration error: -3.5511°. Applying damped correction step: 3.3736°
+  [ANGLE CONTROL] Using angle-based calibration error: -0.0087°. Applying damped correction step: 0.0082°
 
 ==================================================
-   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 0.9241 deg
-  * Circle Sizes (r_A / r_B)               : 219.38 / 217.93 mm
-  * Circle Size Error (abs: r_A - r_B)     : 1.4586 mm
-  * Estimated Circle Center Distance       : 3.2859 mm
-  * Calculated Offset Correction           : 3.373586 deg
+  * Camera Circle Normals Angle (Reference): 0.3969 deg
+  * Circle Sizes (r_A / r_B)               : 68.90 / 68.87 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.0281 mm
+  * Estimated Circle Center Distance       : 1.2890 mm
+  * Calculated Offset Correction           : 0.008242 deg
 ==================================================
 [SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
-  * Alignment check: WARNING (Angle error = 0.9241°, Center distance = 3.2859 mm)
-  * Angle Error (Deviation)     : 0.9241°
-  * Circle Size Error (r_A-r_B) : 1.4586 mm
-  * Center Distance Error       : 3.2859 mm
-  * Max Fitting Error Metric    : 3.2859 mm
-  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping positive staged offset 0.3736° to 0.0° for safety!
-  * Updated Absolute Offset     : 0.0000°
+  * Alignment check: WARNING (Angle error = 0.3969°, Center distance = 1.2890 mm)
 
-[ITERATION 5/8] Sweeping with staged offset 0.0000°...
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 70.717 mm
+    - Axis Direction Vector  : [-0.3048 -0.916  -0.2608]
+    - Jitter StdDev (Tilt)   : 11.321 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.3969°
+  * Circle Size Error (r_A-r_B) : 0.0281 mm
+  * Center Distance Error       : 1.2890 mm
+  * Max Fitting Error Metric    : 1.2890 mm
+  * Updated Absolute Offset     : -5.7286°
+
+[ITERATION 5/8] Sweeping with staged offset -5.7286°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7286°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 59 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 47 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 60 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 59 dense raw coordinate frames during Joint A motion... downsampled to 59 for optimization.
-Swept 60 dense raw coordinate frames during Joint B motion... downsampled to 60 for optimization.
+Swept 47 dense raw coordinate frames during Joint A motion... downsampled to 47 for optimization.
+Swept 48 dense raw coordinate frames during Joint B motion... downsampled to 48 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [DEBUG] Physically aligned n_A: [ 0.1795  0.2305 -0.9564]
-  [DEBUG] Physically aligned n_B: [-0.1851 -0.1974  0.9627]
-  [DEBUG] Nominal angles in perp plane (deg): nominal=0.0002, actual=-171.5595
-  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-171.5597
-  [DEBUG] Mathematically resolved offset direction sign: 1.0
-  [ANGLE CONTROL] Using angle-based calibration error: -171.5597°. Applying damped correction step: 162.9817°
-  [SAFETY CONTROL] Clamping calculated step 162.9817° to max limit ±20.0°
+  [DEBUG] Physically aligned n_A: [ 0.914   0.2672 -0.3054]
+  [DEBUG] Physically aligned n_B: [ 0.9156  0.2609 -0.306 ]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3845, actual=-0.3608
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=0.0237
+  [DEBUG] Mathematically resolved offset direction sign: -1.0
+  [ANGLE CONTROL] Using angle-based calibration error: 0.0237°. Applying damped correction step: -0.0225°
 
 ==================================================
-   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 1.9558 deg
-  * Circle Sizes (r_A / r_B)               : 214.97 / 218.22 mm
-  * Circle Size Error (abs: r_A - r_B)     : 3.2485 mm
-  * Estimated Circle Center Distance       : 8.5566 mm
-  * Calculated Offset Correction           : 20.000000 deg
+  * Camera Circle Normals Angle (Reference): 0.3775 deg
+  * Circle Sizes (r_A / r_B)               : 68.86 / 69.08 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.2197 mm
+  * Estimated Circle Center Distance       : 1.4153 mm
+  * Calculated Offset Correction           : -0.022548 deg
 ==================================================
 [SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
-  * Alignment check: WARNING (Angle error = 1.9558°, Center distance = 8.5566 mm)
-  * Angle Error (Deviation)     : 1.9558°
-  * Circle Size Error (r_A-r_B) : 3.2485 mm
-  * Center Distance Error       : 8.5566 mm
-  * Max Fitting Error Metric    : 8.5566 mm
-  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping positive staged offset 20.0000° to 0.0° for safety!
-  * Updated Absolute Offset     : 0.0000°
+  * Alignment check: WARNING (Angle error = 0.3775°, Center distance = 1.4153 mm)
 
-[ITERATION 6/8] Sweeping with staged offset 0.0000°...
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 70.062 mm
+    - Axis Direction Vector  : [0.3061 0.9156 0.2609]
+    - Jitter StdDev (Tilt)   : 11.198 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.3775°
+  * Circle Size Error (r_A-r_B) : 0.2197 mm
+  * Center Distance Error       : 1.4153 mm
+  * Max Fitting Error Metric    : 1.4153 mm
+  * Updated Absolute Offset     : -5.7512°
+
+[ITERATION 6/8] Sweeping with staged offset -5.7512°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7512°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 58 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 46 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 59 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 49 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 58 dense raw coordinate frames during Joint A motion... downsampled to 58 for optimization.
-Swept 59 dense raw coordinate frames during Joint B motion... downsampled to 59 for optimization.
+Swept 46 dense raw coordinate frames during Joint A motion... downsampled to 46 for optimization.
+Swept 49 dense raw coordinate frames during Joint B motion... downsampled to 49 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [DEBUG] Physically aligned n_A: [ 0.189   0.2297 -0.9547]
-  [DEBUG] Physically aligned n_B: [-0.1876 -0.1955  0.9626]
-  [DEBUG] Nominal angles in perp plane (deg): nominal=0.0000, actual=-171.9205
-  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-171.9205
+  [DEBUG] Physically aligned n_A: [ 0.914   0.2671 -0.3055]
+  [DEBUG] Physically aligned n_B: [ 0.9163  0.2604 -0.3044]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3841, actual=-0.4089
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-0.0248
   [DEBUG] Mathematically resolved offset direction sign: 1.0
-  [ANGLE CONTROL] Using angle-based calibration error: -171.9205°. Applying damped correction step: 163.3245°
-  [SAFETY CONTROL] Clamping calculated step 163.3245° to max limit ±20.0°
+  [ANGLE CONTROL] Using angle-based calibration error: -0.0248°. Applying damped correction step: 0.0236°
 
 ==================================================
-   SWEEP ANALYSIS & RESULTS (ELBOW - CONTINUOUS)
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 2.0112 deg
-  * Circle Sizes (r_A / r_B)               : 215.25 / 217.55 mm
-  * Circle Size Error (abs: r_A - r_B)     : 2.3052 mm
-  * Estimated Circle Center Distance       : 8.4341 mm
-  * Calculated Offset Correction           : 20.000000 deg
+  * Camera Circle Normals Angle (Reference): 0.4090 deg
+  * Circle Sizes (r_A / r_B)               : 68.87 / 68.83 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.0356 mm
+  * Estimated Circle Center Distance       : 1.5567 mm
+  * Calculated Offset Correction           : 0.023595 deg
 ==================================================
 [SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
-  * Alignment check: WARNING (Angle error = 2.0112°, Center distance = 8.4341 mm)
-  * Angle Error (Deviation)     : 2.0112°
-  * Circle Size Error (r_A-r_B) : 2.3052 mm
-  * Center Distance Error       : 8.4341 mm
-  * Max Fitting Error Metric    : 8.4341 mm
-  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping positive staged offset 20.0000° to 0.0° for safety!
-  * Updated Absolute Offset     : 0.0000°
+  * Alignment check: WARNING (Angle error = 0.4090°, Center distance = 1.5567 mm)
 
-[ITERATION 7/8] Sweeping with staged offset 0.0000°...
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 71.782 mm
+    - Axis Direction Vector  : [0.3049 0.9161 0.2604]
+    - Jitter StdDev (Tilt)   : 11.448 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.4090°
+  * Circle Size Error (r_A-r_B) : 0.0356 mm
+  * Center Distance Error       : 1.5567 mm
+  * Max Fitting Error Metric    : 1.5567 mm
+  * Updated Absolute Offset     : -5.7276°
+
+[ITERATION 7/8] Sweeping with staged offset -5.7276°...
 
 ==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7276°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-[STOP] Stop requested by user.
-[STOP] Sending cancel_control to robot!
-[ERROR] Iteration 7 sweep failed. Aborting calibration.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 47 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 48 dense raw coordinate frames during Joint A motion... downsampled to 48 for optimization.
+Swept 47 dense raw coordinate frames during Joint B motion... downsampled to 47 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [DEBUG] Physically aligned n_A: [ 0.9136  0.2672 -0.3066]
+  [DEBUG] Physically aligned n_B: [ 0.9159  0.2609 -0.3052]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3838, actual=-0.3911
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-0.0072
+  [DEBUG] Mathematically resolved offset direction sign: 1.0
+  [ANGLE CONTROL] Using angle-based calibration error: -0.0072°. Applying damped correction step: 0.0069°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.3911 deg
+  * Circle Sizes (r_A / r_B)               : 68.94 / 69.07 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.1366 mm
+  * Estimated Circle Center Distance       : 1.3870 mm
+  * Calculated Offset Correction           : 0.006854 deg
+==================================================
+[SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
+  * Alignment check: WARNING (Angle error = 0.3911°, Center distance = 1.3870 mm)
+
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 70.054 mm
+    - Axis Direction Vector  : [0.3051 0.9159 0.2609]
+    - Jitter StdDev (Tilt)   : 11.224 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.3911°
+  * Circle Size Error (r_A-r_B) : 0.1366 mm
+  * Center Distance Error       : 1.3870 mm
+  * Max Fitting Error Metric    : 1.3870 mm
+  * Updated Absolute Offset     : -5.7207°
+
+[ITERATION 8/8] Sweeping with staged offset -5.7207°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7207°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 48 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 50 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 48 dense raw coordinate frames during Joint A motion... downsampled to 48 for optimization.
+Swept 50 dense raw coordinate frames during Joint B motion... downsampled to 50 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [DEBUG] Physically aligned n_A: [ 0.9138  0.2671 -0.306 ]
+  [DEBUG] Physically aligned n_B: [ 0.916   0.261  -0.3045]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3783, actual=-0.3838
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=-0.0055
+  [DEBUG] Mathematically resolved offset direction sign: 1.0
+  [ANGLE CONTROL] Using angle-based calibration error: -0.0055°. Applying damped correction step: 0.0052°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.3842 deg
+  * Circle Sizes (r_A / r_B)               : 68.73 / 68.90 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.1719 mm
+  * Estimated Circle Center Distance       : 1.5555 mm
+  * Calculated Offset Correction           : 0.005197 deg
+==================================================
+[SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
+  * Alignment check: WARNING (Angle error = 0.3842°, Center distance = 1.5555 mm)
+
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 69.643 mm
+    - Axis Direction Vector  : [-0.3042 -0.9161 -0.2611]
+    - Jitter StdDev (Tilt)   : 11.158 deg
+--------------------------------------------------
+
+  * Angle Error (Deviation)     : 0.3842°
+  * Circle Size Error (r_A-r_B) : 0.1719 mm
+  * Center Distance Error       : 1.5555 mm
+  * Max Fitting Error Metric    : 1.5555 mm
+  * Updated Absolute Offset     : -5.7155°
+
+[VALIDATION SWEEP] Running final validation sweep with recommended offset -5.7155°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.7155°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
+    -> Swept 49 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
+    -> Swept 47 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 49 dense raw coordinate frames during Joint A motion... downsampled to 49 for optimization.
+Swept 47 dense raw coordinate frames during Joint B motion... downsampled to 47 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [DEBUG] Physically aligned n_A: [ 0.9138  0.267  -0.3062]
+  [DEBUG] Physically aligned n_B: [ 0.9155  0.2611 -0.306 ]
+  [DEBUG] Nominal angles in perp plane (deg): nominal=-0.3779, actual=-0.3512
+  [DEBUG] Perpendicular plane angle difference (deg): diff_angle=0.0267
+  [DEBUG] Mathematically resolved offset direction sign: -1.0
+  [ANGLE CONTROL] Using angle-based calibration error: 0.0267°. Applying damped correction step: -0.0254°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH - CONTINUOUS)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.3557 deg
+  * Circle Sizes (r_A / r_B)               : 69.03 / 68.69 mm
+  * Circle Size Error (abs: r_A - r_B)     : 0.3401 mm
+  * Estimated Circle Center Distance       : 1.1133 mm
+  * Calculated Offset Correction           : -0.025351 deg
+==================================================
+[SUCCESS] Orthogonal debug plot saved to: /home/nvidia/camera_ws/calibration/result_img/debug_orthogonal_circles_right_camera.png
+  * Alignment check: WARNING (Angle error = 0.3557°, Center distance = 1.1133 mm)
+
+--------------------------------------------------
+  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]
+--------------------------------------------------
+    - Fitted Sweep Radius    : 69.671 mm
+    - Axis Direction Vector  : [-0.3055 -0.9157 -0.2611]
+    - Jitter StdDev (Tilt)   : 11.162 deg
+--------------------------------------------------
+
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/calibration/result_img/circle_fit_right_wrist_pitch_joint_calib.png
+------------------------------
+  [1] Calibration Target: wrist_pitch
+      Estimated Optimal Offset: -5.716 deg
+------------------------------
+
+[CALIBRATION COMPLETE]
+
+      [INFO] Detailed 2x2 comparison plot already exists: /home/nvidia/camera_ws/calibration/result_img/circle_fit_right_wrist_pitch_joint_calib.png
+
+==================================================
+   [INFO] 3-STEP CALIBRATION COMPLETED
+   * Recommended Absolute Offset : -5.7155°
+   * Current Active Offset       : -5.7566° (REVERTED)
+   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.
+==================================================
+
+
+==================================================
+       JOINT CALIBRATION ESTIMATED RESULTS
+==================================================
+
+[1] Calibration Target: wrist_pitch
+    - Target Swept Joint       : Joint 5
+    - Estimated Optimal Offset : -5.7155 deg
+
+[2] Suggested Joint Home Offset update:
+  Add offset: -5.7155 deg to calibration config.
+==================================================
