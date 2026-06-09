@@ -825,8 +825,8 @@ class JointCalibrator(BaseCalibrator):
         # Wrap diff_angle to [-pi, pi]
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
-        # Invert the sign for both wrist_pitch and elbow modes to match the physical motor driver rotations
-        sign = -1.0 if diff_angle > 0.0 else 1.0
+        # Match the physical motor driver rotations (positive diff_angle requires positive step)
+        sign = 1.0 if diff_angle > 0.0 else -1.0
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
