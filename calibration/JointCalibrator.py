@@ -169,11 +169,11 @@ class JointCalibrator(BaseCalibrator):
                 left_arm = np.deg2rad([-55, 45, -25, -127, -90, 0, 0])
         elif mode == "elbow":
             if arm_side == "right":
-                right_arm = np.deg2rad([-107, -17, 0, 0, 73, -90, 73])
+                right_arm = np.deg2rad([-107, -17, 0, 0, 73, -80, 73])
                 left_arm = None
             else:
                 right_arm = None
-                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -90, -73])
+                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -80, -73])
         else: # head mode
             if arm_side == "right":
                 right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])

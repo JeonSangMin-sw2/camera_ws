@@ -365,8 +365,20 @@ class BaseCalibrator:
         points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])
         angles_rad_base = np.radians(captured_angles)
         
+        # Robust check for NaN or Inf in inputs
+        if len(points) == 0:
+            raise ValueError("fit_circle_3d_and_6dof_misalignment: Input points list is empty.")
+        if np.any(np.isnan(points)) or np.any(np.isinf(points)):
+            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Input points contain NaN or Inf values! points={points}")
+        if np.any(np.isnan(angles_rad_base)) or np.any(np.isinf(angles_rad_base)):
+            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Input captured_angles contain NaN or Inf values! angles={captured_angles}")
+            
         # Initial Center and Normal estimation using unified circle fit
         c_fit, R_fit, radius_fit, rmse_fit, _, _, _ = BaseCalibrator.fit_circle_3d(points)
+        
+        # Check if initial circle fit yielded valid numbers
+        if np.any(np.isnan(c_fit)) or np.any(np.isinf(c_fit)) or np.isnan(radius_fit):
+            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Initial circle fit (fit_circle_3d) returned NaN or Inf values! c_fit={c_fit}, radius_fit={radius_fit}")
         
         # Nominal Normal
         if axis_prior is not None:
@@ -444,7 +456,10 @@ class BaseCalibrator:
                     residuals.extend(pt - pred_pt)
                 return np.array(residuals)
                 
-            opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+            try:
+                opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+            except ValueError as e:
+                raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 1 failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
             rmse = np.sqrt(np.mean(opt_res.fun**2))
             if rmse < best_rmse:
                 best_rmse = rmse
@@ -496,7 +511,10 @@ class BaseCalibrator:
                     residuals.extend(pt - pred_pt)
                 return np.array(residuals)
                 
-            opt_res = least_squares(total_residuals_in, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+            try:
+                opt_res = least_squares(total_residuals_in, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+            except ValueError as e:
+                raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 2 (outlier loop) failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
             c_init = opt_res.x[0:3]
             best_normal = opt_res.x[3:6]
             best_normal /= np.linalg.norm(best_normal)
@@ -552,7 +570,10 @@ class BaseCalibrator:
         # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
         init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
         
-        opt_res = least_squares(total_residuals_final, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+        try:
+            opt_res = least_squares(total_residuals_final, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+        except ValueError as e:
+            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 3 (final) failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
         c_opt = opt_res.x[0:3]
         axis_opt = opt_res.x[3:6]
         axis_opt /= np.linalg.norm(axis_opt)
