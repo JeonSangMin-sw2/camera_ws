@@ -421,6 +421,8 @@ class BaseCalibrator:
             init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
             lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
             upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+            # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
+            init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
             
             def total_residuals(params):
                 c = params[0:3]
@@ -472,6 +474,8 @@ class BaseCalibrator:
             init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
             lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
             upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+            # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
+            init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
             
             def total_residuals_in(params):
                 c = params[0:3]
@@ -545,6 +549,8 @@ class BaseCalibrator:
             
         lower_bounds = np.hstack([c_init - 200.0, [-1.5, -1.5, -1.5], [-1.5, -1.5, -1.5], [50.0]])
         upper_bounds = np.hstack([c_init + 200.0, [1.5, 1.5, 1.5], [1.5, 1.5, 1.5], [450.0]])
+        # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
+        init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
         
         opt_res = least_squares(total_residuals_final, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
         c_opt = opt_res.x[0:3]
