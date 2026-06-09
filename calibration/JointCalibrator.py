@@ -101,13 +101,16 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
-            # Convergence check: angle error <= 0.1° and center distance <= 0.1 mm
-            if angle_error <= 0.1 or center_dist <= 0.1:
+            # Convergence check: step correction < 0.05° or angle error <= 0.1° and center distance <= 0.1 mm
+            if abs(step_correction) < 0.05 or angle_error <= 0.1 or center_dist <= 0.1:
                 converged = True
                 if log_callback:
                     log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                    log_callback(f"  * Circle Normals Angle Error: {angle_error:.4f}° <= 0.1°")
-                    log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
+                    if abs(step_correction) < 0.05:
+                        log_callback(f"  * Step Correction: {step_correction:.4f}° < 0.05° (reached resolution limit)")
+                    else:
+                        log_callback(f"  * Circle Normals Angle Error: {angle_error:.4f}° <= 0.1°")
+                        log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
                     log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                 break
 
@@ -921,36 +924,8 @@ class JointCalibrator(BaseCalibrator):
             angle_error_deg=angle_between_normals, log_callback=log_callback
         )
 
-        # Simultaneous Marker Axis 6 parameter calculation
+        # Simultaneous Marker Axis 6 parameter calculation (Removed/Bypassed to speed up joint calibration)
         marker_6_res = None
-        if mode == "wrist_pitch":
-            try:
-                captured_poses_torso = []
-                for _, pose_cam_to_marker in dataset_B:
-                    # T_t5_to_cam is fixed camera rotation matrix
-                    T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
-                    captured_poses_torso.append(T_t5_to_marker)
-                    
-                marker_6_res = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
-                    captured_poses_torso, 
-                    np.linspace(-20.0, 20.0, len(dataset_B)), 
-                    axis_prior=[1.0, 0.0, 0.0]
-                )
-                if marker_6_res:
-                    marker_6_res['axis'] = marker_6_res['axis_opt']
-                
-                if log_callback and marker_6_res:
-                    log_callback("\n" + "-"*50)
-                    log_callback("  [SIMULTANEOUS MARKER AXIS 6 ESTIMATION RESULTS (CONTINUOUS)]")
-                    log_callback("-"*50)
-                    log_callback(f"    - Fitted Sweep Radius    : {marker_6_res['radius']:.3f} mm")
-                    # log_callback(f"    - Axis 6 Fitting RMSE    : {marker_6_res['rmse']:.3f} mm")
-                    log_callback(f"    - Axis Direction Vector  : {np.round(marker_6_res['axis_opt'], 4)}")
-                    log_callback(f"    - Jitter StdDev (Tilt)   : {np.std(marker_6_res.get('tilt_list', [0.0])):.3f} deg")
-                    log_callback("-"*50 + "\n")
-            except Exception as e:
-                if log_callback:
-                    log_callback(f"\n[WARN] Failed simultaneous Marker Axis 6 calculation: {e}\n")
 
         return {
             'mode': mode,
