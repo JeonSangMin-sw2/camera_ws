@@ -1,33 +1,9 @@
-[INFO] Starting Joint Sweep: ELBOW
-
-============================================================
-   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
-   Target Arm: RIGHT | Joint Target: ELBOW
-============================================================
-
-
-[ITERATION 1/8] Sweeping with staged offset 0.0000°...
-
-==================================================
-   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 2, duration=15.0s) ---
-    -> Swept 146 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 4, duration=15.0s) ---
-    -> Swept 149 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 146 dense raw coordinate frames during Joint A motion... downsampled to 146 for optimization.
-Swept 149 dense raw coordinate frames during Joint B motion... downsampled to 149 for optimization.
-
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-[ERROR] Worker exception: `x0` violates bound constraints.
-
-
-
-2026-06-09 13:49:31,517 [INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
-2026-06-09 13:49:32,019 [INFO] Enabling control manager with unlimited_mode_enabled=True...
-2026-06-09 13:49:39,941 [ERROR] Failed to conduct movej. Finish code: FinishCode.Unknown
-
+[ERROR] Worker exception: fit_circle_3d_and_6dof_misalignment: least_squares stage 1 failed: `x0` violates bound constraints.
+  init_params: [ 1.31475937e+02 -4.55334473e+01  3.49574951e+02  1.00000000e+00
+  2.22044605e-16  2.22044605e-16  0.00000000e+00 -6.87957168e-01
+ -7.25751281e-01  2.17652603e+02]
+  lower_bounds: [ -68.52406311 -245.53344727  149.57495117   -1.5          -1.5
+   -1.5          -1.5          -1.5          -1.5          50.        ]
+  upper_bounds: [331.47595215 154.46655273 549.57495117   1.5          1.5
+   1.5          1.5          1.5          1.5        450.        ]
