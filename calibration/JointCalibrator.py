@@ -778,10 +778,10 @@ class JointCalibrator(BaseCalibrator):
             a_A_t5 = np.array([0.0, 0.0, 1.0])
             a_B_t5 = np.array([0.0, 0.0, 1.0])
 
-        # Transform nominal axes directly to camera frame using fixed rotation
-        a_cand_cam = R_rob_to_cam @ a_cand_t5
-        a_A_cam = R_rob_to_cam @ a_A_t5
-        a_B_cam_nom = R_rob_to_cam @ a_B_t5
+        # Define nominal axes in the camera frame using transpose of R_rob_to_cam (since R_rob_to_cam is R_cam_to_torso)
+        a_cand_cam = R_rob_to_cam.T @ a_cand_t5
+        a_A_cam = R_rob_to_cam.T @ a_A_t5
+        a_B_cam_nom = R_rob_to_cam.T @ a_B_t5
 
         # Define T_t5_to_cam using fixed rotation and zero translation (strictly camera fixed, no FK)
         T_t5_to_cam = np.eye(4)
@@ -863,9 +863,7 @@ class JointCalibrator(BaseCalibrator):
         # Wrap diff_angle to [-pi, pi]
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
-        # With FK-based axes, the math is naturally aligned.
-        # But we still respect any motor driver/controller inversions.
-        # Unifying the polarity since correct projection resolves the 90-degree twist in wrist_pitch.
+        # Match the physical motor driver rotations (negative feedback loop)
         sign = -1.0 if diff_angle > 0.0 else 1.0
         
         if log_callback:
