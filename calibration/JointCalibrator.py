@@ -401,12 +401,12 @@ class JointCalibrator(BaseCalibrator):
                 ax_2d = fig.add_subplot(2, 2, col_idx + 1)
                 
                 # Plot Sweep A
-                ax_2d.scatter(pts_a_proj[:, 0], pts_a_proj[:, 1], c='red', s=15, alpha=0.5, label=f'Sweep A (r={r_A:.1f}mm, RMSE={rmse_A:.2f}mm)')
+                ax_2d.scatter(pts_a_proj[:, 0], pts_a_proj[:, 1], c='red', s=15, alpha=0.5, label=f'Sweep A (r={r_A_fit:.1f}mm [calib:{r_A:.1f}mm], RMSE={rmse_A:.2f}mm)')
                 ax_2d.plot(circle_A_2d_x, circle_A_2d_y, 'r--', linewidth=2)
                 ax_2d.scatter([0], [0], c='darkred', marker='X', s=100, label='Center A (0,0)')
 
                 # Plot Sweep B
-                ax_2d.scatter(pts_b_proj[:, 0], pts_b_proj[:, 1], c='blue', s=15, alpha=0.5, label=f'Sweep B (r={r_B:.1f}mm, RMSE={rmse_B:.2f}mm)')
+                ax_2d.scatter(pts_b_proj[:, 0], pts_b_proj[:, 1], c='blue', s=15, alpha=0.5, label=f'Sweep B (r={r_B_fit:.1f}mm [calib:{r_B:.1f}mm], RMSE={rmse_B:.2f}mm)')
                 ax_2d.plot(circle_B_proj[:, 0], circle_B_proj[:, 1], 'b--', linewidth=2)
                 ax_2d.scatter([c_B_proj[0]], [c_B_proj[1]], c='darkblue', marker='X', s=100, label=f'Center B ({c_B_proj[0]:.1f},{c_B_proj[1]:.1f})')
 
@@ -425,7 +425,7 @@ class JointCalibrator(BaseCalibrator):
                 ax_3d.scatter(pts_a[:, 0], pts_a[:, 1], pts_a[:, 2], c='red', s=10, alpha=0.4)
                 ax_3d.scatter(pts_b[:, 0], pts_b[:, 1], pts_b[:, 2], c='blue', s=10, alpha=0.4)
 
-                circle_A_3d = c_A + r_A * (np.cos(theta)[:, None] * R_c_A[:, 0] + np.sin(theta)[:, None] * R_c_A[:, 1])
+                circle_A_3d = c_A_fit + r_A_fit * (np.cos(theta)[:, None] * R_c_A[:, 0] + np.sin(theta)[:, None] * R_c_A[:, 1])
                 ax_3d.plot(circle_A_3d[:, 0], circle_A_3d[:, 1], circle_A_3d[:, 2], 'r-', linewidth=2, label='Sweep A Fit')
                 ax_3d.plot(circle_B_3d[:, 0], circle_B_3d[:, 1], circle_B_3d[:, 2], 'b-', linewidth=2, label='Sweep B Fit')
 
