@@ -19,12 +19,12 @@ camera:
   height: 720
   fps: 30
 
-thermal_compensation:
-  enabled: false
-  baseline_temp: 32.0
-  focal_scale_per_deg: 0.00028
-  pp_x_shift_per_deg: 0.035
-  pp_y_shift_per_deg: -0.142
+# thermal_compensation:
+#   enabled: false
+#   baseline_temp: 32.0
+#   focal_scale_per_deg: 0.00028
+#   pp_x_shift_per_deg: 0.035
+#   pp_y_shift_per_deg: -0.142
 
 marker:
   cube:
