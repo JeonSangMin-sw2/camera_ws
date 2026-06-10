@@ -320,12 +320,16 @@ class QPCalibrationOptimizer:
         active_arms=["right", "left"],
         estimate_measurement_noise=DEFAULT_ESTIMATE_MEASUREMENT_NOISE,
         measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
+        apply_joint_offset_limits=False,
+        joint_offsets_to_apply=None,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
         self.use_sag = use_sag
         self.active_arms = active_arms
+        self.apply_joint_offset_limits = apply_joint_offset_limits
+        self.joint_offsets_to_apply = joint_offsets_to_apply
 
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
@@ -408,6 +412,33 @@ class QPCalibrationOptimizer:
             q_upper[ 3] =  2.0 * D2R# rep
             q_upper[10] =  2.0 * D2R# lep
             # q_upper[12] =  0.1 * D2R# lep
+
+            if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
+                jo = self.joint_offsets_to_apply
+                r_j3 = jo.get("right", {}).get("joint3", 0.0)
+                r_j5 = jo.get("right", {}).get("joint5", 0.0)
+                l_j3 = jo.get("left", {}).get("joint3", 0.0)
+                l_j5 = jo.get("left", {}).get("joint5", 0.0)
+
+                v1_r3 = (-r_j3 - 0.001) * D2R
+                v2_r3 = (-r_j3 + 0.001) * D2R
+                q_lower[3] = min(v1_r3, v2_r3)
+                q_upper[3] = max(v1_r3, v2_r3)
+
+                v1_l3 = (-l_j3 - 0.001) * D2R
+                v2_l3 = (-l_j3 + 0.001) * D2R
+                q_lower[10] = min(v1_l3, v2_l3)
+                q_upper[10] = max(v1_l3, v2_l3)
+
+                v1_r5 = (-r_j5 - 0.001) * D2R
+                v2_r5 = (-r_j5 + 0.001) * D2R
+                q_lower[5] = min(v1_r5, v2_r5)
+                q_upper[5] = max(v1_r5, v2_r5)
+
+                v1_l5 = (-l_j5 - 0.001) * D2R
+                v2_l5 = (-l_j5 + 0.001) * D2R
+                q_lower[12] = min(v1_l5, v2_l5)
+                q_upper[12] = max(v1_l5, v2_l5)
 
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)

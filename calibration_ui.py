@@ -20,7 +20,6 @@ from core.calibration_core import (
     split_arm_offsets,
     validate_dataset,
     generate_sim_measurements,
-    reset_home_offsets,
     check_calibration_state,
 )
 from core.calibration_optimizer import (
@@ -38,9 +37,11 @@ from core.robot_motion import (
     reset_motion_state,
 )
 from homeoffset_core import (
-    apply_home_offset_from_json,
+    load_offset_from_json,
     move_robot_to_zero_pose,
-    movej,
+    move_to_offset_candidate_from_json,
+    reset_current_pose_home_offsets,
+    save_home_reset_baseline_json,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -76,18 +77,52 @@ class CalibrationUI:
 
         self.warning_img = None
         self.last_result_path = None
+        self.last_home_reset_path = None
         self.last_dataset_path = None
 
         self.dataset_saved_in_session = False
         self.current_session_dataset_path = None
 
+        self.val_r_j3 = tk.StringVar(value="0.0")
+        self.val_r_j5 = tk.StringVar(value="0.0")
+        self.val_l_j3 = tk.StringVar(value="0.0")
+        self.val_l_j5 = tk.StringVar(value="0.0")
+        self.apply_joint_offset_flag = False
+        self.load_joint_offsets_to_ui()
+
         self.build_ui()
         self.update_head_pose_status()
         self.update_dev_mode_label()
 
-    # ============================================================
-    # UI
-    # ============================================================
+    def load_joint_offsets_to_ui(self):
+        import yaml
+        config_path = BASE_DIR / "config" / "setting.yaml"
+        r_j3, r_j5, l_j3, l_j5 = 0.0, 0.0, 0.0, 0.0
+        try:
+            if config_path.exists():
+                with open(config_path, "r") as f:
+                    data = yaml.safe_load(f)
+                if data and "joint_offset" in data:
+                    jo = data["joint_offset"]
+                    r_j3 = jo.get("right", {}).get("joint3", 0.0)
+                    r_j5 = jo.get("right", {}).get("joint5", 0.0)
+                    l_j3 = jo.get("left", {}).get("joint3", 0.0)
+                    l_j5 = jo.get("left", {}).get("joint5", 0.0)
+        except Exception as e:
+            print(f"Failed to load joint offsets from setting.yaml: {e}")
+        
+        self.val_r_j3.set(str(r_j3))
+        self.val_r_j5.set(str(r_j5))
+        self.val_l_j3.set(str(l_j3))
+        self.val_l_j5.set(str(l_j5))
+
+    def toggle_apply_joint_offset(self):
+        self.apply_joint_offset_flag = not self.apply_joint_offset_flag
+        if self.apply_joint_offset_flag:
+            self.lbl_jo_status.config(text="Status: ACTIVE", fg="green")
+        else:
+            self.lbl_jo_status.config(text="Status: INACTIVE", fg="red")
+
     def build_ui(self):
         self.root.title("Marker Bracket Calibration System")
         self.root.geometry("1300x700")
@@ -188,7 +223,7 @@ class CalibrationUI:
         self.dev_mode_info = tk.StringVar(value="In live mode, Auto Motion records once and All Auto Motion runs the full sweep; Stop interrupts between steps.")
 
         ttk.Label(cfg, text="Solver").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.dev_solver = tk.StringVar(value="Least Squares")
+        self.dev_solver = tk.StringVar(value="QP Solver")
         self.solver_cb = ttk.Combobox(cfg, textvariable=self.dev_solver, values=["Least Squares", "QP Solver"], state="readonly", width=12)
         self.solver_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
 
@@ -233,6 +268,31 @@ class CalibrationUI:
 
         self.dev_head_status = tk.StringVar(value="Auto Motion: 0/0")
         ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=5, column=0, columnspan=7, padx=5, pady=5, sticky="w")
+
+        jo_frame = ttk.LabelFrame(cfg, text="Joint Offset (deg)")
+        jo_frame.grid(row=6, column=0, columnspan=7, padx=5, pady=5, sticky="ew")
+
+        ttk.Label(jo_frame, text="R Elbow (J3):").grid(row=0, column=0, padx=2, pady=2, sticky="e")
+        self.entry_r_j3 = ttk.Entry(jo_frame, textvariable=self.val_r_j3, width=7)
+        self.entry_r_j3.grid(row=0, column=1, padx=2, pady=2, sticky="w")
+
+        ttk.Label(jo_frame, text="R Wrist (J5):").grid(row=0, column=2, padx=2, pady=2, sticky="e")
+        self.entry_r_j5 = ttk.Entry(jo_frame, textvariable=self.val_r_j5, width=7)
+        self.entry_r_j5.grid(row=0, column=3, padx=2, pady=2, sticky="w")
+
+        ttk.Label(jo_frame, text="L Elbow (J3):").grid(row=1, column=0, padx=2, pady=2, sticky="e")
+        self.entry_l_j3 = ttk.Entry(jo_frame, textvariable=self.val_l_j3, width=7)
+        self.entry_l_j3.grid(row=1, column=1, padx=2, pady=2, sticky="w")
+
+        ttk.Label(jo_frame, text="L Wrist (J5):").grid(row=1, column=2, padx=2, pady=2, sticky="e")
+        self.entry_l_j5 = ttk.Entry(jo_frame, textvariable=self.val_l_j5, width=7)
+        self.entry_l_j5.grid(row=1, column=3, padx=2, pady=2, sticky="w")
+
+        self.lbl_jo_status = tk.Label(jo_frame, text="Status: INACTIVE", fg="red", font=("Arial", 9, "bold"))
+        self.lbl_jo_status.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+
+        self.btn_apply_jo = ttk.Button(jo_frame, text="Apply Joint Offset", command=self.toggle_apply_joint_offset)
+        self.btn_apply_jo.grid(row=2, column=2, columnspan=2, padx=5, pady=5, sticky="e")
 
         # actions
         act = ttk.LabelFrame(frm, text="Actions")
@@ -306,6 +366,44 @@ class CalibrationUI:
 
         self.last_result_path = result_files[0]
         return self.last_result_path
+
+    def get_latest_home_reset_path(self, required=True):
+        if self.last_home_reset_path is not None and self.last_home_reset_path.exists():
+            return self.last_home_reset_path
+
+        result_dir = self.ensure_result_dir()
+        reset_files = sorted(
+            result_dir.glob("home_reset_*.json"),
+            key=lambda file_path: file_path.stat().st_mtime,
+            reverse=True,
+        )
+        if not reset_files:
+            if required:
+                raise RuntimeError(f"No home reset baseline JSON found in {result_dir}")
+            return None
+
+        self.last_home_reset_path = reset_files[0]
+        return self.last_home_reset_path
+
+    def get_home_reset_path_for_result(self, result_path):
+        try:
+            with open(result_path, "r") as f:
+                data = json.load(f)
+        except Exception:
+            return self.get_latest_home_reset_path(required=False)
+
+        baseline_path = data.get("home_reset_baseline_path")
+        if baseline_path is None:
+            baseline_path = data.get("metadata", {}).get("home_reset_baseline_path")
+        if baseline_path:
+            path = Path(baseline_path).expanduser()
+            if not path.is_absolute():
+                path = BASE_DIR / path
+            if path.exists():
+                self.last_home_reset_path = path
+                return path
+
+        return self.get_latest_home_reset_path(required=False)
     
     def resolve_input_path(self, raw_path):
         input_path = Path(raw_path).expanduser()
@@ -757,6 +855,28 @@ class CalibrationUI:
 
         head_cfg = get_head_config(self.model)
 
+        apply_limits = getattr(self, "apply_joint_offset_flag", False)
+        joint_offsets = None
+        if apply_limits:
+            try:
+                joint_offsets = {
+                    "right": {
+                        "joint3": float(self.val_r_j3.get()),
+                        "joint5": float(self.val_r_j5.get()),
+                    },
+                    "left": {
+                        "joint3": float(self.val_l_j3.get()),
+                        "joint5": float(self.val_l_j5.get()),
+                    }
+                }
+                self.log(text_widget, f"[INFO] Applying joint offset bounds: {joint_offsets}")
+            except ValueError:
+                self.log(text_widget, "[WARNING] Invalid joint offset entry values. Using 0.0.")
+                joint_offsets = {
+                    "right": {"joint3": 0.0, "joint5": 0.0},
+                    "left": {"joint3": 0.0, "joint5": 0.0}
+                }
+
         if solver_type == "QP Solver":
             optimizer = QPCalibrationOptimizer(
                 robot=self.robot,
@@ -773,6 +893,8 @@ class CalibrationUI:
                 optimize_camera=optimize_camera,
                 active_arms=active_arms,
                 estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
             )
         else:
             optimizer = CalibrationOptimizer(
@@ -851,6 +973,9 @@ class CalibrationUI:
             "measurement_noise": optimizer.noise_estimator.as_dict(),
         }
 
+        if self.last_home_reset_path is not None and self.last_home_reset_path.exists():
+            result_dict["home_reset_baseline_path"] = str(self.last_home_reset_path)
+
         if optimize_head:
             result_dict["xi_mount_cam"] = result_dict["xi_cam"]
         else:
@@ -914,35 +1039,213 @@ class CalibrationUI:
         popup.wait_window()
         return result["ok"]
 
-    def apply_home_offset_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
-        result_path = self.get_latest_result_path()
+    def ensure_home_offset_robot(self, text_widget):
+        if self.robot is None or self.model is None:
+            self.log(text_widget, "Robot is not connected. Connecting before home offset operation...")
+            self.dev_connect()
+        if self.robot is None or self.model is None:
+            raise RuntimeError("Robot is not connected.")
 
-        proceed = self.confirm_home_offset_action()
-        if not proceed:
-            self.log(text_widget, "Apply home offset cancelled.")
-            return
+    def format_home_offset_compare_summary(self, result_path, baseline_path):
+        lines = [
+            "Preview moves use the same convention as Apply Home Offset:",
+            "the robot moves to zero pose first, then to -joint_offset.",
+            "",
+            f"Optimized result: {result_path}",
+        ]
+        if baseline_path is None:
+            lines.append("Baseline reset: not found")
+            return "\n".join(lines)
 
-        result = apply_home_offset_from_json(
-            address=ip,
-            model_name=model_name,
+        lines.append(f"Baseline reset: {baseline_path}")
+        try:
+            opt_arm, opt_head = load_offset_from_json(str(result_path))
+            base_arm, base_head = load_offset_from_json(str(baseline_path))
+            if len(opt_arm) == len(base_arm):
+                diff_arm_deg = np.rad2deg(base_arm - opt_arm)
+                lines.append("")
+                lines.append("Baseline - Optimized arm diff (deg):")
+                lines.append(np.array2string(np.round(diff_arm_deg, 4), separator=", "))
+            else:
+                lines.append("")
+                lines.append(
+                    f"Arm diff unavailable: optimized has {len(opt_arm)} values, baseline has {len(base_arm)}."
+                )
+
+            if opt_head is not None and base_head is not None:
+                if len(opt_head) == len(base_head):
+                    diff_head_deg = np.rad2deg(base_head - opt_head)
+                    lines.append("")
+                    lines.append("Baseline - Optimized head diff (deg):")
+                    lines.append(np.array2string(np.round(diff_head_deg, 4), separator=", "))
+                else:
+                    lines.append("")
+                    lines.append(
+                        f"Head diff unavailable: optimized has {len(opt_head)} values, baseline has {len(base_head)}."
+                    )
+        except Exception as e:
+            lines.append("")
+            lines.append(f"Failed to compute diff: {e}")
+        return "\n".join(lines)
+
+    def move_home_offset_candidate_path(
+        self,
+        json_path,
+        label,
+        arm,
+        include_head,
+        text_widget,
+    ):
+        self.ensure_home_offset_robot(text_widget)
+        result = move_to_offset_candidate_from_json(
+            robot=self.robot,
+            model=self.model,
             arm=arm,
-            json_path=str(result_path),
-            power=".*",
-            servo=servo_regex,
+            json_path=str(json_path),
             include_head=include_head,
+            minimum_time=10,
+            move_zero_first=True,
         )
 
-        self.log(text_widget, "Home offset applied successfully.")
+        self.log(text_widget, f"\n===== HOME OFFSET PREVIEW: {label} =====")
+        self.log(text_widget, f"JSON: {json_path}")
         self.log(text_widget, f"Arm: {result['arm']}")
-        self.log(text_widget, f"Source: {result['source']}")
-        self.log(text_widget, f"JSON: {result['json_path']}")
         if result.get("right_offset_deg") is not None:
-            self.log(text_widget, f"Right Offset (deg): {result['right_offset_deg']}")
+            self.log(text_widget, f"Right move offset (deg): {result['right_offset_deg']}")
         if result.get("left_offset_deg") is not None:
-            self.log(text_widget, f"Left Offset (deg): {result['left_offset_deg']}")
-        self.log(text_widget, f"Offset (deg): {result['offset_deg']}")
+            self.log(text_widget, f"Left move offset (deg): {result['left_offset_deg']}")
         if result.get("head_offset_deg") is not None:
-            self.log(text_widget, f"Head Offset (deg): {result['head_offset_deg']}")
+            self.log(text_widget, f"Head move offset (deg): {result['head_offset_deg']}")
+        self.log(text_widget, "Preview move complete. Inspect the robot pose before applying.")
+        return result
+
+    def infer_home_offset_apply_arm(self, requested_arm, json_path):
+        try:
+            offset_rad, _ = load_offset_from_json(str(json_path))
+        except Exception:
+            return requested_arm
+
+        if self.model is not None:
+            both_dof = len(self.model.right_arm_idx) + len(self.model.left_arm_idx)
+            if len(offset_rad) == both_dof:
+                return "both"
+
+        if len(offset_rad) == 14:
+            return "both"
+        return requested_arm
+
+    def apply_current_pose_home_offset(self, arm, include_head, text_widget):
+        self.ensure_home_offset_robot(text_widget)
+        result = reset_current_pose_home_offsets(
+            self.robot,
+            self.model,
+            arm=arm,
+            include_head=include_head,
+            log_cb=lambda msg: self.log(text_widget, msg),
+        )
+
+        self.log(text_widget, "Re-connecting and initializing robot...")
+        self.dev_connect()
+        self.log(text_widget, "Current pose home offset apply complete.")
+        return result
+
+    def apply_home_offset_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
+        result_path = self.get_latest_result_path()
+        baseline_path = self.get_home_reset_path_for_result(result_path)
+        current_apply_arm = {"value": self.infer_home_offset_apply_arm(arm, result_path)}
+
+        popup = tk.Toplevel(self.root)
+        popup.title("Apply Home Offset")
+        popup.geometry("780x520")
+        popup.transient(self.root)
+        popup.grab_set()
+
+        msg = (
+            "Compare the original baseline zero and the optimized zero before applying.\n\n"
+            "1. Move to Baseline Zero to inspect the zero pose before calibration reset.\n"
+            "2. Move to Optimized Zero to inspect the computed calibration zero.\n"
+            "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
+            "Make sure the workspace is clear before each move."
+        )
+        ttk.Label(popup, text=msg, justify="left").pack(padx=15, pady=(15, 8), anchor="w")
+
+        summary = self.format_home_offset_compare_summary(result_path, baseline_path)
+        summary_box = tk.Text(popup, height=12, wrap="word")
+        summary_box.insert("1.0", summary)
+        summary_box.config(state="disabled")
+        summary_box.pack(fill="both", expand=True, padx=15, pady=8)
+
+        btn_frame = ttk.Frame(popup)
+        btn_frame.pack(fill="x", padx=15, pady=15)
+
+        def move_baseline():
+            if baseline_path is None:
+                messagebox.showerror("Baseline Missing", "No home reset baseline JSON was found.")
+                return
+            try:
+                result = self.move_home_offset_candidate_path(
+                    baseline_path,
+                    "Baseline Zero",
+                    arm,
+                    include_head,
+                    text_widget,
+                )
+                current_apply_arm["value"] = result["arm"]
+                messagebox.showinfo("Preview Complete", "Moved to baseline zero candidate.")
+            except Exception as e:
+                messagebox.showerror("Baseline Preview Error", str(e))
+                self.log(text_widget, f"Baseline preview failed: {e}")
+
+        def move_optimized():
+            try:
+                result = self.move_home_offset_candidate_path(
+                    result_path,
+                    "Optimized Zero",
+                    arm,
+                    include_head,
+                    text_widget,
+                )
+                current_apply_arm["value"] = result["arm"]
+                messagebox.showinfo("Preview Complete", "Moved to optimized zero candidate.")
+            except Exception as e:
+                messagebox.showerror("Optimized Preview Error", str(e))
+                self.log(text_widget, f"Optimized preview failed: {e}")
+
+        def apply_current():
+            msg = (
+                "This will redefine the selected joints' home offset using the robot's CURRENT pose.\n\n"
+                "Only continue if the robot is currently at the zero pose you want to keep."
+            )
+            if not messagebox.askokcancel("Apply Current Pose", msg):
+                return
+            try:
+                result = self.apply_current_pose_home_offset(
+                    current_apply_arm["value"],
+                    include_head,
+                    text_widget,
+                )
+                popup.destroy()
+                if result["success"]:
+                    messagebox.showinfo("Success", "Home offset applied from current pose.")
+                else:
+                    messagebox.showwarning(
+                        "Warning",
+                        "Home offset apply finished, but some joints failed to reset. Please check the logs.",
+                    )
+            except Exception as e:
+                messagebox.showerror("Apply Current Pose Error", str(e))
+                self.log(text_widget, f"Apply current pose failed: {e}")
+
+        baseline_btn = ttk.Button(btn_frame, text="Move to Baseline Zero", command=move_baseline)
+        baseline_btn.pack(side="left", padx=(0, 8))
+        if baseline_path is None:
+            baseline_btn.config(state="disabled")
+
+        ttk.Button(btn_frame, text="Move to Optimized Zero", command=move_optimized).pack(side="left", padx=8)
+        ttk.Button(btn_frame, text="Apply Current Pose", command=apply_current).pack(side="left", padx=8)
+        ttk.Button(btn_frame, text="Close", command=popup.destroy).pack(side="right")
+
+        popup.wait_window()
 
     def show_zero_pose_check_popup(self):
         popup = tk.Toplevel(self.root)
@@ -1346,80 +1649,28 @@ class CalibrationUI:
 
     def home_offset_reset_worker(self):
         try:
-            # Reconnect flow similar to apply_home_offset to avoid freezing
-            old_robot = self.robot
-            success = reset_home_offsets(
-                old_robot,
+            baseline_path, _ = save_home_reset_baseline_json(
+                self.robot,
                 self.model,
+                RESULT_DIR,
+                model_name=self.dev_model.get(),
+                include_head=self.servo_head.get(),
+            )
+            self.last_home_reset_path = Path(baseline_path)
+            self.log(self.dev_text, f"Home reset baseline saved to: {baseline_path}")
+
+            result = reset_current_pose_home_offsets(
+                self.robot,
+                self.model,
+                arm="both",
+                include_head=self.servo_head.get(),
                 log_cb=lambda msg: self.log(self.dev_text, msg),
             )
+            success = result["success"]
             
-            if old_robot is not None:
-                try:
-                    old_robot.disconnect()
-                except Exception as e:
-                    self.log(self.dev_text, f"Disconnect failed: {e}")
-            self.robot = None
-            self.model = None
-            self.dyn_model = None
-            self.dev_status.set("Disconnected")
-
-            # 48v 끄고 2초 대기 (apply_home_offset 참고)
-            self.log(self.dev_text, "Waiting for power cycle to complete (2 seconds)...")
-            time.sleep(2.0)
-
-            # Re-connect and initialize robot
+            # Re-connect robot using dev_connect
             self.log(self.dev_text, "Re-connecting and initializing robot...")
-            
-            # Recreate connection with correct servo regex
-            parts = []
-            if self.servo_body.get():
-                parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
-            if self.servo_head.get():
-                parts.append(r"head_.*")
-            servo_regex = "|".join(parts) if parts else r"^$"
-
-            self.include_head_motion = self.servo_head.get()
-            self.robot = create_robot(
-                self.dev_ip.get(),
-                self.dev_model.get(),
-                power_regex=".*",
-                servo_regex=servo_regex,
-            )
-            self.dyn_model = self.robot.get_dynamics()
-            self.model = self.robot.model()
-
-            if len(self.model.head_idx) == 0:
-                self.dev_cal_with_head.set(False)
-                self.dev_cal_with_head_cb.config(state="disabled")
-            else:
-                self.dev_cal_with_head_cb.config(state="normal")
-
-            self.auto_motion_running = False
-            self.auto_stop_requested = False
-            self.auto_motion_after_id = None
-            self.auto_base_head_q = None
-            self.auto_ready_done = False
-            self.dev_status.set("Connected")
-            self.log(self.dev_text, "Re-connection successful.")
-            self.update_head_pose_status()
-
-            # Move to zero pose after reset (apply_home_offset 참고)
-            self.log(self.dev_text, "Moving to zero pose after home offset reset...")
-            right_zero_pose = np.zeros(len(self.model.right_arm_idx))
-            left_zero_pose = np.zeros(len(self.model.left_arm_idx))
-            head_zero_pose = np.zeros(len(self.model.head_idx)) if self.servo_head.get() else None
-            
-            ok = movej(
-                self.robot,
-                right_arm=right_zero_pose,
-                left_arm=left_zero_pose,
-                head=head_zero_pose,
-                minimum_time=5,
-            )
-            if not ok:
-                self.log(self.dev_text, "Failed to move robot to zero pose after reset.")
-
+            self.dev_connect()
             self.log(self.dev_text, "Home Offset Reset complete!")
             if success:
                 messagebox.showinfo("Success", "Home Offset Reset completed successfully!")

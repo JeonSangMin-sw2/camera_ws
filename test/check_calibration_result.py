@@ -1,16 +1,10 @@
-import pyrealsense2 as rs
 import rby1_sdk
 import numpy as np
 import sys
 import time
 import argparse
-import re
 from rby1_sdk import *
-import cv2
-import socket
-import struct
 import math
-import threading
 
 # ============================================================
 # Robot initialization
@@ -28,40 +22,6 @@ MIN_DELTA_COST = WEIGHT * WEIGHT * 2e-3
 PATIENCE = 10
 
 robot = None
-# ============================================================
-# Main
-# ============================================================
-
-def compute_T_fk(q):
-    model = robot.model()
-    dyn_robot = robot.get_dynamics()
-    dyn_state_right = dyn_robot.make_state(
-        ["link_torso_5", "ee_right"],
-        model.robot_joint_names
-    )
-    dyn_state_right.set_q(q)
-    dyn_state_left = dyn_robot.make_state(
-        ["link_torso_5", "ee_left"],
-        model.robot_joint_names
-    )
-    dyn_state_left.set_q(q)
-    dyn_robot.compute_forward_kinematics(dyn_state_right)
-    T_fk_right = dyn_robot.compute_transformation(dyn_state_right, 0, 1)
-    dyn_robot.compute_forward_kinematics(dyn_state_left)
-    T_fk_left = dyn_robot.compute_transformation(dyn_state_left, 0, 1)
-    
-    print("Right FK matrix:")
-    print(T_fk_right)
-    print("Left FK matrix:")
-    print(T_fk_left)
-    return T_fk_right, T_fk_left
-
-def cb(rs):
-    #print(f"Timestamp: {rs.timestamp - rs.ft_sensor_right.time_since_last_update}")
-    position = rs.position * 180 / 3.141592
-    #print(f"torso [deg]: {position[2:2 + 6]}")
-    #print(f"right arm [deg]: {position[8:8 + 7]}")
-    #print(f"left arm [deg]: {position[15:15 + 7]}")
 
 def make_transform(data):
         # data: [x, y, z, roll, pitch, yaw] (x,y,z in meters, r,p,y in degrees)
@@ -97,12 +57,6 @@ def make_transform(data):
     
 def joint_position_command(robot, model_name, right_arm, left_arm):
     print("joint position command")
-
-    # Define joint positions
-    # if model_name == "a":
-    #     q_joint_torso = np.array([0, 30, -60, 30, 0, 0]) * D2R
-    # elif model_name == "m":
-    #     q_joint_torso = np.array([0, 30, -60, 30, 0, 0]) * D2R
 
     q_joint_torso = np.array([0,0,0,0,0,0])* D2R
         
@@ -200,11 +154,6 @@ def go_to_calibration_checking_pose(robot, model_name, data, offset):
     T_right = make_transform(P_right)
     T_left = make_transform(P_left)
 
-    print("T_right:")
-    print(T_right)
-    print("T_left:")
-    print(T_left)
-
     # Build command
     rc = RobotCommandBuilder().set_command(
         ComponentBasedCommandBuilder().set_body_command(
@@ -274,16 +223,12 @@ def initialize_robot(address, model_name, power, servo):
     print("Successfully connected to the robot")
 
     print("Starting state update...")
-    robot.start_state_update(cb, 10)
-
-    # robot.factory_reset_all_parameters()
     robot.set_parameter("default.acceleration_limit_scaling", "1.0")
     robot.set_parameter("joint_position_command.cutoff_frequency", "5")
     robot.set_parameter("cartesian_command.cutoff_frequency", "5")
     robot.set_parameter("default.linear_acceleration_limit", "20")
     robot.set_parameter("default.angular_acceleration_limit", "10")
     robot.set_parameter("manipulability_threshold", "1e4")
-    # robot.set_time_scale(1.0)
 
     print("parameters setting is done")
 
@@ -359,28 +304,8 @@ def main(address, model_name, power, servo):
     # BASE, EE = 0, 1
     go_to_ready_pose(robot, model_name)
     time.sleep(1)
-    # example_cartesian_command_1(robot, model_name)
-    # print("move test position")
-    go_to_calibration_checking_pose(robot, model_name, [0.35,-0.0,-0.0], 0.175)
-
-    print("t5 to ee=")
-    compute_T_fk(robot.get_state().position)
+    go_to_calibration_checking_pose(robot, model_name, [0.35,-0.0,-0.0], 0.16)
     time.sleep(2)
-
-    # print("check offset")
-    # offset_made = [-10, 0, 5, 1, 15, -20, -20]
-    # offset_meas = [-9.49, -0.199, 4.52, 0.87, 15.22, -19.95, -20.78]
-    # go_to_home_pose(robot, model_name)
-    # joint_position_command(robot, model_name, right_arm = offset_made, left_arm = [0.0,0.0,0.0,0.0,0.0,0.0,0.0])
-    # print("before right arm move")
-    # ref_T = compute_T_fk(robot.get_state().position)
-    # time.sleep(2)
-    # joint_position_command(robot, model_name, right_arm = offset_meas, left_arm = [0.0,0.0,0.0,0.0,0.0,0.0,0.0])
-    # print("after right arm move")
-    # cur_T = compute_T_fk(robot.get_state().position)
-
-    # offset = cal_offset(ref_T[0], cur_T[0])
-    # print(f"offset(mm,deg): {np.round(offset[0]*1000, 2)}, {np.round(offset[1]*1000, 2)}, {np.round(offset[2]*1000, 2)}, {np.round(offset[3]*180/math.pi, 2)}, {np.round(offset[4]*180/math.pi, 2)}, {np.round(offset[5]*180/math.pi, 2)}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="09_demo_motion")
@@ -395,7 +320,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--servo",
         type=str,
-        default="^(?!.*head).*",
+        default= "^(?!.*head).*",
         help="Servo name regex pattern (default: '.*')",
     )
     args = parser.parse_args()

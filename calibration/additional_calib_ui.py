@@ -539,31 +539,26 @@ class UnifiedCalibrationApp(QWidget):
     def load_offsets_from_yaml(self):
         import yaml
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "joint_offset.yaml"))
+        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
         try:
-            if not os.path.exists(config_path) or os.path.getsize(config_path) == 0:
-                os.makedirs(os.path.dirname(config_path), exist_ok=True)
+            if not os.path.exists(config_path):
                 self.joint_offsets_store = {
                     "left": {"joint5": 0.0, "joint3": 0.0},
                     "right": {"joint5": 0.0, "joint3": 0.0}
                 }
-                with open(config_path, "w") as f:
-                    yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
-                self.log_msg(f"[INFO] Initialized calibration file: joint_offset.yaml")
+                self.save_offsets_to_yaml()
             else:
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f)
-                if data and isinstance(data, dict):
-                    self.joint_offsets_store = data
+                if data and isinstance(data, dict) and "joint_offset" in data:
+                    self.joint_offsets_store = data["joint_offset"]
                 else:
-                    # 파일 포맷이 비정상적이면 초기 설정으로 덮어씀
                     self.joint_offsets_store = {
                         "left": {"joint5": 0.0, "joint3": 0.0},
                         "right": {"joint5": 0.0, "joint3": 0.0}
                     }
-                    with open(config_path, "w") as f:
-                        yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
-                    self.log_msg(f"[WARNING] Reset invalid joint_offset.yaml to default values.")
+                    self.save_offsets_to_yaml()
+                    self.log_msg(f"[WARNING] Added default joint_offset to setting.yaml.")
             
             # Sync current offsets with active arm_side from YAML
             self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
@@ -572,7 +567,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator.joint_offsets = self.joint_offsets
             
         except Exception as e:
-            self.log_msg(f"[ERROR] Failed to load/create joint_offset.yaml: {e}")
+            self.log_msg(f"[ERROR] Failed to load/create setting.yaml: {e}")
             # Fallback default values
             self.joint_offsets_store = {
                 "left": {"joint5": 0.0, "joint3": 0.0},
@@ -584,17 +579,65 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator.joint_offsets = self.joint_offsets
 
     def save_offsets_to_yaml(self):
-        import yaml
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "joint_offset.yaml"))
+        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         
         try:
+            lines = []
+            if os.path.exists(config_path):
+                with open(config_path, "r") as f:
+                    lines = f.readlines()
+            
+            jo_idx = -1
+            for i, line in enumerate(lines):
+                if line.strip().startswith("joint_offset:"):
+                    jo_idx = i
+                    break
+
+            if jo_idx == -1:
+                # If joint_offset doesn't exist, we append it to the end of the file
+                if lines and not lines[-1].endswith("\n"):
+                    lines.append("\n")
+                lines.append("joint_offset:\n")
+                lines.append("  left:\n")
+                lines.append(f"    joint3: {self.joint_offsets_store['left']['joint3']}\n")
+                lines.append(f"    joint5: {self.joint_offsets_store['left']['joint5']}\n")
+                lines.append("  right:\n")
+                lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
+                lines.append(f"    joint5: {self.joint_offsets_store['right']['joint5']}\n")
+            else:
+                curr_arm = None
+                i = jo_idx + 1
+                while i < len(lines):
+                    line = lines[i]
+                    stripped = line.strip()
+                    if not stripped:
+                        i += 1
+                        continue
+                    # If we hit another top-level key, we stop
+                    if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+                        break
+                    
+                    if stripped.startswith("left:"):
+                        curr_arm = "left"
+                    elif stripped.startswith("right:"):
+                        curr_arm = "right"
+                    
+                    if curr_arm is not None:
+                        if stripped.startswith("joint3:"):
+                            indent = len(line) - len(line.lstrip())
+                            lines[i] = " " * indent + f"joint3: {self.joint_offsets_store[curr_arm]['joint3']}\n"
+                        elif stripped.startswith("joint5:"):
+                            indent = len(line) - len(line.lstrip())
+                            lines[i] = " " * indent + f"joint5: {self.joint_offsets_store[curr_arm]['joint5']}\n"
+                    i += 1
+
             with open(config_path, "w") as f:
-                yaml.safe_dump(self.joint_offsets_store, f, default_flow_style=False)
-            self.log_msg(f"[SUCCESS] Saved offsets permanently to joint_offset.yaml!")
+                f.writelines(lines)
+            self.log_msg(f"[SUCCESS] Saved offsets permanently to setting.yaml!")
         except Exception as e:
-            self.log_msg(f"[ERROR] Failed to save joint_offset.yaml: {e}")
+            self.log_msg(f"[ERROR] Failed to save setting.yaml: {e}")
 
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
@@ -1282,7 +1325,7 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"[APPLY] Applied current staged offsets for {self.arm_side.upper()} Arm to active parameters:")
         self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
         self.log_msg(f"  - Joint 3 (elbow)      : {self.joint_offsets['elbow']:.4f}°")
-        self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to joint_offset.yaml successfully!")
+        self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!")
         self.log_msg("="*50 + "\n")
 
     def stop_motion(self):
@@ -1362,20 +1405,55 @@ class UnifiedCalibrationApp(QWidget):
                 QMessageBox.critical(self, "Invalid Inputs", "Please enter valid numeric values for all bracket design fields.")
                 return
             
-            data = {}
+            lines = []
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
-                    data = yaml.safe_load(f) or {}
+                    lines = f.readlines()
             
-            if "camera" not in data:
-                data["camera"] = {}
+            camera_idx = -1
+            for i, line in enumerate(lines):
+                if line.strip().startswith("camera:"):
+                    camera_idx = i
+                    break
             
             key = f"Tf_to_marker_{self.arm_side}"
             new_vals = [x, y, z, roll, pitch, yaw]
-            data["camera"][key] = new_vals
+            new_val_str = f"[{x:.5f}, {y:.5f}, {z:.5f}, {roll:.2f}, {pitch:.2f}, {yaw:.2f}]"
+            
+            key_found = False
+            if camera_idx != -1:
+                i = camera_idx + 1
+                while i < len(lines):
+                    line = lines[i]
+                    stripped = line.strip()
+                    if not stripped:
+                        i += 1
+                        continue
+                    # If we hit another top-level key, we stop
+                    if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+                        break
+                    
+                    if stripped.startswith(f"{key}:"):
+                        comment = ""
+                        if "#" in line:
+                            comment_idx = line.find("#")
+                            comment = " " + line[comment_idx:].rstrip()
+                        
+                        indent = len(line) - len(line.lstrip())
+                        lines[i] = " " * indent + f"{key}: {new_val_str}{comment}\n"
+                        key_found = True
+                        break
+                    i += 1
+            
+            if not key_found:
+                if camera_idx == -1:
+                    lines.append("camera:\n")
+                    lines.append(f"  {key}: {new_val_str}\n")
+                else:
+                    lines.insert(camera_idx + 1, f"  {key}: {new_val_str}\n")
             
             with open(config_path, "w") as f:
-                yaml.safe_dump(data, f, default_flow_style=None)
+                f.writelines(lines)
                 
             self.log_msg(f"[SUCCESS] Saved {key} to setting.yaml: {new_vals}")
             QMessageBox.information(self, "Success", f"Bracket design values saved for {self.arm_side.upper()} arm!")
