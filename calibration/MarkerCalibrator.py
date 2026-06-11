@@ -428,63 +428,60 @@ class MarkerCalibrator(BaseCalibrator):
         else:
             nominal_rpy = [-90.0, 0.0, 180.0]
             
-        # 설계상의 ideal 회전 행렬 생성 (Scipy ZYX order: [yaw, pitch, roll])
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+        
+        # 마커 좌표계에서 바라본 이상적인 6축(z), 5축(y) 방향 벡터
+        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
+        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
 
-        # 2. 6축(Roll) 스윕 데이터로부터 마커 프레임 기준의 6축 회전축 벡터 추출
-        # 기구학적으로 엔드이펙터 프레임에서 6축 회전축은 언제나 z_ee = [0, 0, 1]^T 임
+        # 2. 6축(Roll) 회전축 정산 (Sign Ambiguity 해결)
         n6_cam = marker_data_6.get('axis_opt', marker_data_6.get('axis', np.array([1, 0, 0])))
         n6_in_marker_list = []
-        
         for T_c_m in marker_data_6.get('captured_poses', []):
             R_c_m = T_c_m[:3, :3]
-            # 카메라 프레임의 회전축을 마커 로컬 프레임으로 역투영
-            n6_m = R_c_m.T @ n6_cam
-            n6_in_marker_list.append(n6_m)
+            n6_in_marker_list.append(R_c_m.T @ n6_cam)
             
         if len(n6_in_marker_list) > 0:
-            # 대표 벡터 산출 (부호 반전 노이즈 방지 처리)
-            ref_v = n6_in_marker_list[0]
-            n6_in_marker_aligned = [v if np.dot(v, ref_v) >= 0 else -v for v in n6_in_marker_list]
-            n6_marker_actual = np.mean(n6_in_marker_aligned, axis=0)
-            n6_marker_actual /= np.linalg.norm(n6_marker_actual)
+            n6_raw = np.mean(n6_in_marker_list, axis=0)
+            # [핵심 보정] 이상적인 축과 반대 방향이면 180도 뒤집기
+            if np.dot(n6_raw, z_ee_m_ideal) < 0:
+                n6_raw = -n6_raw
+            n6_marker_actual = n6_raw / np.linalg.norm(n6_raw)
         else:
-            n6_marker_actual = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
+            n6_marker_actual = z_ee_m_ideal
 
-        # 3. 5축(Pitch) 스윕 데이터로부터 마커 프레임 기준의 5축 회전축 벡터 추출
-        # 기구학적으로 엔드이펙터 프레임에서 5축 회전축은 언제나 y_ee = [0, 1, 0]^T 임
+        # 3. 5축(Pitch) 회전축 정산 (Sign Ambiguity 해결)
         n5_cam = marker_data_5.get('axis_opt', marker_data_5.get('axis', np.array([0, 1, 0])))
         n5_in_marker_list = []
-        
         for T_c_m in marker_data_5.get('captured_poses', []):
             R_c_m = T_c_m[:3, :3]
-            n5_m = R_c_m.T @ n5_cam
-            n5_in_marker_list.append(n5_m)
+            n5_in_marker_list.append(R_c_m.T @ n5_cam)
             
         if len(n5_in_marker_list) > 0:
-            ref_v = n5_in_marker_list[0]
-            n5_in_marker_aligned = [v if np.dot(v, ref_v) >= 0 else -v for v in n5_in_marker_list]
-            n5_marker_actual = np.mean(n5_in_marker_aligned, axis=0)
-            n5_marker_actual /= np.linalg.norm(n5_marker_actual)
+            n5_raw = np.mean(n5_in_marker_list, axis=0)
+            # [핵심 보정] 이상적인 축과 반대 방향이면 180도 뒤집기
+            if np.dot(n5_raw, y_ee_m_ideal) < 0:
+                n5_raw = -n5_raw
+            n5_marker_actual = n5_raw / np.linalg.norm(n5_raw)
         else:
-            n5_marker_actual = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+            n5_marker_actual = y_ee_m_ideal
 
-        # 4. Gram-Schmidt 직교화를 이용해 마커 내부에 실제 구축된 엔드이펙터(ee) 좌표계 조립
+        # 4. Gram-Schmidt 직교화를 이용해 행렬 조립
         z_col = n6_marker_actual
         y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
         y_col /= np.linalg.norm(y_col)
         x_col = np.cross(y_col, z_col)
         
-        # [수정됨] column_stack 자체가 R_ee_to_marker를 형성합니다. 
-        # 전치(.T)를 제거하여 실제 회전 오차가 보존되도록 합니다.
-        R_ee_m_actual = np.column_stack((x_col, y_col, z_col))
+        # [수정 복구] x, y, z_col은 마커 프레임에서 본 EE의 축입니다 (R_marker_to_ee).
+        # 우리가 원하는 보정 행렬 R_ee_to_marker를 얻으려면 전치(.T)가 반드시 필요합니다.
+        R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
+        R_ee_m_actual = R_m_ee_actual.T
 
-        # 5. 최종 보정 오일러 각도 추출 (UI 표시 및 저장용 ZYX 각도 분해)
-        # [수정됨] 하드코딩이나 억지 행렬 연산 없이, 순수하게 3D 오일러 각도를 추출합니다.
+        # 5. 오일러 각도 추출
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
-        # ZYX 변환 특성상 오른팔의 경우 180도가 -180도로 표기될 수 있으므로 정규화
+        # UI 및 설정값을 위해 Yaw를 -180~180 대신 0~360 범위로 정규화 (오른팔 180도 부근 떨림 방지)
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
 
