@@ -429,9 +429,6 @@ class MarkerCalibrator(BaseCalibrator):
             nominal_rpy = [90.0, 0.0, 180.0]
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
-        
-        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
-        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
 
         def extract_axis_from_rotations(poses, ideal_axis):
             if len(poses) < 2: return ideal_axis
@@ -452,12 +449,14 @@ class MarkerCalibrator(BaseCalibrator):
                 return avg_axis / np.linalg.norm(avg_axis)
             return ideal_axis
 
-        # 2. 정밀 회전축 벡터 산출 (6축 데이터만 신뢰)
+        # 2. 정밀 회전축 벡터 산출 (기준 축은 마커 좌표계 기준 ideal axis를 사용)
+        ideal_n6_m = R_ee_m_ideal @ np.array([0.0, 0.0, 1.0])
         poses_6 = marker_data_6.get('captured_poses', [])
-        n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+        n6_marker_actual = extract_axis_from_rotations(poses_6, ideal_n6_m)
         
+        ideal_n5_m = R_ee_m_ideal @ np.array([0.0, 1.0, 0.0])
         poses_5 = marker_data_5.get('captured_poses', [])
-        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal) # 참고용 지표로만 계산
+        n5_marker_actual = extract_axis_from_rotations(poses_5, ideal_n5_m)
 
         # =====================================================================
         # 3. [상민 님 인사이트 적용] 설계 기반 강제 직교화 (n5 노이즈 배제)
@@ -465,16 +464,16 @@ class MarkerCalibrator(BaseCalibrator):
         # 실제 물리적 Z축은 신뢰도 높은 n6 데이터를 그대로 사용
         z_col = n6_marker_actual
         
-        # Y축은 n5 측정값을 버리고, '설계상 Y축(y_ee_m_ideal)'을 
+        # Y축은 n5 측정값을 버리고, '설계상 Y축(ideal_n5_m)'을 
         # 실제 Z축 평면에 투영하여 완벽한 90도 직교성을 강제함 (Yaw 고정 효과)
-        y_col = y_ee_m_ideal - np.dot(y_ee_m_ideal, z_col) * z_col
+        y_col = ideal_n5_m - np.dot(ideal_n5_m, z_col) * z_col
         y_col /= np.linalg.norm(y_col)
         
         # X축은 Z와 Y의 외적으로 자동 완성
         x_col = np.cross(y_col, z_col)
         
-        R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
-        R_ee_m_actual = R_m_ee_actual.T
+        # R_ee_m_actual을 직접 구성 (각 열벡터는 EE 축들을 마커 기준으로 나타낸 것)
+        R_ee_m_actual = np.column_stack((x_col, y_col, z_col))
 
         # 4. 오일러 각도 추출
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)

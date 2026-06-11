@@ -13,7 +13,7 @@ class AutoCollectionConfig:
     max_x: float = 0.5
     move_time: float = 2.4
     settle_time: float = 0.6
-    hold_time: float = 3.0
+    hold_time: float = 0.5
     priority: int = 10
 
 def rot_x(rad):
@@ -260,7 +260,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
             .set_stop_position_tracking_error(0.005)
             .set_stop_orientation_tracking_error(0.02)
             .set_minimum_time(minimum_time)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
         )
     else:
         body2.set_right_arm_command(
@@ -276,7 +276,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
             .set_stop_position_tracking_error(0.005)
             .set_stop_orientation_tracking_error(0.02)
             .set_minimum_time(minimum_time)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
         )
     else:
         body2.set_left_arm_command(
@@ -293,7 +293,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 2: Cartesian Checking Pose.")
 
-def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=3.0, q_right=None, q_left=None):
+def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=0.5, q_right=None, q_left=None):
     body = rby.BodyComponentBasedCommandBuilder()
 
     # Always lock Torso to stable pose
@@ -619,7 +619,7 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
             .set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
             .set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
             .set_minimum_time(MINIMUM_TIME)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
         )
     else:
         body.set_right_arm_command(
@@ -635,7 +635,7 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
             .set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
             .set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
             .set_minimum_time(MINIMUM_TIME)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(1.0))
+            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
         )
     else:
         body.set_left_arm_command(

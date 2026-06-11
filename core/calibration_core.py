@@ -192,7 +192,7 @@ def create_live_marker_transform():
     return marker_transform
 
 
-def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=2, side="all", head_idx=None):
+def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=1, side="all", head_idx=None):
     state = robot.get_state()
     q_full = state.position.copy()
     q_arm = q_full[arm_idx].copy()
