@@ -450,11 +450,15 @@ class BaseCalibrator:
                     r_init = r_init / r_init_norm
                 R = params[9]
                 
-                residuals = []
-                for pt, theta in zip(points, angles_rad):
-                    pred_pt = c + R * BaseCalibrator.rodrigues_rotation(r_init, axis, theta)
-                    residuals.extend(pt - pred_pt)
-                return np.array(residuals)
+                cos_t = np.cos(angles_rad)[:, None]
+                sin_t = np.sin(angles_rad)[:, None]
+                cross_term = np.cross(axis, r_init)
+                dot_term = np.dot(axis, r_init)
+                
+                pred_pts = c + R * (r_init[None, :] * cos_t + 
+                                   cross_term[None, :] * sin_t + 
+                                   (axis * dot_term)[None, :] * (1.0 - cos_t))
+                return (points - pred_pts).ravel()
                 
             try:
                 opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
@@ -505,11 +509,15 @@ class BaseCalibrator:
                     r_init = r_init / r_init_norm
                 R = params[9]
                 
-                residuals = []
-                for pt, theta in zip(pts_in, rad_in):
-                    pred_pt = c + R * BaseCalibrator.rodrigues_rotation(r_init, axis, theta)
-                    residuals.extend(pt - pred_pt)
-                return np.array(residuals)
+                cos_t = np.cos(rad_in)[:, None]
+                sin_t = np.sin(rad_in)[:, None]
+                cross_term = np.cross(axis, r_init)
+                dot_term = np.dot(axis, r_init)
+                
+                pred_pts = c + R * (r_init[None, :] * cos_t + 
+                                   cross_term[None, :] * sin_t + 
+                                   (axis * dot_term)[None, :] * (1.0 - cos_t))
+                return (pts_in - pred_pts).ravel()
                 
             try:
                 opt_res = least_squares(total_residuals_in, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
@@ -524,11 +532,15 @@ class BaseCalibrator:
                 r_final_dir /= np.linalg.norm(r_final_dir)
             R_init = opt_res.x[9]
             
-            all_errors = []
-            for pt, theta in zip(points, angles_rad):
-                pred_pt = c_init + R_init * BaseCalibrator.rodrigues_rotation(r_final_dir, best_normal, theta)
-                all_errors.append(np.linalg.norm(pt - pred_pt))
-            all_errors = np.array(all_errors)
+            cos_t = np.cos(angles_rad)[:, None]
+            sin_t = np.sin(angles_rad)[:, None]
+            cross_term = np.cross(best_normal, r_final_dir)
+            dot_term = np.dot(best_normal, r_final_dir)
+            
+            pred_pts = c_init + R_init * (r_final_dir[None, :] * cos_t + 
+                                         cross_term[None, :] * sin_t + 
+                                         (best_normal * dot_term)[None, :] * (1.0 - cos_t))
+            all_errors = np.linalg.norm(points - pred_pts, axis=1)
             
             inlier_indices = np.where(inlier_mask)[0]
             inlier_errors = all_errors[inlier_mask]
@@ -559,11 +571,15 @@ class BaseCalibrator:
                 r_init = r_init / r_init_norm
             R = params[9]
             
-            residuals = []
-            for pt, theta in zip(pts_in, rad_in):
-                pred_pt = c + R * BaseCalibrator.rodrigues_rotation(r_init, axis, theta)
-                residuals.extend(pt - pred_pt)
-            return np.array(residuals)
+            cos_t = np.cos(rad_in)[:, None]
+            sin_t = np.sin(rad_in)[:, None]
+            cross_term = np.cross(axis, r_init)
+            dot_term = np.dot(axis, r_init)
+            
+            pred_pts = c + R * (r_init[None, :] * cos_t + 
+                               cross_term[None, :] * sin_t + 
+                               (axis * dot_term)[None, :] * (1.0 - cos_t))
+            return (pts_in - pred_pts).ravel()
             
         lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
         upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])

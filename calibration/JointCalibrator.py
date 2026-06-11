@@ -363,9 +363,8 @@ class JointCalibrator(BaseCalibrator):
             import os
             import numpy as np
             import matplotlib.pyplot as plt
-            from mpl_toolkits.mplot3d import Axes3D
 
-            fig = plt.figure(figsize=(16, 14))
+            fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
             def plot_column(res, col_idx, stage_name):
                 pts_a = res['pts_a_cam']
@@ -376,91 +375,76 @@ class JointCalibrator(BaseCalibrator):
                 n_B = res['n_B']
                 r_A = res['r_A']
                 r_B = res['r_B']
-                rmse_A = res['rmse_A']
-                rmse_B = res['rmse_B']
                 angle_error = res['angle_between_normals']
                 center_dist = res['center_dist']
 
-                # Fit circles again to retrieve the local coordinate frames R_c_A, R_c_B
-                c_A_fit, R_c_A, r_A_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_a)
-                c_B_fit, R_c_B, r_B_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_b)
+                # Compute local frames algebraically from normals (Z axes)
+                def get_local_vectors(n):
+                    n = n / np.linalg.norm(n)
+                    if abs(n[0]) < 0.9:
+                        u = np.cross(n, [1, 0, 0])
+                    else:
+                        u = np.cross(n, [0, 1, 0])
+                    u = u / np.linalg.norm(u)
+                    v = np.cross(n, u)
+                    v = v / np.linalg.norm(v)
+                    return u, v
+
+                u_A, v_A = get_local_vectors(n_A)
+                u_B, v_B = get_local_vectors(n_B)
 
                 theta = np.linspace(0, 2 * np.pi, 200)
+                circle_pts_a = c_A + r_A * (np.cos(theta)[:, None] * u_A + np.sin(theta)[:, None] * v_A)
+                circle_pts_b = c_B + r_B * (np.cos(theta)[:, None] * u_B + np.sin(theta)[:, None] * v_B)
 
-                # --- 1. 2D SUBPLOT (Row 0, Col col_idx) ---
-                pts_a_proj = (pts_a - c_A_fit) @ R_c_A[:, :2]
-                pts_b_proj = (pts_b - c_A_fit) @ R_c_A[:, :2]
-                c_B_proj = (c_B_fit - c_A_fit) @ R_c_A[:, :2]
-
-                circle_A_2d_x = r_A_fit * np.cos(theta)
-                circle_A_2d_y = r_A_fit * np.sin(theta)
-
-                circle_B_3d = c_B_fit + r_B_fit * (np.cos(theta)[:, None] * R_c_B[:, 0] + np.sin(theta)[:, None] * R_c_B[:, 1])
-                circle_B_proj = (circle_B_3d - c_A_fit) @ R_c_A[:, :2]
-
-                ax_2d = fig.add_subplot(2, 2, col_idx + 1)
+                # --- 1. TOP VIEW (Row 0, Col col_idx): X-Y Projection ---
+                ax_top = axes[0, col_idx]
+                ax_top.scatter(pts_a[:, 0], pts_a[:, 1], c='red', s=15, alpha=0.5, label='Sweep A Raw')
+                ax_top.scatter(pts_b[:, 0], pts_b[:, 1], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
+                ax_top.plot(circle_pts_a[:, 0], circle_pts_a[:, 1], 'r-', linewidth=1.5, label='Sweep A Fit')
+                ax_top.plot(circle_pts_b[:, 0], circle_pts_b[:, 1], 'b-', linewidth=1.5, label='Sweep B Fit')
+                ax_top.scatter([c_A[0]], [c_A[1]], c='darkred', marker='X', s=100, label='Center A')
+                ax_top.scatter([c_B[0]], [c_B[1]], c='darkblue', marker='X', s=100, label='Center B')
+                ax_top.plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
                 
-                # Plot Sweep A
-                ax_2d.scatter(pts_a_proj[:, 0], pts_a_proj[:, 1], c='red', s=15, alpha=0.5, label=f'Sweep A (r={r_A_fit:.1f}mm [calib:{r_A:.1f}mm], RMSE={rmse_A:.2f}mm)')
-                ax_2d.plot(circle_A_2d_x, circle_A_2d_y, 'r--', linewidth=2)
-                ax_2d.scatter([0], [0], c='darkred', marker='X', s=100, label='Center A (0,0)')
+                # Normal vector arrows on X-Y
+                scale = min(r_A, r_B) * 0.4
+                ax_top.arrow(c_A[0], c_A[1], n_A[0]*scale, n_A[1]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
+                ax_top.arrow(c_B[0], c_B[1], n_B[0]*scale, n_B[1]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
 
-                # Plot Sweep B
-                ax_2d.scatter(pts_b_proj[:, 0], pts_b_proj[:, 1], c='blue', s=15, alpha=0.5, label=f'Sweep B (r={r_B_fit:.1f}mm [calib:{r_B:.1f}mm], RMSE={rmse_B:.2f}mm)')
-                ax_2d.plot(circle_B_proj[:, 0], circle_B_proj[:, 1], 'b--', linewidth=2)
-                ax_2d.scatter([c_B_proj[0]], [c_B_proj[1]], c='darkblue', marker='X', s=100, label=f'Center B ({c_B_proj[0]:.1f},{c_B_proj[1]:.1f})')
+                ax_top.set_xlabel('X (mm)')
+                ax_top.set_ylabel('Y (mm)')
+                ax_top.set_title(f'[{stage_name}] Top View (X-Y Projection)')
+                ax_top.set_aspect('equal')
+                ax_top.grid(True)
+                ax_top.legend(loc='upper right')
 
-                ax_2d.plot([0, c_B_proj[0]], [0, c_B_proj[1]], color='purple', linestyle=':', linewidth=2, label=f'Center Shift = {center_dist:.2f}mm')
+                # --- 2. SIDE VIEW (Row 1, Col col_idx): Y-Z Projection ---
+                ax_side = axes[1, col_idx]
+                ax_side.scatter(pts_a[:, 1], pts_a[:, 2], c='red', s=15, alpha=0.5, label='Sweep A Raw')
+                ax_side.scatter(pts_b[:, 1], pts_b[:, 2], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
+                ax_side.plot(circle_pts_a[:, 1], circle_pts_a[:, 2], 'r-', linewidth=1.5, label='Sweep A Fit')
+                ax_side.plot(circle_pts_b[:, 1], circle_pts_b[:, 2], 'b-', linewidth=1.5, label='Sweep B Fit')
+                ax_side.scatter([c_A[1]], [c_A[2]], c='darkred', marker='X', s=100, label='Center A')
+                ax_side.scatter([c_B[1]], [c_B[2]], c='darkblue', marker='X', s=100, label='Center B')
+                ax_side.plot([c_A[1], c_B[1]], [c_A[2], c_B[2]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
 
-                ax_2d.set_xlabel('U (mm)')
-                ax_2d.set_ylabel('V (mm)')
-                ax_2d.set_title(f'[{stage_name}] 2D Combined Circle Fit')
-                ax_2d.set_aspect('equal')
-                ax_2d.grid(True)
-                ax_2d.legend(loc='upper right')
+                # Normal vector arrows on Y-Z
+                ax_side.arrow(c_A[1], c_A[2], n_A[1]*scale, n_A[2]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
+                ax_side.arrow(c_B[1], c_B[2], n_B[1]*scale, n_B[2]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
 
-                # --- 2. 3D SUBPLOT (Row 1, Col col_idx) ---
-                ax_3d = fig.add_subplot(2, 2, col_idx + 3, projection='3d')
-
-                ax_3d.scatter(pts_a[:, 0], pts_a[:, 1], pts_a[:, 2], c='red', s=10, alpha=0.4)
-                ax_3d.scatter(pts_b[:, 0], pts_b[:, 1], pts_b[:, 2], c='blue', s=10, alpha=0.4)
-
-                circle_A_3d = c_A_fit + r_A_fit * (np.cos(theta)[:, None] * R_c_A[:, 0] + np.sin(theta)[:, None] * R_c_A[:, 1])
-                ax_3d.plot(circle_A_3d[:, 0], circle_A_3d[:, 1], circle_A_3d[:, 2], 'r-', linewidth=2, label='Sweep A Fit')
-                ax_3d.plot(circle_B_3d[:, 0], circle_B_3d[:, 1], circle_B_3d[:, 2], 'b-', linewidth=2, label='Sweep B Fit')
-
-                ax_3d.scatter([c_A[0]], [c_A[1]], [c_A[2]], c='darkred', marker='X', s=120)
-                ax_3d.scatter([c_B[0]], [c_B[1]], [c_B[2]], c='darkblue', marker='X', s=120)
-
-                scale = min(r_A, r_B) * 0.5
-                ax_3d.quiver(c_A[0], c_A[1], c_A[2], n_A[0]*scale, n_A[1]*scale, n_A[2]*scale, color='darkred', linewidth=3, arrow_length_ratio=0.15, label=f'Normal A: {np.round(n_A,2)}')
-                ax_3d.quiver(c_B[0], c_B[1], c_B[2], n_B[0]*scale, n_B[1]*scale, n_B[2]*scale, color='darkblue', linewidth=3, arrow_length_ratio=0.15, label=f'Normal B: {np.round(n_B,2)}')
-
-                ax_3d.plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], [c_A[2], c_B[2]], color='purple', linestyle=':', linewidth=2)
-
-                # Set equal aspect ratio for 3D plot
-                pts_all = np.vstack((pts_a, pts_b))
-                max_range = np.array([pts_all[:, 0].max() - pts_all[:, 0].min(),
-                                      pts_all[:, 1].max() - pts_all[:, 1].min(),
-                                      pts_all[:, 2].max() - pts_all[:, 2].min()]).max() / 2.0
-                mid_x = (pts_all[:, 0].max() + pts_all[:, 0].min()) * 0.5
-                mid_y = (pts_all[:, 1].max() + pts_all[:, 1].min()) * 0.5
-                mid_z = (pts_all[:, 2].max() + pts_all[:, 2].min()) * 0.5
-                ax_3d.set_xlim(mid_x - max_range, mid_x + max_range)
-                ax_3d.set_ylim(mid_y - max_range, mid_y + max_range)
-                ax_3d.set_zlim(mid_z - max_range, mid_z + max_range)
-
-                ax_3d.set_xlabel('X (mm)')
-                ax_3d.set_ylabel('Y (mm)')
-                ax_3d.set_zlabel('Z (mm)')
-                ax_3d.set_title(f'[{stage_name}] 3D Rotation Axes\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm')
-                ax_3d.legend()
+                ax_side.set_xlabel('Y (mm)')
+                ax_side.set_ylabel('Z (mm)')
+                ax_side.set_title(f'[{stage_name}] Side View (Y-Z Projection)\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm')
+                ax_side.set_aspect('equal')
+                ax_side.grid(True)
+                ax_side.legend(loc='upper right')
 
             plot_column(first_res, 0, "BEFORE")
             plot_column(final_res, 1, "AFTER")
 
             fig.suptitle(
-                f"Joint Calibration Comparison: {arm_side.upper()} Arm - {mode.upper()}\n"
+                f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
                 f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm\n"
                 f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm",
                 fontsize=16, fontweight='bold'
@@ -478,7 +462,7 @@ class JointCalibrator(BaseCalibrator):
             return plot_save_path
         except Exception as e:
             if log_callback:
-                log_callback(f"[WARN] Failed to generate comparison plot: {e}")
+                log_callback(f"[ERROR] Failed to save combined calibration comparison plot: {e}")
             import traceback
             if log_callback:
                 log_callback(traceback.format_exc())
@@ -821,14 +805,14 @@ class JointCalibrator(BaseCalibrator):
         uc_B = res_B['uc_opt']
         vc_B = res_B['vc_opt']
         
-        # Compute center distance in camera frame
+        pts_a_cam = np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_A])
+        pts_b_cam = np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_B])
+        
+        # Compute center distance in camera frame using direct results from fit_circle_3d_and_6dof_misalignment
         try:
-            pts_a_cam = [pose[:3, 3] * 1000.0 for _, pose in dataset_A]
-            pts_b_cam = [pose[:3, 3] * 1000.0 for _, pose in dataset_B]
-            
-            c_A_c, R_c_A_c, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_a_cam)
-            c_B_c, R_c_B_c, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_b_cam)
-            n_A_c = R_c_A_c[:, 2]
+            c_A_c = res_A['c_opt']
+            c_B_c = res_B['c_opt']
+            n_A_c = res_A['axis_opt']
             diff_centers = c_B_c - c_A_c
             center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A_c) * n_A_c)
         except Exception as e:
@@ -886,11 +870,11 @@ class JointCalibrator(BaseCalibrator):
             optimal_offset_deg = 0.0
         else:
             if use_angle_based_fitting:
-                optimal_offset_deg = sign * abs(np.degrees(diff_angle)) *0.95
+                optimal_offset_deg = sign * abs(np.degrees(diff_angle)) * 0.95
                 if log_callback:
                     log_callback(f"  [ANGLE CONTROL] Using angle-based calibration error: {np.degrees(diff_angle):.4f}°. Applying damped correction step: {optimal_offset_deg:.4f}°")
             elif center_dist <= 1.0:
-                optimal_offset_deg = sign * 0.05
+                optimal_offset_deg = sign * 0.5
                 if log_callback:
                     log_callback(f"  [STEP CONTROL] Center distance {center_dist:.4f} mm is close (<= 1.0 mm). Applying 0.05° step correction.")
             else:
@@ -918,11 +902,11 @@ class JointCalibrator(BaseCalibrator):
             log_callback("="*50)
 
         # Simultaneously generate and save orthogonal debug plot (using camera frame)
-        self.save_debug_orthogonal_plot(
-            arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
-            optimal_offset_rad, ee_name, arm_idx, cand_joint, 
-            angle_error_deg=angle_between_normals, log_callback=log_callback
-        )
+        # self.save_debug_orthogonal_plot(
+        #     arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
+        #     optimal_offset_rad, ee_name, arm_idx, cand_joint, 
+        #     angle_error_deg=angle_between_normals, log_callback=log_callback
+        # )
 
         # Simultaneous Marker Axis 6 parameter calculation (Removed/Bypassed to speed up joint calibration)
         marker_6_res = None
