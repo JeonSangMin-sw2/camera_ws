@@ -249,11 +249,12 @@ class MarkerCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
     
-    def __init__(self, calibrator, arm_side, use_head_tracking=True):
+    def __init__(self, calibrator, arm_side, use_head_tracking=True, tolerance=0.5):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.use_head_tracking = use_head_tracking
+        self.tolerance = tolerance
         
     def run(self):
         try:
@@ -304,7 +305,7 @@ class MarkerCalibrationWorker(QThread):
             
             # 3. Compute unified bracket calibration
             self.log_signal.emit("\n[PROCESSING] Computing unified bracket calibration parameters...")
-            unified_res = self.calibrator.compute_unified_bracket_calibration(res_5, res_6, self.arm_side)
+            unified_res = self.calibrator.compute_unified_bracket_calibration(res_5, res_6, self.arm_side, tolerance=self.tolerance)
             
             unified_res['res_5'] = res_5
             unified_res['res_6'] = res_6
@@ -788,8 +789,8 @@ class UnifiedCalibrationApp(QWidget):
         self.tolerance_input.setFixedWidth(50)
         tol_lay.addWidget(self.tolerance_input)
         
-        self.cb_head_tracking = QCheckBox("Active Head Tracking")
-        self.cb_head_tracking.setChecked(True)
+        # self.cb_head_tracking = QCheckBox("Active Head Tracking")
+        # self.cb_head_tracking.setChecked(True)
         
         self.btn_marker_ready = QPushButton("MOVE TO READY")
         self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
@@ -808,7 +809,7 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
         
         marker_sublayout.addLayout(tol_lay)
-        marker_sublayout.addWidget(self.cb_head_tracking)
+        # marker_sublayout.addWidget(self.cb_head_tracking)
         marker_sublayout.addWidget(self.btn_marker_ready)
         marker_sublayout.addWidget(self.btn_marker_center)
         marker_sublayout.addWidget(self.btn_marker_start)
@@ -1672,7 +1673,7 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         axis_str = self.marker_axis_sel.currentText()
-        target_dist = 180.0 if "Axis 6" in axis_str else 200.0
+        target_dist = 190.0 if "Axis 6" in axis_str else 200.0
         self.log_msg(f"[INFO] Move to Center (Marker Calibration) -> target: {target_dist} mm")
 
         self.btn_marker_center.setText("CANCEL")
@@ -1701,8 +1702,8 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
-        use_head = self.cb_head_tracking.isChecked()
-
+        # use_head = self.cb_head_tracking.isChecked()
+        use_head = False
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
@@ -1806,7 +1807,11 @@ class UnifiedCalibrationApp(QWidget):
             self.active_worker.finished_sig.connect(self.on_calibration_finished_marker)
             self.active_worker.start()
         else:
-            self.active_worker = MarkerCalibrationWorker(self.marker_calibrator, self.arm_side, use_head_tracking=use_head)
+            try:
+                tolerance = float(self.tolerance_input.text())
+            except ValueError:
+                tolerance = 0.5
+            self.active_worker = MarkerCalibrationWorker(self.marker_calibrator, self.arm_side, use_head_tracking=use_head, tolerance=tolerance)
             self.active_worker.log_signal.connect(self.log_msg)
             self.active_worker.status_signal.connect(self.update_marker_indicator)
             self.active_worker.finished_signal.connect(self.on_calibration_finished_marker)
@@ -1875,8 +1880,12 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         try:
+            try:
+                tolerance = float(self.tolerance_input.text())
+            except ValueError:
+                tolerance = 0.5
             res = self.marker_calibrator.compute_unified_bracket_calibration(
-                self.marker_data_5, self.marker_data_6, self.arm_side
+                self.marker_data_5, self.marker_data_6, self.arm_side, tolerance=tolerance
             )
             
             self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
