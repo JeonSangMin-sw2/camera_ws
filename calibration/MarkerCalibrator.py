@@ -424,9 +424,9 @@ class MarkerCalibrator(BaseCalibrator):
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
         if arm_side == "left":
-            nominal_rpy = [-90.0, 0.0, 0.0]
+            nominal_rpy = [90.0, 0.0, 0.0]
         else:
-            nominal_rpy = [-90.0, 0.0, 180.0]
+            nominal_rpy = [90.0, 0.0, 180.0]
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
         
