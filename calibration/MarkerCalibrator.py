@@ -421,6 +421,8 @@ class MarkerCalibrator(BaseCalibrator):
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5):
         L_5_ee = self.get_link_length(arm_side)
+
+        # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
         if arm_side == "left":
             nominal_rpy = [-90.0, 0.0, 0.0]
         else:
@@ -428,53 +430,47 @@ class MarkerCalibrator(BaseCalibrator):
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
         
-        # 마커 좌표계에서 바라본 이상적인 6축(z), 5축(y) 방향 벡터
         z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
         y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+
         def extract_axis_from_rotations(poses, ideal_axis):
-            if len(poses) < 2:
-                return ideal_axis
-            
-            # 중간 프레임을 기준으로 삼아 양끝단의 변화량을 최대로 확보하여 노이즈 상쇄
+            if len(poses) < 2: return ideal_axis
             mid_idx = len(poses) // 2
             R_ref = poses[mid_idx][:3, :3]
-            
             axes = []
             for i, T in enumerate(poses):
                 if i == mid_idx: continue
-                Ri = T[:3, :3]
-                
-                # 기준 프레임 대비 현재 프레임의 마커 로컬 상대 회전 행렬
-                R_rel = R_ref.T @ Ri 
-                
-                # 회전 행렬을 Angle-Axis (회전 벡터)로 변환
+                R_rel = R_ref.T @ T[:3, :3] 
                 rotvec = R_scipy.from_matrix(R_rel).as_rotvec()
                 angle = np.linalg.norm(rotvec)
-                
-                # 회전 노이즈를 피하기 위해 각도가 1도 이상 벌어졌을 때만 축 벡터 추출
                 if angle > np.radians(1.0):
                     axis = rotvec / angle
-                    # 이상적인 축과 부호(방향) 동기화
-                    if np.dot(axis, ideal_axis) < 0:
-                        axis = -axis
+                    if np.dot(axis, ideal_axis) < 0: axis = -axis
                     axes.append(axis)
-                    
             if len(axes) > 0:
                 avg_axis = np.mean(axes, axis=0)
                 return avg_axis / np.linalg.norm(avg_axis)
             return ideal_axis
 
-        # 2. 정밀 회전축 벡터 산출
+        # 2. 정밀 회전축 벡터 산출 (6축 데이터만 신뢰)
         poses_6 = marker_data_6.get('captured_poses', [])
         n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
         
         poses_5 = marker_data_5.get('captured_poses', [])
-        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal) # 참고용 지표로만 계산
 
-        # 3. Gram-Schmidt 직교화를 이용해 행렬 조립
+        # =====================================================================
+        # 3. [상민 님 인사이트 적용] 설계 기반 강제 직교화 (n5 노이즈 배제)
+        # =====================================================================
+        # 실제 물리적 Z축은 신뢰도 높은 n6 데이터를 그대로 사용
         z_col = n6_marker_actual
-        y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+        
+        # Y축은 n5 측정값을 버리고, '설계상 Y축(y_ee_m_ideal)'을 
+        # 실제 Z축 평면에 투영하여 완벽한 90도 직교성을 강제함 (Yaw 고정 효과)
+        y_col = y_ee_m_ideal - np.dot(y_ee_m_ideal, z_col) * z_col
         y_col /= np.linalg.norm(y_col)
+        
+        # X축은 Z와 Y의 외적으로 자동 완성
         x_col = np.cross(y_col, z_col)
         
         R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
@@ -484,12 +480,10 @@ class MarkerCalibrator(BaseCalibrator):
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
-        # UI 및 설정값을 위해 Yaw 정규화
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
 
-        # 5. 평행이동(Translation) 오프셋 계산
-        # 평행이동은 회전축 기울어짐과 무관하므로 기존 원 피팅 반경 데이터 재사용
+        # 5. 평행이동 오프셋 계산 (5축 데이터는 여기서 반지름만 알뜰하게 빼먹음)
         radius_6 = marker_data_6.get('radius', 0.0)
         radius_5 = marker_data_5.get('radius', 0.0)
         
@@ -497,7 +491,8 @@ class MarkerCalibrator(BaseCalibrator):
         y_e = radius_6 if arm_side == "left" else -radius_6
         z_e = -abs(radius_5 - L_5_ee)
 
-        # 6. 알고리즘 신뢰도 평가 점수 (지표 계산)
+        # 6. 알고리즘 신뢰도 평가 점수
+        # 직교성 에러는 계산만 해두어 하드웨어 상태를 짐작하는 로그용으로만 사용
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)
         ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
         
