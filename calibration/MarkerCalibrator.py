@@ -421,8 +421,6 @@ class MarkerCalibrator(BaseCalibrator):
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5):
         L_5_ee = self.get_link_length(arm_side)
-
-        # 오른손: [-90, 0, 180], 왼손: [-90, 0, 0]
         if arm_side == "left":
             nominal_rpy = [-90.0, 0.0, 0.0]
         else:
@@ -433,69 +431,73 @@ class MarkerCalibrator(BaseCalibrator):
         # 마커 좌표계에서 바라본 이상적인 6축(z), 5축(y) 방향 벡터
         z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
         y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
-
-        # 2. 6축(Roll) 회전축 정산 (Sign Ambiguity 해결)
-        n6_cam = marker_data_6.get('axis_opt', marker_data_6.get('axis', np.array([1, 0, 0])))
-        n6_in_marker_list = []
-        for T_c_m in marker_data_6.get('captured_poses', []):
-            R_c_m = T_c_m[:3, :3]
-            n6_in_marker_list.append(R_c_m.T @ n6_cam)
+        def extract_axis_from_rotations(poses, ideal_axis):
+            if len(poses) < 2:
+                return ideal_axis
             
-        if len(n6_in_marker_list) > 0:
-            n6_raw = np.mean(n6_in_marker_list, axis=0)
-            # [핵심 보정] 이상적인 축과 반대 방향이면 180도 뒤집기
-            if np.dot(n6_raw, z_ee_m_ideal) < 0:
-                n6_raw = -n6_raw
-            n6_marker_actual = n6_raw / np.linalg.norm(n6_raw)
-        else:
-            n6_marker_actual = z_ee_m_ideal
-
-        # 3. 5축(Pitch) 회전축 정산 (Sign Ambiguity 해결)
-        n5_cam = marker_data_5.get('axis_opt', marker_data_5.get('axis', np.array([0, 1, 0])))
-        n5_in_marker_list = []
-        for T_c_m in marker_data_5.get('captured_poses', []):
-            R_c_m = T_c_m[:3, :3]
-            n5_in_marker_list.append(R_c_m.T @ n5_cam)
+            # 중간 프레임을 기준으로 삼아 양끝단의 변화량을 최대로 확보하여 노이즈 상쇄
+            mid_idx = len(poses) // 2
+            R_ref = poses[mid_idx][:3, :3]
             
-        if len(n5_in_marker_list) > 0:
-            n5_raw = np.mean(n5_in_marker_list, axis=0)
-            # [핵심 보정] 이상적인 축과 반대 방향이면 180도 뒤집기
-            if np.dot(n5_raw, y_ee_m_ideal) < 0:
-                n5_raw = -n5_raw
-            n5_marker_actual = n5_raw / np.linalg.norm(n5_raw)
-        else:
-            n5_marker_actual = y_ee_m_ideal
+            axes = []
+            for i, T in enumerate(poses):
+                if i == mid_idx: continue
+                Ri = T[:3, :3]
+                
+                # 기준 프레임 대비 현재 프레임의 마커 로컬 상대 회전 행렬
+                R_rel = R_ref.T @ Ri 
+                
+                # 회전 행렬을 Angle-Axis (회전 벡터)로 변환
+                rotvec = R_scipy.from_matrix(R_rel).as_rotvec()
+                angle = np.linalg.norm(rotvec)
+                
+                # 회전 노이즈를 피하기 위해 각도가 1도 이상 벌어졌을 때만 축 벡터 추출
+                if angle > np.radians(1.0):
+                    axis = rotvec / angle
+                    # 이상적인 축과 부호(방향) 동기화
+                    if np.dot(axis, ideal_axis) < 0:
+                        axis = -axis
+                    axes.append(axis)
+                    
+            if len(axes) > 0:
+                avg_axis = np.mean(axes, axis=0)
+                return avg_axis / np.linalg.norm(avg_axis)
+            return ideal_axis
 
-        # 4. Gram-Schmidt 직교화를 이용해 행렬 조립
+        # 2. 정밀 회전축 벡터 산출
+        poses_6 = marker_data_6.get('captured_poses', [])
+        n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+        
+        poses_5 = marker_data_5.get('captured_poses', [])
+        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+
+        # 3. Gram-Schmidt 직교화를 이용해 행렬 조립
         z_col = n6_marker_actual
         y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
         y_col /= np.linalg.norm(y_col)
         x_col = np.cross(y_col, z_col)
         
-        # [수정 복구] x, y, z_col은 마커 프레임에서 본 EE의 축입니다 (R_marker_to_ee).
-        # 우리가 원하는 보정 행렬 R_ee_to_marker를 얻으려면 전치(.T)가 반드시 필요합니다.
         R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
         R_ee_m_actual = R_m_ee_actual.T
 
-        # 5. 오일러 각도 추출
+        # 4. 오일러 각도 추출
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
-        # UI 및 설정값을 위해 Yaw를 -180~180 대신 0~360 범위로 정규화 (오른팔 180도 부근 떨림 방지)
+        # UI 및 설정값을 위해 Yaw 정규화
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
 
-        # 6. 기하학적 구속 기반 평행이동(Translation) 오프셋 계산
-        radius_6 = marker_data_6['radius']
-        radius_5 = marker_data_5['radius']
+        # 5. 평행이동(Translation) 오프셋 계산
+        # 평행이동은 회전축 기울어짐과 무관하므로 기존 원 피팅 반경 데이터 재사용
+        radius_6 = marker_data_6.get('radius', 0.0)
+        radius_5 = marker_data_5.get('radius', 0.0)
         
-        # X 오프셋은 제자리 스윕 모션으로 측정이 불가하므로 설계값을 유지합니다.
         x_e = 0.0 
         y_e = radius_6 if arm_side == "left" else -radius_6
         z_e = -abs(radius_5 - L_5_ee)
 
-        # 7. 알고리즘 신뢰도 평가 점수 (지표 계산)
-        # 실제 두 모터 축 사이의 기구학적 직교성 에러 계산
+        # 6. 알고리즘 신뢰도 평가 점수 (지표 계산)
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)
         ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
         
@@ -506,7 +508,7 @@ class MarkerCalibrator(BaseCalibrator):
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
             'L_5_ee': L_5_ee, 'radius_6': radius_6, 'radius_5': radius_5,
-            'ortho_err': ortho_err, 'rmse_6': marker_data_6['rmse'], 'rmse_5': marker_data_5['rmse'],
+            'ortho_err': ortho_err, 'rmse_6': marker_data_6.get('rmse', 0.0), 'rmse_5': marker_data_5.get('rmse', 0.0),
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
             'warn_large_angle': rot_err_deg > 15.0
         }
