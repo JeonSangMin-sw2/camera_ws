@@ -470,31 +470,30 @@ class MarkerCalibrator(BaseCalibrator):
             n5_marker_actual = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
 
         # 4. Gram-Schmidt 직교화를 이용해 마커 내부에 실제 구축된 엔드이펙터(ee) 좌표계 조립
-        # z_col: 실제 6축 방향, y_col: 실제 5축 방향을 z_col에 직교화
         z_col = n6_marker_actual
         y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
         y_col /= np.linalg.norm(y_col)
         x_col = np.cross(y_col, z_col)
         
-        # R_marker_to_ee_actual 구축 후 전치하여 R_ee_to_marker_actual 획득
-        R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
-        R_ee_m_actual = R_m_ee_actual.T
+        # [수정됨] column_stack 자체가 R_ee_to_marker를 형성합니다. 
+        # 전치(.T)를 제거하여 실제 회전 오차가 보존되도록 합니다.
+        R_ee_m_actual = np.column_stack((x_col, y_col, z_col))
 
         # 5. 최종 보정 오일러 각도 추출 (UI 표시 및 저장용 ZYX 각도 분해)
-        # 고정 상수인 Yaw(0 또는 180)를 떼어내고 순수 장착 오차 Roll, Pitch 분리
-        yaw_fixed = 0.0 if arm_side == "left" else 180.0
-        R_z_fixed = R_scipy.from_euler('z', yaw_fixed, degrees=True).as_matrix()
-        R_yx = R_z_fixed.T @ R_ee_m_actual
+        # [수정됨] 하드코딩이나 억지 행렬 연산 없이, 순수하게 3D 오일러 각도를 추출합니다.
+        euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
+        yaw_e, pitch_e, roll_e = euler_deg
         
-        euler_deg = R_scipy.from_matrix(R_yx).as_euler('ZYX', degrees=True)
-        _, pitch_e, roll_e = euler_deg
-        yaw_e = yaw_fixed
+        # ZYX 변환 특성상 오른팔의 경우 180도가 -180도로 표기될 수 있으므로 정규화
+        if arm_side == "right" and yaw_e < 0:
+            yaw_e += 360.0
 
         # 6. 기하학적 구속 기반 평행이동(Translation) 오프셋 계산
         radius_6 = marker_data_6['radius']
         radius_5 = marker_data_5['radius']
         
-        x_e = 0.0 # 스윕 모션 특성상 x축 평행이동은 관측 불가하므로 설계값 유지
+        # X 오프셋은 제자리 스윕 모션으로 측정이 불가하므로 설계값을 유지합니다.
+        x_e = 0.0 
         y_e = radius_6 if arm_side == "left" else -radius_6
         z_e = -abs(radius_5 - L_5_ee)
 
