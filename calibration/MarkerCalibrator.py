@@ -422,265 +422,95 @@ class MarkerCalibrator(BaseCalibrator):
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5):
         L_5_ee = self.get_link_length(arm_side)
 
-        # Define fixed camera-to-robot rotation relationship (ZYX Euler: [-90.0, 0.0, -90.0])
-        R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
-        R_cam_to_rob = R_rob_to_cam.T
-
+        # 오른손: [-90, 0, 180], 왼손: [-90, 0, 0]
         if arm_side == "left":
-            ideal_rpy = [90.0, 0.0, 0.0]
+            nominal_rpy = [-90.0, 0.0, 0.0]
         else:
-            ideal_rpy = [90.0, 0.0, 180.0]
+            nominal_rpy = [-90.0, 0.0, 180.0]
             
-        T_ee_m_ideal = self.make_transform([0, 0, 0] + ideal_rpy)
-        R_ee_m_ideal = T_ee_m_ideal[:3, :3]
+        # 설계상의 ideal 회전 행렬 생성 (Scipy ZYX order: [yaw, pitch, roll])
+        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+
+        # 2. 6축(Roll) 스윕 데이터로부터 마커 프레임 기준의 6축 회전축 벡터 추출
+        # 기구학적으로 엔드이펙터 프레임에서 6축 회전축은 언제나 z_ee = [0, 0, 1]^T 임
+        n6_cam = marker_data_6.get('axis_opt', marker_data_6.get('axis', np.array([1, 0, 0])))
+        n6_in_marker_list = []
         
-        # Try to retrieve robot dynamics model for FK calculations
-        if not self.robot or self.robot == "mock_robot":
-            dyn_model = None
+        for T_c_m in marker_data_6.get('captured_poses', []):
+            R_c_m = T_c_m[:3, :3]
+            # 카메라 프레임의 회전축을 마커 로컬 프레임으로 역투영
+            n6_m = R_c_m.T @ n6_cam
+            n6_in_marker_list.append(n6_m)
+            
+        if len(n6_in_marker_list) > 0:
+            # 대표 벡터 산출 (부호 반전 노이즈 방지 처리)
+            ref_v = n6_in_marker_list[0]
+            n6_in_marker_aligned = [v if np.dot(v, ref_v) >= 0 else -v for v in n6_in_marker_list]
+            n6_marker_actual = np.mean(n6_in_marker_aligned, axis=0)
+            n6_marker_actual /= np.linalg.norm(n6_marker_actual)
         else:
-            try:
-                dyn_model = self.robot.get_dynamics()
-            except Exception:
-                dyn_model = None
+            n6_marker_actual = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
 
-        # Step 2: Axis-wise orientation error calculation and projection to Sigma_ee
-        roll_offset = 0.0
-        pitch_offset = 0.0
-        yaw_offset = 0.0
+        # 3. 5축(Pitch) 스윕 데이터로부터 마커 프레임 기준의 5축 회전축 벡터 추출
+        # 기구학적으로 엔드이펙터 프레임에서 5축 회전축은 언제나 y_ee = [0, 1, 0]^T 임
+        n5_cam = marker_data_5.get('axis_opt', marker_data_5.get('axis', np.array([0, 1, 0])))
+        n5_in_marker_list = []
         
-        if dyn_model is not None:
-            # Axis 6 Sweep: marker Y-axis (column 1) is supposed to be parallel to rotation axis (joint 6)
-            err_vectors_6_ee = []
-            for T_c_m, q_full in zip(marker_data_6.get('captured_poses', []), marker_data_6.get('captured_q_full', [])):
-                R_c_m = T_c_m[:3, :3]
-                y_m_cam = R_c_m[:, 1]
-                n6_cam = marker_data_6.get('axis_opt', marker_data_6.get('axis', np.array([0, 0, 1])))
-                
-                # Align direction
-                if np.dot(y_m_cam, n6_cam) < 0:
-                    n6_cam_aligned = -n6_cam
-                else:
-                    n6_cam_aligned = n6_cam
-                    
-                dot_val = np.clip(np.dot(y_m_cam, n6_cam_aligned), -1.0, 1.0)
-                theta_err = np.arccos(dot_val)
-                
-                axis_err_cam = np.cross(y_m_cam, n6_cam_aligned)
-                norm_axis = np.linalg.norm(axis_err_cam)
-                if norm_axis > 1e-6:
-                    axis_err_cam /= norm_axis
-                
-                e_cam = theta_err * axis_err_cam
-                
-                try:
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, f"ee_{arm_side}", "link_torso_5")
-                    R_t5_to_ee = T_t5_to_ee[:3, :3]
-                    e_base = R_cam_to_rob @ e_cam
-                    e_ee = R_t5_to_ee.T @ e_base
-                    err_vectors_6_ee.append(e_ee)
-                except Exception:
-                    pass
+        for T_c_m in marker_data_5.get('captured_poses', []):
+            R_c_m = T_c_m[:3, :3]
+            n5_m = R_c_m.T @ n5_cam
+            n5_in_marker_list.append(n5_m)
             
-            # Axis 5 Sweep: marker Z-axis (column 2) is supposed to be parallel to rotation axis (joint 5)
-            err_vectors_5_ee = []
-            for T_c_m, q_full in zip(marker_data_5.get('captured_poses', []), marker_data_5.get('captured_q_full', [])):
-                R_c_m = T_c_m[:3, :3]
-                z_m_cam = R_c_m[:, 2]
-                n5_cam = marker_data_5.get('axis_opt', marker_data_5.get('axis', np.array([0, 1, 0])))
-                
-                # Align direction
-                if np.dot(z_m_cam, n5_cam) < 0:
-                    n5_cam_aligned = -n5_cam
-                else:
-                    n5_cam_aligned = n5_cam
-                    
-                dot_val = np.clip(np.dot(z_m_cam, n5_cam_aligned), -1.0, 1.0)
-                theta_err = np.arccos(dot_val)
-                
-                axis_err_cam = np.cross(z_m_cam, n5_cam_aligned)
-                norm_axis = np.linalg.norm(axis_err_cam)
-                if norm_axis > 1e-6:
-                    axis_err_cam /= norm_axis
-                
-                e_cam = theta_err * axis_err_cam
-                
-                try:
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, f"ee_{arm_side}", "link_torso_5")
-                    R_t5_to_ee = T_t5_to_ee[:3, :3]
-                    e_base = R_cam_to_rob @ e_cam
-                    e_ee = R_t5_to_ee.T @ e_base
-                    err_vectors_5_ee.append(e_ee)
-                except Exception:
-                    pass
-                    
-            if len(err_vectors_6_ee) > 0:
-                mean_e_6_deg = np.degrees(np.mean(err_vectors_6_ee, axis=0))
-            else:
-                mean_e_6_deg = np.zeros(3)
-                
-            if len(err_vectors_5_ee) > 0:
-                mean_e_5_deg = np.degrees(np.mean(err_vectors_5_ee, axis=0))
-            else:
-                mean_e_5_deg = np.zeros(3)
-                
-            roll_offset = 0.5 * (mean_e_6_deg[0] + mean_e_5_deg[0])
-            pitch_offset = mean_e_6_deg[1]
-            yaw_offset = mean_e_5_deg[2]
+        if len(n5_in_marker_list) > 0:
+            ref_v = n5_in_marker_list[0]
+            n5_in_marker_aligned = [v if np.dot(v, ref_v) >= 0 else -v for v in n5_in_marker_list]
+            n5_marker_actual = np.mean(n5_in_marker_aligned, axis=0)
+            n5_marker_actual /= np.linalg.norm(n5_marker_actual)
+        else:
+            n5_marker_actual = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
 
+        # 4. Gram-Schmidt 직교화를 이용해 마커 내부에 실제 구축된 엔드이펙터(ee) 좌표계 조립
+        # z_col: 실제 6축 방향, y_col: 실제 5축 방향을 z_col에 직교화
+        z_col = n6_marker_actual
+        y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+        y_col /= np.linalg.norm(y_col)
+        x_col = np.cross(y_col, z_col)
+        
+        # R_marker_to_ee_actual 구축 후 전치하여 R_ee_to_marker_actual 획득
+        R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
+        R_ee_m_actual = R_m_ee_actual.T
+
+        # 5. 최종 보정 오일러 각도 추출 (UI 표시 및 저장용 ZYX 각도 분해)
+        # 고정 상수인 Yaw(0 또는 180)를 떼어내고 순수 장착 오차 Roll, Pitch 분리
+        yaw_fixed = 0.0 if arm_side == "left" else 180.0
+        R_z_fixed = R_scipy.from_euler('z', yaw_fixed, degrees=True).as_matrix()
+        R_yx = R_z_fixed.T @ R_ee_m_actual
+        
+        euler_deg = R_scipy.from_matrix(R_yx).as_euler('ZYX', degrees=True)
+        _, pitch_e, roll_e = euler_deg
+        yaw_e = yaw_fixed
+
+        # 6. 기하학적 구속 기반 평행이동(Translation) 오프셋 계산
         radius_6 = marker_data_6['radius']
         radius_5 = marker_data_5['radius']
         
-        # Step 1: Extract geometrically coupled translations:
-        y_e_coupled = radius_6 if arm_side == "left" else -radius_6
-        z_e_coupled = -abs(radius_5 - L_5_ee)
+        x_e = 0.0 # 스윕 모션 특성상 x축 평행이동은 관측 불가하므로 설계값 유지
+        y_e = radius_6 if arm_side == "left" else -radius_6
+        z_e = -abs(radius_5 - L_5_ee)
 
-        # Step 3: Unified 6-DoF Numerical Optimization
-        frames_5 = list(zip(marker_data_5.get('captured_poses', []), marker_data_5.get('captured_q_full', [])))
-        frames_6 = list(zip(marker_data_6.get('captured_poses', []), marker_data_6.get('captured_q_full', [])))
-        all_frames = frames_5 + frames_6
+        # 7. 알고리즘 신뢰도 평가 점수 (지표 계산)
+        # 실제 두 모터 축 사이의 기구학적 직교성 에러 계산
+        dot_val = np.dot(n6_marker_actual, n5_marker_actual)
+        ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
         
-        optimization_success = False
-        R_ee_m_actual_opt = None
-        x_e_opt = 0.0
-        
-        if dyn_model is not None and len(all_frames) > 0:
-            try:
-                # Precompute FK for all frames
-                precomputed_frames = []
-                for T_c_m, q_full in all_frames:
-                    T_base_to_ee = self.compute_fk(self.robot, dyn_model, q_full, f"ee_{arm_side}", "link_torso_5")
-                    precomputed_frames.append((T_base_to_ee, T_c_m))
-                
-                # Initial estimate for T_base_to_cam
-                first_q_full = all_frames[0][1]
-                T_base_to_head_0 = self.compute_fk(self.robot, dyn_model, first_q_full, "link_head_2", "link_torso_5")
-                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                T_mount_to_cam_nominal = self.make_transform(mount_to_cam)
-                T_base_to_cam_init = T_base_to_head_0 @ T_mount_to_cam_nominal
-                
-                p_c_init = T_base_to_cam_init[:3, 3]
-                R_c_init = T_base_to_cam_init[:3, :3]
-                euler_c_init = R_scipy.from_matrix(R_c_init).as_euler('ZYX', degrees=True)
-                yaw_c_init, pitch_c_init, roll_c_init = euler_c_init
-                
-                # State vector: [x_c, y_c, z_c, roll_c, pitch_c, yaw_c, x_e, th_x, th_y, th_z]
-                x0 = np.array([
-                    p_c_init[0], p_c_init[1], p_c_init[2],
-                    roll_c_init, pitch_c_init, yaw_c_init,
-                    0.0, # x_e_init
-                    roll_offset, pitch_offset, yaw_offset
-                ])
-                
-                lower_bounds = np.array([
-                    p_c_init[0] - 0.150, p_c_init[1] - 0.150, p_c_init[2] - 0.150,
-                    roll_c_init - 15.0, pitch_c_init - 15.0, yaw_c_init - 15.0,
-                    -0.015,
-                    roll_offset - tolerance, pitch_offset - tolerance, yaw_offset - tolerance
-                ])
-                
-                upper_bounds = np.array([
-                    p_c_init[0] + 0.150, p_c_init[1] + 0.150, p_c_init[2] + 0.150,
-                    roll_c_init + 15.0, pitch_c_init + 15.0, yaw_c_init + 15.0,
-                    0.015,
-                    roll_offset + tolerance, pitch_offset + tolerance, yaw_offset + tolerance
-                ])
-                
-                x0 = np.clip(x0, lower_bounds + 1e-6, upper_bounds - 1e-6)
-                
-                def residuals(params):
-                    x_c, y_c, z_c, roll_c, pitch_c, yaw_c, x_e, th_x, th_y, th_z = params
-                    
-                    # Construct T_base_to_cam (using ZYX order matching make_transform)
-                    R_base_to_cam = R_scipy.from_euler('ZYX', [yaw_c, pitch_c, roll_c], degrees=True).as_matrix()
-                    T_base_to_cam = np.eye(4)
-                    T_base_to_cam[:3, :3] = R_base_to_cam
-                    T_base_to_cam[:3, 3] = [x_c, y_c, z_c]
-                    
-                    # Construct T_ee_to_marker
-                    R_offset = R_scipy.from_euler('zyx', [th_z, th_y, th_x], degrees=True).as_matrix()
-                    R_ee_to_marker = R_offset @ R_ee_m_ideal
-                    T_ee_to_marker = np.eye(4)
-                    T_ee_to_marker[:3, :3] = R_ee_to_marker
-                    T_ee_to_marker[:3, 3] = [x_e, y_e_coupled / 1000.0, z_e_coupled / 1000.0]
-                    
-                    res_list = []
-                    for T_base_to_ee, T_c_m in precomputed_frames:
-                        T_lhs = T_base_to_cam @ T_c_m
-                        T_rhs = T_base_to_ee @ T_ee_to_marker
-                        
-                        # Position error in mm
-                        p_err = 1000.0 * (T_lhs[:3, 3] - T_rhs[:3, 3])
-                        # Rotation error
-                        r_err = 30.0 * (T_lhs[:3, :3] - T_rhs[:3, :3]).flatten()
-                        
-                        res_list.extend(p_err)
-                        res_list.extend(r_err)
-                        
-                    return np.array(res_list)
-                
-                opt_res = least_squares(residuals, x0, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
-                x_opt = opt_res.x
-                
-                x_c_opt, y_c_opt, z_c_opt, roll_c_opt, pitch_c_opt, yaw_c_opt, x_e_opt, th_x_opt, th_y_opt, th_z_opt = x_opt
-                
-                R_offset_opt = R_scipy.from_euler('zyx', [th_z_opt, th_y_opt, th_x_opt], degrees=True).as_matrix()
-                R_ee_m_actual_opt = R_offset_opt @ R_ee_m_ideal
-                
-                x_e = x_e_opt * 1000.0 # m to mm
-                y_e = y_e_coupled
-                z_e = z_e_coupled
-                optimization_success = True
-                
-                logging.info(f"Optimized T_base_to_cam: Translation=[{x_c_opt:.4f}, {y_c_opt:.4f}, {z_c_opt:.4f}] m, Rotation=[roll={roll_c_opt:.3f}, pitch={pitch_c_opt:.3f}, yaw={yaw_c_opt:.3f}] deg")
-                
-            except Exception as e:
-                logging.error(f"Unified numerical optimization failed: {e}. Falling back to step 2 geometric results.")
-
-        if not optimization_success:
-            R_x = R_scipy.from_euler('x', roll_offset, degrees=True).as_matrix()
-            R_y = R_scipy.from_euler('y', pitch_offset, degrees=True).as_matrix()
-            R_z = R_scipy.from_euler('z', yaw_offset, degrees=True).as_matrix()
-            R_ee_m_actual = R_z @ R_y @ R_x @ R_ee_m_ideal
-            
-            x_e = 0.0
-            y_e = y_e_coupled
-            z_e = z_e_coupled
-        else:
-            R_ee_m_actual = R_ee_m_actual_opt
-            
-        # Enforce zero Z-axis twist constraint: Yaw is always 0.0 (left) or 180.0 (right)
-        yaw_fixed = 0.0 if arm_side == "left" else 180.0
-        R_z = R_scipy.from_euler('z', yaw_fixed, degrees=True).as_matrix()
-        # Strip the target Yaw component to solve pure Pitch and Roll on R_yx
-        R_yx = R_z.T @ R_ee_m_actual
-        euler_deg_fixed = R_scipy.from_matrix(R_yx).as_euler('ZYX', degrees=True)
-        _, pitch_e, roll_e = euler_deg_fixed
-        yaw_e = yaw_fixed
-        
-        # Transform fitted camera axis vectors directly to the robot torso (base) frame for analysis
-        z_e_in_rob = R_cam_to_rob @ marker_data_6['axis']
-        y_e_in_rob = R_cam_to_rob @ marker_data_5['axis']
-        
-        # Analysis Orthogonality / Quality metrics
-        dot_val = np.dot(z_e_in_rob, y_e_in_rob)
-        angle_between = np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0)))
-        ortho_err = abs(90.0 - angle_between)
-        
-        # Geodesic rotation error to check difference between ideal and actual matrices
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
-        
-        # Check alignment of individual axis tilts (axis 5 tilt and axis 6 tilt should be close if they match)
-        tilt_diff = abs(marker_data_5.get('tilt', 0.0) - marker_data_6.get('tilt', 0.0))
-        
-        rmse_6 = marker_data_6['rmse']
-        rmse_5 = marker_data_5['rmse']
         
         return {
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
             'L_5_ee': L_5_ee, 'radius_6': radius_6, 'radius_5': radius_5,
-            'ortho_err': ortho_err, 'rmse_6': rmse_6, 'rmse_5': rmse_5,
-            'rot_err_deg': rot_err_deg, 'tilt_diff': tilt_diff,
+            'ortho_err': ortho_err, 'rmse_6': marker_data_6['rmse'], 'rmse_5': marker_data_5['rmse'],
+            'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
             'warn_large_angle': rot_err_deg > 15.0
         }
