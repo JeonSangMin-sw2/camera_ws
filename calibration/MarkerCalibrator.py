@@ -462,7 +462,7 @@ class MarkerCalibrator(BaseCalibrator):
 
         # 3. 설계 기반 강제 직교화 (n5 노이즈 배제 및 물리적 정렬)
         z_col = n6_marker_actual
-        y_col = y_ee_m_ideal - np.dot(y_ee_m_ideal, z_col) * z_col
+        y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
         y_col /= np.linalg.norm(y_col)
         x_col = np.cross(y_col, z_col)
         
