@@ -458,6 +458,13 @@ class MarkerCalibrator(BaseCalibrator):
                 return avg_axis / np.linalg.norm(avg_axis)
             return ideal_axis
 
+        # 2. 정밀 회전축 벡터 산출 (신뢰도 평가 및 Fallback 용)
+        poses_6 = marker_data_6.get('captured_poses', [])
+        n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+        
+        poses_5 = marker_data_5.get('captured_poses', [])
+        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+
         # Try direct kinematic averaging first, as it is mathematically far more accurate and does not require Joint 4 sweep!
         kinematic_success = False
         if self.robot and self.robot != "mock_robot":
@@ -518,12 +525,6 @@ class MarkerCalibrator(BaseCalibrator):
                 logging.warning(f"Kinematic averaging failed ({e}). Falling back to axis fitting.")
 
         if not kinematic_success:
-            # 2. 정밀 회전축 벡터 산출
-            poses_6 = marker_data_6.get('captured_poses', [])
-            n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
-            
-            poses_5 = marker_data_5.get('captured_poses', [])
-            n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
 
             # Joint 6 angle correction for Joint 5 sweep
             theta_6 = marker_data_5.get('theta_6', None)
