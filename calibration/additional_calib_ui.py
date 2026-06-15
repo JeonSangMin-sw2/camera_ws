@@ -259,8 +259,8 @@ class MarkerCalibrationWorker(QThread):
     def run(self):
         try:
             self.log_signal.emit("\n" + "="*50)
-            self.log_signal.emit("   STARTING TWO-STAGE UNIFIED MARKER SWEEP")
-            self.log_signal.emit("   [Stage 1/2] Sweeping Axis 6 (Roll)...")
+            self.log_signal.emit("   STARTING THREE-STAGE UNIFIED MARKER SWEEP")
+            self.log_signal.emit("   [Stage 1/3] Sweeping Axis 6 (Roll)...")
             self.log_signal.emit("="*50 + "\n")
             
             # 1. Axis 6 sweep
@@ -285,7 +285,7 @@ class MarkerCalibrationWorker(QThread):
             time.sleep(1.0)
             
             self.log_signal.emit("\n" + "="*50)
-            self.log_signal.emit("   [Stage 2/2] Sweeping Axis 5 (Pitch)...")
+            self.log_signal.emit("   [Stage 2/3] Sweeping Axis 5 (Pitch)...")
             self.log_signal.emit("="*50 + "\n")
             
             # 2. Axis 5 sweep
@@ -303,14 +303,42 @@ class MarkerCalibrationWorker(QThread):
             res_5['axis_mode'] = 5
             res_5['axis'] = res_5['axis_opt']
             
-            # 3. Compute unified bracket calibration
-            self.log_signal.emit("\n[PROCESSING] Computing unified bracket calibration parameters...")
-            unified_res = self.calibrator.compute_unified_bracket_calibration(res_5, res_6, self.arm_side, tolerance=self.tolerance)
+            if getattr(self.calibrator, 'stop_requested', False):
+                self.finished_signal.emit(None)
+                return
+                
+            time.sleep(1.0)
             
+            self.log_signal.emit("\n" + "="*50)
+            self.log_signal.emit("   [Stage 3/3] Sweeping Axis 4 (Yaw)...")
+            self.log_signal.emit("="*50 + "\n")
+            
+            # 3. Axis 4 sweep
+            res_4 = self.calibrator.perform_calibration_sweep(
+                self.arm_side, 4, 
+                log_callback=self.log_signal.emit, 
+                status_callback=self.status_signal.emit,
+                use_head_tracking=self.use_head_tracking
+            )
+            if not res_4:
+                self.log_signal.emit("[ERROR] Stage 3 (Axis 4) sweep failed. Aborting.")
+                self.finished_signal.emit(None)
+                return
+                
+            res_4['axis_mode'] = 4
+            res_4['axis'] = res_4['axis_opt']
+            
+            # 4. Compute unified bracket calibration
+            self.log_signal.emit("\n[PROCESSING] Computing unified bracket calibration parameters...")
+            unified_res = self.calibrator.compute_unified_bracket_calibration(
+                res_5, res_6, self.arm_side, tolerance=self.tolerance, marker_data_4=res_4
+            )
+            
+            unified_res['res_4'] = res_4
             unified_res['res_5'] = res_5
             unified_res['res_6'] = res_6
             
-            # 4. Generate combined single plot (1 row, 2 columns)
+            # 5. Generate combined single plot showing Axis 5 and Axis 4 (1 row, 2 columns)
             fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
             
             def plot_single_axis(ax, res, axis_num, color):
@@ -332,12 +360,12 @@ class MarkerCalibrationWorker(QThread):
                 ax.set_title(f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {res['rmse']:.3f})")
                 ax.legend()
             
-            plot_single_axis(ax1, res_6, 6, 'blue')
-            plot_single_axis(ax2, res_5, 5, 'green')
+            plot_single_axis(ax1, res_5, 5, 'green')
+            plot_single_axis(ax2, res_4, 4, 'purple')
             
             fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
                          f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
-                         f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}°", fontsize=12, fontweight='bold')
+                         f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°", fontsize=12, fontweight='bold')
             plt.tight_layout()
             
             result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
@@ -503,6 +531,7 @@ class UnifiedCalibrationApp(QWidget):
         self.output_yaml = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config", "camera_intrinsics.yaml"))
         
         # Saved Calibration Results
+        self.marker_data_4 = None
         self.marker_data_5 = None
         self.marker_data_6 = None
         self.joint_sweep_data = None
@@ -1193,6 +1222,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.arm_side != new_side:
             self.arm_side = new_side
             self.log_msg(f"[INFO] Changed active arm to {self.arm_side.upper()}. Cleared loaded datasets.")
+            self.marker_data_4 = None
             self.marker_data_5 = None
             self.marker_data_6 = None
             self.joint_sweep_data = None
@@ -1727,7 +1757,9 @@ class UnifiedCalibrationApp(QWidget):
                     time.sleep(1.0)
                     self.log_sig.emit("[MOCK] Stage 1 finished. Starting Stage 2 (Axis 5 sweep)...")
                     time.sleep(1.0)
-                    self.log_sig.emit("[MOCK] Stage 2 finished. Calculating unified results...")
+                    self.log_sig.emit("[MOCK] Stage 2 finished. Starting Stage 3 (Axis 4 sweep)...")
+                    time.sleep(1.0)
+                    self.log_sig.emit("[MOCK] Stage 3 finished. Calculating unified results...")
                     
                     theta = np.linspace(-np.pi/6, np.pi/6, 11)
                     res_6 = {
@@ -1756,6 +1788,19 @@ class UnifiedCalibrationApp(QWidget):
                         'yaw': -20.68,
                         'tilt_list': [0.25]*11
                     }
+                    res_4 = {
+                        'axis_mode': 4,
+                        'radius': 99.85,
+                        'rmse': 0.15,
+                        'axis': np.array([0.999, 0.02, 0.01]),
+                        'center': np.array([0.8, 0.5, 0.2]),
+                        'pts_2d': np.column_stack((np.cos(theta)*99.8 + 0.3, np.sin(theta)*99.8 - 0.1)),
+                        'uc_opt': 0.3,
+                        'vc_opt': -0.1,
+                        'tilt': 0.15,
+                        'yaw': 1.5,
+                        'tilt_list': [0.15]*11
+                    }
                     
                     unified_res = {
                         'x_e': 0.0,
@@ -1767,14 +1812,17 @@ class UnifiedCalibrationApp(QWidget):
                         'L_5_ee': 330.0,
                         'radius_6': 74.85,
                         'radius_5': 280.15,
+                        'radius_4': 99.85,
                         'ortho_err': 0.1,
                         'rmse_6': 0.12,
                         'rmse_5': 0.18,
+                        'rmse_4': 0.15,
                         'rot_err_deg': 0.2,
                         'tilt_diff': 0.05
                     }
                     unified_res['res_5'] = res_5
                     unified_res['res_6'] = res_6
+                    unified_res['res_4'] = res_4
                     
                     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
                     def plot_single(ax, res, axis_num, color):
@@ -1787,8 +1835,8 @@ class UnifiedCalibrationApp(QWidget):
                         ax.set_title(f"Axis {axis_num} Sweep (MOCK)")
                         ax.legend()
                         
-                    plot_single(ax1, res_6, 6, 'blue')
-                    plot_single(ax2, res_5, 5, 'green')
+                    plot_single(ax1, res_5, 5, 'green')
+                    plot_single(ax2, res_4, 4, 'purple')
                     
                     fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK")
                     plt.tight_layout()
@@ -1824,6 +1872,7 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_data_unified = res
             self.marker_data_5 = res['res_5']
             self.marker_data_6 = res['res_6']
+            self.marker_data_4 = res.get('res_4', None)
                 
             if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
                 pix = QPixmap(res['plot_path_combined']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -1843,7 +1892,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"    - X-Offset: {res['x_e']:.2f} mm")
         self.log_msg(f"    - Y-Offset: {res['y_e']:.2f} mm")
         self.log_msg(f"    - Z-Offset: {res['z_e']:.2f} mm")
-        self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm)")
+        r4_str = f", R4: {res['radius_4']:.2f} mm" if res.get('radius_4', 0.0) > 0.0 else ""
+        self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm{r4_str})")
             
         self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
         self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")
@@ -1861,7 +1911,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"\n[4] Confidence Metrics:")
         self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
         
-        if res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5:
+        rmse_warn = res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5 or res.get('rmse_4', 0.0) > 0.5
+        if rmse_warn:
             self.log_msg("\n" + "!"*60)
             self.log_msg(" [WARNING] Fitting RMSE exceeds 0.5 mm!")
             self.log_msg("  The marker coordinates may have high noise. Check hardware.")
@@ -1884,15 +1935,17 @@ class UnifiedCalibrationApp(QWidget):
                 tolerance = float(self.tolerance_input.text())
             except ValueError:
                 tolerance = 0.5
+            marker_data_4_val = getattr(self, 'marker_data_4', None)
             res = self.marker_calibrator.compute_unified_bracket_calibration(
-                self.marker_data_5, self.marker_data_6, self.arm_side, tolerance=tolerance
+                self.marker_data_5, self.marker_data_6, self.arm_side, tolerance=tolerance, marker_data_4=marker_data_4_val
             )
             
             self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
             self.log_msg(f"    - X-Offset: {res['x_e']:.2f} mm")
             self.log_msg(f"    - Y-Offset: {res['y_e']:.2f} mm")
             self.log_msg(f"    - Z-Offset: {res['z_e']:.2f} mm")
-            self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm)")
+            r4_str = f", R4: {res['radius_4']:.2f} mm" if res.get('radius_4', 0.0) > 0.0 else ""
+            self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm{r4_str})")
                 
             self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
             self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")
@@ -1909,9 +1962,9 @@ class UnifiedCalibrationApp(QWidget):
                 
             self.log_msg(f"\n[4] Confidence Metrics:")
             self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
-            #self.log_msg(f"    - Fitting RMSE (A6/A5) : {res['rmse_6']:.3f} / {res['rmse_5']:.3f} mm")
             
-            if res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5:
+            rmse_warn = res['rmse_6'] > 0.5 or res['rmse_5'] > 0.5 or res.get('rmse_4', 0.0) > 0.5
+            if rmse_warn:
                 self.log_msg("\n" + "!"*60)
                 self.log_msg(" [WARNING] Fitting RMSE exceeds 0.5 mm!")
                 self.log_msg("  The marker coordinates may have high noise. Check hardware.")

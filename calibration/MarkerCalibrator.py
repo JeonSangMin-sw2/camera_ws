@@ -188,6 +188,10 @@ class MarkerCalibrator(BaseCalibrator):
             start_deg = -20.0
             end_deg = 20.0
             joint_i = 6
+        elif "4" in axis_str:
+            start_deg = -10.0
+            end_deg = 10.0
+            joint_i = 4
         else:
             start_deg = -10.0
             end_deg = 10.0
@@ -419,7 +423,7 @@ class MarkerCalibrator(BaseCalibrator):
             logging.warning(f"Failed to get link kinematics: {e}")
             return 300.0
 
-    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5):
+    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
@@ -433,6 +437,7 @@ class MarkerCalibrator(BaseCalibrator):
         
         z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
         y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
 
         def extract_axis_from_rotations(poses, ideal_axis):
             if len(poses) < 2: return ideal_axis
@@ -453,20 +458,14 @@ class MarkerCalibrator(BaseCalibrator):
                 return avg_axis / np.linalg.norm(avg_axis)
             return ideal_axis
 
-        # 2. 정밀 회전축 벡터 산출 (6축 데이터만 신뢰)
+        # 2. 정밀 회전축 벡터 산출
         poses_6 = marker_data_6.get('captured_poses', [])
         n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
         
         poses_5 = marker_data_5.get('captured_poses', [])
         n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
 
-        # 3. 설계 기반 강제 직교화 (n5 노이즈 배제 및 물리적 정렬)
-        z_col = n6_marker_actual
-        y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
-        y_col_rotated /= np.linalg.norm(y_col_rotated)
-        
-        # Joint 6 angle correction: if joint 6 was at theta_6 during joint 5 sweep,
-        # rotate the extracted joint 5 axis back by +theta_6 about z_col to align with tool flange Y axis.
+        # Joint 6 angle correction for Joint 5 sweep
         theta_6 = marker_data_5.get('theta_6', None)
         if theta_6 is None:
             q_full_5 = marker_data_5.get('captured_q_full', [])
@@ -481,16 +480,72 @@ class MarkerCalibrator(BaseCalibrator):
                     theta_6 = 0.0
             else:
                 theta_6 = 0.0
-                
-        if abs(theta_6) > 1e-5:
-            y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
-        else:
-            y_col = y_col_rotated
+
+        if marker_data_4 is not None:
+            # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
+            poses_4 = marker_data_4.get('captured_poses', [])
+            n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
+
+            # Joint 6 angle correction for Joint 4 sweep
+            theta_6_4 = marker_data_4.get('theta_6', None)
+            if theta_6_4 is None:
+                q_full_4 = marker_data_4.get('captured_q_full', [])
+                if len(q_full_4) > 0 and self.robot and self.robot != "mock_robot":
+                    try:
+                        model = self.robot.model()
+                        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                        q_idx = arm_idx[6]
+                        theta_6_4 = np.mean([q[q_idx] for q in q_full_4])
+                    except Exception as e:
+                        logging.warning(f"Failed to extract joint 6 angle for joint 4 correction: {e}")
+                        theta_6_4 = 0.0
+                else:
+                    theta_6_4 = 0.0
+
+            z_col = n6_marker_actual
             
-        x_col = np.cross(y_col, z_col)
-        
-        R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
-        R_ee_m_actual = R_m_ee_actual.T
+            # Form orthogonal projections of n5 and n4 onto plane perpendicular to z_col
+            y_col_rot = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+            y_col_rot /= np.linalg.norm(y_col_rot)
+            
+            x_col_rot = n4_marker_actual - np.dot(n4_marker_actual, z_col) * z_col
+            x_col_rot /= np.linalg.norm(x_col_rot)
+
+            # Apply Joint 6 angle rotations back
+            if abs(theta_6) > 1e-5:
+                y_col = self.rodrigues_rotation(y_col_rot, z_col, theta_6)
+            else:
+                y_col = y_col_rot
+
+            if abs(theta_6_4) > 1e-5:
+                x_col = self.rodrigues_rotation(x_col_rot, z_col, theta_6_4)
+            else:
+                x_col = x_col_rot
+
+            # Use SVD to clean up orthogonality errors and build R_m_ee
+            M = np.column_stack((x_col, y_col, z_col))
+            U, S, Vt = np.linalg.svd(M)
+            R_m_ee_actual = U @ Vt
+            if np.linalg.det(R_m_ee_actual) < 0:
+                U[:, 2] *= -1
+                R_m_ee_actual = U @ Vt
+            
+            R_ee_m_actual = R_m_ee_actual.T
+        else:
+            # --- 2-Axis Gram-Schmidt Alignment (Joint 5 and 6) ---
+            z_col = n6_marker_actual
+            y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+            y_col_rotated /= np.linalg.norm(y_col_rotated)
+            
+            if abs(theta_6) > 1e-5:
+                y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
+            else:
+                y_col = y_col_rotated
+                
+            x_col = np.cross(y_col, z_col)
+            
+            R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
+            R_ee_m_actual = R_m_ee_actual.T
 
         # 4. 오일러 각도 추출
         # 기준 행렬이 +90도를 기반으로 구축되었으므로, ZYX 분해 시 자연스럽게 +90도 근처의 값이 도출됩니다.
@@ -519,7 +574,11 @@ class MarkerCalibrator(BaseCalibrator):
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
             'L_5_ee': L_5_ee, 'radius_6': radius_6, 'radius_5': radius_5,
-            'ortho_err': ortho_err, 'rmse_6': marker_data_6.get('rmse', 0.0), 'rmse_5': marker_data_5.get('rmse', 0.0),
+            'radius_4': marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0,
+            'ortho_err': ortho_err,
+            'rmse_6': marker_data_6.get('rmse', 0.0),
+            'rmse_5': marker_data_5.get('rmse', 0.0),
+            'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 is not None else 0.0,
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
             'warn_large_angle': rot_err_deg > 15.0
         }
