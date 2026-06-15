@@ -462,8 +462,31 @@ class MarkerCalibrator(BaseCalibrator):
 
         # 3. 설계 기반 강제 직교화 (n5 노이즈 배제 및 물리적 정렬)
         z_col = n6_marker_actual
-        y_col = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
-        y_col /= np.linalg.norm(y_col)
+        y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+        y_col_rotated /= np.linalg.norm(y_col_rotated)
+        
+        # Joint 6 angle correction: if joint 6 was at theta_6 during joint 5 sweep,
+        # rotate the extracted joint 5 axis back by +theta_6 about z_col to align with tool flange Y axis.
+        theta_6 = marker_data_5.get('theta_6', None)
+        if theta_6 is None:
+            q_full_5 = marker_data_5.get('captured_q_full', [])
+            if len(q_full_5) > 0 and self.robot and self.robot != "mock_robot":
+                try:
+                    model = self.robot.model()
+                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                    q_idx = arm_idx[6]
+                    theta_6 = np.mean([q[q_idx] for q in q_full_5])
+                except Exception as e:
+                    logging.warning(f"Failed to extract joint 6 angle for correction: {e}")
+                    theta_6 = 0.0
+            else:
+                theta_6 = 0.0
+                
+        if abs(theta_6) > 1e-5:
+            y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
+        else:
+            y_col = y_col_rotated
+            
         x_col = np.cross(y_col, z_col)
         
         R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
