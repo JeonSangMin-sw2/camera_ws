@@ -458,94 +458,154 @@ class MarkerCalibrator(BaseCalibrator):
                 return avg_axis / np.linalg.norm(avg_axis)
             return ideal_axis
 
-        # 2. 정밀 회전축 벡터 산출
-        poses_6 = marker_data_6.get('captured_poses', [])
-        n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
-        
-        poses_5 = marker_data_5.get('captured_poses', [])
-        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+        # Try direct kinematic averaging first, as it is mathematically far more accurate and does not require Joint 4 sweep!
+        kinematic_success = False
+        if self.robot and self.robot != "mock_robot":
+            try:
+                # Load mount_to_cam (transform from head mount "link_head_2" to camera)
+                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                # Force camera translation components to zero as requested and use fixed rotation
+                mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
+                T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+                R_t5_to_cam = T_t5_to_cam_fixed[:3, :3]
+                
+                dyn_model = self.robot.get_dynamics()
+                ee_name = f"ee_{arm_side}"
+                
+                R_list = []
+                # Process Stage 6 (Roll)
+                poses_6 = marker_data_6.get('captured_poses', [])
+                q_full_6 = marker_data_6.get('captured_q_full', [])
+                for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
+                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                    R_ee_to_t5 = T_t5_to_ee[:3, :3].T
+                    R_cam_to_marker = T_cam_to_marker[:3, :3]
+                    R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
+                    R_list.append(R_ee_to_marker)
+                    
+                # Process Stage 5 (Pitch)
+                poses_5 = marker_data_5.get('captured_poses', [])
+                q_full_5 = marker_data_5.get('captured_q_full', [])
+                for q_full, T_cam_to_marker in zip(q_full_5, poses_5):
+                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                    R_ee_to_t5 = T_t5_to_ee[:3, :3].T
+                    R_cam_to_marker = T_cam_to_marker[:3, :3]
+                    R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
+                    R_list.append(R_ee_to_marker)
+                    
+                if marker_data_4 is not None:
+                    # Process Stage 4 (Yaw) if available
+                    poses_4 = marker_data_4.get('captured_poses', [])
+                    q_full_4 = marker_data_4.get('captured_q_full', [])
+                    for q_full, T_cam_to_marker in zip(q_full_4, poses_4):
+                        T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                        R_ee_to_t5 = T_t5_to_ee[:3, :3].T
+                        R_cam_to_marker = T_cam_to_marker[:3, :3]
+                        R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
+                        R_list.append(R_ee_to_marker)
 
-        # Joint 6 angle correction for Joint 5 sweep
-        theta_6 = marker_data_5.get('theta_6', None)
-        if theta_6 is None:
-            q_full_5 = marker_data_5.get('captured_q_full', [])
-            if len(q_full_5) > 0 and self.robot and self.robot != "mock_robot":
-                try:
-                    model = self.robot.model()
-                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                    q_idx = arm_idx[6]
-                    theta_6 = np.mean([q[q_idx] for q in q_full_5])
-                except Exception as e:
-                    logging.warning(f"Failed to extract joint 6 angle for correction: {e}")
-                    theta_6 = 0.0
-            else:
-                theta_6 = 0.0
+                if len(R_list) > 0:
+                    M = np.mean(R_list, axis=0)
+                    U, S, Vt = np.linalg.svd(M)
+                    R_ee_m_actual = U @ Vt
+                    if np.linalg.det(R_ee_m_actual) < 0:
+                        U[:, 2] *= -1
+                        R_ee_m_actual = U @ Vt
+                    kinematic_success = True
+                else:
+                    raise ValueError("No pose data available for kinematic averaging")
+            except Exception as e:
+                logging.warning(f"Kinematic averaging failed ({e}). Falling back to axis fitting.")
 
-        if marker_data_4 is not None:
-            # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
-            poses_4 = marker_data_4.get('captured_poses', [])
-            n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
+        if not kinematic_success:
+            # 2. 정밀 회전축 벡터 산출
+            poses_6 = marker_data_6.get('captured_poses', [])
+            n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+            
+            poses_5 = marker_data_5.get('captured_poses', [])
+            n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
 
-            # Joint 6 angle correction for Joint 4 sweep
-            theta_6_4 = marker_data_4.get('theta_6', None)
-            if theta_6_4 is None:
-                q_full_4 = marker_data_4.get('captured_q_full', [])
-                if len(q_full_4) > 0 and self.robot and self.robot != "mock_robot":
+            # Joint 6 angle correction for Joint 5 sweep
+            theta_6 = marker_data_5.get('theta_6', None)
+            if theta_6 is None:
+                q_full_5 = marker_data_5.get('captured_q_full', [])
+                if len(q_full_5) > 0 and self.robot and self.robot != "mock_robot":
                     try:
                         model = self.robot.model()
                         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
                         q_idx = arm_idx[6]
-                        theta_6_4 = np.mean([q[q_idx] for q in q_full_4])
+                        theta_6 = np.mean([q[q_idx] for q in q_full_5])
                     except Exception as e:
-                        logging.warning(f"Failed to extract joint 6 angle for joint 4 correction: {e}")
-                        theta_6_4 = 0.0
+                        logging.warning(f"Failed to extract joint 6 angle for correction: {e}")
+                        theta_6 = 0.0
                 else:
-                    theta_6_4 = 0.0
+                    theta_6 = 0.0
 
-            z_col = n6_marker_actual
-            
-            # Form orthogonal projections of n5 and n4 onto plane perpendicular to z_col
-            y_col_rot = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
-            y_col_rot /= np.linalg.norm(y_col_rot)
-            
-            x_col_rot = n4_marker_actual - np.dot(n4_marker_actual, z_col) * z_col
-            x_col_rot /= np.linalg.norm(x_col_rot)
+            if marker_data_4 is not None:
+                # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
+                poses_4 = marker_data_4.get('captured_poses', [])
+                n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
 
-            # Apply Joint 6 angle rotations back
-            if abs(theta_6) > 1e-5:
-                y_col = self.rodrigues_rotation(y_col_rot, z_col, theta_6)
-            else:
-                y_col = y_col_rot
+                # Joint 6 angle correction for Joint 4 sweep
+                theta_6_4 = marker_data_4.get('theta_6', None)
+                if theta_6_4 is None:
+                    q_full_4 = marker_data_4.get('captured_q_full', [])
+                    if len(q_full_4) > 0 and self.robot and self.robot != "mock_robot":
+                        try:
+                            model = self.robot.model()
+                            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                            q_idx = arm_idx[6]
+                            theta_6_4 = np.mean([q[q_idx] for q in q_full_4])
+                        except Exception as e:
+                            logging.warning(f"Failed to extract joint 6 angle for joint 4 correction: {e}")
+                            theta_6_4 = 0.0
+                    else:
+                        theta_6_4 = 0.0
 
-            if abs(theta_6_4) > 1e-5:
-                x_col = self.rodrigues_rotation(x_col_rot, z_col, theta_6_4)
-            else:
-                x_col = x_col_rot
-
-            # Use SVD to clean up orthogonality errors and build R_m_ee
-            M = np.column_stack((x_col, y_col, z_col))
-            U, S, Vt = np.linalg.svd(M)
-            R_m_ee_actual = U @ Vt
-            if np.linalg.det(R_m_ee_actual) < 0:
-                U[:, 2] *= -1
-                R_m_ee_actual = U @ Vt
-            
-            R_ee_m_actual = R_m_ee_actual.T
-        else:
-            # --- 2-Axis Gram-Schmidt Alignment (Joint 5 and 6) ---
-            z_col = n6_marker_actual
-            y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
-            y_col_rotated /= np.linalg.norm(y_col_rotated)
-            
-            if abs(theta_6) > 1e-5:
-                y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
-            else:
-                y_col = y_col_rotated
+                z_col = n6_marker_actual
                 
-            x_col = np.cross(y_col, z_col)
-            
-            R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
-            R_ee_m_actual = R_m_ee_actual.T
+                # Form orthogonal projections of n5 and n4 onto plane perpendicular to z_col
+                y_col_rot = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+                y_col_rot /= np.linalg.norm(y_col_rot)
+                
+                x_col_rot = n4_marker_actual - np.dot(n4_marker_actual, z_col) * z_col
+                x_col_rot /= np.linalg.norm(x_col_rot)
+
+                # Apply Joint 6 angle rotations back
+                if abs(theta_6) > 1e-5:
+                    y_col = self.rodrigues_rotation(y_col_rot, z_col, theta_6)
+                else:
+                    y_col = y_col_rot
+
+                if abs(theta_6_4) > 1e-5:
+                    x_col = self.rodrigues_rotation(x_col_rot, z_col, theta_6_4)
+                else:
+                    x_col = x_col_rot
+
+                # Use SVD to clean up orthogonality errors and build R_m_ee
+                M = np.column_stack((x_col, y_col, z_col))
+                U, S, Vt = np.linalg.svd(M)
+                R_m_ee_actual = U @ Vt
+                if np.linalg.det(R_m_ee_actual) < 0:
+                    U[:, 2] *= -1
+                    R_m_ee_actual = U @ Vt
+                
+                R_ee_m_actual = R_m_ee_actual.T
+            else:
+                # --- 2-Axis Gram-Schmidt Alignment (Joint 5 and 6) ---
+                z_col = n6_marker_actual
+                y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+                y_col_rotated /= np.linalg.norm(y_col_rotated)
+                
+                if abs(theta_6) > 1e-5:
+                    y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
+                else:
+                    y_col = y_col_rotated
+                    
+                x_col = np.cross(y_col, z_col)
+                
+                R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
+                R_ee_m_actual = R_m_ee_actual.T
 
         # 4. 오일러 각도 추출
         # 기준 행렬이 +90도를 기반으로 구축되었으므로, ZYX 분해 시 자연스럽게 +90도 근처의 값이 도출됩니다.
