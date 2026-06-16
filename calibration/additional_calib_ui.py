@@ -30,7 +30,7 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
 
 # Import custom calibrator logic
-from Calibrator import MarkerCalibrator, JointCalibrator
+from Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
 from IntrinsicsCalibrator import IntrinsicsCalibrator
 
 # --- Premium Dark CSS Stylesheet ---
@@ -372,7 +372,8 @@ class JointCalibrationWorker(QThread):
 
     def run(self):
         try:
-            if self.ui_only:
+            is_mock_run = self.ui_only and (not self.calibrator.robot or self.calibrator.robot == "mock_robot")
+            if is_mock_run:
                 # Mock Mode Execution
                 time.sleep(1.0)
                 self.log_signal.emit("[MOCK] Starting Sweep Steps...")
@@ -473,6 +474,204 @@ class JointCalibrationWorker(QThread):
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Worker exception: {e}")
             self.finished_signal.emit(None)
+
+
+class SimulatedMarkerTransform:
+    def __init__(self, robot, camera_config):
+        self.robot = robot
+        self.camera_config = camera_config
+        
+        class DummyCamera:
+            def stream_off(self): pass
+        self.camera = DummyCamera()
+
+    def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
+        if not self.robot or self.robot == "mock_robot":
+            T = np.eye(4)
+            T[2, 3] = 0.3
+            return [T.tolist()]
+        try:
+            q = self.robot.get_state().position
+            dyn_model = self.robot.get_dynamics()
+            
+            ee_name = f"ee_{side}"
+            from CalibratorBase import BaseCalibrator
+            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q, ee_name, "link_torso_5")
+            
+            T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head_2", "link_torso_5")
+            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+            T_head_to_cam = BaseCalibrator.make_transform(mount_to_cam)
+            T_t5_to_cam = T_t5_to_head @ T_head_to_cam
+            
+            if side == "left":
+                tf_vec = self.camera_config.get("Tf_to_marker_left", [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0])
+            else:
+                tf_vec = self.camera_config.get("Tf_to_marker_right", [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0])
+            T_ee_to_marker = BaseCalibrator.make_transform(tf_vec)
+            
+            T_cam_to_t5 = np.linalg.inv(T_t5_to_cam)
+            T_cam_to_marker = T_cam_to_t5 @ T_t5_to_ee @ T_ee_to_marker
+            
+            noise_t = np.random.normal(0, 0.0001, 3)
+            T_cam_to_marker[:3, 3] += noise_t
+            
+            return [T_cam_to_marker.tolist()]
+        except Exception as e:
+            T = np.eye(4)
+            T[2, 3] = 0.3
+            return [T.tolist()]
+
+
+class FullAutoWorker(QThread):
+    log_msg = Signal(str)
+    status_signal = Signal(bool)
+    bracket_finished_signal = Signal(dict)
+    joint_finished_signal = Signal(dict)
+    finished_signal = Signal()
+
+    def __init__(self, joint_calibrator, marker_calibrator, ui_only=False, stop_event=None, joint_offsets_store=None):
+        super().__init__()
+        self.joint_calibrator = joint_calibrator
+        self.marker_calibrator = marker_calibrator
+        self.ui_only = ui_only
+        self.stop_event = stop_event
+        self.joint_offsets_store = joint_offsets_store if joint_offsets_store is not None else {}
+
+    def get_robot_version(self):
+        return self.marker_calibrator.get_robot_version()
+
+    def run(self):
+        try:
+            self.log_msg.emit("Starting FULL AUTO calibration motion sequence test...")
+            for arm_side in ["right", "left"]:
+                self.log_msg.emit("\n" + "="*50)
+                self.log_msg.emit(f"   STARTING MOTION TEST FOR {arm_side.upper()} ARM")
+                self.log_msg.emit("="*50 + "\n")
+                
+                version_num = self.get_robot_version()
+                is_v13 = (abs(version_num - 1.3) < 0.05)
+                self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num:.1f} (is_v1.3: {is_v13})")
+                
+                is_mock_run = self.ui_only and (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot")
+                if is_mock_run:
+                    # Mock Mode Execution (sleep-only logs)
+                    self.log_msg.emit(f"[MOCK] Initializing {arm_side} arm motion test...")
+                    if self.stop_event.is_set(): return
+                    time.sleep(1.0)
+                    
+                    if not is_v13:
+                        self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to wrist pitch ready pose...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.0)
+                        self.log_msg.emit("[MOCK] Running Joint 5 sweep motion test...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.5)
+                    
+                    self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to marker ready pose...")
+                    if self.stop_event.is_set(): return
+                    time.sleep(1.0)
+                    
+                    if not is_v13:
+                        self.log_msg.emit("[MOCK] Running Marker 5-axis sweep motion test...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.5)
+                    else:
+                        self.log_msg.emit("[MOCK] Running Marker 6-axis sweep motion test...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.5)
+                        self.log_msg.emit("[MOCK] Running Marker 5-axis sweep motion test...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.5)
+                    
+                    self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to elbow ready pose...")
+                    if self.stop_event.is_set(): return
+                    time.sleep(1.0)
+                    self.log_msg.emit("[MOCK] Running Joint 3 (elbow) sweep motion test...")
+                    if self.stop_event.is_set(): return
+                    time.sleep(1.5)
+                    self.log_msg.emit(f"[MOCK] {arm_side.upper()} arm motion test completed.")
+                
+                else:
+                    # Real/Simulated Robot Motion Execution (no calibration calculations)
+                    self.joint_calibrator.stop_requested = False
+                    self.marker_calibrator.stop_requested = False
+                    
+                    if not is_v13:
+                        # v1.2 Motion Sequence
+                        self.log_msg.emit(f"[MOTION TEST 1/6] Moving {arm_side} arm to wrist pitch ready pose...")
+                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch", log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to move to ready pose for wrist_pitch on {arm_side} arm")
+                        
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 2/6] Running Joint 4 sweep motion test...")
+                        if not self.joint_calibrator.perform_motion_test_sweep(arm_side, joint_i=4, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Joint 4 motion test on {arm_side} arm")
+                        
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 3/6] Moving {arm_side} arm to marker ready pose...")
+                        if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
+                            
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 4/6] Running Marker 5-axis sweep motion test...")
+                        if not self.marker_calibrator.perform_motion_test_sweep(arm_side, joint_i=5, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Marker 5-axis motion test on {arm_side} arm")
+                        
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 5/6] Moving {arm_side} arm to elbow ready pose...")
+                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
+                            
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 6/6] Running Joint 2 (elbow) sweep motion test...")
+                        if not self.joint_calibrator.perform_motion_test_sweep(arm_side, joint_i=2, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Joint 2 motion test on {arm_side} arm")
+                        
+                    else:
+                        # v1.3 Motion Sequence
+                        self.log_msg.emit(f"[MOTION TEST 1/5] Moving {arm_side} arm to marker ready pose...")
+                        if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
+                            
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 2/5] Running Marker 6-axis sweep motion test...")
+                        if not self.marker_calibrator.perform_motion_test_sweep(arm_side, joint_i=6, start_deg=-20.0, end_deg=20.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Marker 6-axis motion test on {arm_side} arm")
+                        
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 3/5] Running Marker 5-axis sweep motion test...")
+                        if not self.marker_calibrator.perform_motion_test_sweep(arm_side, joint_i=5, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Marker 5-axis motion test on {arm_side} arm")
+                        
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 4/5] Moving {arm_side} arm to elbow ready pose...")
+                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
+                            
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 5/5] Running Joint 2 (elbow) sweep motion test...")
+                        if not self.joint_calibrator.perform_motion_test_sweep(arm_side, joint_i=2, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Joint 2 motion test on {arm_side} arm")
+                        
+                if self.stop_event.is_set(): return
+                time.sleep(1.5)
+                
+            self.log_msg.emit("\n" + "="*50)
+            self.log_msg.emit("   FULL AUTO MOTION TEST COMPLETE!")
+            self.log_msg.emit("="*50 + "\n")
+        except Exception as e:
+            self.log_msg.emit(f"[ERROR] Full Auto motion sequence test failed: {e}")
+        finally:
+            self.finished_signal.emit()
 
 
 # --- Unified Calibration App ---
@@ -697,6 +896,7 @@ class UnifiedCalibrationApp(QWidget):
         conn_layout.addWidget(self.ip_input)
         conn_layout.addWidget(QLabel("Robot Model:"))
         conn_layout.addWidget(self.model_input)
+            
         conn_layout.addWidget(self.btn_connect)
         conn_layout.addWidget(self.btn_stop_motion)
         conn_box.setLayout(conn_layout)
@@ -851,6 +1051,25 @@ class UnifiedCalibrationApp(QWidget):
         head_sublayout.addStretch()
         head_subtab.setLayout(head_sublayout)
         self.workflow_tabs.addTab(head_subtab, "3. Head Control")
+        
+        # Sub-tab 4: Full Auto Calibration
+        full_auto_subtab = QWidget()
+        full_auto_sublayout = QVBoxLayout()
+        
+        self.btn_full_auto_start = QPushButton("START FULL AUTO")
+        self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        self.btn_full_auto_start.clicked.connect(self.start_full_auto)
+        
+        self.btn_full_auto_stop = QPushButton("STOP")
+        self.btn_full_auto_stop.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold;")
+        self.btn_full_auto_stop.clicked.connect(self.stop_full_auto)
+        
+        full_auto_sublayout.addWidget(QLabel("Full Auto Sequential Calibration:"))
+        full_auto_sublayout.addWidget(self.btn_full_auto_start)
+        full_auto_sublayout.addWidget(self.btn_full_auto_stop)
+        full_auto_sublayout.addStretch()
+        full_auto_subtab.setLayout(full_auto_sublayout)
+        self.workflow_tabs.addTab(full_auto_subtab, "4. Full Auto")
         
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
@@ -1169,7 +1388,7 @@ class UnifiedCalibrationApp(QWidget):
             if self.ui_only:
                 try:
                     self.log_msg(f"[INFO] (UI Mode) Trying to connect to actual robot at {addr} ({model})...")
-                    self.robot = MarkerCalibrator.initialize_robot(addr, model)
+                    self.robot = BaseCalibrator.initialize_robot(addr, model)
                 except Exception as e:
                     self.log_msg(f"[INFO] Actual robot connection raised exception: {e}.")
                     self.robot = None
@@ -1178,12 +1397,53 @@ class UnifiedCalibrationApp(QWidget):
                     self.log_msg("[INFO] Actual robot connection failed. Fallback to mock.")
                     self.robot = "mock_robot"
             else:
-                self.robot = MarkerCalibrator.initialize_robot(addr, model)
+                self.robot = BaseCalibrator.initialize_robot(addr, model)
                 
             if self.robot:
                 self.marker_calibrator.robot = self.robot
                 self.joint_calibrator.robot = self.robot
-                self.log_msg("[INFO] Robot successfully connected and initialized.")
+                
+                # Determine version classification automatically
+                detected_version = 1.2
+                if self.robot != "mock_robot":
+                    try:
+                        robot_info = self.robot.get_robot_info()
+                        raw_version = robot_info.robot_model_version
+                        self.log_msg(f"[INFO] Connected robot model version string: '{raw_version}'")
+                        print(f"[INFO] Connected robot model version string: '{raw_version}'")
+                        
+                        if "1.3" in raw_version:
+                            detected_version = 1.3
+                        else:
+                            detected_version = 1.2
+                    except Exception as e:
+                        self.log_msg(f"[WARNING] Failed to query version from robot: {e}")
+                        detected_version = 1.2
+                else:
+                    if self.ui_only and hasattr(self, 'mock_version_sel'):
+                        detected_version = float(self.mock_version_sel.currentText())
+                        self.log_msg(f"[INFO] Connected to mock robot. Using manually selected version: {detected_version:.1f}")
+                        print(f"[INFO] Connected to mock robot. Using manually selected version: {detected_version:.1f}")
+                
+                # Cache the version classification on the app instance
+                self.robot_version = detected_version
+
+                # Automatically update combobox in UI-only/mock mode
+                if self.ui_only and hasattr(self, 'mock_version_sel'):
+                    self.mock_version_sel.setCurrentText(f"{detected_version:.1f}")
+
+                # Configure calibrators version
+                self.marker_calibrator.robot_version = detected_version
+                self.joint_calibrator.robot_version = detected_version
+
+                # Setup SimulatedMarkerTransform if simulator is connected in UI Mode
+                if self.ui_only and self.robot != "mock_robot":
+                    self.marker_st = SimulatedMarkerTransform(self.robot, self.marker_calibrator.camera_config)
+                    self.marker_calibrator.marker_st = self.marker_st
+                    self.joint_calibrator.marker_st = self.marker_st
+                    self.log_msg("[INFO] Configured SimulatedMarkerTransform for simulation motion.")
+
+                self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version:.1f}).")
                 self.btn_connect.setText("DISCONNECT")
                 self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold;")
             else:
@@ -1394,7 +1654,7 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to load setting.yaml: {e}")
 
-    def apply_bracket_design_values(self):
+    def apply_bracket_design_values(self, silent=False):
         import yaml
         current_dir = os.path.dirname(os.path.abspath(__file__))
         config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
@@ -1407,7 +1667,8 @@ class UnifiedCalibrationApp(QWidget):
                 pitch = float(self.txt_bracket_pitch.text())
                 yaw = float(self.txt_bracket_yaw.text())
             except ValueError:
-                QMessageBox.critical(self, "Invalid Inputs", "Please enter valid numeric values for all bracket design fields.")
+                if not silent:
+                    QMessageBox.critical(self, "Invalid Inputs", "Please enter valid numeric values for all bracket design fields.")
                 return
             
             lines = []
@@ -1461,7 +1722,8 @@ class UnifiedCalibrationApp(QWidget):
                 f.writelines(lines)
                 
             self.log_msg(f"[SUCCESS] Saved {key} to setting.yaml: {new_vals}")
-            QMessageBox.information(self, "Success", f"Bracket design values saved for {self.arm_side.upper()} arm!")
+            if not silent:
+                QMessageBox.information(self, "Success", f"Bracket design values saved for {self.arm_side.upper()} arm!")
             
             if not self.ui_only and self.marker_st is not None:
                 detector = self.marker_st.marker_detection
@@ -1474,9 +1736,12 @@ class UnifiedCalibrationApp(QWidget):
                     self.log_msg("[INFO] Dynamically updated marker detector Tf_to_marker transforms in memory.")
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to save bracket values: {e}")
-            QMessageBox.critical(self, "Error", f"Failed to save bracket values: {e}")
+            if not silent:
+                QMessageBox.critical(self, "Error", f"Failed to save bracket values: {e}")
 
     def set_controls_enabled(self, enabled):
+        if hasattr(self, 'btn_full_auto_start'):
+            self.btn_full_auto_start.setEnabled(enabled)
         self.btn_joint_ready.setEnabled(enabled)
         self.btn_joint_start.setEnabled(enabled)
         self.btn_joint_apply.setEnabled(enabled)
@@ -1523,6 +1788,110 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_action_finished(self):
         self.set_controls_enabled(True)
+
+    def get_robot_version(self):
+        if self.ui_only and hasattr(self, 'mock_version_sel'):
+            return float(self.mock_version_sel.currentText())
+        return getattr(self, "robot_version", 1.2)
+
+    def start_full_auto(self):
+        if not self.ui_only and not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+            
+        self.log_text.clear()
+        self.log_msg("[INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...")
+        
+        self.set_controls_enabled(False)
+        self.btn_full_auto_start.setEnabled(False)
+        self.btn_full_auto_stop.setEnabled(True)
+        
+        if self.poll_timer.isActive():
+            self.poll_timer.stop()
+        
+        import threading
+        self.full_auto_stop_event = threading.Event()
+        
+        # update mock robot version on calibrators just in case
+        if self.ui_only and hasattr(self, 'mock_version_sel'):
+            v = float(self.mock_version_sel.currentText())
+            self.marker_calibrator.robot_version = v
+            self.joint_calibrator.robot_version = v
+        
+        self.active_worker = FullAutoWorker(
+            self.joint_calibrator,
+            self.marker_calibrator,
+            ui_only=self.ui_only,
+            stop_event=self.full_auto_stop_event,
+            joint_offsets_store=self.joint_offsets_store
+        )
+        
+        self.active_worker.log_msg.connect(self.log_msg)
+        self.active_worker.status_signal.connect(self.update_marker_indicator)
+        self.active_worker.bracket_finished_signal.connect(self.handle_full_auto_bracket_finished)
+        self.active_worker.joint_finished_signal.connect(self.handle_full_auto_joint_finished)
+        self.active_worker.finished_signal.connect(self.on_full_auto_finished)
+        self.active_worker.start()
+
+    def stop_full_auto(self):
+        self.log_msg("[STOP] Stopping Full Auto Calibration...")
+        if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event:
+            self.full_auto_stop_event.set()
+        self.joint_calibrator.stop_requested = True
+        self.marker_calibrator.stop_requested = True
+        if self.robot and self.robot != "mock_robot":
+            self.robot.cancel_control()
+
+    def on_full_auto_finished(self):
+        self.set_controls_enabled(True)
+        if hasattr(self, 'btn_full_auto_start'):
+            self.btn_full_auto_start.setEnabled(True)
+        self.active_worker = None
+        self.log_msg("[INFO] Full Auto sequential calibration ended.")
+        
+        # Restart poll_timer if appropriate (not tab 2 and feed dialog closed)
+        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        if self.workflow_tabs.currentIndex() != 2 and not dialog_visible:
+            if not self.poll_timer.isActive():
+                self.poll_timer.start(200)
+
+    def handle_full_auto_bracket_finished(self, bracket_res):
+        orig_side = self.arm_side
+        arm_side = bracket_res['arm_side']
+        self.arm_side = arm_side
+        
+        # Update UI text boxes
+        self.txt_bracket_x.setText(f"{bracket_res['x_e']/1000.0:.5f}")
+        self.txt_bracket_y.setText(f"{bracket_res['y_e']/1000.0:.5f}")
+        self.txt_bracket_z.setText(f"{bracket_res['z_e']/1000.0:.5f}")
+        self.txt_bracket_roll.setText(f"{bracket_res['roll_e']:.2f}")
+        self.txt_bracket_pitch.setText(f"{bracket_res['pitch_e']:.2f}")
+        self.txt_bracket_yaw.setText(f"{bracket_res['yaw_e']:.2f}")
+        
+        # Save to setting.yaml and apply in memory (silent=True)
+        self.apply_bracket_design_values(silent=True)
+        
+        self.arm_side = orig_side
+
+    def handle_full_auto_joint_finished(self, joint_res):
+        orig_side = self.arm_side
+        arm_side = joint_res['arm_side']
+        self.arm_side = arm_side
+        
+        recommended = joint_res['recommended_joint_offset']
+        # clamp elbow offset to [-3.0, 0.0] as a safety constraint
+        recommended = np.clip(recommended, -3.0, 0.0)
+        
+        self.joint_offsets_store[arm_side]["joint3"] = float(recommended)
+        
+        self.joint_offsets["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
+        self.joint_calibrator.joint_offsets = self.joint_offsets
+        self.marker_calibrator.joint_offsets = self.joint_offsets
+        
+        self.save_offsets_to_yaml()
+        self.update_applied_offset_label()
+        
+        self.arm_side = orig_side
         if hasattr(self, 'stop_event_mc'):
             self.stop_event_mc.clear()
         
@@ -1717,7 +2086,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: {use_head})")
 
-        if self.ui_only:
+        is_mock_run = self.ui_only and (not self.robot or self.robot == "mock_robot")
+        if is_mock_run:
             # Simulate unified marker sweep results
             class MockMarkerWorker(QThread):
                 log_sig = Signal(str)

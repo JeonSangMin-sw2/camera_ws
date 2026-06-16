@@ -14,14 +14,94 @@ class BaseCalibrator:
     def __init__(self, marker_st=None, robot=None):
         self.marker_st = marker_st
         self.robot = robot
+        self.robot_version = 1.2
         
         # Load camera setting config if available
         self.camera_config = {}
         self.load_camera_config()
         
+        self.ready_poses = {}
+        self.load_ready_poses()
+        
         # Active joint home offsets to apply to commanded trajectories
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
         self.stop_requested = False
+
+    def load_ready_poses(self):
+        yaml_path = os.path.join(os.path.dirname(__file__), "ready_poses.yaml")
+        if os.path.exists(yaml_path):
+            try:
+                with open(yaml_path, "r") as f:
+                    self.ready_poses = yaml.safe_load(f) or {}
+                logging.info(f"Loaded ready poses from {yaml_path}")
+            except Exception as e:
+                logging.error(f"Failed to load ready_poses.yaml: {e}")
+        else:
+            logging.warning("ready_poses.yaml not found. Using fallback ready poses.")
+
+    def get_robot_version(self):
+        return getattr(self, "robot_version", 1.2)
+
+    def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
+        # Fallback values
+        fallbacks = {
+            "v1.2": {
+                "joint": {
+                    "wrist_pitch": {
+                        "right_arm": [-55.0, -45.0, 25.0, -127.0, 90.0, 0.0, 0.0],
+                        "left_arm": [-55.0, 45.0, -25.0, -127.0, -90.0, 0.0, 0.0]
+                    },
+                    "elbow": {
+                        "right_arm": [-107.0, -17.0, 0.0, 0.0, 73.0, -80.0, 73.0],
+                        "left_arm": [-107.0, 17.0, 0.0, 0.0, -73.0, -80.0, -73.0]
+                    },
+                    "head": {
+                        "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+                        "left_arm": [-90.0, 45.0, -73.0, -107.0, -90.0, 90.0, 0.0]
+                    }
+                },
+                "marker": {
+                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+                    "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
+                }
+            },
+            "v1.3": {
+                "joint": {
+                    "wrist_pitch": {
+                        "right_arm": [-55.0, -45.0, 25.0, -127.0, 90.0, 0.0, 0.0],
+                        "left_arm": [-55.0, 45.0, -25.0, -127.0, -90.0, 0.0, 0.0]
+                    },
+                    "elbow": {
+                        "right_arm": [-107.0, -17.0, 0.0, 0.0, 73.0, -80.0, 73.0],
+                        "left_arm": [-107.0, 17.0, 0.0, 0.0, -73.0, -80.0, -73.0]
+                    },
+                    "head": {
+                        "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+                        "left_arm": [-90.0, 45.0, -73.0, -107.0, -90.0, 90.0, 0.0]
+                    }
+                },
+                "marker": {
+                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+                    "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
+                }
+            }
+        }
+        
+        try:
+            val = self.ready_poses[version_key]
+            if type_key == "joint":
+                val = val["joint"][mode_key][f"{arm_side}_arm"]
+            else:
+                val = val["marker"][f"{arm_side}_arm"]
+            return np.deg2rad(val)
+        except Exception:
+            # Fallback
+            val = fallbacks[version_key]
+            if type_key == "joint":
+                val = val["joint"][mode_key][f"{arm_side}_arm"]
+            else:
+                val = val["marker"][f"{arm_side}_arm"]
+            return np.deg2rad(val)
 
     def load_camera_config(self):
         # Locate setting.yaml
@@ -90,70 +170,104 @@ class BaseCalibrator:
             logging.error(f"Failed to connect robot {address}")
             return None
         
-        # Check if control manager is already enabled and power/servo are already ON
+        # Safety check: Verify actual connected robot model matches expected model
         try:
-            import time
+            robot_info = robot.get_robot_info()
+            actual_model = robot_info.robot_model_name.lower()
+            expected_model = model.lower()
+            if actual_model != expected_model:
+                logging.error(f"Model mismatch! UI selected model: {model}, but actual robot model is: {robot_info.robot_model_name}")
+                robot.disconnect()
+                return None
+        except Exception as e:
+            logging.error(f"Failed to verify robot model: {e}")
+            robot.disconnect()
+            return None
+
+        # Check if overall power is ON; if not, turn on overall power
+        try:
+            if not robot.is_power_on(".*"):
+                logging.info("Power is not ON. Turning overall power on...")
+                if not robot.power_on(".*"):
+                    logging.error("Failed to turn power on.")
+                    robot.disconnect()
+                    return None
+            else:
+                logging.info("Power is already ON.")
+        except Exception as e:
+            logging.error(f"Failed to check or set power status: {e}")
+            robot.disconnect()
+            return None
+
+        # Wait 1 second
+        time.sleep(1.0)
+
+        # Check control manager status
+        try:
             cm_state = robot.get_control_manager_state().state
-            is_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
+            is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
         except Exception as e:
             logging.warning(f"Failed to check control manager state: {e}")
-            is_enabled = False
+            is_cm_enabled = False
 
-        need_power = not robot.is_power_on(power)
-        need_servo = not robot.is_servo_on(servo)
-
-        if need_power or need_servo:
-            # 1) Disable control manager first if it is Enabled to allow power/servo commands
-            if is_enabled:
-                logging.info("Control manager is Enabled. Disabling to allow power/servo commands...")
-                try:
-                    robot.disable_control_manager()
-                    time.sleep(0.5)
-                except Exception as e:
-                    logging.warning(f"Failed to disable control manager: {e}")
-
-            # 2) Perform power/servo commands
-            if need_power:
-                logging.info(f"Turning power ({power}) on...")
-                if not robot.power_on(power):
-                    logging.error(f"Failed to turn power ({power}) on. Continuing...")
-            else:
-                logging.info(f"Power ({power}) is already ON.")
-            
-            if need_servo:
-                logging.info(f"Turning servo ({servo}) on...")
-                if not robot.servo_on(servo):
-                    logging.error(f"Failed to servo ({servo}) on. Continuing...")
-            else:
-                logging.info(f"Servo ({servo}) is already ON.")
-        else:
-            logging.info("Power and Servos are already ON and Control Manager is Enabled. Skipping redundant power/servo commands.")
-
-        # 3) Reset fault and enable control manager in unlimited mode
+        # Check if both arms' servos are ON
         try:
-            cm_state_post = robot.get_control_manager_state()
-            if cm_state_post.state in [
-                rby.ControlManagerState.State.MajorFault,
-                rby.ControlManagerState.State.MinorFault,
-            ]:
-                logging.warning(f"Control manager is in fault state: {cm_state_post.state}. Resetting...")
-                if not robot.reset_fault_control_manager():
-                    logging.error(f"Failed to reset control manager")
-            
-            cm_state_post = robot.get_control_manager_state()
-            if cm_state_post.state == rby.ControlManagerState.State.Enabled:
-                logging.info("Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
+            is_servo_ok = robot.is_servo_on(".*")
+        except Exception as e:
+            logging.warning(f"Failed to check servo status: {e}")
+            is_servo_ok = False
+
+        def enable_cm_helper(r):
+            try:
+                cm_state_post = r.get_control_manager_state()
+                if cm_state_post.state in [
+                    rby.ControlManagerState.State.MajorFault,
+                    rby.ControlManagerState.State.MinorFault,
+                ]:
+                    logging.warning(f"Control manager is in fault state: {cm_state_post.state}. Resetting...")
+                    if not r.reset_fault_control_manager():
+                        logging.error("Failed to reset control manager")
+                
+                cm_state_post = r.get_control_manager_state()
+                if cm_state_post.state == rby.ControlManagerState.State.Enabled:
+                    logging.info("Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
+                    try:
+                        r.disable_control_manager()
+                        time.sleep(0.5)
+                    except Exception as ex:
+                        logging.warning(f"Failed to disable control manager: {ex}")
+                
+                logging.info("Enabling control manager with unlimited_mode_enabled=True...")
+                if not r.enable_control_manager(unlimited_mode_enabled=True):
+                    logging.error("Failed to enable control manager with unlimited_mode_enabled=True")
+            except Exception as ex:
+                logging.error(f"Failed to configure control manager: {ex}")
+
+        if is_servo_ok:
+            # 맞으면, 컨트롤 매니저가 enable인지 확인하고 안돼있으면 enable
+            if not is_cm_enabled:
+                logging.info("Servos are ON but Control Manager is disabled. Enabling...")
+                enable_cm_helper(robot)
+            else:
+                logging.info("Servos are ON and Control Manager is already enabled.")
+        else:
+            # 아니면, 일단 disable한다음에 양팔 서보 키고 enable
+            logging.info("Servos are not ON. Disabling Control Manager first to turn on servos...")
+            if is_cm_enabled:
                 try:
                     robot.disable_control_manager()
                     time.sleep(0.5)
                 except Exception as e:
                     logging.warning(f"Failed to disable control manager: {e}")
             
-            logging.info("Enabling control manager with unlimited_mode_enabled=True...")
-            if not robot.enable_control_manager(unlimited_mode_enabled=True):
-                logging.error(f"Failed to enable control manager with unlimited_mode_enabled=True")
-        except Exception as e:
-            logging.error(f"Failed to configure control manager: {e}. Continuing...")
+            logging.info("Turning servos on...")
+            if not robot.servo_on(".*"):
+                logging.error("Failed to turn servos on.")
+            else:
+                time.sleep(0.5)
+            
+            enable_cm_helper(robot)
+
         return robot
 
     @staticmethod
@@ -660,3 +774,54 @@ class BaseCalibrator:
             'tilt_list': tilt_list
         }
         return res_dict
+
+    def perform_motion_test_sweep(self, arm_side, joint_i, start_deg, end_deg, log_callback=None):
+        if getattr(self, 'stop_requested', False):
+            return False
+        if not self.robot or self.robot == "mock_robot":
+            if log_callback: log_callback("[ERROR] Robot not connected or mock robot.")
+            return False
+            
+        try:
+            # 1. Get baseline joint position from current state
+            state = self.robot.get_state()
+            model = self.robot.model()
+            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+            initial_joint_pos = list(state.position[arm_idx])
+            
+            # 2. Prepare start and end poses
+            q_start_arm = list(initial_joint_pos)
+            q_start_arm[joint_i] += np.radians(start_deg)
+            
+            q_end_arm = list(initial_joint_pos)
+            q_end_arm[joint_i] += np.radians(end_deg)
+            
+            # 3. Move to start position
+            if log_callback: log_callback(f"[MOTION TEST] Moving {arm_side} arm joint {joint_i} to start angle ({start_deg} deg)...")
+            if arm_side == "left":
+                ok = self.movej(self.robot, left_arm=q_start_arm, minimum_time=3.0, apply_offsets=False)
+            else:
+                ok = self.movej(self.robot, right_arm=q_start_arm, minimum_time=3.0, apply_offsets=False)
+            if not ok or getattr(self, 'stop_requested', False): return False
+            time.sleep(0.5)
+            
+            # 4. Sweep to end position
+            if log_callback: log_callback(f"[MOTION TEST] Sweeping {arm_side} arm joint {joint_i} to end angle ({end_deg} deg)...")
+            if arm_side == "left":
+                ok = self.movej(self.robot, left_arm=q_end_arm, minimum_time=5.0, apply_offsets=False)
+            else:
+                ok = self.movej(self.robot, right_arm=q_end_arm, minimum_time=5.0, apply_offsets=False)
+            if not ok or getattr(self, 'stop_requested', False): return False
+            time.sleep(0.5)
+            
+            # 5. Return to baseline ready pose
+            if log_callback: log_callback(f"[MOTION TEST] Returning to ready pose...")
+            if arm_side == "left":
+                ok = self.movej(self.robot, left_arm=initial_joint_pos, minimum_time=3.0, apply_offsets=False)
+            else:
+                ok = self.movej(self.robot, right_arm=initial_joint_pos, minimum_time=3.0, apply_offsets=False)
+            return ok
+        except Exception as e:
+            if log_callback: log_callback(f"[ERROR] Motion test sweep failed: {e}")
+            return False
+

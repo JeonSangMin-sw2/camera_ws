@@ -9,7 +9,7 @@ from CalibratorBase import BaseCalibrator
 
 class MarkerCalibrator(BaseCalibrator):
 
-    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0):
+    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0, max_attempts=5):
         if not self.marker_st:
             if log_callback: log_callback("[ERROR] Camera system not initialized.")
             return False
@@ -17,20 +17,20 @@ class MarkerCalibrator(BaseCalibrator):
             if log_callback: log_callback("[ERROR] Robot not connected.")
             return False
 
-        if log_callback: log_callback(f"[INFO] Moving {arm_side} arm to camera center (target: {target_dist}mm)...")
+        if log_callback: log_callback(f"[INFO] Moving {arm_side} arm to camera center (target: {target_dist}mm, max_attempts: {max_attempts})...")
         
         # Get rotation only from mount_to_cam
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
         R_rob_to_cam = R_scipy.from_euler('ZYX', [mount_to_cam[5], mount_to_cam[4], mount_to_cam[3]], degrees=True).as_matrix()
         p_target_cam = np.array([0.0, 0.0, target_dist / 1000.0])
 
-        for attempt in range(5):
+        for attempt in range(max_attempts):
             if stop_event and stop_event.is_set():
                 if log_callback: log_callback("[INFO] Move canceled by user.")
                 self.robot.cancel_control()
                 return False
                 
-            if log_callback: log_callback(f"[Attempt {attempt + 1}/5] Capturing marker pose...")
+            if log_callback: log_callback(f"[Attempt {attempt + 1}/{max_attempts}] Capturing marker pose...")
             time.sleep(1.0)
             res = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if not res:
@@ -108,9 +108,9 @@ class MarkerCalibrator(BaseCalibrator):
         # 1. First move the inactive arm to zero pose to avoid collision
         if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
         if arm_side == "right":
-            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0,apply_offsets=False)
         else:
-            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0,apply_offsets=False)
             
         if not success_other:
             if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")
@@ -118,12 +118,16 @@ class MarkerCalibrator(BaseCalibrator):
             
         # 2. Move active arm and head/torso to ready pose
         if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
+        
+        version_num = self.get_robot_version()
+        version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
+        
         if arm_side == "right":
-            right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
+            right_arm = self.get_ready_pose(version_key, "marker", None, "right")
             left_arm = None
         else:
             right_arm = None
-            left_arm = np.deg2rad([-90, 45, -73, -107, -80, 90, 0])
+            left_arm = self.get_ready_pose(version_key, "marker", None, "left")
             
         success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)
         if success and log_callback:
@@ -423,7 +427,148 @@ class MarkerCalibrator(BaseCalibrator):
             logging.warning(f"Failed to get link kinematics: {e}")
             return 300.0
 
+    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5):
+        L_5_ee = self.get_link_length(arm_side)
+
+        # 1. Nominal marker orientation in EE frame
+        if arm_side == "left":
+            nominal_rpy = [90.0, 0.0, 0.0]
+        else:
+            nominal_rpy = [90.0, 0.0, 180.0]
+        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+
+        # Gather points in camera frame
+        pts_cam = []
+        q_full_list = []
+        poses_list = []
+        
+        poses_5 = marker_data_5.get('captured_poses', [])
+        q_full_5 = marker_data_5.get('captured_q_full', [])
+        for p, q in zip(poses_5, q_full_5):
+            pts_cam.append(p[:3, 3])
+            poses_list.append(p)
+            q_full_list.append(q)
+            
+        poses_6 = marker_data_6.get('captured_poses', [])
+        q_full_6 = marker_data_6.get('captured_q_full', [])
+        for p, q in zip(poses_6, q_full_6):
+            pts_cam.append(p[:3, 3])
+            poses_list.append(p)
+            q_full_list.append(q)
+            
+        if len(pts_cam) < 4:
+            logging.error("Not enough points to fit sphere for v1.3 bracket calibration")
+            # fallback
+            return {
+                'x_e': 0.0, 'y_e': 80.0 if arm_side == "left" else -80.0, 'z_e': -30.0,
+                'roll_e': nominal_rpy[0], 'pitch_e': nominal_rpy[1], 'yaw_e': nominal_rpy[2],
+                'L_5_ee': L_5_ee, 'radius_6': 80.0, 'radius_5': 280.0, 'radius_4': 0.0,
+                'ortho_err': 0.0, 'rmse_6': 0.0, 'rmse_5': 0.0, 'rmse_4': 0.0,
+                'rot_err_deg': 0.0, 'tilt_diff': 0.0, 'warn_large_angle': False
+            }
+
+        pts_cam = np.array(pts_cam) # N x 3
+
+        # Sphere fitting using linear least squares initialization:
+        # 2 * x * x_c + 2 * y * y_c + 2 * z * z_c + C = x^2 + y^2 + z^2
+        # where C = R^2 - x_c^2 - y_c^2 - z_c^2
+        A_mat = np.column_stack((2.0 * pts_cam, np.ones(len(pts_cam))))
+        B_val = np.sum(pts_cam**2, axis=1)
+        res_lstsq, residuals, rank, s = np.linalg.lstsq(A_mat, B_val, rcond=None)
+        
+        x_c_init, y_c_init, z_c_init, C_init = res_lstsq
+        R_init_sq = C_init + x_c_init**2 + y_c_init**2 + z_c_init**2
+        R_init = np.sqrt(max(0.01, R_init_sq))
+
+        # Refine with least_squares using Huber loss
+        def sphere_residuals(params):
+            xc, yc, zc, r = params
+            dists = np.linalg.norm(pts_cam - np.array([xc, yc, zc]), axis=1)
+            return dists - r
+
+        res_opt = least_squares(sphere_residuals, [x_c_init, y_c_init, z_c_init, R_init], loss='huber')
+        x_c, y_c, z_c, R_fit = res_opt.x
+        sphere_center_cam = np.array([x_c, y_c, z_c])
+
+        # Compute translation offset in EE frame
+        v_ee_list = []
+        R_list = []
+        
+        # Camera fixed rotation
+        mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+        T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+        R_t5_to_cam = T_t5_to_cam_fixed[:3, :3]
+        
+        dyn_model = None
+        if self.robot and self.robot != "mock_robot":
+            dyn_model = self.robot.get_dynamics()
+        
+        ee_name = f"ee_{arm_side}"
+        
+        for q_full, p_marker_cam, T_cam_to_marker in zip(q_full_list, pts_cam, poses_list):
+            if self.robot and self.robot != "mock_robot" and dyn_model is not None:
+                T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                R_ee_to_t5 = T_t5_to_ee[:3, :3].T
+                R_cam_to_marker = T_cam_to_marker[:3, :3]
+                R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
+                R_list.append(R_ee_to_marker)
+                
+                # Transform vector to EE frame
+                R_ee_to_cam = R_ee_to_t5 @ R_t5_to_cam
+                v_cam = p_marker_cam - sphere_center_cam
+                v_ee = R_ee_to_cam.T @ v_cam
+                v_ee_list.append(v_ee)
+
+        if len(v_ee_list) > 0:
+            v_ee_avg = np.mean(v_ee_list, axis=0)
+            x_e = v_ee_avg[0] * 1000.0
+            y_e = v_ee_avg[1] * 1000.0
+            z_e = v_ee_avg[2] * 1000.0 - L_5_ee
+            
+            # For rotation averaging
+            M = np.mean(R_list, axis=0)
+            U, S, Vt = np.linalg.svd(M)
+            R_ee_m_actual = U @ Vt
+            if np.linalg.det(R_ee_m_actual) < 0:
+                U[:, 2] *= -1
+                R_ee_m_actual = U @ Vt
+        else:
+            # Fallback for mock/UI-only mode
+            x_e = 0.0
+            y_e = 74.85 if arm_side == "left" else -74.85
+            z_e = -50.15
+            R_ee_m_actual = R_ee_m_ideal
+
+        euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
+        yaw_e, pitch_e, roll_e = euler_deg
+        if arm_side == "right" and yaw_e < 0:
+            yaw_e += 360.0
+
+        rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
+        rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
+
+        # RMSE calculations: compute residuals for fitted sphere
+        dists = np.linalg.norm(pts_cam - sphere_center_cam, axis=1)
+        rmse_fit = np.sqrt(np.mean((dists - R_fit)**2)) * 1000.0 # to mm
+
+        return {
+            'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
+            'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
+            'L_5_ee': L_5_ee, 'radius_6': R_fit * 1000.0, 'radius_5': R_fit * 1000.0,
+            'radius_4': 0.0,
+            'ortho_err': 0.0,
+            'rmse_6': rmse_fit,
+            'rmse_5': rmse_fit,
+            'rmse_4': 0.0,
+            'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
+            'warn_large_angle': rot_err_deg > 15.0
+        }
+
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
+        version_num = self.get_robot_version()
+        if abs(version_num - 1.3) < 0.05:
+            return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance)
+
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
@@ -469,10 +614,7 @@ class MarkerCalibrator(BaseCalibrator):
         kinematic_success = False
         if self.robot and self.robot != "mock_robot":
             try:
-                # Load mount_to_cam (transform from head mount "link_head_2" to camera)
-                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                # Force camera translation components to zero as requested and use fixed rotation
-                mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
+                mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
                 T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
                 R_t5_to_cam = T_t5_to_cam_fixed[:3, :3]
                 

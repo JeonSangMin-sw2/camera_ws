@@ -163,9 +163,9 @@ class JointCalibrator(BaseCalibrator):
         # 1. First move the inactive arm to zero pose to avoid collision
         if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
         if arm_side == "right":
-            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0,apply_offsets=False)
         else:
-            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0)
+            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0,apply_offsets=False)
             
         if not success_other:
             if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")
@@ -173,27 +173,18 @@ class JointCalibrator(BaseCalibrator):
             
         # 2. Move active arm and head/torso to ready pose
         if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
-        if mode == "wrist_pitch":
-            if arm_side == "right":
-                right_arm = np.deg2rad([-55, -45, 25, -127, 90, 0, 0])
-                left_arm = None
-            else:
-                right_arm = None
-                left_arm = np.deg2rad([-55, 45, -25, -127, -90, 0, 0])
-        elif mode == "elbow":
-            if arm_side == "right":
-                right_arm = np.deg2rad([-107, -17, 0, 0, 73, -80, 73])
-                left_arm = None
-            else:
-                right_arm = None
-                left_arm = np.deg2rad([-107, 17, 0, 0, -73, -80, -73])
-        else: # head mode
-            if arm_side == "right":
-                right_arm = np.deg2rad([-90, -45, 73, -107, 90, 90, 0])
-                left_arm = None
-            else:
-                right_arm = None
-                left_arm = np.deg2rad([-90, 45, -73, -107, -90, 90, 0])
+        
+        version_num = self.get_robot_version()
+        version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
+        
+        ready_mode = mode if mode in ["wrist_pitch", "elbow", "head"] else "head"
+        
+        if arm_side == "right":
+            right_arm = self.get_ready_pose(version_key, "joint", ready_mode, "right")
+            left_arm = None
+        else:
+            right_arm = None
+            left_arm = self.get_ready_pose(version_key, "joint", ready_mode, "left")
 
         success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)
         if success and log_callback:
@@ -933,5 +924,7 @@ class JointCalibrator(BaseCalibrator):
             'c_A': c_A_c,
             'c_B': c_B_c,
             'n_A': n_A,
-            'n_B': n_B
+            'n_B': n_B,
+            'poses_B': poses_B,
+            'q_full_B': [q_full for q_full, _ in dataset_B]
         }
