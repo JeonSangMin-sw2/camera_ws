@@ -116,12 +116,7 @@ def save_home_reset_baseline_json(
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    path = output_dir / f"home_reset_{timestamp}.json"
-    suffix = 1
-    while path.exists():
-        path = output_dir / f"home_reset_{timestamp}_{suffix}.json"
-        suffix += 1
+    path = output_dir / "home_reset_baseline.json"
 
     data = build_home_reset_baseline_data(
         robot,

@@ -368,41 +368,19 @@ class CalibrationUI:
         return self.last_result_path
 
     def get_latest_home_reset_path(self, required=True):
-        if self.last_home_reset_path is not None and self.last_home_reset_path.exists():
-            return self.last_home_reset_path
-
-        result_dir = self.ensure_result_dir()
-        reset_files = sorted(
-            result_dir.glob("home_reset_*.json"),
-            key=lambda file_path: file_path.stat().st_mtime,
-            reverse=True,
-        )
-        if not reset_files:
-            if required:
-                raise RuntimeError(f"No home reset baseline JSON found in {result_dir}")
-            return None
-
-        self.last_home_reset_path = reset_files[0]
-        return self.last_home_reset_path
+        path = BASE_DIR / "config" / "home_reset_baseline.json"
+        if path.exists():
+            self.last_home_reset_path = path
+            return path
+        if required:
+            raise RuntimeError(f"No home reset baseline JSON found at {path}")
+        return None
 
     def get_home_reset_path_for_result(self, result_path):
-        try:
-            with open(result_path, "r") as f:
-                data = json.load(f)
-        except Exception:
-            return self.get_latest_home_reset_path(required=False)
-
-        baseline_path = data.get("home_reset_baseline_path")
-        if baseline_path is None:
-            baseline_path = data.get("metadata", {}).get("home_reset_baseline_path")
-        if baseline_path:
-            path = Path(baseline_path).expanduser()
-            if not path.is_absolute():
-                path = BASE_DIR / path
-            if path.exists():
-                self.last_home_reset_path = path
-                return path
-
+        path = BASE_DIR / "config" / "home_reset_baseline.json"
+        if path.exists():
+            self.last_home_reset_path = path
+            return path
         return self.get_latest_home_reset_path(required=False)
     
     def resolve_input_path(self, raw_path):
@@ -1149,6 +1127,134 @@ class CalibrationUI:
         self.log(text_widget, "Current pose home offset apply complete.")
         return result
 
+    def move_to_check_position_candidate_path(
+        self,
+        json_path,
+        label,
+        arm,
+        include_head,
+        text_widget,
+    ):
+        self.ensure_home_offset_robot(text_widget)
+        
+        # Load offsets from json
+        from core.homeoffset_core import load_offset_from_json, _split_arm_offset, _normalize_head_offset, movej
+        offset_rad, head_offset_rad = load_offset_from_json(str(json_path))
+        
+        apply_mode, right_offset_rad, left_offset_rad = _split_arm_offset(
+            self.model,
+            arm,
+            offset_rad,
+        )
+        
+        right_offset_to_apply = -right_offset_rad
+        left_offset_to_apply = -left_offset_rad
+        head_offset_full, head_offset_size = _normalize_head_offset(
+            self.model,
+            head_offset_rad,
+            include_head,
+        )
+        head_offset_to_apply = None if head_offset_full is None else -head_offset_full
+        
+        # Determine version key
+        version_key = "v1.2"
+        if self.robot is not None:
+            try:
+                robot_info = self.robot.get_robot_info()
+                raw_version = robot_info.robot_model_version
+                if "1.3" in raw_version:
+                    version_key = "v1.3"
+            except Exception:
+                pass
+                
+        # Load check_calib ready poses
+        ready_poses_path = BASE_DIR / "config" / "ready_poses.yaml"
+        check_calib_joints = {
+            "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+            "left_arm": [-90.0, 45.0, -73.0, -107.0, -90.0, 90.0, 0.0]
+        }
+        if ready_poses_path.exists():
+            try:
+                import yaml
+                with open(ready_poses_path, "r") as f:
+                    ready_poses = yaml.safe_load(f) or {}
+                if version_key in ready_poses and "check_calib" in ready_poses[version_key]:
+                    check_calib_joints = ready_poses[version_key]["check_calib"]
+            except Exception as e:
+                self.log(text_widget, f"[WARNING] Failed to parse ready_poses.yaml: {e}")
+                
+        # 1. Move to 1st ready pose (like check_calibration_state)
+        active_arms = []
+        if arm in ("right", "both"):
+            active_arms.append("right")
+        if arm in ("left", "both"):
+            active_arms.append("left")
+            
+        self.log(text_widget, f"\n[Check Position] Step 1: Moving to Joint Ready Pose...")
+        ok = movej(
+            self.robot,
+            torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+            right_arm=np.deg2rad([-45, -30, 0, -90, 0, 45, 0]) if "right" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+            left_arm=np.deg2rad([-45, 30, 0, -90, 0, 45, 0]) if "left" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+            minimum_time=5
+        )
+        if not ok:
+            raise RuntimeError("Failed to move robot to Step 1 Ready Pose")
+        time.sleep(2.0)
+        
+        # 2. Move to Check Position with offsets added
+        self.log(text_widget, f"[Check Position] Step 2: Moving to Check Pose with Offsets...")
+        
+        right_target = np.deg2rad(check_calib_joints["right_arm"]) + right_offset_to_apply
+        left_target = np.deg2rad(check_calib_joints["left_arm"]) + left_offset_to_apply
+        
+        head_zero_pose = np.zeros(len(self.model.head_idx)) if include_head else None
+        head_target_pose = None
+        if include_head:
+            head_target_pose = (
+                head_zero_pose
+                if head_offset_to_apply is None
+                else head_zero_pose + head_offset_to_apply
+            )
+            
+        ok = movej(
+            self.robot,
+            torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+            right_arm=right_target,
+            left_arm=left_target,
+            head=head_target_pose if include_head else None,
+            minimum_time=10
+        )
+        if not ok:
+            raise RuntimeError("Failed to move robot to Step 2 Check Pose")
+        time.sleep(2.0)
+        
+        offset_to_apply = np.concatenate([right_offset_to_apply, left_offset_to_apply])
+        head_offset_deg = None
+        if head_offset_to_apply is not None:
+            head_offset_deg = np.rad2deg(head_offset_to_apply[:head_offset_size]).tolist()
+            
+        result = {
+            "status": "success",
+            "arm": apply_mode,
+            "offset_deg": np.rad2deg(offset_to_apply).tolist(),
+            "right_offset_deg": np.rad2deg(right_offset_to_apply).tolist(),
+            "left_offset_deg": np.rad2deg(left_offset_to_apply).tolist(),
+            "head_offset_deg": head_offset_deg,
+        }
+        
+        self.log(text_widget, f"\n===== HOME OFFSET PREVIEW: {label} =====")
+        self.log(text_widget, f"JSON: {json_path}")
+        self.log(text_widget, f"Arm: {result['arm']}")
+        if result.get("right_offset_deg") is not None:
+            self.log(text_widget, f"Right move offset (deg): {result['right_offset_deg']}")
+        if result.get("left_offset_deg") is not None:
+            self.log(text_widget, f"Left move offset (deg): {result['left_offset_deg']}")
+        if result.get("head_offset_deg") is not None:
+            self.log(text_widget, f"Head move offset (deg): {result['head_offset_deg']}")
+        self.log(text_widget, "Preview move complete. Inspect the robot pose before applying.")
+        return result
+
     def apply_home_offset_common(self, ip, model_name, arm, servo_regex, include_head, text_widget):
         result_path = self.get_latest_result_path()
         baseline_path = self.get_home_reset_path_for_result(result_path)
@@ -1156,14 +1262,14 @@ class CalibrationUI:
 
         popup = tk.Toplevel(self.root)
         popup.title("Apply Home Offset")
-        popup.geometry("780x520")
+        popup.geometry("960x520")
         popup.transient(self.root)
         popup.grab_set()
 
         msg = (
             "Compare the original baseline zero and the optimized zero before applying.\n\n"
-            "1. Move to Baseline Zero to inspect the zero pose before calibration reset.\n"
-            "2. Move to Optimized Zero to inspect the computed calibration zero.\n"
+            "1. Move to Zero to inspect the zero pose before calibration reset.\n"
+            "2. Move to Check Position to move the robot to the custom check pose.\n"
             "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
             "Make sure the workspace is clear before each move."
         )
@@ -1196,6 +1302,24 @@ class CalibrationUI:
                 messagebox.showerror("Baseline Preview Error", str(e))
                 self.log(text_widget, f"Baseline preview failed: {e}")
 
+        def move_baseline_check():
+            if baseline_path is None:
+                messagebox.showerror("Baseline Missing", "No home reset baseline JSON was found.")
+                return
+            try:
+                result = self.move_to_check_position_candidate_path(
+                    baseline_path,
+                    "Baseline Check Position",
+                    arm,
+                    include_head,
+                    text_widget,
+                )
+                current_apply_arm["value"] = result["arm"]
+                messagebox.showinfo("Preview Complete", "Moved to baseline check position candidate.")
+            except Exception as e:
+                messagebox.showerror("Baseline Check Preview Error", str(e))
+                self.log(text_widget, f"Baseline check preview failed: {e}")
+
         def move_optimized():
             try:
                 result = self.move_home_offset_candidate_path(
@@ -1210,6 +1334,21 @@ class CalibrationUI:
             except Exception as e:
                 messagebox.showerror("Optimized Preview Error", str(e))
                 self.log(text_widget, f"Optimized preview failed: {e}")
+
+        def move_optimized_check():
+            try:
+                result = self.move_to_check_position_candidate_path(
+                    result_path,
+                    "Optimized Check Position",
+                    arm,
+                    include_head,
+                    text_widget,
+                )
+                current_apply_arm["value"] = result["arm"]
+                messagebox.showinfo("Preview Complete", "Moved to optimized check position candidate.")
+            except Exception as e:
+                messagebox.showerror("Optimized Check Preview Error", str(e))
+                self.log(text_widget, f"Optimized check preview failed: {e}")
 
         def apply_current():
             msg = (
@@ -1237,12 +1376,18 @@ class CalibrationUI:
                 self.log(text_widget, f"Apply current pose failed: {e}")
 
         baseline_btn = ttk.Button(btn_frame, text="Move to Baseline Zero", command=move_baseline)
-        baseline_btn.pack(side="left", padx=(0, 8))
+        baseline_btn.pack(side="left", padx=(0, 4))
         if baseline_path is None:
             baseline_btn.config(state="disabled")
 
-        ttk.Button(btn_frame, text="Move to Optimized Zero", command=move_optimized).pack(side="left", padx=8)
-        ttk.Button(btn_frame, text="Apply Current Pose", command=apply_current).pack(side="left", padx=8)
+        baseline_check_btn = ttk.Button(btn_frame, text="Move to Baseline Check", command=move_baseline_check)
+        baseline_check_btn.pack(side="left", padx=4)
+        if baseline_path is None:
+            baseline_check_btn.config(state="disabled")
+
+        ttk.Button(btn_frame, text="Move to Optimized Zero", command=move_optimized).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Move to Optimized Check", command=move_optimized_check).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="Apply Current Pose", command=apply_current).pack(side="left", padx=4)
         ttk.Button(btn_frame, text="Close", command=popup.destroy).pack(side="right")
 
         popup.wait_window()
@@ -1652,7 +1797,7 @@ class CalibrationUI:
             baseline_path, _ = save_home_reset_baseline_json(
                 self.robot,
                 self.model,
-                RESULT_DIR,
+                BASE_DIR / "config",
                 model_name=self.dev_model.get(),
                 include_head=self.servo_head.get(),
             )

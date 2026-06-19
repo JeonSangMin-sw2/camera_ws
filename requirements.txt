@@ -1,13 +1,11 @@
 typeguard
-opencv-python==4.13.0.92
 opencv-contrib-python==4.13.0.92
-numpy>=2.0.1
+numpy>=1.22.0
 pyrealsense2
 scipy
 pyyaml
-rby1_sdk==0.9.1
+rby1_sdk>=0.9.1
 matplotlib
-PySide6<6.5
+PySide6
 qpsolvers[osqp]==4.11.0
-qpsolvers[daqp]==4.11.0
 osqp==1.1.1

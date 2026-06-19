@@ -1,5 +1,6 @@
 import sys
 import os
+os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
 # Ensure local core module is imported first
 current_dir = os.path.dirname(os.path.abspath(__file__))
 parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
@@ -28,10 +29,17 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
+from pathlib import Path
 
 # Import custom calibrator logic
 from Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
 from IntrinsicsCalibrator import IntrinsicsCalibrator
+from homeoffset_core import (
+    reset_current_pose_home_offsets,
+    save_home_reset_baseline_json,
+    move_to_offset_candidate_from_json,
+    load_offset_from_json
+)
 
 # --- Premium Dark CSS Stylesheet ---
 DARK_STYLESHEET = """
@@ -241,6 +249,168 @@ class ManualHeadWorker(QThread):
                 self.log_signal.emit("[ERROR] Failed manual head move: command rejected by robot.")
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Failed manual head move: {e}")
+        self.finished_signal.emit()
+
+class HomeOffsetResetWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(dict)
+
+    def __init__(self, robot, model, model_name, include_head):
+        super().__init__()
+        self.robot = robot
+        self.model = model
+        self.model_name = model_name
+        self.include_head = include_head
+
+    def run(self):
+        try:
+            if self.robot == "mock_robot" or not self.robot:
+                self.log_signal.emit("[MOCK] Home offset baseline save simulated.")
+                time.sleep(1.0)
+                self.log_signal.emit("[MOCK] Home offset reset simulated successfully.")
+                self.finished_signal.emit({"success": True})
+                return
+
+            config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+            baseline_path, _ = save_home_reset_baseline_json(
+                self.robot,
+                self.model,
+                config_dir,
+                model_name=self.model_name,
+                include_head=self.include_head,
+            )
+            self.log_signal.emit(f"Home reset baseline saved to: {baseline_path}")
+
+            result = reset_current_pose_home_offsets(
+                self.robot,
+                self.model,
+                arm="both",
+                include_head=self.include_head,
+                log_cb=self.log_signal.emit,
+            )
+            self.finished_signal.emit(result)
+        except Exception as e:
+            self.log_signal.emit(f"[ERROR] Home Offset Reset worker error: {e}")
+            self.finished_signal.emit({"success": False, "error": str(e)})
+
+class MoveHomeOffsetWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool)
+
+    def __init__(self, robot, model, arm, json_path, include_head, label):
+        super().__init__()
+        self.robot = robot
+        self.model = model
+        self.arm = arm
+        self.json_path = json_path
+        self.include_head = include_head
+        self.label = label
+
+    def run(self):
+        try:
+            if self.robot == "mock_robot" or not self.robot:
+                self.log_signal.emit(f"\n[MOCK] ===== HOME OFFSET PREVIEW: {self.label} =====")
+                self.log_signal.emit(f"[MOCK] JSON: {self.json_path}")
+                self.log_signal.emit(f"[MOCK] Arm: {self.arm}")
+                time.sleep(1.0)
+                self.log_signal.emit("[MOCK] Preview move complete.")
+                self.finished_signal.emit(True)
+                return
+
+            self.log_signal.emit(f"\n===== HOME OFFSET PREVIEW: {self.label} =====")
+            self.log_signal.emit(f"JSON: {self.json_path}")
+            
+            result = move_to_offset_candidate_from_json(
+                robot=self.robot,
+                model=self.model,
+                arm=self.arm,
+                json_path=str(self.json_path),
+                include_head=self.include_head,
+                minimum_time=10,
+                move_zero_first=True,
+            )
+            self.log_signal.emit(f"Arm: {result['arm']}")
+            if result.get("right_offset_deg") is not None:
+                self.log_signal.emit(f"Right move offset (deg): {result['right_offset_deg']}")
+            if result.get("left_offset_deg") is not None:
+                self.log_signal.emit(f"Left move offset (deg): {result['left_offset_deg']}")
+            if result.get("head_offset_deg") is not None:
+                self.log_signal.emit(f"Head move offset (deg): {result['head_offset_deg']}")
+            self.log_signal.emit("Preview move complete. Inspect the robot pose before applying.")
+            self.finished_signal.emit(True)
+        except Exception as e:
+            self.log_signal.emit(f"[ERROR] Preview move failed: {e}")
+            self.finished_signal.emit(False)
+
+class ApplyCurrentPoseWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(dict)
+
+    def __init__(self, robot, model, arm, include_head):
+        super().__init__()
+        self.robot = robot
+        self.model = model
+        self.arm = arm
+        self.include_head = include_head
+
+    def run(self):
+        try:
+            if self.robot == "mock_robot" or not self.robot:
+                self.log_signal.emit("[MOCK] Starting Home Offset Reset from current pose...")
+                time.sleep(1.0)
+                self.log_signal.emit("[MOCK] Current pose home offset apply complete.")
+                self.finished_signal.emit({"success": True})
+                return
+
+            self.log_signal.emit("Starting Home Offset Reset from current pose...")
+            result = reset_current_pose_home_offsets(
+                self.robot,
+                self.model,
+                arm=self.arm,
+                include_head=self.include_head,
+                log_cb=self.log_signal.emit,
+            )
+            self.finished_signal.emit(result)
+        except Exception as e:
+            self.log_signal.emit(f"[ERROR] Apply current pose failed: {e}")
+            self.finished_signal.emit({"success": False, "error": str(e)})
+
+class FullAutoReadyWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal()
+
+    def __init__(self, joint_calibrator, marker_calibrator, ui_only=False):
+        super().__init__()
+        self.joint_calibrator = joint_calibrator
+        self.marker_calibrator = marker_calibrator
+        self.ui_only = ui_only
+
+    def run(self):
+        try:
+            self.log_signal.emit("Moving robot arms to Full Auto initial ready poses...")
+            version_num = self.marker_calibrator.get_robot_version()
+            is_v13 = (abs(version_num - 1.3) < 0.05)
+            self.log_signal.emit(f"[INFO] Detected Robot Version: {version_num:.1f} (is_v1.3: {is_v13})")
+
+            is_mock_run = self.ui_only or (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot")
+            
+            for arm_side in ["right", "left"]:
+                self.log_signal.emit(f"Preparing {arm_side.upper()} arm...")
+                if is_mock_run:
+                    time.sleep(1.0)
+                    self.log_signal.emit(f"[MOCK] {arm_side.upper()} arm moved to ready pose.")
+                else:
+                    if not is_v13:
+                        self.log_signal.emit(f"Moving {arm_side} arm to wrist pitch ready pose...")
+                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch", log_callback=self.log_signal.emit):
+                            raise RuntimeError(f"Failed to move {arm_side} arm to wrist pitch ready pose.")
+                    else:
+                        self.log_signal.emit(f"Moving {arm_side} arm to marker ready pose...")
+                        if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_signal.emit):
+                            raise RuntimeError(f"Failed to move {arm_side} arm to marker ready pose.")
+            self.log_signal.emit("All arms moved to initial ready poses successfully.")
+        except Exception as e:
+            self.log_signal.emit(f"[ERROR] Ready pose movement failed: {e}")
         self.finished_signal.emit()
 
 # --- Specialized Calibration Workers ---
@@ -674,6 +844,174 @@ class FullAutoWorker(QThread):
             self.finished_signal.emit()
 
 
+class ApplyHomeOffsetDialog(QDialog):
+    def __init__(self, parent, result_path, baseline_path, arm, include_head):
+        super().__init__(parent)
+        self.parent = parent
+        self.result_path = result_path
+        self.baseline_path = baseline_path
+        self.arm = arm
+        self.include_head = include_head
+        
+        self.setWindowTitle("Apply Home Offset")
+        self.resize(780, 520)
+        self.setStyleSheet(parent.styleSheet())
+        
+        layout = QVBoxLayout(self)
+        
+        msg = (
+            "Compare the original baseline zero and the optimized zero before applying.\n\n"
+            "1. Move to Baseline Zero to inspect the zero pose before calibration reset.\n"
+            "2. Move to Optimized Zero to inspect the computed calibration zero.\n"
+            "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
+            "Make sure the workspace is clear before each move."
+        )
+        layout.addWidget(QLabel(msg))
+        
+        self.summary_box = QTextEdit()
+        self.summary_box.setReadOnly(True)
+        self.summary_box.setFont(QFont("Consolas", 10))
+        layout.addWidget(self.summary_box)
+        
+        btn_frame = QHBoxLayout()
+        self.btn_baseline = QPushButton("Move to Baseline Zero")
+        self.btn_optimized = QPushButton("Move to Optimized Zero")
+        self.btn_apply = QPushButton("Apply Current Pose")
+        self.btn_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold;")
+        self.btn_close = QPushButton("Close")
+        
+        btn_frame.addWidget(self.btn_baseline)
+        btn_frame.addWidget(self.btn_optimized)
+        btn_frame.addWidget(self.btn_apply)
+        btn_frame.addStretch()
+        btn_frame.addWidget(self.btn_close)
+        layout.addLayout(btn_frame)
+        
+        self.btn_baseline.clicked.connect(self.move_baseline)
+        self.btn_optimized.clicked.connect(self.move_optimized)
+        self.btn_apply.clicked.connect(self.apply_current)
+        self.btn_close.clicked.connect(self.close)
+        
+        if not self.baseline_path or not Path(self.baseline_path).exists():
+            self.btn_baseline.setEnabled(False)
+            
+        self.update_summary()
+        self.active_worker = None
+
+    def update_summary(self):
+        lines = [
+            "Preview moves use the same convention as Apply Home Offset:",
+            "the robot moves to zero pose first, then to -joint_offset.",
+            "",
+            f"Optimized result: {self.result_path}",
+        ]
+        if not self.baseline_path or not Path(self.baseline_path).exists():
+            lines.append("Baseline reset: not found")
+        else:
+            lines.append(f"Baseline reset: {self.baseline_path}")
+            try:
+                opt_arm, opt_head = load_offset_from_json(str(self.result_path))
+                base_arm, base_head = load_offset_from_json(str(self.baseline_path))
+                if len(opt_arm) == len(base_arm):
+                    diff_arm_deg = np.rad2deg(base_arm - opt_arm)
+                    lines.append("")
+                    lines.append("Baseline - Optimized arm diff (deg):")
+                    lines.append(np.array2string(np.round(diff_arm_deg, 4), separator=", "))
+                else:
+                    lines.append("")
+                    lines.append(
+                        f"Arm diff unavailable: optimized has {len(opt_arm)} values, baseline has {len(base_arm)}."
+                    )
+
+                if opt_head is not None and base_head is not None:
+                    if len(opt_head) == len(base_head):
+                        diff_head_deg = np.rad2deg(base_head - opt_head)
+                        lines.append("")
+                        lines.append("Baseline - Optimized head diff (deg):")
+                        lines.append(np.array2string(np.round(diff_head_deg, 4), separator=", "))
+                    else:
+                        lines.append("")
+                        lines.append(
+                            f"Head diff unavailable: optimized has {len(opt_head)} values, baseline has {len(base_head)}."
+                        )
+            except Exception as e:
+                lines.append("")
+                lines.append(f"Failed to compute diff: {e}")
+                
+        self.summary_box.setPlainText("\n".join(lines))
+
+    def set_buttons_enabled(self, enabled):
+        self.btn_baseline.setEnabled(enabled and bool(self.baseline_path and Path(self.baseline_path).exists()))
+        self.btn_optimized.setEnabled(enabled)
+        self.btn_apply.setEnabled(enabled)
+        self.btn_close.setEnabled(enabled)
+
+    def move_baseline(self):
+        self.set_buttons_enabled(False)
+        self.active_worker = MoveHomeOffsetWorker(
+            self.parent.robot,
+            self.parent.robot.model() if (self.parent.robot and self.parent.robot != "mock_robot") else None,
+            self.arm,
+            self.baseline_path,
+            self.include_head,
+            "Baseline Zero"
+        )
+        self.active_worker.log_signal.connect(self.parent.log_msg)
+        self.active_worker.finished_signal.connect(self.on_move_finished)
+        self.active_worker.start()
+
+    def move_optimized(self):
+        self.set_buttons_enabled(False)
+        self.active_worker = MoveHomeOffsetWorker(
+            self.parent.robot,
+            self.parent.robot.model() if (self.parent.robot and self.parent.robot != "mock_robot") else None,
+            self.arm,
+            self.result_path,
+            self.include_head,
+            "Optimized Zero"
+        )
+        self.active_worker.log_signal.connect(self.parent.log_msg)
+        self.active_worker.finished_signal.connect(self.on_move_finished)
+        self.active_worker.start()
+
+    def on_move_finished(self, success):
+        self.set_buttons_enabled(True)
+        if success:
+            QMessageBox.information(self, "Preview Complete", "Moved to zero candidate pose.")
+        else:
+            QMessageBox.critical(self, "Error", "Failed to move robot.")
+
+    def apply_current(self):
+        msg = (
+            "This will redefine the selected joints' home offset using the robot's CURRENT pose.\n\n"
+            "Only continue if the robot is currently at the zero pose you want to keep."
+        )
+        reply = QMessageBox.question(
+            self, "Apply Current Pose", msg,
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            self.set_buttons_enabled(False)
+            self.active_worker = ApplyCurrentPoseWorker(
+                self.parent.robot,
+                self.parent.robot.model() if (self.parent.robot and self.parent.robot != "mock_robot") else None,
+                self.arm,
+                self.include_head
+            )
+            self.active_worker.log_signal.connect(self.parent.log_msg)
+            self.active_worker.finished_signal.connect(self.on_apply_finished)
+            self.active_worker.start()
+
+    def on_apply_finished(self, result):
+        self.set_buttons_enabled(True)
+        if result.get("success", False):
+            QMessageBox.information(self, "Success", "Home offset applied successfully from current pose.")
+            self.parent.log_msg("Re-connecting and initializing robot...")
+            self.parent.connect_robot()
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Check logs.")
+
 # --- Unified Calibration App ---
 class UnifiedCalibrationApp(QWidget):
     def __init__(self, marker_st, robot, arm_side="right", ui_only=False):
@@ -896,29 +1234,19 @@ class UnifiedCalibrationApp(QWidget):
         conn_layout.addWidget(self.ip_input)
         conn_layout.addWidget(QLabel("Robot Model:"))
         conn_layout.addWidget(self.model_input)
-            
         conn_layout.addWidget(self.btn_connect)
-        conn_layout.addWidget(self.btn_stop_motion)
         conn_box.setLayout(conn_layout)
-        main_tab_layout.addWidget(conn_box)
-        
-        # Target Arm Selection (Moved to Top-Level Control!)
-        arm_box = QGroupBox("Target Arm Selection")
-        arm_layout = QHBoxLayout()
-        arm_layout.addWidget(QLabel("Active Arm Side:"))
+
+        # Target Arm Selection (Variables bound internally, layout placed in Calibration Workflows header)
         self.arm_sel = QComboBox()
         self.arm_sel.addItems(["Right Arm", "Left Arm"])
         idx = 1 if self.arm_side == "left" else 0
         self.arm_sel.setCurrentIndex(idx)
         self.arm_sel.currentTextChanged.connect(self.on_arm_side_changed)
-        arm_layout.addWidget(self.arm_sel)
-        arm_box.setLayout(arm_layout)
-        main_tab_layout.addWidget(arm_box)
-        
-        # Bind legacy individual combo variables to the single top-level control to prevent attribute errors
+
         self.joint_arm_sel = self.arm_sel
         self.marker_arm_sel = self.arm_sel
-        
+
         # Status Indicator
         status_box = QGroupBox("Camera & Marker Status")
         status_layout = QVBoxLayout()
@@ -949,11 +1277,71 @@ class UnifiedCalibrationApp(QWidget):
         status_layout.addLayout(btn_layout)
         status_layout.addWidget(self.temp_label)
         status_box.setLayout(status_layout)
-        main_tab_layout.addWidget(status_box)
+
+        # Row 1 layout
+        row1_layout = QHBoxLayout()
+        row1_layout.addWidget(conn_box)
+        row1_layout.addWidget(status_box)
+        main_tab_layout.addLayout(row1_layout)
+
+        # Manual Head Control Standalone Box
+        head_box = QGroupBox("Manual Head Control")
+        head_layout = QVBoxLayout()
         
+        yaw_layout = QHBoxLayout()
+        yaw_layout.addWidget(QLabel("Yaw (deg):"))
+        self.txt_head_yaw = QLineEdit("0.0")
+        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
+        yaw_layout.addWidget(self.txt_head_yaw)
+        
+        pitch_layout = QHBoxLayout()
+        pitch_layout.addWidget(QLabel("Pitch (deg):"))
+        self.txt_head_pitch = QLineEdit("0.0")
+        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
+        pitch_layout.addWidget(self.txt_head_pitch)
+        
+        self.btn_move_head = QPushButton("MOVE HEAD")
+        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
+        self.btn_move_head.clicked.connect(self.move_head_manually)
+        
+        head_layout.addLayout(yaw_layout)
+        head_layout.addLayout(pitch_layout)
+        head_layout.addWidget(self.btn_move_head)
+        head_box.setLayout(head_layout)
+
+        # Robot Home Offset Standalone Box
+        home_offset_box = QGroupBox("Robot Home Offset")
+        home_offset_layout = QVBoxLayout()
+        
+        self.btn_home_reset = QPushButton("Home Offset Reset")
+        self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
+        self.btn_home_reset.clicked.connect(self.home_offset_reset)
+        
+        home_offset_layout.addWidget(self.btn_home_reset)
+        home_offset_layout.addStretch()
+        home_offset_box.setLayout(home_offset_layout)
+
+        # Row 2 layout
+        row2_layout = QHBoxLayout()
+        row2_layout.addWidget(head_box)
+        row2_layout.addWidget(home_offset_box)
+        main_tab_layout.addLayout(row2_layout)
+
         # Sub-Workflow Selector Tabs
         workflow_box = QGroupBox("Calibration Workflows")
         workflow_layout = QVBoxLayout()
+        
+        workflow_header = QHBoxLayout()
+        
+        arm_side_layout = QHBoxLayout()
+        arm_side_layout.addWidget(QLabel("Active Arm Side:"))
+        arm_side_layout.addWidget(self.arm_sel)
+        workflow_header.addLayout(arm_side_layout)
+        workflow_header.addStretch()
+        workflow_header.addWidget(self.btn_stop_motion)
+        
+        workflow_layout.addLayout(workflow_header)
+        
         self.workflow_tabs = QTabWidget()
         
         # Sub-tab 1: Joint Calibration
@@ -992,9 +1380,6 @@ class UnifiedCalibrationApp(QWidget):
         self.tolerance_input.setFixedWidth(50)
         tol_lay.addWidget(self.tolerance_input)
         
-        # self.cb_head_tracking = QCheckBox("Active Head Tracking")
-        # self.cb_head_tracking.setChecked(True)
-        
         self.btn_marker_ready = QPushButton("MOVE TO READY")
         self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
         self.btn_marker_ready.clicked.connect(self.move_to_ready_pose_marker)
@@ -1012,49 +1397,19 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
         
         marker_sublayout.addLayout(tol_lay)
-        # marker_sublayout.addWidget(self.cb_head_tracking)
         marker_sublayout.addWidget(self.btn_marker_ready)
         marker_sublayout.addWidget(self.btn_marker_center)
         marker_sublayout.addWidget(self.btn_marker_start)
         marker_subtab.setLayout(marker_sublayout)
         self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
         
-        # Sub-tab 3: Head Control (원래 4번 탭, 이제 3번 탭)
-        head_subtab = QWidget()
-        head_sublayout = QVBoxLayout()
-        
-        head_group = QGroupBox("Manual Head Control")
-        head_layout = QVBoxLayout()
-        
-        yaw_layout = QHBoxLayout()
-        yaw_layout.addWidget(QLabel("Yaw (deg):"))
-        self.txt_head_yaw = QLineEdit("0.0")
-        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
-        yaw_layout.addWidget(self.txt_head_yaw)
-        
-        pitch_layout = QHBoxLayout()
-        pitch_layout.addWidget(QLabel("Pitch (deg):"))
-        self.txt_head_pitch = QLineEdit("0.0")
-        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
-        pitch_layout.addWidget(self.txt_head_pitch)
-        
-        self.btn_move_head = QPushButton("MOVE HEAD")
-        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
-        self.btn_move_head.clicked.connect(self.move_head_manually)
-        
-        head_layout.addLayout(yaw_layout)
-        head_layout.addLayout(pitch_layout)
-        head_layout.addWidget(self.btn_move_head)
-        head_group.setLayout(head_layout)
-        
-        head_sublayout.addWidget(head_group)
-        head_sublayout.addStretch()
-        head_subtab.setLayout(head_sublayout)
-        self.workflow_tabs.addTab(head_subtab, "3. Head Control")
-        
-        # Sub-tab 4: Full Auto Calibration
+        # Sub-tab 3: Full Auto Calibration
         full_auto_subtab = QWidget()
         full_auto_sublayout = QVBoxLayout()
+        
+        self.btn_full_auto_ready = QPushButton("MOVE TO READY")
+        self.btn_full_auto_ready.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold;")
+        self.btn_full_auto_ready.clicked.connect(self.move_to_ready_full_auto)
         
         self.btn_full_auto_start = QPushButton("START FULL AUTO")
         self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
@@ -1065,11 +1420,12 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_full_auto_stop.clicked.connect(self.stop_full_auto)
         
         full_auto_sublayout.addWidget(QLabel("Full Auto Sequential Calibration:"))
+        full_auto_sublayout.addWidget(self.btn_full_auto_ready)
         full_auto_sublayout.addWidget(self.btn_full_auto_start)
         full_auto_sublayout.addWidget(self.btn_full_auto_stop)
         full_auto_sublayout.addStretch()
         full_auto_subtab.setLayout(full_auto_sublayout)
-        self.workflow_tabs.addTab(full_auto_subtab, "4. Full Auto")
+        self.workflow_tabs.addTab(full_auto_subtab, "3. Full Auto")
         
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
@@ -1114,48 +1470,6 @@ class UnifiedCalibrationApp(QWidget):
         instr_box.setLayout(instr_layout)
         int_left.addWidget(instr_box, 1)
 
-        stats_box = QGroupBox("Capture Stats")
-        stats_layout = QHBoxLayout()
-        self.lbl_captured = QLabel("Captured Frames: 0")
-        self.lbl_captured.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        self.lbl_captured.setStyleSheet("color: #2979ff;")
-        
-        self.lbl_temp = QLabel("Camera Temp: -- °C")
-        self.lbl_temp.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        self.lbl_temp.setStyleSheet("color: #ff5500;")
-        
-        stats_layout.addWidget(self.lbl_captured)
-        stats_layout.addStretch()
-        stats_layout.addWidget(self.lbl_temp)
-        stats_box.setLayout(stats_layout)
-        int_left.addWidget(stats_box, 1)
-        
-        int_right = QVBoxLayout()
-        
-        monitor_box = QGroupBox("Marker 3D Monitoring")
-        monitor_layout = QVBoxLayout()
-        
-        side_layout = QHBoxLayout()
-        side_layout.addWidget(QLabel("Arm Side:"))
-        self.int_side_sel = QComboBox()
-        self.int_side_sel.addItems(["Left Arm", "Right Arm"])
-        idx = 1 if self.arm_side == "left" else 0
-        self.int_side_sel.setCurrentIndex(idx)
-        self.int_side_sel.currentTextChanged.connect(self.on_arm_side_changed)
-        side_layout.addWidget(self.int_side_sel)
-        monitor_layout.addLayout(side_layout)
-        
-        self.btn_int_monitor = QPushButton("ENABLE MONITORING")
-        self.btn_int_monitor.setCheckable(True)
-        self.btn_int_monitor.setStyleSheet("background-color: #1e1e1e; color: white;")
-        self.btn_int_monitor.toggled.connect(self.toggle_intrinsics_monitoring)
-        monitor_layout.addWidget(self.btn_int_monitor)
-        
-        # Relocated permanently to the Right Panel
-        
-        monitor_box.setLayout(monitor_layout)
-        int_right.addWidget(monitor_box)
-
         controls_box = QGroupBox("Calibration Controls")
         controls_layout = QVBoxLayout()
         
@@ -1185,7 +1499,26 @@ class UnifiedCalibrationApp(QWidget):
         controls_layout.addWidget(self.btn_int_reset)
         
         controls_box.setLayout(controls_layout)
-        int_right.addWidget(controls_box)
+        int_left.addWidget(controls_box, 1)
+        
+        int_right = QVBoxLayout()
+        
+        # Relocated permanently from bottom left to top right
+        stats_box = QGroupBox("Capture Stats")
+        stats_layout = QHBoxLayout()
+        self.lbl_captured = QLabel("Captured Frames: 0")
+        self.lbl_captured.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        self.lbl_captured.setStyleSheet("color: #2979ff;")
+        
+        self.lbl_temp = QLabel("Camera Temp: -- °C")
+        self.lbl_temp.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        self.lbl_temp.setStyleSheet("color: #ff5500;")
+        
+        stats_layout.addWidget(self.lbl_captured)
+        stats_layout.addStretch()
+        stats_layout.addWidget(self.lbl_temp)
+        stats_box.setLayout(stats_layout)
+        int_right.addWidget(stats_box)
         int_right.addStretch()
         
         camera_tab_layout.addLayout(int_left, 2)
@@ -1472,14 +1805,9 @@ class UnifiedCalibrationApp(QWidget):
             
             # Sync dropdown indexes between controls (blocking signals to avoid cycles)
             self.arm_sel.blockSignals(True)
-            self.int_side_sel.blockSignals(True)
-            
             idx = 1 if self.arm_side == "left" else 0
             self.arm_sel.setCurrentIndex(idx)
-            self.int_side_sel.setCurrentIndex(idx)
-            
             self.arm_sel.blockSignals(False)
-            self.int_side_sel.blockSignals(False)
 
     def on_monitor_toggled(self, checked):
         if checked:
@@ -1512,8 +1840,8 @@ class UnifiedCalibrationApp(QWidget):
             self.status_label.setStyleSheet("color: #ff1744;")
 
     def poll_camera_status(self):
-        # 탭 3(Camera Intrinsics)이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
-        if self.workflow_tabs.currentIndex() == 2:
+        # Camera Tab이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
+        if self.left_tabs.currentIndex() == 1:
             return
             
         try:
@@ -1780,7 +2108,6 @@ class UnifiedCalibrationApp(QWidget):
         self.workflow_tabs.setEnabled(enabled)
         self.arm_sel.setEnabled(enabled)
         self.joint_mode_sel.setEnabled(enabled)
-        self.int_side_sel.setEnabled(enabled)
         if hasattr(self, 'marker_axis_sel'):
             self.marker_axis_sel.setEnabled(enabled)
         if hasattr(self, 'btn_camera_feed'):
@@ -1793,6 +2120,126 @@ class UnifiedCalibrationApp(QWidget):
         if self.ui_only and hasattr(self, 'mock_version_sel'):
             return float(self.mock_version_sel.currentText())
         return getattr(self, "robot_version", 1.2)
+
+    def move_to_ready_full_auto(self):
+        if not self.ui_only and not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        self.set_controls_enabled(False)
+        if self.poll_timer.isActive():
+            self.poll_timer.stop()
+        self.active_worker = FullAutoReadyWorker(
+            self.joint_calibrator,
+            self.marker_calibrator,
+            ui_only=self.ui_only
+        )
+        self.active_worker.log_signal.connect(self.log_msg)
+        self.active_worker.finished_signal.connect(self.on_full_auto_ready_finished)
+        self.active_worker.start()
+
+    def on_full_auto_ready_finished(self):
+        self.set_controls_enabled(True)
+        self.active_worker = None
+        # Restart poll_timer if appropriate
+        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        if self.left_tabs.currentIndex() != 1 and not dialog_visible:
+            if not self.poll_timer.isActive():
+                self.poll_timer.start(200)
+
+    def get_latest_result_path(self):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        result_dir = Path(os.path.abspath(os.path.join(current_dir, "..", "result")))
+        if not result_dir.exists():
+            result_dir.mkdir(parents=True, exist_ok=True)
+        result_files = sorted(
+            result_dir.glob("result_*.json"),
+            key=lambda file_path: file_path.stat().st_mtime,
+            reverse=True,
+        )
+        if not result_files:
+            raise RuntimeError(f"No calibration result JSON found in {result_dir}")
+        return result_files[0]
+
+    def get_latest_home_reset_path(self, required=True):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        path = Path(os.path.abspath(os.path.join(current_dir, "..", "config", "home_reset_baseline.json")))
+        if path.exists():
+            return path
+        if required:
+            raise RuntimeError(f"No home reset baseline JSON found at {path}")
+        return None
+
+    def get_home_reset_path_for_result(self, result_path):
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        path = Path(os.path.abspath(os.path.join(current_dir, "..", "config", "home_reset_baseline.json")))
+        if path.exists():
+            return path
+        return self.get_latest_home_reset_path(required=False)
+
+    def apply_home_offset(self):
+        try:
+            result_path = self.get_latest_result_path()
+            baseline_path = self.get_home_reset_path_for_result(result_path)
+            
+            # Open Apply Home Offset Dialog
+            dialog = ApplyHomeOffsetDialog(
+                self,
+                result_path,
+                baseline_path,
+                self.arm_side,
+                include_head=True
+            )
+            dialog.exec()
+        except Exception as e:
+            QMessageBox.critical(self, "Apply Home Offset Error", str(e))
+            self.log_msg(f"[ERROR] Apply home offset failed: {e}")
+
+    def home_offset_reset(self):
+        if not self.ui_only and not self.robot:
+            QMessageBox.critical(self, "Error", "Robot is not connected.")
+            return
+
+        msg = (
+            "Warning: Home Offset Reset will physically redefine the zero offset positions of your robot joints.\n\n"
+            "Steps:\n"
+            "1. Manually teach/move BOTH arms close to their home pose using direct teaching.\n"
+            "2. Ensure the head is also centered/aligned if you want to reset head offsets.\n"
+            "3. Click OK to start the process.\n\n"
+            "During this, the control manager will disable, 48v power will cycle, and the robot connection will automatically restart."
+        )
+        reply = QMessageBox.warning(
+            self, "Confirm Home Offset Reset", msg,
+            QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Cancel
+        )
+        if reply != QMessageBox.Ok:
+            return
+
+        self.set_controls_enabled(False)
+        self.btn_home_reset.setEnabled(False)
+        
+        # Start worker thread
+        self.active_worker = HomeOffsetResetWorker(
+            self.robot,
+            self.robot.model() if (self.robot and self.robot != "mock_robot") else None,
+            self.model_input.currentText().strip() if hasattr(self, 'model_input') else "a",
+            include_head=True
+        )
+        self.active_worker.log_signal.connect(self.log_msg)
+        self.active_worker.finished_signal.connect(self.on_home_offset_reset_finished)
+        self.active_worker.start()
+
+    def on_home_offset_reset_finished(self, result):
+        self.set_controls_enabled(True)
+        self.btn_home_reset.setEnabled(True)
+        self.active_worker = None
+        
+        if result.get("success", False):
+            QMessageBox.information(self, "Success", "Home Offset Reset completed successfully!")
+            self.log_msg("Re-connecting and initializing robot...")
+            self.connect_robot()
+            self.log_msg("Home Offset Reset complete!")
+        else:
+            QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {result.get('error', '')}")
 
     def start_full_auto(self):
         if not self.ui_only and not self.robot:
@@ -1851,7 +2298,7 @@ class UnifiedCalibrationApp(QWidget):
         
         # Restart poll_timer if appropriate (not tab 2 and feed dialog closed)
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        if self.workflow_tabs.currentIndex() != 2 and not dialog_visible:
+        if self.left_tabs.currentIndex() != 1 and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
 
@@ -2373,7 +2820,7 @@ class UnifiedCalibrationApp(QWidget):
             self.feed_dialog.lbl_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_C and self.workflow_tabs.currentIndex() == 2:
+        if event.key() == Qt.Key_C and self.left_tabs.currentIndex() == 1:
             self.capture_intrinsics_frame()
         super().keyPressEvent(event)
 

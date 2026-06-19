@@ -28,7 +28,8 @@ class BaseCalibrator:
         self.stop_requested = False
 
     def load_ready_poses(self):
-        yaml_path = os.path.join(os.path.dirname(__file__), "ready_poses.yaml")
+        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+        yaml_path = os.path.join(config_dir, "ready_poses.yaml")
         if os.path.exists(yaml_path):
             try:
                 with open(yaml_path, "r") as f:
@@ -63,6 +64,10 @@ class BaseCalibrator:
                 "marker": {
                     "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
                     "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
+                },
+                "check_calib": {
+                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+                    "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
                 }
             },
             "v1.3": {
@@ -81,8 +86,12 @@ class BaseCalibrator:
                     }
                 },
                 "marker": {
-                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
-                    "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
+                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 0.0, 0.0, -80.0],
+                    "left_arm": [-90.0, 45.0, -73.0, -107.0, 0.0, 0.0, 80.0]
+                },
+                "check_calib": {
+                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 0.0, 0.0, -80.0],
+                    "left_arm": [-90.0, 45.0, -73.0, -107.0, 0.0, 0.0, 80.0]
                 }
             }
         }
@@ -91,6 +100,8 @@ class BaseCalibrator:
             val = self.ready_poses[version_key]
             if type_key == "joint":
                 val = val["joint"][mode_key][f"{arm_side}_arm"]
+            elif type_key == "check_calib":
+                val = val["check_calib"][f"{arm_side}_arm"]
             else:
                 val = val["marker"][f"{arm_side}_arm"]
             return np.deg2rad(val)
@@ -99,6 +110,8 @@ class BaseCalibrator:
             val = fallbacks[version_key]
             if type_key == "joint":
                 val = val["joint"][mode_key][f"{arm_side}_arm"]
+            elif type_key == "check_calib":
+                val = val["check_calib"][f"{arm_side}_arm"]
             else:
                 val = val["marker"][f"{arm_side}_arm"]
             return np.deg2rad(val)

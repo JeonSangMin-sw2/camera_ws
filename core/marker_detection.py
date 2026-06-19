@@ -10,7 +10,6 @@ import os, yaml
 
 #debugging flag : 실사용시 모두 false여야함
 imshow_when_detect = False
-check_cube_marker_data = False
 tcpip_send = False
 use_calib_int = False # 세밀하게 보정된 파일(camera_intrinsics.yaml)을 사용할지 여부
 # see_depth_sensors_depth = False
@@ -49,91 +48,6 @@ class TCPClient:
         except Exception as e:
             print(f"Send Error: {e}")
             self.connected = False
-
-class CubeMarker:
-    def __init__(self, cube_size_mm=60.0, side="left"):
-        if side not in ["left", "right"]:
-            raise ValueError("side must be 'left' or 'right'")
-
-        self.cube_to_marker_tf = {}
-        half_c = cube_size_mm / 2.0
-
-        # 모든 마커 면이 바깥쪽(Outward)을 향하고 반시계방향(CCW) 순서를 갖는 '오른손 좌표계(Det=1)' 회전 행렬
-        R_dict = {
-            # 마커의 x축은 오른쪽, y축은 아래, z축은 들어가는 방향
-            # 모든 면에 부착된 마커들의 z축이 안쪽을 향하고 반시계방향(CCW) 순서를 갖는 '오른손 좌표계(Det=1)' 회전 행렬
-            # ID 10: +Y. Xm=x-, Ym=z-, Zm=y-
-            10: np.array([[ -1,  0,  0], [ 0,  0,  -1], [ 0,  -1,  0]]),
-            # ID 11: -X (Left).  Xm=y-, Ym=z-, Zm=x+
-            11: np.array([[ 0,  0,  1], [ -1,  0,  0], [ 0,  -1,  0]]),
-            # ID 12: -Z (Bottom).Xm=y+, Ym=x-, Zm=z+
-            12: np.array([[ 0,  -1,  0], [ 1, 0,  0], [ 0,  0, 1]]),
-            # ID 13: +X (Right). Xm=y+, Ym=z-, Zm=x-
-            13: np.array([[ 0,  0,  -1], [ 1, 0,  0], [ 0,  -1,  0]]),
-            # ID 14: +Z (Top).   Xm=y+, Ym=x+, Zm=Z-
-            14: np.array([[ 0,  1,  0], [ 1,  0,  0], [ 0,  0, -1]])
-        }
-        
-        t_dict = {
-            10: np.array([0, half_c, 0]),
-            11: np.array([-half_c, 0, 0]),
-            12: np.array([0, 0, -half_c]),
-            13: np.array([half_c, 0, 0]),
-            14: np.array([0, 0, half_c])
-        }
-
-        # side에 따라 ID 변환 및 TF 적용
-        ids = [10,11,12,13,14] if side=="left" else [30,31,32,33,34]
-        for i, m_id in enumerate(ids):
-            base_id = 10 + i
-            self.cube_to_marker_tf[m_id] = self._make_tf(R_dict[base_id], t_dict[base_id])
-
-    def load_calibration_data(self, calib_data, marker_size_mm=64.0):
-        try:
-            half_m = marker_size_mm / 2.0
-            # 반시계 방향(CCW) 기준점 정의 (X right, Y down)
-            local_corners = np.array([
-                [-half_m, -half_m, 0], # Top-Left
-                [-half_m,  half_m, 0], # Bottom-Left
-                [ half_m,  half_m, 0], # Bottom-Right
-                [ half_m, -half_m, 0]  # Top-Right
-            ], dtype=np.float32)
-            c_local = np.mean(local_corners, axis=0)
-            local_centered = local_corners - c_local
-        
-            for m_id_str, corners_list in calib_data.items():
-                m_id = int(m_id_str)
-                opt_corners = np.array(corners_list, dtype=np.float32)
-                
-                c_opt = np.mean(opt_corners, axis=0)
-                opt_centered = opt_corners - c_opt
-                
-                # Note: Calibration file should already be in CCW order if re-calibrated.
-                # If using old data, we let SVD handle the best fit or orientation.
-                H = local_centered.T @ opt_centered
-                U, S, Vt = np.linalg.svd(H)
-                R = Vt.T @ U.T
-                
-                if np.linalg.det(R) < 0:
-                    Vt[2, :] *= -1
-                    R = Vt.T @ U.T
-                    
-                t = c_opt - R @ c_local
-                
-                self.cube_to_marker_tf[m_id] = self._make_tf(R, t)
-        except Exception as e:
-            print(f"- Error formatting calibration data: {e}")
-
-    def _make_tf(self, R, t):
-        tf = np.eye(4, dtype=np.float32)
-        tf[0:3, 0:3] = R
-        tf[0:3, 3] = t
-        return tf
-        
-    def get_transform(self, marker_id):
-        if marker_id in self.cube_to_marker_tf:
-            return self.cube_to_marker_tf[marker_id]
-        return None
         
 # 카메라 클래스
 """
@@ -549,12 +463,7 @@ class Marker_Detection:
 
     def set_marker_type(self, marker_type="plate"):
         self.marker_type = marker_type
-        if marker_type == "cube":
-            left_ids = self.markers_config.get("cube", {}).get("left_ids", [])
-            right_ids = self.markers_config.get("cube", {}).get("right_ids", [])
-            self.marker_id = left_ids + right_ids
-            self.marker_size_mm = self.markers_config.get("cube", {}).get("cube_size_mm", 60.0) * 0.8
-        elif marker_type == "plate":
+        if marker_type == "plate":
             self.plate_left_ids = self.markers_config.get("plate", {}).get("left_ids", [])
             self.plate_right_ids = self.markers_config.get("plate", {}).get("right_ids", [])
             self.marker_id = self.plate_left_ids + self.plate_right_ids
@@ -631,233 +540,7 @@ class Marker_Detection:
                 [0, 0, 1]
             ], dtype=np.float32)
             half_m = self.marker_size_mm / 2.0
-            
-            if self.marker_type == "cube" and hasattr(self, 'cube_markers'):
-                current_frame_cube_info = {}
-                # 인식된 마커들을 재정렬
-                for i in range(len(ids)):
-                    marker_id = ids_flat[i]
-                    if marker_id in duplicate_ids:
-                        continue
-                    c_cw = corners[i][0]
-                    # Aruco (CW: 0,1,2,3) -> CCW (0,3,2,1) 로 순서 변경
-                    c_ccw = c_cw[[0, 3, 2, 1], :]
-                    
-                    group_id = "cube"
-                    if 10 <= marker_id <= 14: group_id = "cube_left"
-                    elif 30 <= marker_id <= 34: group_id = "cube_right"
-                    
-                    CUBE_TO_MARKER = None
-                    if group_id in self.cube_markers:
-                        CUBE_TO_MARKER = self.cube_markers[group_id].get_transform(marker_id)
-                        
-                    if CUBE_TO_MARKER is not None:
-                        # 반시계 방향(CCW) 객체 좌표계 정의
-                        obj_pts = np.array([
-                            [-half_m, -half_m, 0], [-half_m,  half_m, 0],
-                            [ half_m,  half_m, 0], [ half_m, -half_m, 0]
-                        ], dtype=np.float32)
-                        success, rvec, tvec = cv2.solvePnP(obj_pts, c_ccw, cam_mat, pnp_dist_coeffs, flags=cv2.SOLVEPNP_IPPE)
-                        if success:
-                            rot_matrix, _ = cv2.Rodrigues(rvec)
-                            camera_to_marker_tf = np.eye(4, dtype=np.float32)
-                            camera_to_marker_tf[0:3, 0:3] = rot_matrix
-                            camera_to_marker_tf[0:3, 3] = tvec.flatten()
-                            
-                            current_frame_cube_info[marker_id] = {
-                                'group_id': group_id,
-                                'T_cam_to_M': camera_to_marker_tf,
-                                'corners': c_ccw
-                            }
-                
-                # 인식된 마커들을 그룹(예: cube_left, cube_right)별로 분류
-                markers_by_group = {}
-                for m_id, info in current_frame_cube_info.items():
-                    g_id = info['group_id']
-                    if g_id not in markers_by_group:
-                        markers_by_group[g_id] = []
-                    markers_by_group[g_id].append(m_id)
 
-                valid_ids = set()
-                # 각 그룹별로 독립적으로 유효성 검사 수행
-                for g_id, m_ids in markers_by_group.items():
-                    if check_cube_marker_data and len(m_ids) > 0:
-                        print(f"\n--- [check_cube_marker_data] Group: {g_id} ---")
-                        # 1. 각 마커면 기준 큐브 중심 계산 
-                        for m_id in m_ids:
-                            T_cam_to_marker = current_frame_cube_info[m_id]['T_cam_to_M']
-                            CUBE_TO_MARKER_TF = self.cube_markers[g_id].get_transform(m_id)
-                            MARKER_TO_CUBE_TF = np.linalg.inv(CUBE_TO_MARKER_TF)
-                            T_cam_to_cube = T_cam_to_marker @ MARKER_TO_CUBE_TF
-                            cx, cy, cz = T_cam_to_cube[0:3, 3]
-                            print(f"  Marker {m_id:2d} estimated Cube Center (mm): X={cx:6.1f}, Y={cy:6.1f}, Z={cz:6.1f}")
-                        # 2. 인접 마커간 직교성(각도) 계산 (마커 Z축 법선 벡터 기준)
-                        for i in range(len(m_ids)):
-                            for j in range(i+1, len(m_ids)):
-                                id1, id2 = m_ids[i], m_ids[j]
-                                T1 = current_frame_cube_info[id1]['T_cam_to_M']
-                                T2 = current_frame_cube_info[id2]['T_cam_to_M']
-                                
-                                n1 = T1[0:3, 2]
-                                n2 = T2[0:3, 2]
-                                n1 = n1 / np.linalg.norm(n1)
-                                n2 = n2 / np.linalg.norm(n2)
-                                dot_val = np.dot(n1, n2)
-                                face_angle = math.degrees(math.acos(np.clip(dot_val, -1.0, 1.0)))
-                                
-                                print(f"  Pair ({id1:2d}, {id2:2d}) Face Normal Angle: {face_angle:5.1f} deg")
-
-                    if len(m_ids) == 1:
-                        # 마커가 하나만 인식되면 즉시 유효한 것으로 간주
-                        valid_ids.add(m_ids[0])
-                    else:
-                        # 마커가 2개 이상 인식되면 다중마커 기하학적 검증(각도, 거리) 실행
-                        good_connections = {m: 0 for m in m_ids}
-                        for i in range(len(m_ids)):
-                            for j in range(i+1, len(m_ids)):
-                                id1, id2 = m_ids[i], m_ids[j]
-                                info1, info2 = current_frame_cube_info[id1], current_frame_cube_info[id2]
-                                
-                                # 각도 검증 (인접한 면은 서로 수직이어야 함)
-                                n1 = info1['T_cam_to_M'][0:3, 2]
-                                n2 = info2['T_cam_to_M'][0:3, 2]
-                                n1 = n1 / np.linalg.norm(n1)
-                                n2 = n2 / np.linalg.norm(n2)
-                                dot_val = np.dot(n1, n2)
-                                angle_deg = math.degrees(math.acos(np.clip(dot_val, -1.0, 1.0)))
-                                angle_error = abs(angle_deg - 90.0)
-                                
-                                # 거리 검증 (카메라에서 측정된 거리 vs 큐브 모델상의 예상 거리)
-                                center1 = info1['T_cam_to_M'][0:3, 3]
-                                center2 = info2['T_cam_to_M'][0:3, 3]
-                                actual_dist = np.linalg.norm(center1 - center2)
-                                
-                                CUBE_TO_MARKER_1 = self.cube_markers[g_id].get_transform(id1)
-                                CUBE_TO_MARKER_2 = self.cube_markers[g_id].get_transform(id2)
-                                expected_dist = np.linalg.norm(CUBE_TO_MARKER_1[0:3, 3] - CUBE_TO_MARKER_2[0:3, 3])
-                                dist_error = abs(actual_dist - expected_dist)
-                                
-                                # 임계치 이내일 경우 연결성 부여
-                                if angle_error <= 1.8 and dist_error <= 1.2:
-                                    good_connections[id1] += 1
-                                    good_connections[id2] += 1
-                        
-                        # 최소 하나 이상의 'good_connection'이 있는 마커만 유효한 것으로 간주
-                        for m_id in m_ids:
-                            if good_connections[m_id] > 0:
-                                valid_ids.add(m_id)
-                    
-                valid_group_ids = set()
-                obj_pts_by_group = {}
-                img_pts_by_group = {}
-                
-                for m_id in valid_ids:
-                    info = current_frame_cube_info[m_id]
-                    group_id = info['group_id']
-                    valid_group_ids.add(group_id)
-                    if group_id not in obj_pts_by_group:
-                        obj_pts_by_group[group_id] = []
-                        img_pts_by_group[group_id] = []
-                        
-                    CUBE_TO_MARKER = self.cube_markers[group_id].get_transform(m_id)
-                    local_corners = np.array([
-                        [-half_m, -half_m, 0, 1], [-half_m,  half_m, 0, 1],
-                        [ half_m,  half_m, 0, 1], [ half_m, -half_m, 0, 1]
-                    ], dtype=np.float32)
-                    
-                    for pts in local_corners:
-                        obj_pts_by_group[group_id].append((CUBE_TO_MARKER @ pts)[0:3])
-                    # info['corners']는 이미 위에서 CCW로 뒤집힌 상태임
-                    for pt_2d in info['corners']:
-                        img_pts_by_group[group_id].append(pt_2d)
-                        
-                for group_id in valid_group_ids:
-                    # 해당 그룹(큐브)에 속한 유효한 마커 ID 필터링
-                    m_ids_in_group = [m for m in valid_ids if current_frame_cube_info[m]['group_id'] == group_id]
-                    
-                    if len(m_ids_in_group) == 1:
-                        # 1. 마커가 하나만 인식된 경우: 단일 마커 PnP 결과를 기반으로 큐브 중심 계산 (기하학적 합성)
-                        m_id = m_ids_in_group[0]
-                        info = current_frame_cube_info[m_id]
-                        
-                        T_cam_to_marker = info['T_cam_to_M']
-                        CUBE_TO_MARKER_TF = self.cube_markers[group_id].get_transform(m_id)
-                        
-                        # 카메라에서 큐브 중심까지의 변환: T_cam_to_cube = T_cam_to_marker * inv(CUBE_TO_MARKER)
-                        try:
-                            # 큐브 중심 -> 마커 변환의 역행렬 계산
-                            MARKER_TO_CUBE_TF = np.linalg.inv(CUBE_TO_MARKER_TF)
-                            T_cam_to_cube = T_cam_to_marker @ MARKER_TO_CUBE_TF
-                            
-                            rot_matrix_m = T_cam_to_cube[0:3, 0:3]
-                            rvec_m_cal, _ = cv2.Rodrigues(rot_matrix_m)
-                            rvec_m_list = rvec_m_cal.flatten().tolist()
-                            center_pos_m = T_cam_to_cube[0:3, 3].tolist() if isinstance(T_cam_to_cube[0:3, 3], np.ndarray) else T_cam_to_cube[0:3, 3]
-                            
-                            meas_array = center_pos_m + rvec_m_list
-                            
-                            # Step 3: 칼만 필터(Kalman Filter) 6D 도입
-                            if use_filter:
-                                kf = self.get_kalman_filter(group_id, initial_meas=meas_array)
-                                kf.predict()
-                                meas = np.array([[m] for m in meas_array], dtype=np.float32)
-                                est = kf.correct(meas)
-                                
-                                center_pos_m = [est[0,0], est[1,0], est[2,0]]
-                                smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
-                                rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
-                            else:
-                                center_pos_m = center_pos_m
-                                rot_matrix_smoothed = rot_matrix_m
-                            
-                            transform_m = [
-                                rot_matrix_smoothed[0,0], rot_matrix_smoothed[0,1], rot_matrix_smoothed[0,2], center_pos_m[0],
-                                rot_matrix_smoothed[1,0], rot_matrix_smoothed[1,1], rot_matrix_smoothed[1,2], center_pos_m[1],
-                                rot_matrix_smoothed[2,0], rot_matrix_smoothed[2,1], rot_matrix_smoothed[2,2], center_pos_m[2],
-                                0.0, 0.0, 0.0, 1.0
-                            ]
-                            marker_centers_result.append((group_id, transform_m))
-                        except Exception as e:
-                            print(f"Error calculating analytical pose: {e}")
-                    
-                    elif len(m_ids_in_group) >= 2:
-                        # 2. 마커가 2개 이상 인식된 경우: 모든 코너를 사용한 통합 PnP 연산 (정밀도 향상)
-                        obj_pts_all = np.array(obj_pts_by_group[group_id], dtype=np.float32)
-                        img_pts_all = np.array(img_pts_by_group[group_id], dtype=np.float32)
-                        
-                        if len(obj_pts_all) >= 4:
-                            # 큐브 중심 기준 좌표계에서는 IPPE_SQUARE를 사용할 수 없으므로 ITERATIVE 또는 EPNP 사용
-                            flags = cv2.SOLVEPNP_EPNP if len(obj_pts_all) >= 8 else cv2.SOLVEPNP_ITERATIVE
-                            
-                            success_m, rvec_m, tvec_m = cv2.solvePnP(obj_pts_all, img_pts_all, cam_mat, pnp_dist_coeffs, flags=flags)
-                            if success_m:
-                                # 정밀 최적화 및 결과 행렬 구성
-                                success_m, rvec_m, tvec_m = cv2.solvePnP(obj_pts_all, img_pts_all, cam_mat, pnp_dist_coeffs, 
-                                                                         rvec_m, tvec_m, useExtrinsicGuess=True)
-                                rot_matrix_m, _ = cv2.Rodrigues(rvec_m)
-                                center_pos_m = tvec_m.flatten().tolist()
-                                
-                                # Step 3: 칼만 필터(Kalman Filter) 도입
-                                if use_filter:
-                                    kf = self.get_kalman_filter(group_id, initial_meas=center_pos_m)
-                                    kf.predict()
-                                    meas = np.array([[center_pos_m[0]], [center_pos_m[1]], [center_pos_m[2]]], dtype=np.float32)
-                                    est = kf.correct(meas)
-                                    center_pos_m = [est[0,0], est[1,0], est[2,0]]
-                                
-                                transform_m = [
-                                    rot_matrix_m[0,0], rot_matrix_m[0,1], rot_matrix_m[0,2], center_pos_m[0],
-                                    rot_matrix_m[1,0], rot_matrix_m[1,1], rot_matrix_m[1,2], center_pos_m[1],
-                                    rot_matrix_m[2,0], rot_matrix_m[2,1], rot_matrix_m[2,2], center_pos_m[2],
-                                    0.0, 0.0, 0.0, 1.0
-
-                                ]
-                                marker_centers_result.append((group_id, transform_m))
-                            # if tcpip_send:
-                            #     self.tcp_client.send_pose(transform_m)
-                return marker_centers_result
-
-            # NON-CUBE logic (e.g. Plate)
             obj_pts = np.array([
                 [-half_m, -half_m, 0], [ half_m, -half_m, 0],
                 [ half_m,  half_m, 0], [-half_m,  half_m, 0]
@@ -1022,30 +705,6 @@ class Marker_Transform:
             print(f"- Warning: Could not load {setting_config_path}: {e}")
             self.camera_config = {}
             self.markers_config = {}
-        cube_size = self.markers_config.get("cube", {}).get("cube_size_mm", 60.0)
-        marker_size = cube_size * 0.8
-        
-        self.marker_detection.cube_markers = {}
-        
-        config_dir = os.path.dirname(setting_config_path)
-        calib_left_path = os.path.join(config_dir, "calibrated_cube_left.yaml")
-        if os.path.exists(calib_left_path):
-            with open(calib_left_path, 'r') as f:
-                calib_data = yaml.safe_load(f)
-                left_cube = CubeMarker(cube_size_mm=cube_size, side="left")
-                left_cube.load_calibration_data(calib_data, marker_size_mm=marker_size)
-                self.marker_detection.cube_markers["cube_left"] = left_cube
-                self.cube_marker = left_cube # fallback
-                print(f"- Loaded Calibration from {os.path.basename(calib_left_path)}")
-                
-        calib_right_path = os.path.join(config_dir, "calibrated_cube_right.yaml")
-        if os.path.exists(calib_right_path):
-            with open(calib_right_path, 'r') as f:
-                calib_data = yaml.safe_load(f)
-                right_cube = CubeMarker(cube_size_mm=cube_size, side="right")
-                right_cube.load_calibration_data(calib_data, marker_size_mm=marker_size)
-                self.marker_detection.cube_markers["cube_right"] = right_cube
-                print(f"- Loaded Phase 1 Calibration from {os.path.basename(calib_right_path)}")
     def set_marker_type(self, marker_type="plate"):
         self.marker_detection.set_marker_type(marker_type)
     def make_transform(self, data):
@@ -1195,21 +854,7 @@ class Marker_Transform:
                     final_results[marker_id] = cam_to_tool_vec
         
         if len(final_results) > 0:
-            if self.marker_detection.marker_type == "cube":
-                if side == "left":
-                    res = final_results.get("cube_left")
-                    return [res] if res is not None else None
-                elif side == "right":
-                    res = final_results.get("cube_right")
-                    return [res] if res is not None else None
-                elif side == "all":
-                    out = []
-                    res_r = final_results.get("cube_right")
-                    res_l = final_results.get("cube_left")
-                    if res_r is not None: out.append(res_r)
-                    if res_l is not None: out.append(res_l)
-                    return out if out else None
-            elif self.marker_detection.marker_type == "plate":
+            if self.marker_detection.marker_type == "plate":
                 if side == "left":
                     res = final_results.get("plate_left")
                     return [res] if res is not None else None

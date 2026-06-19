@@ -1,8 +1,9 @@
-﻿# Camera Calibration Manual
+# Camera Calibration Manual
 
 ## Setup
-- 보정에 있어 필요한 라이브러리가 많으므로, 가상공간을 만들어서 설치 후 사용하는것을 권장
+- 보정에 있어 필요한 라이브러리가 많으므로, 가상공간을 만들어서 설치 후 사용하는것을 권장합니다.
 
+### 1. 가상환경 생성 및 패키지 설치
 ```bash
 python3 -m venv .venv 
 source .venv/bin/activate
@@ -10,6 +11,19 @@ pip install -r requirements.txt
 pip install -e .
 # 종료 시 deactivate 입력
 ```
+
+### 2. PySide6 관련 필수 설정 및 트러블슈팅
+최신 PySide6(>=6.5.0) 버전의 GUI 환경이 리눅스에서 오류 없이 구동되려면 아래 설정을 수행해야 합니다.
+
+1. **시스템 라이브러리 설치 (필수)**
+   리눅스 환경에서 PySide6 구동 시 필요한 `libxcb-cursor0` 라이브러리를 설치합니다.
+   ```bash
+   sudo apt update && sudo apt install -y libxcb-cursor0
+   ```
+2. **OpenCV-PySide6 Qt 충돌 우회 (코드 자동 반영)**
+   - `opencv-contrib-python` 패키지가 로드될 때 내부적으로 Qt 플러그인 경로(`QT_QPA_PLATFORM_PLUGIN_PATH`)를 설정하여 PySide6 GUI 실행 시 버전 불일치로 크래시(Aborted)되는 현상이 있습니다.
+   - `additional_calib_ui.py` 코드 상단에 `os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)` 처리가 적용되어 있어, 코드 상에서 충돌을 방지합니다.
+
 
 ## 1. 하드웨어 스펙 및 마커 정보
 - **사용 카메라**: realsense D405

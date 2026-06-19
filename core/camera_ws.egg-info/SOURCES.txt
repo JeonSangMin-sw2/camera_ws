@@ -1,9 +1,12 @@
 setup.py
+calibration/Calibrator.py
+calibration/CalibratorBase.py
 calibration/IntrinsicsCalibrator.py
+calibration/JointCalibrator.py
 calibration/MarkerCalibrator.py
 calibration/__init__.py
-calibration/camera_intrinsic_calib_ui.py
-calibration/marker_bracket_calib_ui.py
+calibration/additional_calib_ui.py
+calibration/debug_joint_plotter.py
 core/calibration_core.py
 core/homeoffset_core.py
 core/marker_detection.py
@@ -12,3 +15,5 @@ core/camera_ws.egg-info/SOURCES.txt
 core/camera_ws.egg-info/dependency_links.txt
 core/camera_ws.egg-info/requires.txt
 core/camera_ws.egg-info/top_level.txt
+test/test_bracket_calibration.py
+test/test_kinematic_averaging.py
