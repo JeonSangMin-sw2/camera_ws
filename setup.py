@@ -3,9 +3,9 @@ from setuptools import setup, find_packages
 setup(
     name="camera_ws",
     version="0.1",
-    # core 폴더 내부의 파일들을 루트 모듈로 사용하고, calibration 폴더도 개별 패키지로 유지
-    package_dir={"": "core", "calibration": "calibration"},
-    packages=find_packages(where="core") + ["calibration"],
+    # core 폴더 내부의 파일들을 루트 모듈로 사용
+    package_dir={"": "core"},
+    packages=find_packages(where="core"),
     py_modules=["marker_detection", "calibration_core", "homeoffset_core"],
     # .yaml 파일들을 포함시키기 위한 설정
     include_package_data=True,
@@ -15,7 +15,7 @@ setup(
     install_requires=[
         "numpy",
         "opencv-python",
-        "PySide6<6.5",
+        "PySide6",
         "scipy",
         "pyyaml",
     ],

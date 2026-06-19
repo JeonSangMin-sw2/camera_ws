@@ -3,12 +3,12 @@ import os
 os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
 # Ensure local core module is imported first
 current_dir = os.path.dirname(os.path.abspath(__file__))
-parent_dir = os.path.abspath(os.path.join(current_dir, ".."))
-core_dir = os.path.abspath(os.path.join(parent_dir, "core"))
+core_dir = os.path.abspath(os.path.join(current_dir, "core"))
+calibration_dir = os.path.abspath(os.path.join(core_dir, "calibration"))
 if core_dir not in sys.path:
     sys.path.insert(0, core_dir)
-if parent_dir not in sys.path:
-    sys.path.insert(1, parent_dir)
+if calibration_dir not in sys.path:
+    sys.path.insert(1, calibration_dir)
 
 import cv2
 import numpy as np
@@ -271,7 +271,7 @@ class HomeOffsetResetWorker(QThread):
                 self.finished_signal.emit({"success": True})
                 return
 
-            config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+            config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "config"))
             baseline_path, _ = save_home_reset_baseline_json(
                 self.robot,
                 self.model,
@@ -512,7 +512,7 @@ class MarkerCalibrationWorker(QThread):
                          f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°", fontsize=12, fontweight='bold')
             plt.tight_layout()
             
-            result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+            result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
             os.makedirs(result_dir, exist_ok=True)
             plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_marker_unified.png")
             plt.savefig(plot_path, dpi=150)
@@ -590,7 +590,7 @@ class JointCalibrationWorker(QThread):
                 self.log_signal.emit("\n[CALIBRATION COMPLETE]\n")
                 
                 # result_img 디렉토리 아래에 저장하도록 수정
-                result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+                result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
                 os.makedirs(result_dir, exist_ok=True)
                 plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png"
                 plot_path_combined = os.path.join(result_dir, plot_filename)
@@ -1039,7 +1039,7 @@ class UnifiedCalibrationApp(QWidget):
             
         self.monitor_enabled = False
         self.captured_images = []
-        self.output_yaml = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config", "camera_intrinsics.yaml"))
+        self.output_yaml = os.path.abspath(os.path.join(os.path.dirname(__file__), "config", "camera_intrinsics.yaml"))
         
         # Saved Calibration Results
         self.marker_data_4 = None
@@ -1080,7 +1080,7 @@ class UnifiedCalibrationApp(QWidget):
     def load_offsets_from_yaml(self):
         import yaml
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
+        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
         try:
             if not os.path.exists(config_path):
                 self.joint_offsets_store = {
@@ -1121,7 +1121,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def save_offsets_to_yaml(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
+        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         
         try:
@@ -1961,7 +1961,7 @@ class UnifiedCalibrationApp(QWidget):
     def load_bracket_design_values(self):
         import yaml
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
+        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
         try:
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
@@ -1985,7 +1985,7 @@ class UnifiedCalibrationApp(QWidget):
     def apply_bracket_design_values(self, silent=False):
         import yaml
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "..", "config", "setting.yaml"))
+        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
         try:
             try:
                 x = float(self.txt_bracket_x.text())
@@ -2148,7 +2148,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def get_latest_result_path(self):
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        result_dir = Path(os.path.abspath(os.path.join(current_dir, "..", "result")))
+        result_dir = Path(os.path.abspath(os.path.join(current_dir, "result")))
         if not result_dir.exists():
             result_dir.mkdir(parents=True, exist_ok=True)
         result_files = sorted(
@@ -2162,7 +2162,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def get_latest_home_reset_path(self, required=True):
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path = Path(os.path.abspath(os.path.join(current_dir, "..", "config", "home_reset_baseline.json")))
+        path = Path(os.path.abspath(os.path.join(current_dir, "config", "home_reset_baseline.json")))
         if path.exists():
             return path
         if required:
@@ -2171,7 +2171,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def get_home_reset_path_for_result(self, result_path):
         current_dir = os.path.dirname(os.path.abspath(__file__))
-        path = Path(os.path.abspath(os.path.join(current_dir, "..", "config", "home_reset_baseline.json")))
+        path = Path(os.path.abspath(os.path.join(current_dir, "config", "home_reset_baseline.json")))
         if path.exists():
             return path
         return self.get_latest_home_reset_path(required=False)
@@ -2614,7 +2614,7 @@ class UnifiedCalibrationApp(QWidget):
                     fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK")
                     plt.tight_layout()
                     
-                    result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+                    result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
                     os.makedirs(result_dir, exist_ok=True)
                     plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_marker_unified.png")
                     plt.savefig(plot_path, dpi=150)
@@ -2910,7 +2910,7 @@ class UnifiedCalibrationApp(QWidget):
         cv2.putText(combined_res, f"RMS Error: {self.intrinsics_calibrator.rms_error:.4f}", (w + 30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
 
         # Save to result_img folder
-        result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "result_img")
+        result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
         os.makedirs(result_dir, exist_ok=True)
         save_path = os.path.join(result_dir, "camera_intrinsics_verification.png")
         cv2.imwrite(save_path, combined_res)
