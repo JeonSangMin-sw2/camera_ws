@@ -140,7 +140,7 @@ class CalibrationUI:
         self.main_content.grid(row=0, column=0, sticky="nsew")
 
         # 2. Right Sidebar for "Options" (Starts hidden by default)
-        self.sidebar = ttk.LabelFrame(main_container, text="Options", width=180)
+        self.sidebar = ttk.LabelFrame(main_container, text="Options", width=220)
         self.sidebar.grid(row=0, column=1, sticky="nsew", padx=(10, 0), pady=10)
         self.sidebar.grid_remove() # Hide initially
         self.sidebar.grid_propagate(False) # Keep width fixed
@@ -153,6 +153,30 @@ class CalibrationUI:
         self.dev_use_sag = tk.BooleanVar(value=False)
         self.dev_use_sag_cb = ttk.Checkbutton(self.sidebar, text="use_sag", variable=self.dev_use_sag)
         self.dev_use_sag_cb.pack(anchor="w", padx=15, pady=10)
+
+        # Part
+        ttk.Label(self.sidebar, text="Part").pack(anchor="w", padx=15, pady=(10, 2))
+        self.dev_calib_part = tk.StringVar(value="both_arm")
+        self.dev_calib_part_cb = ttk.Combobox(self.sidebar, textvariable=self.dev_calib_part, values=["both_arm", "right_arm", "left_arm", "torso"], state="readonly", width=15)
+        self.dev_calib_part_cb.pack(anchor="w", padx=15, pady=(0, 10))
+
+        # Solver
+        ttk.Label(self.sidebar, text="Solver").pack(anchor="w", padx=15, pady=(10, 2))
+        self.dev_solver = tk.StringVar(value="QP Solver")
+        self.solver_cb = ttk.Combobox(self.sidebar, textvariable=self.dev_solver, values=["Least Squares", "QP Solver"], state="readonly", width=15)
+        self.solver_cb.pack(anchor="w", padx=15, pady=(0, 10))
+
+        try:
+            import qpsolvers
+            has_qp = True
+        except ImportError:
+            has_qp = False
+            
+        if not has_qp:
+            self.solver_cb["state"] = "disabled"
+
+        self.btn_self_capture = ttk.Button(self.sidebar, text="self_capture_sample", command=self.dev_record)
+        self.btn_self_capture.pack(anchor="w", padx=15, pady=15)
 
         self.build_main_ui(self.main_content)
 
@@ -199,50 +223,31 @@ class CalibrationUI:
         ttk.Label(conn, text="Servo On").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.servo_body = tk.BooleanVar(value=True)
         self.servo_head = tk.BooleanVar(value=True)
-        ttk.Checkbutton(conn, text="Body (torso/arms)", variable=self.servo_body).grid(row=1, column=1, padx=5, pady=5, sticky="w")
-        ttk.Checkbutton(conn, text="Head", variable=self.servo_head, command=self.on_servo_head_toggle).grid(row=1, column=2, padx=5, pady=5, sticky="w")
+        ttk.Checkbutton(conn, text="Head", variable=self.servo_head, command=self.on_servo_head_toggle).grid(row=1, column=1, padx=5, pady=5, sticky="w")
 
         # config
         cfg = ttk.LabelFrame(frm, text="Config")
         cfg.grid(row=2, column=0, sticky="nsew", padx=10, pady=10)
 
-        ttk.Label(cfg, text="Part").grid(row=0, column=0, padx=5, pady=5, sticky="w")
-        self.dev_calib_part = tk.StringVar(value="both_arm")
-        ttk.Combobox(cfg, textvariable=self.dev_calib_part, values=["both_arm", "right_arm", "left_arm", "torso"], state="readonly", width=10).grid(row=0, column=1, padx=5, pady=5, sticky="w")
-
-        ttk.Label(cfg, text="Mode").grid(row=0, column=2, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, text="Mode").grid(row=0, column=0, padx=5, pady=5, sticky="w")
         self.dev_mode = tk.StringVar(value="live")
         mode_box = ttk.Combobox(cfg, textvariable=self.dev_mode, values=["live", "npz", "sim"], state="readonly", width=10)
-        mode_box.grid(row=0, column=3, padx=5, pady=5, sticky="w")
+        mode_box.grid(row=0, column=1, padx=5, pady=5, sticky="w")
         mode_box.bind("<<ComboboxSelected>>", self.update_dev_mode_label)
 
         ttk.Label(cfg, text="Path").grid(row=1, column=0, padx=5, pady=5, sticky="w")
         self.dev_path = tk.StringVar(value="result/dataset_YYYYMMDD_HHMMSS.npz")
         ttk.Entry(cfg, textvariable=self.dev_path, width=40).grid(row=1, column=1, columnspan=3, padx=5, pady=5, sticky="w")
 
-        self.dev_mode_info = tk.StringVar(value="In live mode, Auto Motion records once and All Auto Motion runs the full sweep; Stop interrupts between steps.")
+        self.dev_mode_info = tk.StringVar(value="In live mode, Auto Motion runs the full sweep; Stop interrupts between steps.")
 
-        ttk.Label(cfg, text="Solver").grid(row=2, column=0, padx=5, pady=5, sticky="w")
-        self.dev_solver = tk.StringVar(value="QP Solver")
-        self.solver_cb = ttk.Combobox(cfg, textvariable=self.dev_solver, values=["Least Squares", "QP Solver"], state="readonly", width=12)
-        self.solver_cb.grid(row=2, column=1, padx=5, pady=5, sticky="w")
-
-        try:
-            import qpsolvers
-            has_qp = True
-        except ImportError:
-            has_qp = False
-            
-        if not has_qp:
-            self.solver_cb["state"] = "disabled"
-            
         self.dev_est_samples = tk.StringVar(value="Est. Samples: 0")
-        ttk.Label(cfg, textvariable=self.dev_est_samples, foreground="blue").grid(row=3, column=1, columnspan=6, sticky="w", padx=5, pady=5)
+        ttk.Label(cfg, textvariable=self.dev_est_samples, foreground="blue").grid(row=2, column=0, columnspan=6, sticky="w", padx=5, pady=5)
 
-        ttk.Label(cfg, text="Auto Motion Step").grid(row=4, column=0, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, text="Auto Motion Step").grid(row=3, column=0, padx=5, pady=5, sticky="w")
         
         auto_frm = ttk.Frame(cfg)
-        auto_frm.grid(row=4, column=1, columnspan=6, sticky="w", pady=5)
+        auto_frm.grid(row=3, column=1, columnspan=6, sticky="w", pady=5)
         
         ttk.Label(auto_frm, text="Angle(deg):").pack(side="left", padx=(0, 2))
         self.dev_angle_step = tk.DoubleVar(value=5.0)
@@ -267,10 +272,10 @@ class CalibrationUI:
         self.update_est_samples()
 
         self.dev_head_status = tk.StringVar(value="Auto Motion: 0/0")
-        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=5, column=0, columnspan=7, padx=5, pady=5, sticky="w")
+        ttk.Label(cfg, textvariable=self.dev_head_status).grid(row=4, column=0, columnspan=7, padx=5, pady=5, sticky="w")
 
         jo_frame = ttk.LabelFrame(cfg, text="Joint Offset (deg)")
-        jo_frame.grid(row=6, column=0, columnspan=7, padx=5, pady=5, sticky="ew")
+        jo_frame.grid(row=5, column=0, columnspan=7, padx=5, pady=5, sticky="ew")
 
         ttk.Label(jo_frame, text="R Elbow (J3):").grid(row=0, column=0, padx=2, pady=2, sticky="e")
         self.entry_r_j3 = ttk.Entry(jo_frame, textvariable=self.val_r_j3, width=7)
@@ -300,22 +305,28 @@ class CalibrationUI:
         act.columnconfigure(0, weight=1)
         act.columnconfigure(1, weight=1)
 
-        ttk.Button(act, text="1) Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="2) Init Pose", command=self.dev_init_pose).grid(row=0, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="3-a-1) All Auto Motion", command=self.dev_all_auto_motion).grid(row=1, column=0, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="3-a-2) Stop", command=self.dev_stop_auto_motion).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="3-b-1) Auto Motion", command=self.dev_auto_motion).grid(row=2, column=0, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="3-b-2) Record(Current)", command=self.dev_record).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="4-1) Calculate", command=self.dev_calculate).grid(row=3, column=0, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="4-2) Clear Samples", command=self.clear_samples).grid(row=3, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="5) Apply Home Offset", command=self.dev_apply_home_offset).grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
-        
-        ttk.Button(act, text="6) Home Offset Reset", command=self.dev_home_offset_reset).grid(row=5, column=0, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="7) Check Calibration State", command=self.dev_check_calibration_state).grid(row=5, column=1, padx=5, pady=5, sticky="ew")
-        ttk.Button(act, text="8) Save Dataset", command=self.dev_save_dataset_manually).grid(row=6, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        # Top unnumbered frame
+        top_frm = ttk.Frame(act)
+        top_frm.grid(row=0, column=0, columnspan=2, padx=5, pady=5, sticky="ew")
+        top_frm.columnconfigure(0, weight=1)
+        top_frm.columnconfigure(1, weight=1)
+        top_frm.columnconfigure(2, weight=1)
+
+        ttk.Button(top_frm, text="Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=2, pady=2, sticky="ew")
+        ttk.Button(top_frm, text="Stop", command=self.dev_stop_auto_motion).grid(row=0, column=1, padx=2, pady=2, sticky="ew")
+        ttk.Button(top_frm, text="Home Offset Reset", command=self.dev_home_offset_reset).grid(row=0, column=2, padx=2, pady=2, sticky="ew")
+
+        # Remaining numbered buttons 1-7
+        # Remaining numbered buttons 1-6
+        ttk.Button(act, text="1) Init Pose", command=self.dev_init_pose).grid(row=1, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="2) Auto Motion", command=self.dev_all_auto_motion).grid(row=1, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="3) Calculate", command=self.dev_calculate).grid(row=2, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="4) Clear Samples", command=self.clear_samples).grid(row=2, column=1, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="5) Apply Home Offset", command=self.dev_apply_home_offset).grid(row=3, column=0, padx=5, pady=5, sticky="ew")
+        ttk.Button(act, text="6) Check Calibration State", command=self.dev_check_calibration_state).grid(row=3, column=1, padx=5, pady=5, sticky="ew")
 
         self.dev_count = tk.StringVar(value="Shared Samples: 0")
-        ttk.Label(act, textvariable=self.dev_count).grid(row=7, column=0, columnspan=2, padx=5, pady=5, sticky="w")
+        ttk.Label(act, textvariable=self.dev_count).grid(row=4, column=0, columnspan=2, padx=5, pady=5, sticky="w")
 
         # result/log
         logfrm = ttk.LabelFrame(frm, text="Log / Result")
@@ -567,7 +578,7 @@ class CalibrationUI:
                 "Teaching Required",
                 "Robot has moved to the initial pose.\n\n"
                 "Please use the Teaching button to adjust the robot's pose so that the marker is clearly visible to the camera.\n"
-                "Once adjusted, press 'Auto Motion' or 'All Auto Motion' to start the sequence."
+                "Once adjusted, press 'Auto Motion' to start the sequence."
             ))
         except Exception as e:
             self.log(text_widget, f"Init pose failed: {e}")
@@ -598,7 +609,7 @@ class CalibrationUI:
 
         pose_target = self.get_auto_pose_target_count()
         if self.head_move_count >= pose_target:
-            self.log(text_widget, "All auto motions have already been executed.")
+            self.log(text_widget, "Auto motions have already been executed.")
             return True
 
         if not self.auto_ready_done:
@@ -695,13 +706,13 @@ class CalibrationUI:
 
     def request_stop_all_auto_motion(self, text_widget):
         if not self.auto_motion_running and self.auto_motion_thread is None:
-            self.log(text_widget, "No All Auto Motion sequence is running.")
+            self.log(text_widget, "No Auto Motion sequence is running.")
             self.stop_all_auto_motion_internal(cancel_robot=True)
             return
 
         self.auto_stop_requested = True
         self.stop_all_auto_motion_internal(cancel_robot=True, reset_stop_requested=False)
-        self.log(text_widget, "Stop requested. Sent robot.cancel_control(); the all-auto sequence stops after the current step.")
+        self.log(text_widget, "Stop requested. Sent robot.cancel_control(); the auto motion sequence stops after the current step.")
 
     def run_all_auto_motion_worker(self, text_widget, tab="dev"):
         try:
@@ -721,9 +732,9 @@ class CalibrationUI:
                 # Sleep slightly between steps
                 time.sleep(0.2)
             else:
-                self.log(text_widget, "All auto motions completed.")
+                self.log(text_widget, "Auto motions completed.")
         except Exception as e:
-            self.log(text_widget, f"All Auto Motion background worker error: {e}")
+            self.log(text_widget, f"Auto Motion background worker error: {e}")
         finally:
             self.auto_motion_running = False
             self.auto_motion_thread = None
@@ -742,7 +753,7 @@ class CalibrationUI:
 
         pose_target = self.get_auto_pose_target_count()
         if self.head_move_count >= pose_target:
-            self.log(text_widget, "All auto motions have already been executed.")
+            self.log(text_widget, "Auto motions have already been executed.")
             return
 
         if self.auto_motion_running or self.auto_motion_thread is not None:
@@ -751,7 +762,7 @@ class CalibrationUI:
 
         self.auto_stop_requested = False
         self.auto_motion_running = True
-        self.log(text_widget, "All Auto Motion started in a background thread. Press Stop to cancel.")
+        self.log(text_widget, "Auto Motion started in a background thread. Press Stop to cancel.")
 
         self.auto_motion_thread = threading.Thread(
             target=self.run_all_auto_motion_worker,
@@ -1452,7 +1463,7 @@ class CalibrationUI:
     def update_dev_mode_label(self, event=None):
         mode = self.dev_mode.get()
         if mode == "live":
-            self.dev_mode_info.set("In live mode, Auto Motion records once and All Auto Motion runs the full sweep; Stop interrupts between steps.")
+            self.dev_mode_info.set("In live mode, Auto Motion runs the full sweep; Stop interrupts between steps.")
         elif mode == "sim":
             self.dev_ip.set("127.0.0.1:50051")
             self.dev_ip_entry.config(state="disabled")
@@ -1513,41 +1524,17 @@ class CalibrationUI:
         )
         self.auto_motion_thread.daemon = True
         self.auto_motion_thread.start()
-
-    def dev_auto_motion(self):
+    def dev_all_auto_motion(self):
         try:
             mode = self.dev_mode.get()
             if mode not in ["live", "sim"]:
                 self.log(self.dev_text, "Auto motion is only available in live or sim mode.")
                 return
 
-            if self.auto_motion_running or self.auto_motion_thread is not None:
-                messagebox.showerror("Execution Error", "Another robot operation is currently running.")
-                return
-
-            self.auto_stop_requested = False
-            self.auto_motion_running = True
-            self.auto_motion_thread = threading.Thread(
-                target=self.run_auto_motion_step_worker,
-                args=(self.dev_text, "dev")
-            )
-            self.auto_motion_thread.daemon = True
-            self.auto_motion_thread.start()
+            self.move_to_all_auto_motions(self.dev_text, tab="dev")
         except Exception as e:
             messagebox.showerror("Auto Motion Error", str(e))
             self.log(self.dev_text, f"Auto motion failed: {e}")
-
-    def dev_all_auto_motion(self):
-        try:
-            mode = self.dev_mode.get()
-            if mode not in ["live", "sim"]:
-                self.log(self.dev_text, "All Auto motion is only available in live or sim mode.")
-                return
-
-            self.move_to_all_auto_motions(self.dev_text, tab="dev")
-        except Exception as e:
-            messagebox.showerror("All Auto Motion Error", str(e))
-            self.log(self.dev_text, f"All auto motion failed: {e}")
 
     def dev_stop_auto_motion(self):
         try:
@@ -1560,7 +1547,7 @@ class CalibrationUI:
     def dev_record(self):
         try:
             if self.dev_mode.get() != "live":
-                messagebox.showwarning("Warning", "Record is available only in live mode.")
+                messagebox.showwarning("Warning", "self_capture_sample is available only in live mode.")
                 return
 
             q_arm, q_head, T_meas = self.capture_one_sample(self.dev_text)
@@ -1573,8 +1560,8 @@ class CalibrationUI:
             self.update_sample_counts()
             self.auto_save_current_dataset(self.dev_text)
         except Exception as e:
-            messagebox.showerror("Record Error", str(e))
-            self.log(self.dev_text, f"Record failed: {e}")
+            messagebox.showerror("self_capture_sample Error", str(e))
+            self.log(self.dev_text, f"self_capture_sample failed: {e}")
 
     def dev_calculate(self):
         try:
@@ -1834,7 +1821,7 @@ class CalibrationUI:
 
         popup = tk.Toplevel(self.root)
         popup.title("Check Calibration State")
-        popup.geometry("380x280")
+        popup.geometry("450x280")
         popup.transient(self.root)
         
         # Grid layout for inputs
@@ -1903,6 +1890,55 @@ class CalibrationUI:
             t.daemon = True
             t.start()
 
+        def on_draw_square():
+            if not getattr(self, "check_state_moved", False):
+                messagebox.showerror("Error", "Please click 'Move' first to reach the initial check state.")
+                return
+
+            try:
+                offset = float(offset_var.get())
+            except ValueError:
+                messagebox.showerror("Input Error", "Please enter valid floating-point numbers for Y Offset.")
+                return
+
+            status_lbl.config(text="Status: Drawing...", foreground="orange")
+            
+            def draw_square_worker():
+                try:
+                    active_arms = self.get_active_arms()
+                    square_points = [
+                        [0.35, 0.07, 0.0],
+                        [0.35, 0.0, 0.07],
+                        [0.35, -0.07, 0.0],
+                        [0.35, 0.0, -0.07],
+                    ]
+                    
+                    self.log(self.dev_text, "[Draw Square] Starting square drawing sequence (2 loops)...")
+                    for loop_idx in range(2):
+                        self.log(self.dev_text, f"[Draw Square] Loop {loop_idx + 1} / 2")
+                        for pt_idx, pt in enumerate(square_points):
+                            self.log(self.dev_text, f"[Draw Square] Moving to point {pt_idx + 1}: {pt}")
+                            check_calibration_state(
+                                self.robot,
+                                self.dev_model.get(),
+                                active_arms,
+                                pt,
+                                offset,
+                                log_cb=lambda msg: self.log(self.dev_text, f"[Draw Square] {msg}"),
+                                skip_ready=True
+                            )
+                            time.sleep(0.5)
+                            
+                    self.log(self.dev_text, "[Draw Square] Square drawing sequence completed successfully.")
+                    popup.after(0, lambda: status_lbl.config(text="Status: Draw OK", foreground="green"))
+                except Exception as ex:
+                    self.log(self.dev_text, f"[Draw Square Error] {ex}")
+                    popup.after(0, lambda: status_lbl.config(text="Status: Draw Error", foreground="red"))
+
+            t = threading.Thread(target=draw_square_worker)
+            t.daemon = True
+            t.start()
+
         def on_close():
             self.check_state_moved = False
             popup.destroy()
@@ -1910,6 +1946,7 @@ class CalibrationUI:
         popup.protocol("WM_DELETE_WINDOW", on_close)
 
         ttk.Button(btn_frm, text="Move", command=on_move).pack(side="left", padx=10)
+        ttk.Button(btn_frm, text="Draw Square", command=on_draw_square).pack(side="left", padx=10)
         ttk.Button(btn_frm, text="Close", command=on_close).pack(side="left", padx=10)
 
     # ============================================================
