@@ -15,7 +15,7 @@ class JointCalibrator(BaseCalibrator):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
-    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None):
+    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -29,7 +29,7 @@ class JointCalibrator(BaseCalibrator):
             return self.perform_calibration_sweep_continuous(
                 arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                 current_offset_deg=offset, sweep_duration=sweep_duration,
-                use_angle_based_fitting=use_angle_based_fitting
+                use_angle_based_fitting=use_angle_based_fitting, save_debug=save_debug
             )
             
         max_iterations = 8
@@ -459,7 +459,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -683,11 +683,11 @@ class JointCalibrator(BaseCalibrator):
         T_mount_to_cam = self.make_transform(mount_to_cam)
 
         # Save FULL captured continuous sweep points to debug txt files before downsampling
-        # (Commented out to stop saving txt files as requested)
-        # self.save_debug_points(
-        #     arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
-        #     cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
-        # )
+        if save_debug:
+            self.save_debug_points(
+                arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
+                cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
+            )
         
         # Keep up to 200 points for speed and accuracy
         raw_len_A = len(dataset_A)
@@ -893,11 +893,12 @@ class JointCalibrator(BaseCalibrator):
             log_callback("="*50)
 
         # Simultaneously generate and save orthogonal debug plot (using camera frame)
-        # self.save_debug_orthogonal_plot(
-        #     arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
-        #     optimal_offset_rad, ee_name, arm_idx, cand_joint, 
-        #     angle_error_deg=angle_between_normals, log_callback=log_callback
-        # )
+        if save_debug:
+            self.save_debug_orthogonal_plot(
+                arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
+                optimal_offset_rad, ee_name, arm_idx, cand_joint, 
+                angle_error_deg=angle_between_normals, log_callback=log_callback
+            )
 
         # Simultaneous Marker Axis 6 parameter calculation (Removed/Bypassed to speed up joint calibration)
         marker_6_res = None

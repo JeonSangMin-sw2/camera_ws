@@ -134,7 +134,7 @@ class MarkerCalibrator(BaseCalibrator):
             log_callback("[INFO] Ready Pose Reached.")
         return success
 
-    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True):
+    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False):
         if getattr(self, 'stop_requested', False):
             return None
         import threading
@@ -418,6 +418,11 @@ class MarkerCalibrator(BaseCalibrator):
             
         res['captured_poses'] = captured_poses
         res['captured_q_full'] = captured_q_full
+        if save_debug:
+            dataset = list(zip(captured_q_full, captured_poses))
+            self.save_marker_debug_points(
+                arm_side, axis_mode, dataset, initial_joint_pos, ee_name, dyn_model, T_t5_to_cam_fixed, log_callback
+            )
         return res
 
     def get_link_length(self, arm_side):

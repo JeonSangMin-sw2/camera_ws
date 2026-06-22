@@ -419,12 +419,13 @@ class MarkerCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
     
-    def __init__(self, calibrator, arm_side, use_head_tracking=True, tolerance=0.5):
+    def __init__(self, calibrator, arm_side, use_head_tracking=True, tolerance=0.5, save_debug=False):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
         self.use_head_tracking = use_head_tracking
         self.tolerance = tolerance
+        self.save_debug = save_debug
         
     def run(self):
         try:
@@ -454,7 +455,8 @@ class MarkerCalibrationWorker(QThread):
                     self.arm_side, 4,
                     log_callback=self.log_signal.emit,
                     status_callback=self.status_signal.emit,
-                    use_head_tracking=self.use_head_tracking
+                    use_head_tracking=self.use_head_tracking,
+                    save_debug=self.save_debug
                 )
                 if not res_4:
                     self.log_signal.emit("[ERROR] Stage 1 (Axis 4) sweep failed. Aborting.")
@@ -623,7 +625,7 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=15.0):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=15.0, save_debug=False):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
@@ -631,6 +633,7 @@ class JointCalibrationWorker(QThread):
         self.ui_only = ui_only
         self.current_offset_deg = current_offset_deg
         self.sweep_duration = sweep_duration
+        self.save_debug = save_debug
 
     def run(self):
         try:
@@ -669,7 +672,8 @@ class JointCalibrationWorker(QThread):
                     log_callback=self.log_signal.emit, 
                     status_callback=self.status_signal.emit,
                     current_offset_deg=self.current_offset_deg,
-                    sweep_duration=self.sweep_duration
+                    sweep_duration=self.sweep_duration,
+                    save_debug=self.save_debug
                 )
 
             if res:
@@ -1385,9 +1389,13 @@ class UnifiedCalibrationApp(QWidget):
         
         self.temp_label = QLabel("Camera Temp: -- °C")
         
+        self.chk_save_debug = QCheckBox("Save Debug Data")
+        self.chk_save_debug.setChecked(True)
+        
         status_layout.addLayout(ind_layout)
         status_layout.addLayout(btn_layout)
         status_layout.addWidget(self.temp_label)
+        status_layout.addWidget(self.chk_save_debug)
         status_box.setLayout(status_layout)
 
         # Row 1 layout
@@ -2501,7 +2509,8 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
             current_offset_deg=curr_offset,
-            sweep_duration=15.0
+            sweep_duration=15.0,
+            save_debug=self.chk_save_debug.isChecked()
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.status_signal.connect(self.update_marker_indicator)
