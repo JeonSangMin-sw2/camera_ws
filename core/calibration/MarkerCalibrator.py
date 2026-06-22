@@ -392,8 +392,13 @@ class MarkerCalibrator(BaseCalibrator):
         pts_ee = []
         for q_full, pose_cam_to_marker in zip(captured_q_full, captured_poses):
             try:
-                # Use strictly fixed transformation with zero translation and no live FK
-                T_t5_to_marker = T_t5_to_cam_fixed @ pose_cam_to_marker
+                if self.robot and self.robot != "mock_robot":
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+                else:
+                    T_t5_to_cam = T_t5_to_cam_fixed
+                
+                T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
                 T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
                 p_ee = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker @ np.array([0, 0, 0, 1])
                 pts_ee.append(p_ee[:3] * 1000.0) # in mm
