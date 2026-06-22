@@ -31,7 +31,7 @@
 [INFO] Active joint 16 limits: min=-90.00°, max=90.00°
 [INFO] Moving to start sweep position...
 [INFO] Commencing Continuous Sweep on Marker Axis 6 (duration=15s)...
-    -> Swept 69 dense raw coordinate frames.
+    -> Swept 73 dense raw coordinate frames.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 
@@ -46,7 +46,7 @@
 [INFO] Active joint 15 limits: min=-50.00°, max=50.00°
 [INFO] Moving to start sweep position...
 [INFO] Commencing Continuous Sweep on Marker Axis 5 (duration=15s)...
-    -> Swept 71 dense raw coordinate frames.
+    -> Swept 72 dense raw coordinate frames.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 
@@ -57,22 +57,22 @@
 ==================================================
 
 [1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 157.01 mm
-    - Y-Offset: 49.40 mm
-    - Z-Offset: 80.52 mm
-       * (L_5_ee: 125.0 mm, R6: 132.22 mm, R5: 161.58 mm, R4: 99.69 mm)
-    - Opt Delta 5 (5축 오프셋): 9.920 deg
-    - Opt Delta 6 (6축 오프셋): -15.121 deg
-    - Min Circle Fitting Radius (최소 원 피팅 반지름): 179.50 mm
+    - X-Offset: 0.00 mm
+    - Y-Offset: 13.35 mm
+    - Z-Offset: -314.38 mm
+       * (L_5_ee: 125.0 mm, R6: 131.98 mm, R5: 161.72 mm, R4: 99.56 mm)
+    - Opt Delta 5 (5축 오프셋): -1.720 deg
+    - Opt Delta 6 (6축 오프셋): -152.445 deg
+    - Min Circle Fitting Radius (최소 원 피팅 반지름): 99.56 mm
 
 [2] Angular Misalignment (EE Link Frame)
-    - Roll : 102.85 deg
-    - Pitch: 13.05 deg
-    - Yaw  : 269.14 deg
+    - Roll : 115.58 deg
+    - Pitch: -27.94 deg
+    - Yaw  : 95.23 deg
 
 [3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.15701, 0.04940, 0.08052, 102.85, 13.05, 269.14]
+  Tf_to_marker_right: [0.00000, 0.01335, -0.31438, 115.58, -27.94, 95.23]
 
 [4] Confidence Metrics:
-    - Orthogonality Error  : 0.000 deg
+    - Orthogonality Error  : 6.140 deg
 ==================================================
