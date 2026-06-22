@@ -448,147 +448,66 @@ class MarkerCalibrator(BaseCalibrator):
             nominal_rpy = [90.0, 0.0, 180.0]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
-        # Gather points and joint positions from all three sweeps
-        all_samples = []
-        for dataset in [marker_data_4, marker_data_5, marker_data_6]:
-            if dataset is None:
-                continue
-            poses = dataset.get('captured_poses', [])
-            q_fulls = dataset.get('captured_q_full', [])
-            for p, q in zip(poses, q_fulls):
-                all_samples.append((q, p))
+        # Helper to extract rotation axis
+        def extract_axis_from_rotations(poses, ideal_axis):
+            if len(poses) < 2: return ideal_axis
+            mid_idx = len(poses) // 2
+            R_ref = poses[mid_idx][:3, :3]
+            axes = []
+            for i, T in enumerate(poses):
+                if i == mid_idx: continue
+                R_rel = R_ref.T @ T[:3, :3] 
+                rotvec = R_scipy.from_matrix(R_rel).as_rotvec()
+                angle = np.linalg.norm(rotvec)
+                if angle > np.radians(1.0):
+                    axis = rotvec / angle
+                    if np.dot(axis, ideal_axis) < 0: axis = -axis
+                    axes.append(axis)
+            if len(axes) > 0:
+                avg_axis = np.mean(axes, axis=0)
+                return avg_axis / np.linalg.norm(avg_axis)
+            return ideal_axis
 
-        # Camera fixed rotation
-        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        # Force camera translation components to zero as requested and use fixed rotation
-        mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
-        T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+        # Ideal axes in marker frame (for sign resolution)
+        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
+        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
 
-        dyn_model = None
-        if self.robot and self.robot != "mock_robot":
-            dyn_model = self.robot.get_dynamics()
+        poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
+        n6_marker_actual = extract_axis_from_rotations(poses_6, x_ee_m_ideal)
 
-        ee_name = f"ee_{arm_side}"
-        
-        # Precompute T_t5_to_marker for all samples
-        precomputed_samples = []
-        for q_full, T_cam_to_marker in all_samples:
-            if self.robot and self.robot != "mock_robot" and dyn_model is not None:
-                try:
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-                except Exception:
-                    T_t5_to_cam = T_t5_to_cam_fixed
-            else:
-                T_t5_to_cam = T_t5_to_cam_fixed
-            
-            T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
-            precomputed_samples.append((q_full, T_t5_to_marker))
+        poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
+        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
 
-        if len(precomputed_samples) < 4:
-            logging.error("Not enough points for unified bracket calibration v1.3")
-            return {
-                'x_e': 0.0, 'y_e': 80.0 if arm_side == "left" else -80.0, 'z_e': -30.0,
-                'roll_e': nominal_rpy[0], 'pitch_e': nominal_rpy[1], 'yaw_e': nominal_rpy[2],
-                'L_5_ee': L_5_ee, 'radius_6': 80.0, 'radius_5': 280.0, 'radius_4': 0.0,
-                'ortho_err': 0.0, 'rmse_6': 0.0, 'rmse_5': 0.0, 'rmse_4': 0.0,
-                'rot_err_deg': 0.0, 'tilt_diff': 0.0, 'warn_large_angle': False,
-                'opt_delta_5': 0.0, 'opt_delta_6': 0.0, 'min_radius': 0.0
-            }
-
-        # Identify arm joint indices
-        if self.robot and self.robot != "mock_robot":
-            model = self.robot.model()
-            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        if marker_data_4 is not None:
+            poses_4 = marker_data_4.get('captured_poses', [])
+            n4_marker_actual = extract_axis_from_rotations(poses_4, z_ee_m_ideal)
+            # 1. Recover delta_5
+            opt_delta_5_rad = -np.arcsin(np.clip(np.dot(n6_marker_actual, n4_marker_actual), -1.0, 1.0))
+            opt_delta_5 = float(np.degrees(opt_delta_5_rad))
         else:
-            # Fallback or mock index mapping
-            arm_idx = list(range(20))
+            opt_delta_5 = 0.0
 
-        # Variance and orientation objective function to minimize variance of reconstructed points in EE frame and orientation error relative to ideal RPY
-        def variance_objective(x):
-            d5, d6 = x[0], x[1]
-            pts_ee = []
-            R_ee_m_list = []
-            for q_full, T_t5_to_marker in precomputed_samples:
-                q_corr = q_full.copy()
-                q_corr[arm_idx[5]] += d5
-                q_corr[arm_idx[6]] += d6
-                
-                try:
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_corr, ee_name, "link_torso_5")
-                    T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
-                    pts_ee.append(T_ee_to_marker[:3, 3] * 1000.0) # Convert to mm
-                    R_ee_m_list.append(T_ee_to_marker[:3, :3])
-                except Exception:
-                    pass
-            
-            if len(pts_ee) < 4:
-                return 1e6
-            pts_ee = np.array(pts_ee)
-            var = np.sum(np.var(pts_ee, axis=0))
-            
-            # SVD rotation averaging
-            M = np.mean(R_ee_m_list, axis=0)
-            U, S, Vt = np.linalg.svd(M)
-            R_avg = U @ Vt
-            if np.linalg.det(R_avg) < 0:
-                U[:, 2] *= -1
-                R_avg = U @ Vt
-                
-            # Rotation error relative to ideal orientation
-            rot_err_mat = R_avg.T @ R_ee_m_ideal
-            rot_err_rad = np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0))
-            rot_err_deg = np.rad2deg(rot_err_rad)
-            
-            # Combined cost: translation variance (mm^2) + orientation error squared (deg^2)
-            return var + 1.0 * (rot_err_deg ** 2)
-
-        from scipy.optimize import minimize
-        x0 = [0.0, 0.0]
-        bounds = [(-np.radians(20.0), np.radians(20.0)), (-np.radians(20.0), np.radians(20.0))]
-        
-        res_opt = minimize(variance_objective, x0, method='L-BFGS-B', bounds=bounds, tol=1e-10)
-        opt_delta_5_rad, opt_delta_6_rad = res_opt.x
-        
-        opt_delta_5 = float(np.degrees(opt_delta_5_rad))
-        opt_delta_6 = float(np.degrees(opt_delta_6_rad))
-
-        # Reconstruct optimal points in EE frame and calculate mean
-        v_ee_list = []
-        R_list = []
-        for q_full, T_t5_to_marker in precomputed_samples:
-            q_corr = q_full.copy()
-            q_corr[arm_idx[5]] += opt_delta_5_rad
-            q_corr[arm_idx[6]] += opt_delta_6_rad
-            try:
-                T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_corr, ee_name, "link_torso_5")
-                T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
-                v_ee_list.append(T_ee_to_marker[:3, 3])
-                R_list.append(T_ee_to_marker[:3, :3])
-            except Exception:
-                pass
-
-        if len(v_ee_list) > 0:
-            v_ee_avg = np.mean(v_ee_list, axis=0)
-            x_e = v_ee_avg[0] * 1000.0
-            y_e = v_ee_avg[1] * 1000.0
-            z_e = v_ee_avg[2] * 1000.0
-            
-            # SVD rotation averaging
-            M = np.mean(R_list, axis=0)
-            U, S, Vt = np.linalg.svd(M)
-            R_ee_m_actual = U @ Vt
-            if np.linalg.det(R_ee_m_actual) < 0:
-                U[:, 2] *= -1
-                R_ee_m_actual = U @ Vt
+        # Project n5 onto plane perpendicular to n6
+        y_col_proj = n5_marker_actual - np.dot(n5_marker_actual, n6_marker_actual) * n6_marker_actual
+        if np.linalg.norm(y_col_proj) > 1e-6:
+            y_col_proj /= np.linalg.norm(y_col_proj)
         else:
-            # Fallback for mock/UI-only mode
-            x_e = 0.0
-            y_e = 74.85 if arm_side == "left" else -74.85
-            z_e = -50.15
-            R_ee_m_actual = R_ee_m_ideal
-            v_ee_avg = np.array([x_e, y_e, z_e]) / 1000.0
+            y_col_proj = y_ee_m_ideal - np.dot(y_ee_m_ideal, n6_marker_actual) * n6_marker_actual
+            y_col_proj /= np.linalg.norm(y_col_proj)
 
+        z_col_proj = np.cross(n6_marker_actual, y_col_proj)
+
+        R_ee_m_0 = np.column_stack((n6_marker_actual, y_col_proj, z_col_proj)).T
+        M = R_ee_m_0.T @ R_ee_m_ideal
+        opt_delta_6_rad = np.arctan2(M[1, 2] - M[2, 1], M[1, 1] + M[2, 2])
+        n6_sign = np.sign(np.dot(n6_marker_actual, [1.0, 0.0, 0.0]))
+        opt_delta_6_rad_signed = opt_delta_6_rad * n6_sign
+        opt_delta_6 = float(np.degrees(opt_delta_6_rad_signed))
+
+        R_ee_m_actual = R_ee_m_0 @ R_scipy.from_euler('X', -opt_delta_6_rad).as_matrix()
+
+        # Euler angles from recovered rotation matrix
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         if arm_side == "right" and yaw_e < 0:
@@ -597,38 +516,72 @@ class MarkerCalibrator(BaseCalibrator):
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
 
-        # Calculate min_radius under optimal offsets
-        p_ee_mm = v_ee_avg * 1000.0
-        c6, s6 = np.cos(opt_delta_6_rad), np.sin(opt_delta_6_rad)
-        p5 = np.array([
-            p_ee_mm[0],
-            p_ee_mm[1] * c6 - p_ee_mm[2] * s6,
-            p_ee_mm[1] * s6 + p_ee_mm[2] * c6
-        ])
-        c5, s5 = np.cos(opt_delta_5_rad), np.sin(opt_delta_5_rad)
-        p4 = np.array([
-            p5[0] * c5 + p5[2] * s5,
-            p5[1],
-            -p5[0] * s5 + p5[2] * c5
-        ])
-        min_radius = float(np.sqrt(p4[0]**2 + p4[1]**2))
+        radius_6 = marker_data_6.get('radius', 0.0) if marker_data_6 else 0.0
+        radius_5 = marker_data_5.get('radius', 0.0) if marker_data_5 else 0.0
+        radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
+
+        # Translation offsets
+        x_e = 0.0
+
+        # Compute T_t5_to_cam to transform the J5 sweep center back to torso_5
+        q_fulls_5 = marker_data_5.get('captured_q_full', []) if marker_data_5 else []
+        dyn_model = None
+        if self.robot and self.robot != "mock_robot":
+            dyn_model = self.robot.get_dynamics()
+        
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
+        T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+
+        T_t5_to_cam = T_t5_to_cam_fixed
+        if len(q_fulls_5) > 0 and self.robot and self.robot != "mock_robot" and dyn_model is not None:
+            try:
+                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_fulls_5[0], "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+            except Exception:
+                pass
+
+        pts_5_cam = np.array([T[:3, 3] for T in poses_5])
+        c_5_cam = np.mean(pts_5_cam, axis=0) if len(pts_5_cam) > 0 else np.array([0.0, 0.0, 0.3])
+        c_5_t5 = (T_t5_to_cam @ np.append(c_5_cam, 1.0))[:3]
+        Y_sign = np.sign(c_5_t5[1]) if abs(c_5_t5[1]) > 1e-5 else 1.0
+
+        r6 = radius_6
+        r5 = radius_5
+        r4 = radius_4
+        
+        if marker_data_4 is not None:
+            # opt_delta_5_rad is computed only if marker_data_4 is not None
+            Y_prime_sq = r4**2 - r5**2 * np.sin(opt_delta_5_rad)**2
+            Y_prime = Y_sign * np.sqrt(max(0.0, Y_prime_sq))
+        else:
+            Y_prime = Y_sign * np.sqrt(max(0.0, r6**2 - r5**2))
+            
+        Z_prime = r5
+        
+        d6 = opt_delta_6_rad_signed
+        y_e = Y_prime * np.cos(d6) + Z_prime * np.sin(d6)
+        z_e = -Y_prime * np.sin(d6) + Z_prime * np.cos(d6) - L_5_ee
+
+
+
+        dot_val = np.dot(n6_marker_actual, n5_marker_actual)
+        ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
 
         return {
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
             'L_5_ee': L_5_ee,
-            'radius_6': marker_data_6.get('radius', 0.0),
-            'radius_5': marker_data_5.get('radius', 0.0),
-            'radius_4': marker_data_4.get('radius', 0.0) if marker_data_4 else 0.0,
-            'ortho_err': 0.0,
-            'rmse_6': marker_data_6.get('rmse', 0.0),
-            'rmse_5': marker_data_5.get('rmse', 0.0),
-            'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 else 0.0,
+            'radius_6': radius_6, 'radius_5': radius_5, 'radius_4': radius_4,
+            'ortho_err': ortho_err,
+            'rmse_6': marker_data_6.get('rmse', 0.0) if marker_data_6 else 0.0,
+            'rmse_5': marker_data_5.get('rmse', 0.0) if marker_data_5 else 0.0,
+            'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 is not None else 0.0,
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
             'warn_large_angle': rot_err_deg > 15.0,
             'opt_delta_5': opt_delta_5,
             'opt_delta_6': opt_delta_6,
-            'min_radius': min_radius
+            'min_radius': radius_4
         }
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):

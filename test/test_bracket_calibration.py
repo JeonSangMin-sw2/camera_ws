@@ -234,7 +234,13 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
         T[:3, 3] = [0.0, 0.0, 0.3]
         return T
 
-    # 3. Generate J4 sweep dataset
+    # 3. Calculate target radii based on gt coordinates (L_5_ee = 300 mm)
+    L_5_ee = 300.0
+    r6_gt = np.sqrt(y_e_gt**2 + (z_e_gt + L_5_ee)**2)
+    r5_gt = abs(y_e_gt * np.sin(d6_gt_rad) + (z_e_gt + L_5_ee) * np.cos(d6_gt_rad))
+    r4_gt = np.sqrt(r5_gt**2 * np.sin(d5_gt_rad)**2 + r6_gt**2 - r5_gt**2)
+
+    # 4. Generate J4 sweep dataset
     T_t5_to_cam = calibrator.make_transform([0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
     poses_4 = []
     q_fulls_4 = []
@@ -244,9 +250,9 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
         T_act = mock_compute_fk_actual(q)
         poses_4.append(np.linalg.inv(T_t5_to_cam) @ T_act @ T_ee_to_marker_gt)
         q_fulls_4.append(q)
-    marker_data_4 = {'captured_poses': poses_4, 'captured_q_full': q_fulls_4, 'radius': 100.0, 'rmse': 0.0}
+    marker_data_4 = {'captured_poses': poses_4, 'captured_q_full': q_fulls_4, 'radius': r4_gt, 'rmse': 0.0}
 
-    # 4. Generate J5 sweep dataset
+    # 5. Generate J5 sweep dataset
     poses_5 = []
     q_fulls_5 = []
     for q5_deg in np.linspace(-10.0, 10.0, 30):
@@ -255,9 +261,9 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
         T_act = mock_compute_fk_actual(q)
         poses_5.append(np.linalg.inv(T_t5_to_cam) @ T_act @ T_ee_to_marker_gt)
         q_fulls_5.append(q)
-    marker_data_5 = {'captured_poses': poses_5, 'captured_q_full': q_fulls_5, 'radius': 280.0, 'rmse': 0.0}
+    marker_data_5 = {'captured_poses': poses_5, 'captured_q_full': q_fulls_5, 'radius': r5_gt, 'rmse': 0.0}
 
-    # 5. Generate J6 sweep dataset
+    # 6. Generate J6 sweep dataset
     poses_6 = []
     q_fulls_6 = []
     for q6_deg in np.linspace(-20.0, 20.0, 30):
@@ -266,9 +272,9 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
         T_act = mock_compute_fk_actual(q)
         poses_6.append(np.linalg.inv(T_t5_to_cam) @ T_act @ T_ee_to_marker_gt)
         q_fulls_6.append(q)
-    marker_data_6 = {'captured_poses': poses_6, 'captured_q_full': q_fulls_6, 'radius': 80.0, 'rmse': 0.0}
+    marker_data_6 = {'captured_poses': poses_6, 'captured_q_full': q_fulls_6, 'radius': r6_gt, 'rmse': 0.0}
 
-    # 6. Run the calibration optimizer
+    # 7. Run the calibration optimizer
     res = calibrator.compute_unified_bracket_calibration_v1_3(
         marker_data_5=marker_data_5,
         marker_data_6=marker_data_6,
@@ -300,10 +306,11 @@ if __name__ == "__main__":
     # Test Left Arm
     test_joint_6_angle_correction_integration("left", roll_offset=3.0, pitch_offset=-2.0, yaw_offset=1.5, theta_6_deg=17.49)
     test_3axis_bracket_calibration_integration("left", roll_offset=3.0, pitch_offset=-2.0, yaw_offset=1.5, theta_6_deg=17.49, theta_6_4_deg=10.0)
-    test_v13_bracket_calibration_and_optimization("left", x_e_gt=2.5, y_e_gt=-74.8, z_e_gt=-50.1, d5_gt_deg=4.5, d6_gt_deg=-6.2)
+    test_v13_bracket_calibration_and_optimization("left", x_e_gt=0.0, y_e_gt=-74.8, z_e_gt=-50.1, d5_gt_deg=4.5, d6_gt_deg=-6.2)
     
     # Test Right Arm
     test_joint_6_angle_correction_integration("right", roll_offset=2.5, pitch_offset=1.2, yaw_offset=-3.4, theta_6_deg=-15.3)
     test_3axis_bracket_calibration_integration("right", roll_offset=2.5, pitch_offset=1.2, yaw_offset=-3.4, theta_6_deg=-15.3, theta_6_4_deg=-5.0)
-    test_v13_bracket_calibration_and_optimization("right", x_e_gt=-1.5, y_e_gt=74.8, z_e_gt=-50.1, d5_gt_deg=-3.8, d6_gt_deg=5.4)
+    test_v13_bracket_calibration_and_optimization("right", x_e_gt=0.0, y_e_gt=74.8, z_e_gt=-50.1, d5_gt_deg=-3.8, d6_gt_deg=5.4)
+
 
