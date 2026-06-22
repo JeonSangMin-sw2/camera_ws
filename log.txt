@@ -11,7 +11,7 @@
 [INFO] Active joint 14 limits: min=-180.00°, max=180.00°
 [INFO] Moving to start sweep position...
 [INFO] Commencing Continuous Sweep on Marker Axis 4 (duration=15s)...
-    -> Swept 71 dense raw coordinate frames.
+    -> Swept 72 dense raw coordinate frames.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 
@@ -31,7 +31,7 @@
 [INFO] Active joint 16 limits: min=-90.00°, max=90.00°
 [INFO] Moving to start sweep position...
 [INFO] Commencing Continuous Sweep on Marker Axis 6 (duration=15s)...
-    -> Swept 70 dense raw coordinate frames.
+    -> Swept 69 dense raw coordinate frames.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 
@@ -46,7 +46,7 @@
 [INFO] Active joint 15 limits: min=-50.00°, max=50.00°
 [INFO] Moving to start sweep position...
 [INFO] Commencing Continuous Sweep on Marker Axis 5 (duration=15s)...
-    -> Swept 70 dense raw coordinate frames.
+    -> Swept 71 dense raw coordinate frames.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 
@@ -57,21 +57,21 @@
 ==================================================
 
 [1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 19.37 mm
-    - Y-Offset: -98.59 mm
-    - Z-Offset: -5.74 mm
-       * (L_5_ee: 125.0 mm, R6: 160.24 mm, R5: 160.24 mm, R4: 99.47 mm)
-    - Opt Delta 5 (5축 오프셋): -73.944 deg
-    - Opt Delta 6 (6축 오프셋): -13.577 deg
-    - Min Circle Fitting Radius (최소 원 피팅 반지름): 5.10 mm
+    - X-Offset: 157.01 mm
+    - Y-Offset: 49.40 mm
+    - Z-Offset: 80.52 mm
+       * (L_5_ee: 125.0 mm, R6: 132.22 mm, R5: 161.58 mm, R4: 99.69 mm)
+    - Opt Delta 5 (5축 오프셋): 9.920 deg
+    - Opt Delta 6 (6축 오프셋): -15.121 deg
+    - Min Circle Fitting Radius (최소 원 피팅 반지름): 179.50 mm
 
 [2] Angular Misalignment (EE Link Frame)
-    - Roll : 93.31 deg
-    - Pitch: -2.32 deg
-    - Yaw  : 269.57 deg
+    - Roll : 102.85 deg
+    - Pitch: 13.05 deg
+    - Yaw  : 269.14 deg
 
 [3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.01937, -0.09859, -0.00574, 93.31, -2.32, 269.57]
+  Tf_to_marker_right: [0.15701, 0.04940, 0.08052, 102.85, 13.05, 269.14]
 
 [4] Confidence Metrics:
     - Orthogonality Error  : 0.000 deg
