@@ -56,7 +56,6 @@ class TCPClient:
 """
 class RealSenseCamera:
     # serial_number : 해당 넘버의 카메라를 사용, 입력하지 않으면 첫번째 카메라 사용
-    # serial_number : 해당 넘버의 카메라를 사용, 입력하지 않으면 첫번째 카메라 사용
     """카메라의 시리얼 넘버는 realsense_check.py를 통해 검색할 수 있음"""
     def __init__(self, serial_number=None):
         # 연결되어있는 카메라 검색
