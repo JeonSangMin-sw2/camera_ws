@@ -431,22 +431,21 @@ class MarkerCalibrationWorker(QThread):
             version_num = self.calibrator.get_robot_version()
             is_v13 = (abs(version_num - 1.3) < 0.05)
             
+            is_mock_run = (not self.calibrator.robot or self.calibrator.robot == "mock_robot")
+            if not is_mock_run:
+                state = self.calibrator.robot.get_state()
+                model = self.calibrator.robot.model()
+                arm_idx = model.left_arm_idx if self.arm_side == "left" else model.right_arm_idx
+                first_starting_pose = list(state.position[arm_idx])
+            else:
+                first_starting_pose = [0.0]*7
+            
             res_4 = None
             if is_v13:
-                # Move to marker ready pose
-                self.log_signal.emit("\n" + "="*50)
-                self.log_signal.emit("   [Stage 1/3] Moving to Marker Ready Pose...")
-                self.log_signal.emit("="*50 + "\n")
-                if not self.calibrator.perform_move_to_ready_pose(self.arm_side, log_callback=self.log_signal.emit):
-                    self.log_signal.emit("[ERROR] Move to marker ready pose failed. Aborting.")
-                    self.finished_signal.emit(None)
-                    return
-                
+                # Stage 1 Axis 4 sweep starts immediately from the initial/current pose
                 if getattr(self.calibrator, 'stop_requested', False):
                     self.finished_signal.emit(None)
                     return
-                
-                time.sleep(1.0)
                 
                 self.log_signal.emit("\n" + "="*50)
                 self.log_signal.emit("   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...")
@@ -470,14 +469,37 @@ class MarkerCalibrationWorker(QThread):
                 
                 time.sleep(1.0)
                 
-                # Move to marker ready pose
-                self.log_signal.emit("\n" + "="*50)
-                self.log_signal.emit("   [Stage 2/3] Moving to Marker Ready Pose...")
-                self.log_signal.emit("="*50 + "\n")
-                if not self.calibrator.perform_move_to_ready_pose(self.arm_side, log_callback=self.log_signal.emit):
-                    self.log_signal.emit("[ERROR] Move to marker ready pose failed. Aborting.")
-                    self.finished_signal.emit(None)
-                    return
+                # Move back to initial starting pose
+                if not is_mock_run:
+                    self.log_signal.emit("\n" + "="*50)
+                    self.log_signal.emit("   [Stage 2/3] Returning to Initial Starting Pose...")
+                    self.log_signal.emit("="*50 + "\n")
+                    
+                    if self.arm_side == "right":
+                        success_other = self.calibrator.movej(self.calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
+                    else:
+                        success_other = self.calibrator.movej(self.calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
+                    
+                    if not success_other:
+                        self.log_signal.emit("[ERROR] Failed to move inactive arm to zero pose.")
+                        self.finished_signal.emit(None)
+                        return
+                    
+                    success = self.calibrator.movej(
+                        self.calibrator.robot,
+                        torso=[0.0]*6,
+                        right_arm=first_starting_pose if self.arm_side == "right" else None,
+                        left_arm=first_starting_pose if self.arm_side == "left" else None,
+                        head=[0, 0],
+                        minimum_time=5.0
+                    )
+                    if not success:
+                        self.log_signal.emit("[ERROR] Failed to return to initial starting pose. Aborting.")
+                        self.finished_signal.emit(None)
+                        return
+                else:
+                    self.log_signal.emit("\n[MOCK] Returning to Initial Starting Pose...")
+                    time.sleep(1.0)
                 
                 if getattr(self.calibrator, 'stop_requested', False):
                     self.finished_signal.emit(None)
