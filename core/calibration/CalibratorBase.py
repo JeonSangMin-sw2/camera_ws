@@ -1,3 +1,4 @@
+import sys
 import time
 import logging
 import os
@@ -28,7 +29,7 @@ class BaseCalibrator:
         self.stop_requested = False
 
     def load_ready_poses(self):
-        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
         yaml_path = os.path.join(config_dir, "ready_poses.yaml")
         if os.path.exists(yaml_path):
             try:
@@ -37,8 +38,10 @@ class BaseCalibrator:
                 logging.info(f"Loaded ready poses from {yaml_path}")
             except Exception as e:
                 logging.error(f"Failed to load ready_poses.yaml: {e}")
+                sys.exit(f"[CRITICAL ERROR] Failed to parse ready_poses.yaml: {e}")
         else:
-            logging.warning("ready_poses.yaml not found. Using fallback ready poses.")
+            logging.error(f"ready_poses.yaml not found at {yaml_path}!")
+            sys.exit(f"[CRITICAL ERROR] ready_poses.yaml not found at {yaml_path}!")
 
     def get_robot_version(self):
         return getattr(self, "robot_version", 1.2)
@@ -55,10 +58,6 @@ class BaseCalibrator:
                     "elbow": {
                         "right_arm": [-107.0, -17.0, 0.0, 0.0, 73.0, -80.0, 73.0],
                         "left_arm": [-107.0, 17.0, 0.0, 0.0, -73.0, -80.0, -73.0]
-                    },
-                    "head": {
-                        "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
-                        "left_arm": [-90.0, 45.0, -73.0, -107.0, -90.0, 90.0, 0.0]
                     }
                 },
                 "marker": {
@@ -79,10 +78,6 @@ class BaseCalibrator:
                     "elbow": {
                         "right_arm": [-107.0, -17.0, 0.0, 0.0, 73.0, -80.0, 73.0],
                         "left_arm": [-107.0, 17.0, 0.0, 0.0, -73.0, -80.0, -73.0]
-                    },
-                    "head": {
-                        "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
-                        "left_arm": [-90.0, 45.0, -73.0, -107.0, -90.0, 90.0, 0.0]
                     }
                 },
                 "marker": {
@@ -118,7 +113,7 @@ class BaseCalibrator:
 
     def load_camera_config(self):
         # Locate setting.yaml
-        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "config"))
+        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
         yaml_path = os.path.join(config_dir, "setting.yaml")
         if os.path.exists(yaml_path):
             try:
@@ -127,6 +122,8 @@ class BaseCalibrator:
                 logging.info(f"Loaded config from setting.yaml")
             except Exception as e:
                 logging.error(f"Failed to load setting.yaml: {e}")
+        else:
+            logging.warning(f"setting.yaml not found at {yaml_path}")
 
     def save_debug_points(self, arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback=None):
         try:

@@ -177,7 +177,7 @@ class JointCalibrator(BaseCalibrator):
         version_num = self.get_robot_version()
         version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
         
-        ready_mode = mode if mode in ["wrist_pitch", "elbow", "head"] else "head"
+        ready_mode = mode if mode in ["wrist_pitch", "elbow"] else "wrist_pitch"
         
         if arm_side == "right":
             right_arm = self.get_ready_pose(version_key, "joint", ready_mode, "right")

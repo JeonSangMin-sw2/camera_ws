@@ -1,3 +1,4 @@
+import sys
 import json
 import tkinter as tk
 from datetime import datetime
@@ -51,6 +52,19 @@ WARNING_POSE_CHECK_PATH = BASE_DIR / "warning_pose_check.png"
 
 class CalibrationUI:
     def __init__(self, root):
+        # Validate ready_poses.yaml existence and structure at startup
+        ready_poses_path = BASE_DIR / "config" / "ready_poses.yaml"
+        if not ready_poses_path.exists():
+            print(f"[CRITICAL ERROR] ready_poses.yaml not found at {ready_poses_path}!")
+            sys.exit(f"[CRITICAL ERROR] ready_poses.yaml not found at {ready_poses_path}!")
+        try:
+            import yaml
+            with open(ready_poses_path, "r") as f:
+                yaml.safe_load(f)
+        except Exception as e:
+            print(f"[CRITICAL ERROR] Failed to parse ready_poses.yaml: {e}")
+            sys.exit(f"[CRITICAL ERROR] Failed to parse ready_poses.yaml: {e}")
+
         self.root = root
         self.root.title("Calibration UI")
         self.root.geometry("1200x680")

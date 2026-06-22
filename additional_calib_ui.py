@@ -428,12 +428,69 @@ class MarkerCalibrationWorker(QThread):
         
     def run(self):
         try:
+            version_num = self.calibrator.get_robot_version()
+            is_v13 = (abs(version_num - 1.3) < 0.05)
+            
+            res_4 = None
+            if is_v13:
+                # Move to marker ready pose
+                self.log_signal.emit("\n" + "="*50)
+                self.log_signal.emit("   [Stage 1/3] Moving to Marker Ready Pose...")
+                self.log_signal.emit("="*50 + "\n")
+                if not self.calibrator.perform_move_to_ready_pose(self.arm_side, log_callback=self.log_signal.emit):
+                    self.log_signal.emit("[ERROR] Move to marker ready pose failed. Aborting.")
+                    self.finished_signal.emit(None)
+                    return
+                
+                if getattr(self.calibrator, 'stop_requested', False):
+                    self.finished_signal.emit(None)
+                    return
+                
+                time.sleep(1.0)
+                
+                self.log_signal.emit("\n" + "="*50)
+                self.log_signal.emit("   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...")
+                self.log_signal.emit("="*50 + "\n")
+                res_4 = self.calibrator.perform_calibration_sweep(
+                    self.arm_side, 4,
+                    log_callback=self.log_signal.emit,
+                    status_callback=self.status_signal.emit,
+                    use_head_tracking=self.use_head_tracking
+                )
+                if not res_4:
+                    self.log_signal.emit("[ERROR] Stage 1 (Axis 4) sweep failed. Aborting.")
+                    self.finished_signal.emit(None)
+                    return
+                res_4['axis_mode'] = 4
+                res_4['axis'] = res_4['axis_opt']
+                
+                if getattr(self.calibrator, 'stop_requested', False):
+                    self.finished_signal.emit(None)
+                    return
+                
+                time.sleep(1.0)
+                
+                # Move to marker ready pose
+                self.log_signal.emit("\n" + "="*50)
+                self.log_signal.emit("   [Stage 2/3] Moving to Marker Ready Pose...")
+                self.log_signal.emit("="*50 + "\n")
+                if not self.calibrator.perform_move_to_ready_pose(self.arm_side, log_callback=self.log_signal.emit):
+                    self.log_signal.emit("[ERROR] Move to marker ready pose failed. Aborting.")
+                    self.finished_signal.emit(None)
+                    return
+                
+                if getattr(self.calibrator, 'stop_requested', False):
+                    self.finished_signal.emit(None)
+                    return
+                
+                time.sleep(1.0)
+
+            # Stage 2/3 (or 1/2) Axis 6 Sweep
+            stage_6_title = "[Stage 2/3] Sweeping Axis 6 (Roll)..." if is_v13 else "[Stage 1/2] Sweeping Axis 6 (Roll)..."
             self.log_signal.emit("\n" + "="*50)
-            self.log_signal.emit("   STARTING TWO-STAGE UNIFIED MARKER SWEEP")
-            self.log_signal.emit("   [Stage 1/2] Sweeping Axis 6 (Roll)...")
+            self.log_signal.emit(f"   {stage_6_title}")
             self.log_signal.emit("="*50 + "\n")
             
-            # 1. Axis 6 sweep
             res_6 = self.calibrator.perform_calibration_sweep(
                 self.arm_side, 6, 
                 log_callback=self.log_signal.emit, 
@@ -441,7 +498,7 @@ class MarkerCalibrationWorker(QThread):
                 use_head_tracking=self.use_head_tracking
             )
             if not res_6:
-                self.log_signal.emit("[ERROR] Stage 1 (Axis 6) sweep failed. Aborting.")
+                self.log_signal.emit("[ERROR] Stage 6 sweep failed. Aborting.")
                 self.finished_signal.emit(None)
                 return
                 
@@ -454,11 +511,12 @@ class MarkerCalibrationWorker(QThread):
                 
             time.sleep(1.0)
             
+            # Stage 3/3 (or 2/2) Axis 5 Sweep
+            stage_5_title = "[Stage 3/3] Sweeping Axis 5 (Pitch)..." if is_v13 else "[Stage 2/2] Sweeping Axis 5 (Pitch)..."
             self.log_signal.emit("\n" + "="*50)
-            self.log_signal.emit("   [Stage 2/2] Sweeping Axis 5 (Pitch)...")
+            self.log_signal.emit(f"   {stage_5_title}")
             self.log_signal.emit("="*50 + "\n")
             
-            # 2. Axis 5 sweep
             res_5 = self.calibrator.perform_calibration_sweep(
                 self.arm_side, 5, 
                 log_callback=self.log_signal.emit, 
@@ -466,25 +524,25 @@ class MarkerCalibrationWorker(QThread):
                 use_head_tracking=self.use_head_tracking
             )
             if not res_5:
-                self.log_signal.emit("[ERROR] Stage 2 (Axis 5) sweep failed. Aborting.")
+                self.log_signal.emit("[ERROR] Stage 5 sweep failed. Aborting.")
                 self.finished_signal.emit(None)
                 return
                 
             res_5['axis_mode'] = 5
             res_5['axis'] = res_5['axis_opt']
             
-            # 3. Compute unified bracket calibration (2-Axis Kinematic Averaging or fallback)
+            # Compute unified bracket calibration
             self.log_signal.emit("\n[PROCESSING] Computing unified bracket calibration parameters...")
             unified_res = self.calibrator.compute_unified_bracket_calibration(
-                res_5, res_6, self.arm_side, tolerance=self.tolerance
+                res_5, res_6, self.arm_side, tolerance=self.tolerance, marker_data_4=res_4
             )
             
             unified_res['res_5'] = res_5
             unified_res['res_6'] = res_6
-            
-            # 4. Generate combined single plot showing Axis 6 and Axis 5 (1 row, 2 columns)
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-            
+            if is_v13 and res_4 is not None:
+                unified_res['res_4'] = res_4
+
+            # Helper plot function
             def plot_single_axis(ax, res, axis_num, color):
                 ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured Points')
                 circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fitted Circle')
@@ -504,12 +562,24 @@ class MarkerCalibrationWorker(QThread):
                 ax.set_title(f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {res['rmse']:.3f})")
                 ax.legend()
             
-            plot_single_axis(ax1, res_6, 6, 'blue')
-            plot_single_axis(ax2, res_5, 5, 'green')
+            # Plot results
+            if is_v13 and res_4 is not None:
+                fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+                plot_single_axis(ax1, res_6, 6, 'blue')
+                plot_single_axis(ax2, res_5, 5, 'green')
+                plot_single_axis(ax3, res_4, 4, 'purple')
+                fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
+                             f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
+                             f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°\n"
+                             f"Opt d5: {unified_res.get('opt_delta_5', 0.0):.3f}° | Opt d6: {unified_res.get('opt_delta_6', 0.0):.3f}° | Min Radius: {unified_res.get('min_radius', 0.0):.2f} mm", fontsize=12, fontweight='bold')
+            else:
+                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+                plot_single_axis(ax1, res_6, 6, 'blue')
+                plot_single_axis(ax2, res_5, 5, 'green')
+                fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
+                             f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
+                             f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°", fontsize=12, fontweight='bold')
             
-            fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
-                         f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
-                         f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°", fontsize=12, fontweight='bold')
             plt.tight_layout()
             
             result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
@@ -736,16 +806,24 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit("[MOCK] Running Joint 5 sweep motion test...")
                         if self.stop_event.is_set(): return
                         time.sleep(1.5)
-                    
-                    self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to marker ready pose...")
-                    if self.stop_event.is_set(): return
-                    time.sleep(1.0)
-                    
-                    if not is_v13:
+                        
+                        self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to marker ready pose...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.0)
                         self.log_msg.emit("[MOCK] Running Marker 5-axis sweep motion test...")
                         if self.stop_event.is_set(): return
                         time.sleep(1.5)
                     else:
+                        self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to wrist pitch ready pose...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.0)
+                        self.log_msg.emit("[MOCK] Running Marker 4-axis sweep motion test...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.5)
+                        
+                        self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to marker ready pose...")
+                        if self.stop_event.is_set(): return
+                        time.sleep(1.0)
                         self.log_msg.emit("[MOCK] Running Marker 6-axis sweep motion test...")
                         if self.stop_event.is_set(): return
                         time.sleep(1.5)
@@ -756,7 +834,7 @@ class FullAutoWorker(QThread):
                     self.log_msg.emit(f"[MOCK] Moving {arm_side} arm to elbow ready pose...")
                     if self.stop_event.is_set(): return
                     time.sleep(1.0)
-                    self.log_msg.emit("[MOCK] Running Joint 3 (elbow) sweep motion test...")
+                    self.log_msg.emit("[MOCK] Running Joint 2 sweep motion test...")
                     if self.stop_event.is_set(): return
                     time.sleep(1.5)
                     self.log_msg.emit(f"[MOCK] {arm_side.upper()} arm motion test completed.")
@@ -803,32 +881,44 @@ class FullAutoWorker(QThread):
                             raise RuntimeError(f"Failed to run Joint 2 motion test on {arm_side} arm")
                         
                     else:
-                        # v1.3 Motion Sequence
-                        self.log_msg.emit(f"[MOTION TEST 1/5] Moving {arm_side} arm to marker ready pose...")
+                        # v1.3 Motion Sequence (7 steps)
+                        self.log_msg.emit(f"[MOTION TEST 1/7] Moving {arm_side} arm to wrist pitch ready pose...")
+                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch", log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to move {arm_side} arm to wrist pitch ready pose.")
+                            
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 2/7] Running Marker 4-axis sweep motion test...")
+                        if not self.marker_calibrator.perform_motion_test_sweep(arm_side, joint_i=4, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
+                            raise RuntimeError(f"Failed to run Marker 4-axis motion test on {arm_side} arm")
+                            
+                        if self.stop_event.is_set(): return
+                        
+                        self.log_msg.emit(f"[MOTION TEST 3/7] Moving {arm_side} arm to marker ready pose...")
                         if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
                             
                         if self.stop_event.is_set(): return
                         
-                        self.log_msg.emit(f"[MOTION TEST 2/5] Running Marker 6-axis sweep motion test...")
+                        self.log_msg.emit(f"[MOTION TEST 4/7] Running Marker 6-axis sweep motion test...")
                         if not self.marker_calibrator.perform_motion_test_sweep(arm_side, joint_i=6, start_deg=-20.0, end_deg=20.0, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to run Marker 6-axis motion test on {arm_side} arm")
                         
                         if self.stop_event.is_set(): return
                         
-                        self.log_msg.emit(f"[MOTION TEST 3/5] Running Marker 5-axis sweep motion test...")
+                        self.log_msg.emit(f"[MOTION TEST 5/7] Running Marker 5-axis sweep motion test...")
                         if not self.marker_calibrator.perform_motion_test_sweep(arm_side, joint_i=5, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to run Marker 5-axis motion test on {arm_side} arm")
                         
                         if self.stop_event.is_set(): return
                         
-                        self.log_msg.emit(f"[MOTION TEST 4/5] Moving {arm_side} arm to elbow ready pose...")
+                        self.log_msg.emit(f"[MOTION TEST 6/7] Moving {arm_side} arm to elbow ready pose...")
                         if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
                             
                         if self.stop_event.is_set(): return
                         
-                        self.log_msg.emit(f"[MOTION TEST 5/5] Running Joint 2 (elbow) sweep motion test...")
+                        self.log_msg.emit(f"[MOTION TEST 7/7] Running Joint 2 (elbow) sweep motion test...")
                         if not self.joint_calibrator.perform_motion_test_sweep(arm_side, joint_i=2, start_deg=-10.0, end_deg=10.0, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to run Joint 2 motion test on {arm_side} arm")
                         
@@ -2539,16 +2629,38 @@ class UnifiedCalibrationApp(QWidget):
             class MockMarkerWorker(QThread):
                 log_sig = Signal(str)
                 finished_sig = Signal(dict)
-                def __init__(self, arm_side):
+                def __init__(self, ui, arm_side):
                     super().__init__()
+                    self.ui = ui
                     self.arm_side = arm_side
                 def run(self):
+                    version_num = self.ui.get_robot_version()
+                    is_v13 = (abs(version_num - 1.3) < 0.05)
+                    
                     time.sleep(0.5)
-                    self.log_sig.emit("[MOCK] Starting Stage 1 (Axis 6 sweep)...")
+                    
+                    res_4 = None
+                    if is_v13:
+                        self.log_sig.emit("[MOCK] Starting Stage 1 (Axis 4 sweep)...")
+                        time.sleep(1.0)
+                        theta = np.linspace(-np.pi/18, np.pi/18, 11)
+                        res_4 = {
+                            'axis_mode': 4,
+                            'radius': 100.25,
+                            'rmse': 0.15,
+                            'axis': np.array([0.999, 0.01, 0.02]),
+                            'center': np.array([0.1, 0.2, 1.5]),
+                            'pts_2d': np.column_stack((np.cos(theta)*100.2 + 0.3, np.sin(theta)*100.2 + 0.1)),
+                            'uc_opt': 0.3,
+                            'vc_opt': 0.1,
+                            'tilt': 0.12,
+                            'yaw': 1.15,
+                            'tilt_list': [0.12]*11
+                        }
+                        
+                    stage_6_num = "2" if is_v13 else "1"
+                    self.log_sig.emit(f"[MOCK] Starting Stage {stage_6_num} (Axis 6 sweep)...")
                     time.sleep(1.0)
-                    self.log_sig.emit("[MOCK] Stage 1 finished. Starting Stage 2 (Axis 5 sweep)...")
-                    time.sleep(1.0)
-                    self.log_sig.emit("[MOCK] Stage 2 finished. Calculating unified results...")
                     
                     theta = np.linspace(-np.pi/6, np.pi/6, 11)
                     res_6 = {
@@ -2564,6 +2676,11 @@ class UnifiedCalibrationApp(QWidget):
                         'yaw': 1.4,
                         'tilt_list': [89.48]*11
                     }
+                    
+                    stage_5_num = "3" if is_v13 else "2"
+                    self.log_sig.emit(f"[MOCK] Stage {stage_6_num} finished. Starting Stage {stage_5_num} (Axis 5 sweep)...")
+                    time.sleep(1.0)
+                    
                     res_5 = {
                         'axis_mode': 5,
                         'radius': 280.15,
@@ -2577,6 +2694,8 @@ class UnifiedCalibrationApp(QWidget):
                         'yaw': -20.68,
                         'tilt_list': [0.25]*11
                     }
+                    
+                    self.log_sig.emit(f"[MOCK] Stage {stage_5_num} finished. Calculating unified results...")
                     
                     unified_res = {
                         'x_e': 0.0,
@@ -2596,8 +2715,14 @@ class UnifiedCalibrationApp(QWidget):
                     }
                     unified_res['res_5'] = res_5
                     unified_res['res_6'] = res_6
+                    if is_v13 and res_4 is not None:
+                        unified_res['res_4'] = res_4
+                        unified_res['radius_4'] = 100.25
+                        unified_res['rmse_4'] = 0.15
+                        unified_res['opt_delta_5'] = 0.08
+                        unified_res['opt_delta_6'] = -0.12
+                        unified_res['min_radius'] = 0.35
                     
-                    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
                     def plot_single(ax, res, axis_num, color):
                         ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured')
                         circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fit')
@@ -2607,11 +2732,20 @@ class UnifiedCalibrationApp(QWidget):
                         ax.grid(True)
                         ax.set_title(f"Axis {axis_num} Sweep (MOCK)")
                         ax.legend()
+
+                    if is_v13 and res_4 is not None:
+                        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+                        plot_single(ax1, res_6, 6, 'blue')
+                        plot_single(ax2, res_5, 5, 'green')
+                        plot_single(ax3, res_4, 4, 'purple')
+                        fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK\n"
+                                     f"Opt d5: {unified_res['opt_delta_5']:.3f}° | Opt d6: {unified_res['opt_delta_6']:.3f}° | Min Radius: {unified_res['min_radius']:.2f} mm")
+                    else:
+                        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+                        plot_single(ax1, res_6, 6, 'blue')
+                        plot_single(ax2, res_5, 5, 'green')
+                        fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK")
                         
-                    plot_single(ax1, res_6, 6, 'blue')
-                    plot_single(ax2, res_5, 5, 'green')
-                    
-                    fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK")
                     plt.tight_layout()
                     
                     result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
@@ -2623,7 +2757,7 @@ class UnifiedCalibrationApp(QWidget):
                     unified_res['plot_path_combined'] = plot_path
                     self.finished_sig.emit(unified_res)
             
-            self.active_worker = MockMarkerWorker(self.arm_side)
+            self.active_worker = MockMarkerWorker(self, self.arm_side)
             self.active_worker.log_sig.connect(self.log_msg)
             self.active_worker.finished_sig.connect(self.on_calibration_finished_marker)
             self.active_worker.start()
@@ -2667,6 +2801,10 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"    - Z-Offset: {res['z_e']:.2f} mm")
         r4_str = f", R4: {res['radius_4']:.2f} mm" if res.get('radius_4', 0.0) > 0.0 else ""
         self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm{r4_str})")
+        if 'opt_delta_5' in res:
+            self.log_msg(f"    - Opt Delta 5 (5축 오프셋): {res['opt_delta_5']:.3f} deg")
+            self.log_msg(f"    - Opt Delta 6 (6축 오프셋): {res['opt_delta_6']:.3f} deg")
+            self.log_msg(f"    - Min Circle Fitting Radius (최소 원 피팅 반지름): {res['min_radius']:.2f} mm")
             
         self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
         self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")
@@ -2719,6 +2857,10 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"    - Z-Offset: {res['z_e']:.2f} mm")
             r4_str = f", R4: {res['radius_4']:.2f} mm" if res.get('radius_4', 0.0) > 0.0 else ""
             self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm{r4_str})")
+            if 'opt_delta_5' in res:
+                self.log_msg(f"    - Opt Delta 5 (5축 오프셋): {res['opt_delta_5']:.3f} deg")
+                self.log_msg(f"    - Opt Delta 6 (6축 오프셋): {res['opt_delta_6']:.3f} deg")
+                self.log_msg(f"    - Min Circle Fitting Radius (최소 원 피팅 반지름): {res['min_radius']:.2f} mm")
                 
             self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
             self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")

@@ -97,7 +97,7 @@ class MarkerCalibrator(BaseCalibrator):
             time.sleep(0.5)
         return True
 
-    def perform_move_to_ready_pose(self, arm_side, log_callback=None):
+    def perform_move_to_ready_pose(self, arm_side, log_callback=None, mode="marker"):
         if not self.robot:
             if log_callback: log_callback("[ERROR] Robot not connected.")
             return False
@@ -317,8 +317,8 @@ class MarkerCalibrator(BaseCalibrator):
             
         time.sleep(1.0)
 
-        # 2. Continuous sweep from start to end position (30s duration)
-        if log_callback: log_callback(f"[INFO] Commencing Continuous Sweep on Marker Axis {axis_mode} (duration=30s)...")
+        # 2. Continuous sweep from start to end position (15s duration)
+        if log_callback: log_callback(f"[INFO] Commencing Continuous Sweep on Marker Axis {axis_mode} (duration=15s)...")
         
         if getattr(self, 'stop_requested', False):
             return None
@@ -327,7 +327,7 @@ class MarkerCalibrator(BaseCalibrator):
             self, self.robot, torso=None,
             right_arm=q_end_arm if arm_side == "right" else None,
             left_arm=q_end_arm if arm_side == "left" else None,
-            head=q_head_end, minimum_time=30.0
+            head=q_head_end, minimum_time=15.0
         )
         
         captured_poses = []
@@ -427,7 +427,7 @@ class MarkerCalibrator(BaseCalibrator):
             logging.warning(f"Failed to get link kinematics: {e}")
             return 300.0
 
-    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5):
+    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
@@ -464,7 +464,8 @@ class MarkerCalibrator(BaseCalibrator):
                 'roll_e': nominal_rpy[0], 'pitch_e': nominal_rpy[1], 'yaw_e': nominal_rpy[2],
                 'L_5_ee': L_5_ee, 'radius_6': 80.0, 'radius_5': 280.0, 'radius_4': 0.0,
                 'ortho_err': 0.0, 'rmse_6': 0.0, 'rmse_5': 0.0, 'rmse_4': 0.0,
-                'rot_err_deg': 0.0, 'tilt_diff': 0.0, 'warn_large_angle': False
+                'rot_err_deg': 0.0, 'tilt_diff': 0.0, 'warn_large_angle': False,
+                'opt_delta_5': 0.0, 'opt_delta_6': 0.0, 'min_radius': 0.0
             }
 
         pts_cam = np.array(pts_cam) # N x 3
@@ -551,23 +552,70 @@ class MarkerCalibrator(BaseCalibrator):
         dists = np.linalg.norm(pts_cam - sphere_center_cam, axis=1)
         rmse_fit = np.sqrt(np.mean((dists - R_fit)**2)) * 1000.0 # to mm
 
+        opt_delta_5 = 0.0
+        opt_delta_6 = 0.0
+        min_radius = 0.0
+
+        if marker_data_4 is not None:
+            pts_ee_4 = marker_data_4.get('pts_ee', [])
+            if len(pts_ee_4) >= 4:
+                from scipy.optimize import minimize_scalar
+                pts = np.array(pts_ee_4)
+                
+                def get_radius_for_d6(d6_val):
+                    c6, s6 = np.cos(d6_val), np.sin(d6_val)
+                    x5 = pts[:, 0] * c6 - pts[:, 1] * s6
+                    y5 = pts[:, 0] * s6 + pts[:, 1] * c6
+                    z5 = pts[:, 2]
+                    
+                    A = np.sum(x5**2 - z5**2)
+                    B = 2.0 * np.sum(x5 * z5)
+                    d5_val = 0.5 * np.arctan2(-B, -A)
+                    
+                    c5, s5 = np.cos(d5_val), np.sin(d5_val)
+                    x4 = x5 * c5 + z5 * s5
+                    y4 = y5
+                    radii = np.sqrt(x4**2 + y4**2)
+                    return np.mean(radii), d5_val
+                    
+                def objective_to_minimize(d6_val):
+                    r_val, _ = get_radius_for_d6(d6_val)
+                    return r_val
+                    
+                res_opt = minimize_scalar(
+                    objective_to_minimize,
+                    bounds=(-np.radians(45.0), np.radians(45.0)),
+                    method='bounded'
+                )
+                
+                opt_delta_6_rad = res_opt.x
+                min_radius, opt_delta_5_rad = get_radius_for_d6(opt_delta_6_rad)
+                
+                opt_delta_5 = float(np.degrees(opt_delta_5_rad))
+                opt_delta_6 = float(np.degrees(opt_delta_6_rad))
+                min_radius = float(min_radius)
+
         return {
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
-            'L_5_ee': L_5_ee, 'radius_6': R_fit * 1000.0, 'radius_5': R_fit * 1000.0,
-            'radius_4': 0.0,
+            'L_5_ee': L_5_ee,
+            'radius_6': R_fit * 1000.0, 'radius_5': R_fit * 1000.0,
+            'radius_4': marker_data_4.get('radius', 0.0) if marker_data_4 else 0.0,
             'ortho_err': 0.0,
             'rmse_6': rmse_fit,
             'rmse_5': rmse_fit,
-            'rmse_4': 0.0,
+            'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 else 0.0,
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
-            'warn_large_angle': rot_err_deg > 15.0
+            'warn_large_angle': rot_err_deg > 15.0,
+            'opt_delta_5': opt_delta_5,
+            'opt_delta_6': opt_delta_6,
+            'min_radius': min_radius
         }
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
         version_num = self.get_robot_version()
         if abs(version_num - 1.3) < 0.05:
-            return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance)
+            return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance, marker_data_4=marker_data_4)
 
         L_5_ee = self.get_link_length(arm_side)
 
