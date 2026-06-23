@@ -209,10 +209,7 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
 
     # 2. Setup ground truth values
     P_ee_gt = np.array([x_e_gt, y_e_gt, z_e_gt]) / 1000.0
-    if arm_side == "left":
-        nominal_rpy = [90.0, 0.0, 0.0]
-    else:
-        nominal_rpy = [90.0, 0.0, 180.0]
+    nominal_rpy = [90.0, 0.0, -90.0]
     R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
     T_ee_to_marker_gt = np.eye(4)
     T_ee_to_marker_gt[:3, :3] = R_ee_m_ideal
@@ -236,9 +233,11 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
 
     # 3. Calculate target radii based on gt coordinates (L_5_ee = 300 mm)
     L_5_ee = 300.0
-    r6_gt = np.sqrt(y_e_gt**2 + (z_e_gt + L_5_ee)**2)
-    r5_gt = abs(y_e_gt * np.sin(d6_gt_rad) + (z_e_gt + L_5_ee) * np.cos(d6_gt_rad))
-    r4_gt = np.sqrt(r5_gt**2 * np.sin(d5_gt_rad)**2 + r6_gt**2 - r5_gt**2)
+    r6_gt = np.sqrt(y_e_gt**2 + z_e_gt**2)
+    p_j6_0 = R_scipy.from_euler('X', d6_gt_rad).as_matrix() @ (P_ee_gt * 1000.0) + [0.0, 0.0, L_5_ee]
+    r5_gt = np.sqrt(p_j6_0[0]**2 + p_j6_0[2]**2)
+    p_j5_0 = R_scipy.from_euler('Y', d5_gt_rad).as_matrix() @ p_j6_0
+    r4_gt = np.sqrt(p_j5_0[0]**2 + p_j5_0[1]**2)
 
     # 4. Generate J4 sweep dataset
     T_t5_to_cam = calibrator.make_transform([0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
@@ -306,11 +305,11 @@ if __name__ == "__main__":
     # Test Left Arm
     test_joint_6_angle_correction_integration("left", roll_offset=3.0, pitch_offset=-2.0, yaw_offset=1.5, theta_6_deg=17.49)
     test_3axis_bracket_calibration_integration("left", roll_offset=3.0, pitch_offset=-2.0, yaw_offset=1.5, theta_6_deg=17.49, theta_6_4_deg=10.0)
-    test_v13_bracket_calibration_and_optimization("left", x_e_gt=0.0, y_e_gt=-74.8, z_e_gt=-50.1, d5_gt_deg=4.5, d6_gt_deg=-6.2)
+    test_v13_bracket_calibration_and_optimization("left", x_e_gt=74.8, y_e_gt=0.0, z_e_gt=-50.1, d5_gt_deg=4.5, d6_gt_deg=-6.2)
     
     # Test Right Arm
     test_joint_6_angle_correction_integration("right", roll_offset=2.5, pitch_offset=1.2, yaw_offset=-3.4, theta_6_deg=-15.3)
     test_3axis_bracket_calibration_integration("right", roll_offset=2.5, pitch_offset=1.2, yaw_offset=-3.4, theta_6_deg=-15.3, theta_6_4_deg=-5.0)
-    test_v13_bracket_calibration_and_optimization("right", x_e_gt=0.0, y_e_gt=74.8, z_e_gt=-50.1, d5_gt_deg=-3.8, d6_gt_deg=5.4)
+    test_v13_bracket_calibration_and_optimization("right", x_e_gt=74.8, y_e_gt=0.0, z_e_gt=-50.1, d5_gt_deg=-3.8, d6_gt_deg=5.4)
 
 

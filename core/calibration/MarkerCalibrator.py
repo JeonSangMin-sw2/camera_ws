@@ -457,10 +457,7 @@ class MarkerCalibrator(BaseCalibrator):
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
-            if arm_side == "left":
-                nominal_rpy = [90.0, 0.0, 0.0]
-            else:
-                nominal_rpy = [90.0, 0.0, 180.0]
+            nominal_rpy = [90.0, 0.0, -90.0]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
         # Helper to extract rotation axis
@@ -497,32 +494,33 @@ class MarkerCalibrator(BaseCalibrator):
         if marker_data_4 is not None:
             poses_4 = marker_data_4.get('captured_poses', [])
             n4_marker_actual = extract_axis_from_rotations(poses_4, z_ee_m_ideal)
-            # 1. Recover delta_5
-            opt_delta_5_rad = -np.arcsin(np.clip(np.dot(n6_marker_actual, n4_marker_actual), -1.0, 1.0))
-            opt_delta_5 = float(np.degrees(opt_delta_5_rad))
         else:
-            opt_delta_5 = 0.0
+            n4_marker_actual = None
 
-        # Project n5 onto plane perpendicular to n6
-        y_col_proj = n5_marker_actual - np.dot(n5_marker_actual, n6_marker_actual) * n6_marker_actual
-        if np.linalg.norm(y_col_proj) > 1e-6:
-            y_col_proj /= np.linalg.norm(y_col_proj)
+        # Directly calculate d6 and d5 from projection of actual axes
+        u5 = R_ee_m_ideal @ n5_marker_actual
+        opt_delta_6_rad = -np.arctan2(u5[2], u5[1])
+        
+        if n4_marker_actual is not None:
+            u4 = R_ee_m_ideal @ n4_marker_actual
+            w4 = R_scipy.from_euler('X', opt_delta_6_rad).as_matrix() @ u4
+            opt_delta_5_rad = np.arctan2(-w4[0], w4[2])
         else:
-            y_col_proj = y_ee_m_ideal - np.dot(y_ee_m_ideal, n6_marker_actual) * n6_marker_actual
-            y_col_proj /= np.linalg.norm(y_col_proj)
+            opt_delta_5_rad = 0.0
 
-        z_col_proj = np.cross(n6_marker_actual, y_col_proj)
+        opt_delta_5 = float(np.degrees(opt_delta_5_rad))
+        opt_delta_6 = float(np.degrees(opt_delta_6_rad))
 
-        R_ee_m_0 = np.column_stack((n6_marker_actual, y_col_proj, z_col_proj)).T
-        M = R_ee_m_0.T @ R_ee_m_ideal
-        opt_delta_6_rad = np.arctan2(M[1, 2] - M[2, 1], M[1, 1] + M[2, 2])
-        n6_sign = np.sign(np.dot(n6_marker_actual, [1.0, 0.0, 0.0]))
-        opt_delta_6_rad_signed = opt_delta_6_rad * n6_sign
-        opt_delta_6 = float(np.degrees(opt_delta_6_rad_signed))
+        # Construct orthogonal measured rotation matrix using Gram-Schmidt on n6 and n5
+        x_col = n6_marker_actual
+        y_col = n5_marker_actual - np.dot(n5_marker_actual, x_col) * x_col
+        y_col /= np.linalg.norm(y_col)
+        z_col = np.cross(x_col, y_col)
+        R_ee_m_measured = np.column_stack((x_col, y_col, z_col)).T
 
-        R_ee_m_actual = R_ee_m_0 @ R_scipy.from_euler('X', -opt_delta_6_rad).as_matrix()
+        # True marker design orientation in EE frame (at zero joint angles)
+        R_ee_m_actual = R_scipy.from_euler('X', -opt_delta_6_rad).as_matrix() @ R_scipy.from_euler('Y', -opt_delta_5_rad).as_matrix() @ R_ee_m_measured
 
-        # Euler angles from recovered rotation matrix
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         if arm_side == "right" and yaw_e < 0:
@@ -535,50 +533,35 @@ class MarkerCalibrator(BaseCalibrator):
         radius_5 = marker_data_5.get('radius', 0.0) if marker_data_5 else 0.0
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
 
-        # Translation offsets
-        x_e = 0.0
-
-        # Compute T_t5_to_cam to transform the J5 sweep center back to torso_5
-        q_fulls_5 = marker_data_5.get('captured_q_full', []) if marker_data_5 else []
-        dyn_model = None
-        if self.robot and self.robot != "mock_robot":
-            dyn_model = self.robot.get_dynamics()
+        # Translation calculation (Least-Squares Solver allowing small attachment errors)
+        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else 77.5
+        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else 0.0
+        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else -71.79
         
-        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
-        T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
-
-        T_t5_to_cam = T_t5_to_cam_fixed
-        if len(q_fulls_5) > 0 and self.robot and self.robot != "mock_robot" and dyn_model is not None:
-            try:
-                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_fulls_5[0], "link_head_2", "link_torso_5")
-                T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-            except Exception:
-                pass
-
-        pts_5_cam = np.array([T[:3, 3] for T in poses_5])
-        c_5_cam = np.mean(pts_5_cam, axis=0) if len(pts_5_cam) > 0 else np.array([0.0, 0.0, 0.3])
-        c_5_t5 = (T_t5_to_cam @ np.append(c_5_cam, 1.0))[:3]
-        Y_sign = np.sign(c_5_t5[1]) if abs(c_5_t5[1]) > 1e-5 else 1.0
-
-        r6 = radius_6
-        r5 = radius_5
-        r4 = radius_4
-        
-        if marker_data_4 is not None:
-            # opt_delta_5_rad is computed only if marker_data_4 is not None
-            Y_prime_sq = r4**2 - r5**2 * np.sin(opt_delta_5_rad)**2
-            Y_prime = Y_sign * np.sqrt(max(0.0, Y_prime_sq))
-        else:
-            Y_prime = Y_sign * np.sqrt(max(0.0, r6**2 - r5**2))
+        from scipy.optimize import least_squares
+        def residuals_trans(params):
+            xe, ye, ze = params
+            r6_pred = np.sqrt(ye**2 + ze**2)
+            Z_prime = ye * np.sin(opt_delta_6_rad) + ze * np.cos(opt_delta_6_rad) + L_5_ee
+            r5_pred = np.sqrt(xe**2 + Z_prime**2)
+            res = [
+                r6_pred - radius_6,
+                r5_pred - radius_5
+            ]
+            if marker_data_4 is not None:
+                Y_prime = ye * np.cos(opt_delta_6_rad) - ze * np.sin(opt_delta_6_rad)
+                r4_pred = np.sqrt((xe * np.cos(opt_delta_5_rad) + Z_prime * np.sin(opt_delta_5_rad))**2 + Y_prime**2)
+                res.append(r4_pred - radius_4)
+                
+            reg_weight = 1e-5
+            res.append(reg_weight * (xe - x_nom))
+            res.append(reg_weight * (ye - y_nom))
+            res.append(reg_weight * (ze - z_nom))
+            return res
             
-        Z_prime = r5
-        
-        d6 = opt_delta_6_rad_signed
-        y_e = Y_prime * np.cos(d6) + Z_prime * np.sin(d6)
-        z_e = -Y_prime * np.sin(d6) + Z_prime * np.cos(d6) - L_5_ee
-
-
+        initial_guess = [x_nom, y_nom, z_nom]
+        opt_res = least_squares(residuals_trans, initial_guess, loss='huber')
+        x_e, y_e, z_e = opt_res.x
 
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)
         ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
@@ -802,13 +785,50 @@ class MarkerCalibrator(BaseCalibrator):
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
 
-        # 5. 평행이동 오프셋 계산
+        # 5. 평행이동 오프셋 계산 (Least-Squares Solver allowing small attachment errors)
         radius_6 = marker_data_6.get('radius', 0.0)
         radius_5 = marker_data_5.get('radius', 0.0)
+        radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
         
-        x_e = 0.0 
-        y_e = radius_6 if arm_side == "left" else -radius_6
-        z_e = -abs(radius_5 - L_5_ee)
+        # Load nominal values
+        version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            
+        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else 0.0
+        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else (77.5 if arm_side == "left" else -77.5)
+        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else -66.77
+        
+        # In v1.2, we assume J5/J6 joint offsets are already zero/corrected
+        opt_delta_5_rad = 0.0
+        opt_delta_6_rad = 0.0
+        
+        from scipy.optimize import least_squares
+        def residuals_trans(params):
+            xe, ye, ze = params
+            r6_pred = np.sqrt(ye**2 + ze**2)
+            Z_prime = ye * np.sin(opt_delta_6_rad) + ze * np.cos(opt_delta_6_rad) + L_5_ee
+            r5_pred = np.sqrt(xe**2 + Z_prime**2)
+            res = [
+                r6_pred - radius_6,
+                r5_pred - radius_5
+            ]
+            if marker_data_4 is not None:
+                Y_prime = ye * np.cos(opt_delta_6_rad) - ze * np.sin(opt_delta_6_rad)
+                r4_pred = np.sqrt((xe * np.cos(opt_delta_5_rad) + Z_prime * np.sin(opt_delta_5_rad))**2 + Y_prime**2)
+                res.append(r4_pred - radius_4)
+                
+            reg_weight = 1e-7
+            res.append(reg_weight * (xe - x_nom))
+            res.append(reg_weight * (ye - y_nom))
+            res.append(reg_weight * (ze - z_nom))
+            return res
+            
+        initial_guess = [x_nom, y_nom, z_nom]
+        opt_res = least_squares(residuals_trans, initial_guess, loss='huber')
+        x_e, y_e, z_e = opt_res.x
 
         # 6. 알고리즘 신뢰도 평가 점수
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)
