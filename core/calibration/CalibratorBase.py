@@ -118,7 +118,8 @@ class BaseCalibrator:
         if os.path.exists(yaml_path):
             try:
                 with open(yaml_path, "r") as f:
-                    self.camera_config = yaml.safe_load(f) or {}
+                    config_data = yaml.safe_load(f) or {}
+                    self.camera_config = config_data.get("camera", {})
                 logging.info(f"Loaded config from setting.yaml")
             except Exception as e:
                 logging.error(f"Failed to load setting.yaml: {e}")

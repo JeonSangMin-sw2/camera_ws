@@ -447,10 +447,20 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
-        if arm_side == "left":
-            nominal_rpy = [90.0, 0.0, 0.0]
+        version_num = self.get_robot_version()
+        version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            
+        if tf_vec is not None and len(tf_vec) >= 6:
+            nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
-            nominal_rpy = [90.0, 0.0, 180.0]
+            if arm_side == "left":
+                nominal_rpy = [90.0, 0.0, 0.0]
+            else:
+                nominal_rpy = [90.0, 0.0, 180.0]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
         # Helper to extract rotation axis
@@ -597,11 +607,20 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
-        # 설계 의도값인 +90.0을 정확하게 반영합니다.
-        if arm_side == "left":
-            nominal_rpy = [90.0, 0.0, 0.0]
+        version_num = self.get_robot_version()
+        version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            
+        if tf_vec is not None and len(tf_vec) >= 6:
+            nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
-            nominal_rpy = [90.0, 0.0, 180.0]
+            if arm_side == "left":
+                nominal_rpy = [90.0, 0.0, 0.0]
+            else:
+                nominal_rpy = [90.0, 0.0, 180.0]
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
         
