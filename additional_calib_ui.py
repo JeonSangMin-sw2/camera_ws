@@ -2799,7 +2799,11 @@ class UnifiedCalibrationApp(QWidget):
                 tolerance = float(self.tolerance_input.text())
             except ValueError:
                 tolerance = 0.5
-            self.active_worker = MarkerCalibrationWorker(self.marker_calibrator, self.arm_side, use_head_tracking=use_head, tolerance=tolerance)
+            self.active_worker = MarkerCalibrationWorker(
+                self.marker_calibrator, self.arm_side, 
+                use_head_tracking=use_head, tolerance=tolerance, 
+                save_debug=self.chk_save_debug.isChecked()
+            )
             self.active_worker.log_signal.connect(self.log_msg)
             self.active_worker.status_signal.connect(self.update_marker_indicator)
             self.active_worker.finished_signal.connect(self.on_calibration_finished_marker)
