@@ -519,7 +519,8 @@ class MarkerCalibrationWorker(QThread):
                 self.arm_side, 6, 
                 log_callback=self.log_signal.emit, 
                 status_callback=self.status_signal.emit,
-                use_head_tracking=self.use_head_tracking
+                use_head_tracking=self.use_head_tracking,
+                save_debug=self.save_debug
             )
             if not res_6:
                 self.log_signal.emit("[ERROR] Stage 6 sweep failed. Aborting.")
@@ -545,7 +546,8 @@ class MarkerCalibrationWorker(QThread):
                 self.arm_side, 5, 
                 log_callback=self.log_signal.emit, 
                 status_callback=self.status_signal.emit,
-                use_head_tracking=self.use_head_tracking
+                use_head_tracking=self.use_head_tracking,
+                save_debug=self.save_debug
             )
             if not res_5:
                 self.log_signal.emit("[ERROR] Stage 5 sweep failed. Aborting.")
