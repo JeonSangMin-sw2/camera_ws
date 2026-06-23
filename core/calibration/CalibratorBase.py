@@ -421,14 +421,18 @@ class BaseCalibrator:
             return False
             
         if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:
-            # Offset mapping: Joint 3 (index 3) is elbow, Joint 5 (index 5) is wrist_pitch
+            # Offset mapping: Joint 3 (index 3) is elbow
+            # For v1.3, Joint 6 (index 6) is wrist roll
+            # For v1.2, Joint 5 (index 5) is wrist pitch
+            is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+            wrist_idx = 6 if is_v13 else 5
             if right_arm is not None:
                 right_arm = list(right_arm)
-                right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                right_arm[wrist_idx] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 right_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
-                left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                left_arm[wrist_idx] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 left_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()

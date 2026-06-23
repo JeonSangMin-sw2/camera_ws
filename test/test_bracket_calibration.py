@@ -202,7 +202,7 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
         R6 = R_scipy.from_euler('X', q6).as_matrix()
         T = np.eye(4)
         T[:3, :3] = R4 @ R5 @ R6
-        T[:3, 3] = [0.0, 0.0, 0.3] # L_5_ee = 300mm
+        T[:3, 3] = R4 @ R5 @ [0.0, 0.0, 0.3] # L_5_ee = 300mm
         return T
 
     calibrator.compute_fk = mock_compute_fk
@@ -228,7 +228,7 @@ def test_v13_bracket_calibration_and_optimization(arm_side, x_e_gt, y_e_gt, z_e_
         R6 = R_scipy.from_euler('X', q6_act).as_matrix()
         T = np.eye(4)
         T[:3, :3] = R4 @ R5 @ R6
-        T[:3, 3] = [0.0, 0.0, 0.3]
+        T[:3, 3] = R4 @ R5 @ [0.0, 0.0, 0.3]
         return T
 
     # 3. Calculate target radii based on gt coordinates (L_5_ee = 300 mm)

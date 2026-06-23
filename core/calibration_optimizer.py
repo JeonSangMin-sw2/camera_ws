@@ -415,10 +415,19 @@ class QPCalibrationOptimizer:
 
             if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
                 jo = self.joint_offsets_to_apply
+                
+                # Check version
+                is_v13 = False
+                if self.robot and self.robot != "mock_robot":
+                    try:
+                        info = self.robot.get_robot_info()
+                        if "1.3" in info.robot_model_version:
+                            is_v13 = True
+                    except:
+                        pass
+                
                 r_j3 = jo.get("right", {}).get("joint3", 0.0)
-                r_j5 = jo.get("right", {}).get("joint5", 0.0)
                 l_j3 = jo.get("left", {}).get("joint3", 0.0)
-                l_j5 = jo.get("left", {}).get("joint5", 0.0)
 
                 v1_r3 = (-r_j3 - 0.001) * D2R
                 v2_r3 = (-r_j3 + 0.001) * D2R
@@ -430,15 +439,34 @@ class QPCalibrationOptimizer:
                 q_lower[10] = min(v1_l3, v2_l3)
                 q_upper[10] = max(v1_l3, v2_l3)
 
-                v1_r5 = (-r_j5 - 0.001) * D2R
-                v2_r5 = (-r_j5 + 0.001) * D2R
-                q_lower[5] = min(v1_r5, v2_r5)
-                q_upper[5] = max(v1_r5, v2_r5)
+                if is_v13:
+                    # In 1.3, Joint 6 is calibrated instead of Joint 5
+                    r_j6 = jo.get("right", {}).get("joint6", jo.get("right", {}).get("joint5", 0.0))
+                    l_j6 = jo.get("left", {}).get("joint6", jo.get("left", {}).get("joint5", 0.0))
+                    
+                    v1_r6 = (-r_j6 - 0.001) * D2R
+                    v2_r6 = (-r_j6 + 0.001) * D2R
+                    q_lower[6] = min(v1_r6, v2_r6)
+                    q_upper[6] = max(v1_r6, v2_r6)
 
-                v1_l5 = (-l_j5 - 0.001) * D2R
-                v2_l5 = (-l_j5 + 0.001) * D2R
-                q_lower[12] = min(v1_l5, v2_l5)
-                q_upper[12] = max(v1_l5, v2_l5)
+                    v1_l6 = (-l_j6 - 0.001) * D2R
+                    v2_l6 = (-l_j6 + 0.001) * D2R
+                    q_lower[13] = min(v1_l6, v2_l6)
+                    q_upper[13] = max(v1_l6, v2_l6)
+                else:
+                    # In 1.2, Joint 5 is calibrated
+                    r_j5 = jo.get("right", {}).get("joint5", 0.0)
+                    l_j5 = jo.get("left", {}).get("joint5", 0.0)
+                    
+                    v1_r5 = (-r_j5 - 0.001) * D2R
+                    v2_r5 = (-r_j5 + 0.001) * D2R
+                    q_lower[5] = min(v1_r5, v2_r5)
+                    q_upper[5] = max(v1_r5, v2_r5)
+
+                    v1_l5 = (-l_j5 - 0.001) * D2R
+                    v2_l5 = (-l_j5 + 0.001) * D2R
+                    q_lower[12] = min(v1_l5, v2_l5)
+                    q_upper[12] = max(v1_l5, v2_l5)
 
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)

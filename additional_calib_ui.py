@@ -1202,8 +1202,8 @@ class UnifiedCalibrationApp(QWidget):
         try:
             if not os.path.exists(config_path):
                 self.joint_offsets_store = {
-                    "left": {"joint5": 0.0, "joint3": 0.0},
-                    "right": {"joint5": 0.0, "joint3": 0.0}
+                    "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
+                    "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
                 }
                 self.save_offsets_to_yaml()
             else:
@@ -1211,16 +1211,27 @@ class UnifiedCalibrationApp(QWidget):
                     data = yaml.safe_load(f)
                 if data and isinstance(data, dict) and "joint_offset" in data:
                     self.joint_offsets_store = data["joint_offset"]
+                    for arm in ["left", "right"]:
+                        if arm not in self.joint_offsets_store:
+                            self.joint_offsets_store[arm] = {}
+                        if "joint3" not in self.joint_offsets_store[arm]:
+                            self.joint_offsets_store[arm]["joint3"] = 0.0
+                        if "joint5" not in self.joint_offsets_store[arm]:
+                            self.joint_offsets_store[arm]["joint5"] = 0.0
+                        if "joint6" not in self.joint_offsets_store[arm]:
+                            self.joint_offsets_store[arm]["joint6"] = 0.0
                 else:
                     self.joint_offsets_store = {
-                        "left": {"joint5": 0.0, "joint3": 0.0},
-                        "right": {"joint5": 0.0, "joint3": 0.0}
+                        "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
+                        "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
                     }
                     self.save_offsets_to_yaml()
                     self.log_msg(f"[WARNING] Added default joint_offset to setting.yaml.")
             
             # Sync current offsets with active arm_side from YAML
-            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
+            is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+            wrist_key = "joint6" if is_v13 else "joint5"
+            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get(wrist_key, 0.0)
             self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -1229,8 +1240,8 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[ERROR] Failed to load/create setting.yaml: {e}")
             # Fallback default values
             self.joint_offsets_store = {
-                "left": {"joint5": 0.0, "joint3": 0.0},
-                "right": {"joint5": 0.0, "joint3": 0.0}
+                "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
+                "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
             }
             self.joint_offsets["wrist_pitch"] = 0.0
             self.joint_offsets["elbow"] = 0.0
@@ -1261,36 +1272,23 @@ class UnifiedCalibrationApp(QWidget):
                 lines.append("joint_offset:\n")
                 lines.append("  left:\n")
                 lines.append(f"    joint3: {self.joint_offsets_store['left']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['left']['joint5']}\n")
+                lines.append(f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n")
+                lines.append(f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n")
                 lines.append("  right:\n")
                 lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['right']['joint5']}\n")
+                lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
+                lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
             else:
-                curr_arm = None
-                i = jo_idx + 1
-                while i < len(lines):
-                    line = lines[i]
-                    stripped = line.strip()
-                    if not stripped:
-                        i += 1
-                        continue
-                    # If we hit another top-level key, we stop
-                    if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
-                        break
-                    
-                    if stripped.startswith("left:"):
-                        curr_arm = "left"
-                    elif stripped.startswith("right:"):
-                        curr_arm = "right"
-                    
-                    if curr_arm is not None:
-                        if stripped.startswith("joint3:"):
-                            indent = len(line) - len(line.lstrip())
-                            lines[i] = " " * indent + f"joint3: {self.joint_offsets_store[curr_arm]['joint3']}\n"
-                        elif stripped.startswith("joint5:"):
-                            indent = len(line) - len(line.lstrip())
-                            lines[i] = " " * indent + f"joint5: {self.joint_offsets_store[curr_arm]['joint5']}\n"
-                    i += 1
+                lines = lines[:jo_idx]
+                lines.append("joint_offset:\n")
+                lines.append("  left:\n")
+                lines.append(f"    joint3: {self.joint_offsets_store['left']['joint3']}\n")
+                lines.append(f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n")
+                lines.append(f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n")
+                lines.append("  right:\n")
+                lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
+                lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
+                lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
 
             with open(config_path, "w") as f:
                 f.writelines(lines)
@@ -1300,19 +1298,25 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
-        joint_key = "joint5" if col == 0 else "joint3"
-        
+        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        if col == 0:
+            joint_key = "joint6" if is_v13 else "joint5"
+            joint_label = "Joint 6" if is_v13 else "Joint 5"
+        else:
+            joint_key = "joint3"
+            joint_label = "Joint 3"
+            
         current_val = self.joint_offsets_store[arm][joint_key]
         new_val, ok = QInputDialog.getDouble(
             self, 
             "Manual Offset Override", 
-            f"Enter manual staged offset for {arm.upper()} Arm {'Joint 5' if col==0 else 'Joint 3'} (degrees):", 
+            f"Enter manual staged offset for {arm.upper()} Arm {joint_label} (degrees):", 
             current_val, -45.0, 45.0, 4
         )
         if ok:
             self.joint_offsets_store[arm][joint_key] = new_val
             self.update_applied_offset_label()
-            self.log_msg(f"[MANUAL OVERRIDE] Staged {arm.upper()} Arm {'Joint 5' if col==0 else 'Joint 3'} offset manually to {new_val:.4f}°. (Not saved to disk yet. Click APPLY OFFSET to save)")
+            self.log_msg(f"[MANUAL OVERRIDE] Staged {arm.upper()} Arm {joint_label} offset manually to {new_val:.4f}°. (Not saved to disk yet. Click APPLY OFFSET to save)")
 
     def init_ui(self):
         # Main horizontal split layout
@@ -2018,8 +2022,13 @@ class UnifiedCalibrationApp(QWidget):
         if not hasattr(self, 'tbl_offset_monitor') or not hasattr(self, 'btn_joint_apply'):
             return
         
+        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        wrist_key = "joint6" if is_v13 else "joint5"
+        wrist_label = "Joint 6 (Wrist)" if is_v13 else "Joint 5 (Wrist)"
+        self.tbl_offset_monitor.setHorizontalHeaderLabels([wrist_label, "Joint 3 (Elbow)"])
+        
         for row_idx, arm in enumerate(["right", "left"]):
-            for col_idx, joint_key in enumerate(["joint5", "joint3"]):
+            for col_idx, joint_key in enumerate([wrist_key, "joint3"]):
                 val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
                 item = QTableWidgetItem(f"{val:.4f}°")
                 item.setTextAlignment(Qt.AlignCenter)
@@ -2028,7 +2037,11 @@ class UnifiedCalibrationApp(QWidget):
         # Keeps the apply button permanently visible on the Right Panel dashboard
 
     def apply_joint_offset(self):
-        self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
+        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        wrist_key = "joint6" if is_v13 else "joint5"
+        wrist_label = "Joint 6 (wrist_roll)" if is_v13 else "Joint 5 (wrist_pitch)"
+        
+        self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side][wrist_key]
         self.joint_offsets["elbow"] = self.joint_offsets_store[self.arm_side]["joint3"]
         self.joint_calibrator.joint_offsets = self.joint_offsets
         self.marker_calibrator.joint_offsets = self.joint_offsets
@@ -2038,7 +2051,7 @@ class UnifiedCalibrationApp(QWidget):
         
         self.log_msg(f"\n" + "="*50)
         self.log_msg(f"[APPLY] Applied current staged offsets for {self.arm_side.upper()} Arm to active parameters:")
-        self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
+        self.log_msg(f"  - {wrist_label}: {self.joint_offsets['wrist_pitch']:.4f}°")
         self.log_msg(f"  - Joint 3 (elbow)      : {self.joint_offsets['elbow']:.4f}°")
         self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!")
         self.log_msg("="*50 + "\n")
@@ -2068,6 +2081,7 @@ class UnifiedCalibrationApp(QWidget):
         )
         if reply == QMessageBox.Yes:
             self.joint_offsets_store[self.arm_side]["joint5"] = 0.0
+            self.joint_offsets_store[self.arm_side]["joint6"] = 0.0
             self.joint_offsets_store[self.arm_side]["joint3"] = 0.0
             
             self.joint_offsets["wrist_pitch"] = 0.0
