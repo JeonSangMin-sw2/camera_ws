@@ -138,7 +138,8 @@ class BaseCalibrator:
             # Save dataset A (4축 또는 sweep_joint_A)
             filename_A = os.path.join(config_dir, f"sweep_points_{arm_side}_joint_A_axis_{sweep_joint_A}.txt")
             with open(filename_A, "w") as f:
-                f.write("# Joint_A_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm)\n")
+                f.write("# Joint_A_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
+                        "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
                 for q_full, pose in dataset_A:
                     if not self.robot or self.robot == "mock_robot":
                         q_val = q_full[7 + sweep_joint_A] if arm_side == "left" else q_full[sweep_joint_A]
@@ -147,24 +148,35 @@ class BaseCalibrator:
                     sa_deg = np.degrees(q_val - initial_joint_pos[sweep_joint_A])
                     p_cam = pose[:3, 3]
                     
+                    T_cam_to_marker = pose
                     if not self.robot or self.robot == "mock_robot":
                         p_meas_t5 = p_cam
                         p_ee = p_cam
+                        T_t5_to_marker = T_cam_to_marker
+                        T_ee_to_marker = T_cam_to_marker
                     else:
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
                         T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
                         T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
                         p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
                         p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+                        T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
+                        T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
+                    
+                    T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
+                    T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
+                    T_ee_flat_str = ", ".join(f"{v:.6f}" for v in T_ee_to_marker.flatten())
                     
                     f.write(f"{sa_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
                             f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
-                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}\n")
+                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
+                            f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
             
             # Save dataset B (6축 또는 sweep_joint_B)
             filename_B = os.path.join(config_dir, f"sweep_points_{arm_side}_joint_B_axis_{sweep_joint_B}.txt")
             with open(filename_B, "w") as f:
-                f.write("# Joint_B_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm)\n")
+                f.write("# Joint_B_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
+                        "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
                 for q_full, pose in dataset_B:
                     if not self.robot or self.robot == "mock_robot":
                         q_val = q_full[7 + sweep_joint_B] if arm_side == "left" else q_full[sweep_joint_B]
@@ -173,19 +185,29 @@ class BaseCalibrator:
                     sb_deg = np.degrees(q_val - initial_joint_pos[sweep_joint_B])
                     p_cam = pose[:3, 3]
                     
+                    T_cam_to_marker = pose
                     if not self.robot or self.robot == "mock_robot":
                         p_meas_t5 = p_cam
                         p_ee = p_cam
+                        T_t5_to_marker = T_cam_to_marker
+                        T_ee_to_marker = T_cam_to_marker
                     else:
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
                         T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
                         T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
                         p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
                         p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+                        T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
+                        T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
+                    
+                    T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
+                    T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
+                    T_ee_flat_str = ", ".join(f"{v:.6f}" for v in T_ee_to_marker.flatten())
                     
                     f.write(f"{sb_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
                             f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
-                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}\n")
+                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
+                            f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
             
             if log_callback:
                 log_callback(f"[DEBUG] Saved Axis {sweep_joint_A} debug points to {os.path.basename(filename_A)}")
@@ -206,7 +228,8 @@ class BaseCalibrator:
             
             filename = os.path.join(config_dir, f"sweep_points_{arm_side}_marker_axis_{axis_num}.txt")
             with open(filename, "w") as f:
-                f.write(f"# Joint_{axis_num}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm)\n")
+                f.write(f"# Joint_{axis_num}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
+                        f"T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
                 for q_full, pose in dataset:
                     if not self.robot or self.robot == "mock_robot":
                         q_val = q_full[7 + axis_num] if arm_side == "left" else q_full[axis_num]
@@ -215,19 +238,29 @@ class BaseCalibrator:
                     s_deg = np.degrees(q_val - initial_joint_pos[axis_num])
                     p_cam = pose[:3, 3]
                     
+                    T_cam_to_marker = pose
                     if not self.robot or self.robot == "mock_robot":
                         p_meas_t5 = p_cam
                         p_ee = p_cam
+                        T_t5_to_marker = T_cam_to_marker
+                        T_ee_to_marker = T_cam_to_marker
                     else:
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
                         T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
                         T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
                         p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
                         p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+                        T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
+                        T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
+                    
+                    T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
+                    T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
+                    T_ee_flat_str = ", ".join(f"{v:.6f}" for v in T_ee_to_marker.flatten())
                     
                     f.write(f"{s_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
                             f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
-                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}\n")
+                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
+                            f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
             if log_callback:
                 log_callback(f"[DEBUG] Saved Axis {axis_num} marker sweep debug points to {os.path.basename(filename)}")
         except Exception as e:
