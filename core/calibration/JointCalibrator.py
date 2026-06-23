@@ -6,7 +6,7 @@ import rby1_sdk as rby
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from scipy.optimize import least_squares
+from scipy.optimize import least_squares, minimize_scalar
 from scipy.spatial.transform import Rotation as R_scipy
 from CalibratorBase import BaseCalibrator
 
@@ -177,7 +177,7 @@ class JointCalibrator(BaseCalibrator):
         version_num = self.get_robot_version()
         version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
         
-        ready_mode = mode if mode in ["wrist_pitch", "elbow"] else "wrist_pitch"
+        ready_mode = "elbow" if mode == "elbow" else "wrist_pitch"
         
         if arm_side == "right":
             right_arm = self.get_ready_pose(version_key, "joint", ready_mode, "right")
@@ -519,7 +519,15 @@ class JointCalibrator(BaseCalibrator):
         initial_joint_pos = list(state.position[arm_idx])
 
         # Define joint parameters based on mode
-        if mode == "wrist_pitch":
+        if mode == "wrist_pitch_v13":
+            cand_joint = 6
+            sweep_joint_A = 6
+            sweep_joint_B = 5
+        elif mode == "wrist_roll_v13":
+            cand_joint = 5
+            sweep_joint_A = 5
+            sweep_joint_B = 3
+        elif mode == "wrist_pitch":
             cand_joint = 5
             sweep_joint_A = 4
             sweep_joint_B = 6
@@ -532,7 +540,13 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        active_offset = self.joint_offsets.get(mode, 0.0)
+        if mode == "wrist_pitch_v13":
+            offset_key = "wrist_roll"
+        elif mode == "wrist_roll_v13":
+            offset_key = "wrist_pitch"
+        else:
+            offset_key = mode
+        active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
         q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
@@ -705,9 +719,240 @@ class JointCalibrator(BaseCalibrator):
             log_callback(f"Swept {raw_len_A} dense raw coordinate frames during Joint A motion... downsampled to {len(dataset_A)} for optimization.")
             log_callback(f"Swept {raw_len_B} dense raw coordinate frames during Joint B motion... downsampled to {len(dataset_B)} for optimization.")
 
+        return self.compute_calibration_results(
+            arm_side=arm_side,
+            mode=mode,
+            dataset_A=dataset_A,
+            dataset_B=dataset_B,
+            initial_joint_pos=initial_joint_pos,
+            current_offset_deg=current_offset_deg,
+            use_angle_based_fitting=use_angle_based_fitting,
+            save_debug=save_debug,
+            log_callback=log_callback
+        )
+
+    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None):
+        if use_angle_based_fitting is None:
+            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
+
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot not connected or available for calibration computation.")
+            return None
+
         # 3. OFFLINE DIRECT ANGLE OPTIMIZATION (Fitted Circle Normal Orthogonality in Camera Frame)
         if log_callback: log_callback("\n--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---")
         
+        state = self.robot.get_state()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+
+        # Define joint parameters based on mode
+        if mode == "wrist_pitch_v13":
+            cand_joint = 6
+            sweep_joint_A = 6
+            sweep_joint_B = 5
+        elif mode == "wrist_roll_v13":
+            cand_joint = 5
+            sweep_joint_A = 5
+            sweep_joint_B = 3
+        elif mode == "wrist_pitch":
+            cand_joint = 5
+            sweep_joint_A = 4
+            sweep_joint_B = 6
+        else: # elbow mode
+            cand_joint = 3
+            sweep_joint_A = 2
+            sweep_joint_B = 4
+
+        dyn_model = self.robot.get_dynamics()
+        ee_name = f"ee_{arm_side}"
+
+        # Load mount_to_cam (transform from head mount "link_head_2" to camera)
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_mount_to_cam = self.make_transform(mount_to_cam)
+
+        if mode in ["wrist_pitch_v13", "wrist_roll_v13"]:
+            # Load Tf_to_marker
+            version_num = self.get_robot_version()
+            version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
+            if tf_vec is None:
+                tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            if tf_vec is None:
+                if arm_side == "left":
+                    tf_vec = [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0]
+                else:
+                    tf_vec = [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0]
+            T_ee_to_marker = self.make_transform(tf_vec)            # Fit circles to measured points in torso frame
+            poses_a_t5 = []
+            for q_full, pose in dataset_A:
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                poses_a_t5.append(T_t5_to_cam @ pose)
+            
+            poses_b_t5 = []
+            for q_full, pose in dataset_B:
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                poses_b_t5.append(T_t5_to_cam @ pose)
+
+            angles_A = [np.degrees(q_full[arm_idx[sweep_joint_A]] - initial_joint_pos[sweep_joint_A]) for q_full, _ in dataset_A]
+            angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
+
+            # Fit Sweep A rotation axis in torso frame
+            # For wrist_pitch_v13: Sweep A is Joint 6 (Roll, rotates about Z axis)
+            # For wrist_roll_v13: Sweep A is Joint 5 (Pitch, rotates about Y axis)
+            a_A_prior = np.array([0.0, 0.0, 1.0]) if mode == "wrist_pitch_v13" else np.array([0.0, 1.0, 0.0])
+            res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
+                poses_a_t5, angles_A, axis_prior=a_A_prior
+            )
+            c_A = res_A['c_opt']
+            n_A = res_A['axis_opt']
+            r_A = res_A['radius']
+            rmse_A = res_A['rmse']
+            pts_2d_A = res_A['pts_2d']
+            uc_A = res_A['uc_opt']
+            vc_A = res_A['vc_opt']
+
+            # Fit Sweep B rotation axis in torso frame
+            # For wrist_pitch_v13: Sweep B is Joint 5 (Pitch, rotates about Y axis)
+            # For wrist_roll_v13: Sweep B is Joint 3 (Elbow, rotates about Y axis)
+            a_B_prior = np.array([0.0, 1.0, 0.0])
+            res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
+                poses_b_t5, angles_B, axis_prior=a_B_prior
+            )
+            c_B = res_B['c_opt']
+            n_B = res_B['axis_opt']
+            r_B = res_B['radius']
+            rmse_B = res_B['rmse']
+            pts_2d_B = res_B['pts_2d']
+            uc_B = res_B['uc_opt']
+            vc_B = res_B['vc_opt']
+
+            angle_between_normals = np.degrees(np.arccos(np.clip(abs(np.dot(n_A, n_B)), -1.0, 1.0)))
+            diff_centers = c_B - c_A
+            center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A) * n_A)
+            
+            if mode == "wrist_pitch_v13":
+                # Sweep A is Joint 6 (Wrist Roll)
+                # Sweep B is Joint 5 (Wrist Pitch)
+                # Align normal vector of Joint 5 sweep (n_B) to torso Y direction
+                n_B_dir = n_B if n_B[1] > 0 else -n_B
+                shift_actual = np.dot(c_B - c_A, n_B_dir)
+                
+                # Scale nominal Tf_to_marker radius (x, y) to match measured Joint 6 radius (r_A)
+                tf_vec_mod = list(tf_vec)
+                orig_radius = np.sqrt(tf_vec_mod[0]**2 + tf_vec_mod[1]**2)
+                if orig_radius > 1e-5:
+                    scale = (r_A / 1000.0) / orig_radius
+                    tf_vec_mod[0] *= scale
+                    tf_vec_mod[1] *= scale
+                T_ee_to_marker = self.make_transform(tf_vec_mod)
+                
+                def compute_displacement_diff(delta_deg):
+                    pts_pred = []
+                    for q_full, _ in dataset_B:
+                        q_mod = np.array(q_full)
+                        q_mod[arm_idx[6]] += np.radians(delta_deg)
+                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
+                        pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
+                    
+                    c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred)
+                    return np.dot(c_fit - c_A, n_B_dir)
+                
+                def residual(delta):
+                    return [compute_displacement_diff(delta[0]) - shift_actual]
+                
+                res_opt = least_squares(residual, [0.0], bounds=([-15.0], [15.0]))
+                optimal_offset_deg = res_opt.x[0]
+                if log_callback:
+                    log_callback(f"  [v1.3 Joint 6 Calibration] Target shift={shift_actual:.4f} mm, Predicted shift(0)={compute_displacement_diff(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
+            else: # wrist_roll_v13
+                r_3_meas = r_B  # Sweep B is Joint 3
+                
+                # Compute L5_ee dynamically
+                try:
+                    names = self.robot.model().robot_joint_names
+                    state_L5_ee = dyn_model.make_state(
+                        [f"link_{arm_side}_arm_5", f"ee_{arm_side}"],
+                        names
+                    )
+                    state_L5_ee.set_q(np.zeros(len(names)))
+                    dyn_model.compute_forward_kinematics(state_L5_ee)
+                    T_L5_ee = dyn_model.compute_transformation(state_L5_ee, 0, 1)
+                    L5_ee = np.linalg.norm(T_L5_ee[:3, 3]) * 1000.0 # m to mm
+                except Exception as e:
+                    L5_ee = 300.0
+
+                # Scale nominal Tf_to_marker radius in Y-perpendicular plane to match measured Joint 5 radius r_A
+                tf_vec_mod = list(tf_vec)
+                x_m = tf_vec_mod[0] * 1000.0
+                z_m = tf_vec_mod[2] * 1000.0
+                orig_radius = np.sqrt(x_m**2 + (L5_ee + z_m)**2)
+                if orig_radius > 1e-5:
+                    scale = r_A / orig_radius
+                    tf_vec_mod[0] = (x_m * scale) / 1000.0
+                    tf_vec_mod[2] = ((L5_ee + z_m) * scale - L5_ee) / 1000.0
+                T_ee_to_marker = self.make_transform(tf_vec_mod)
+                
+                def compute_elbow_radius(delta_deg):
+                    pts_pred = []
+                    for q_full, _ in dataset_B:
+                        q_mod = np.array(q_full)
+                        q_mod[arm_idx[5]] += np.radians(delta_deg)
+                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
+                        pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
+                    _, _, r_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred)
+                    return r_fit
+                
+                def residual(delta):
+                    return [compute_elbow_radius(delta[0]) - r_3_meas]
+                
+                res_opt = least_squares(residual, [0.0], bounds=([-15.0], [15.0]))
+                optimal_offset_deg = res_opt.x[0]
+                if log_callback:
+                    log_callback(f"  [v1.3 Joint 5 Calibration] Target r3={r_3_meas:.4f} mm, Predicted r3(0)={compute_elbow_radius(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
+
+            sign = -1.0 if optimal_offset_deg < 0.0 else 1.0
+            
+            # Save debug orthogonal plot and return
+            if save_debug:
+                self.save_debug_orthogonal_plot(
+                    arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
+                    np.radians(optimal_offset_deg), ee_name, arm_idx, cand_joint, 
+                    angle_error_deg=angle_between_normals, log_callback=log_callback
+                )
+            
+            return {
+                'mode': mode,
+                'optimal_offset': optimal_offset_deg,
+                'angle_between_normals': angle_between_normals,
+                'sign': sign,
+                'center_dist': center_dist,
+                'pts_2d_A': pts_2d_A,
+                'uc_A': uc_A,
+                'vc_A': vc_A,
+                'r_A': r_A,
+                'pts_2d_B': pts_2d_B,
+                'uc_B': uc_B,
+                'vc_B': vc_B,
+                'r_B': r_B,
+                'rmse_A': rmse_A,
+                'rmse_B': rmse_B,
+                'marker_6_res': None,
+                'pts_a_cam': np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_A]),
+                'pts_b_cam': np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_B]),
+                'c_A': c_A,
+                'c_B': c_B,
+                'n_A': n_A,
+                'n_B': n_B,
+                'poses_B': [pose for _, pose in dataset_B],
+                'q_full_B': [q_full for q_full, _ in dataset_B]
+            }
+
         poses_A = [pose for q_full, pose in dataset_A]
         angles_A = [np.degrees(q_full[arm_idx[sweep_joint_A]] - initial_joint_pos[sweep_joint_A]) for q_full, pose in dataset_A]
         
@@ -763,7 +1008,7 @@ class JointCalibrator(BaseCalibrator):
 
         # Define T_t5_to_cam using fixed rotation and zero translation (strictly camera fixed, no FK)
         T_t5_to_cam = np.eye(4)
-        T_t5_to_cam[:3, :3] = R_rob_to_cam #->
+        T_t5_to_cam[:3, :3] = R_rob_to_cam
         
         a_cand_cam /= np.linalg.norm(a_cand_cam)
         a_A_cam /= np.linalg.norm(a_A_cam)

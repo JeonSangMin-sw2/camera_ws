@@ -1166,7 +1166,8 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_sweep_data = None
         
         # Cumulative Joint Offsets for iterative sweeps
-        self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        self.joint_offsets = {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+        self.wrist_roll_calibrated = {"right": False, "left": False}
         self.load_offsets_from_yaml()
         
         self.recommended_joint_offset = None
@@ -1230,8 +1231,12 @@ class UnifiedCalibrationApp(QWidget):
             
             # Sync current offsets with active arm_side from YAML
             is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
-            wrist_key = "joint6" if is_v13 else "joint5"
-            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get(wrist_key, 0.0)
+            if is_v13:
+                self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
+                self.joint_offsets["wrist_roll"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint6", 0.0)
+            else:
+                self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
+                self.joint_offsets["wrist_roll"] = 0.0
             self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -1244,6 +1249,7 @@ class UnifiedCalibrationApp(QWidget):
                 "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
             }
             self.joint_offsets["wrist_pitch"] = 0.0
+            self.joint_offsets["wrist_roll"] = 0.0
             self.joint_offsets["elbow"] = 0.0
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -1299,12 +1305,23 @@ class UnifiedCalibrationApp(QWidget):
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
         is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
-        if col == 0:
-            joint_key = "joint6" if is_v13 else "joint5"
-            joint_label = "Joint 6" if is_v13 else "Joint 5"
+        if is_v13:
+            if col == 0:
+                joint_key = "joint6"
+                joint_label = "Joint 6"
+            elif col == 1:
+                joint_key = "joint5"
+                joint_label = "Joint 5"
+            else:
+                joint_key = "joint3"
+                joint_label = "Joint 3"
         else:
-            joint_key = "joint3"
-            joint_label = "Joint 3"
+            if col == 0:
+                joint_key = "joint5"
+                joint_label = "Joint 5"
+            else:
+                joint_key = "joint3"
+                joint_label = "Joint 3"
             
         current_val = self.joint_offsets_store[arm][joint_key]
         new_val, ok = QInputDialog.getDouble(
@@ -1317,6 +1334,58 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_offsets_store[arm][joint_key] = new_val
             self.update_applied_offset_label()
             self.log_msg(f"[MANUAL OVERRIDE] Staged {arm.upper()} Arm {joint_label} offset manually to {new_val:.4f}°. (Not saved to disk yet. Click APPLY OFFSET to save)")
+
+    def update_joint_modes(self):
+        if not hasattr(self, 'joint_mode_sel'):
+            return
+        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        self.joint_mode_sel.blockSignals(True)
+        self.joint_mode_sel.clear()
+        if is_v13:
+            self.joint_mode_sel.addItems([
+                "wrist_pitch_v13 (6-Axis Sweep)",
+                "wrist_roll_v13 (5-Axis Sweep)",
+                "elbow (3-Axis Sweep)"
+            ])
+        else:
+            self.joint_mode_sel.addItems([
+                "wrist_pitch (5-Axis Sweep)",
+                "elbow (3-Axis Sweep)"
+            ])
+        self.joint_mode_sel.blockSignals(False)
+
+    def on_mock_version_changed(self, text):
+        try:
+            v = float(text)
+            self.robot_version = v
+            self.marker_calibrator.robot_version = v
+            self.joint_calibrator.robot_version = v
+            self.update_joint_modes()
+            self.update_applied_offset_label()
+            self.log_msg(f"[INFO] Mock robot version changed to: {v:.1f}")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to update mock version: {e}")
+
+    def get_selected_joint_mode(self):
+        if not hasattr(self, 'joint_mode_sel'):
+            return "wrist_pitch"
+        mode_str = self.joint_mode_sel.currentText()
+        if "wrist_pitch_v13" in mode_str:
+            return "wrist_pitch_v13"
+        elif "wrist_roll_v13" in mode_str:
+            return "wrist_roll_v13"
+        elif "wrist_pitch" in mode_str:
+            return "wrist_pitch"
+        else:
+            return "elbow"
+
+    def get_offset_key_for_mode(self, mode):
+        if mode == "wrist_pitch_v13":
+            return "wrist_roll"
+        elif mode == "wrist_roll_v13":
+            return "wrist_pitch"
+        else:
+            return mode
 
     def init_ui(self):
         # Main horizontal split layout
@@ -1341,6 +1410,9 @@ class UnifiedCalibrationApp(QWidget):
             self.ip_input.setText("127.0.0.1:50051")
             self.ip_input.setReadOnly(True)
             self.ip_input.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 1px solid #2d2d2d;")
+            self.mock_version_sel = QComboBox()
+            self.mock_version_sel.addItems(["1.2", "1.3"])
+            self.mock_version_sel.currentTextChanged.connect(self.on_mock_version_changed)
             
         self.model_input = QComboBox()
         self.model_input.addItems(["a", "m"])
@@ -1354,6 +1426,9 @@ class UnifiedCalibrationApp(QWidget):
         
         conn_layout.addWidget(QLabel("IP / Port:"))
         conn_layout.addWidget(self.ip_input)
+        if self.ui_only:
+            conn_layout.addWidget(QLabel("Mock Robot Version:"))
+            conn_layout.addWidget(self.mock_version_sel)
         conn_layout.addWidget(QLabel("Robot Model:"))
         conn_layout.addWidget(self.model_input)
         conn_layout.addWidget(self.btn_connect)
@@ -1475,7 +1550,7 @@ class UnifiedCalibrationApp(QWidget):
         joint_sublayout = QVBoxLayout()
         
         self.joint_mode_sel = QComboBox()
-        self.joint_mode_sel.addItems(["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"])
+        self.update_joint_modes()
         self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
         
         self.btn_joint_ready = QPushButton("MOVE TO READY")
@@ -2023,25 +2098,36 @@ class UnifiedCalibrationApp(QWidget):
             return
         
         is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
-        wrist_key = "joint6" if is_v13 else "joint5"
-        wrist_label = "Joint 6 (Wrist)" if is_v13 else "Joint 5 (Wrist)"
-        self.tbl_offset_monitor.setHorizontalHeaderLabels([wrist_label, "Joint 3 (Elbow)"])
-        
-        for row_idx, arm in enumerate(["right", "left"]):
-            for col_idx, joint_key in enumerate([wrist_key, "joint3"]):
-                val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
-                item = QTableWidgetItem(f"{val:.4f}°")
-                item.setTextAlignment(Qt.AlignCenter)
-                self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
+        if is_v13:
+            self.tbl_offset_monitor.setColumnCount(3)
+            self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 6 (Roll)", "Joint 5 (Pitch)", "Joint 3 (Elbow)"])
+            for row_idx, arm in enumerate(["right", "left"]):
+                for col_idx, joint_key in enumerate(["joint6", "joint5", "joint3"]):
+                    val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
+                    item = QTableWidgetItem(f"{val:.4f}°")
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
+        else:
+            self.tbl_offset_monitor.setColumnCount(2)
+            self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
+            for row_idx, arm in enumerate(["right", "left"]):
+                for col_idx, joint_key in enumerate(["joint5", "joint3"]):
+                    val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
+                    item = QTableWidgetItem(f"{val:.4f}°")
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
         
         # Keeps the apply button permanently visible on the Right Panel dashboard
 
     def apply_joint_offset(self):
         is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
-        wrist_key = "joint6" if is_v13 else "joint5"
-        wrist_label = "Joint 6 (wrist_roll)" if is_v13 else "Joint 5 (wrist_pitch)"
         
-        self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side][wrist_key]
+        if is_v13:
+            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
+            self.joint_offsets["wrist_roll"] = self.joint_offsets_store[self.arm_side]["joint6"]
+        else:
+            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
+            self.joint_offsets["wrist_roll"] = 0.0
         self.joint_offsets["elbow"] = self.joint_offsets_store[self.arm_side]["joint3"]
         self.joint_calibrator.joint_offsets = self.joint_offsets
         self.marker_calibrator.joint_offsets = self.joint_offsets
@@ -2051,7 +2137,11 @@ class UnifiedCalibrationApp(QWidget):
         
         self.log_msg(f"\n" + "="*50)
         self.log_msg(f"[APPLY] Applied current staged offsets for {self.arm_side.upper()} Arm to active parameters:")
-        self.log_msg(f"  - {wrist_label}: {self.joint_offsets['wrist_pitch']:.4f}°")
+        if is_v13:
+            self.log_msg(f"  - Joint 6 (wrist_roll) : {self.joint_offsets['wrist_roll']:.4f}°")
+            self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
+        else:
+            self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
         self.log_msg(f"  - Joint 3 (elbow)      : {self.joint_offsets['elbow']:.4f}°")
         self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!")
         self.log_msg("="*50 + "\n")
@@ -2490,8 +2580,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[MOCK] Moved to joint ready pose.")
             return
 
-        mode_str = self.joint_mode_sel.currentText()
-        mode = "wrist_pitch" if "wrist_pitch" in mode_str else "elbow"
+        mode = self.get_selected_joint_mode()
         
         self.set_controls_enabled(False)
         if self.poll_timer.isActive(): self.poll_timer.stop()
@@ -2507,10 +2596,22 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
-        mode_str = self.joint_mode_sel.currentText()
-        mode = "wrist_pitch" if "wrist_pitch" in mode_str else "elbow"
+        mode = self.get_selected_joint_mode()
+        if mode == "wrist_roll_v13" and not self.wrist_roll_calibrated.get(self.arm_side, False):
+            reply = QMessageBox.warning(
+                self,
+                "Calibration Sequence Warning",
+                "Wrist Roll (Joint 6) has not been calibrated yet.\n"
+                "It is highly recommended to calibrate Joint 6 (wrist_pitch_v13) first.\n"
+                "Do you want to proceed anyway?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
 
-        self.original_joint_offset = self.joint_offsets.get(mode, 0.0)
+        offset_key = self.get_offset_key_for_mode(mode)
+        self.original_joint_offset = self.joint_offsets.get(offset_key, 0.0)
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
@@ -2520,7 +2621,7 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
         
-        curr_offset = self.joint_offsets.get(mode, 0.0)
+        curr_offset = self.joint_offsets.get(offset_key, 0.0)
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
@@ -2554,13 +2655,23 @@ class UnifiedCalibrationApp(QWidget):
             
         self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
 
-        joint_key = "joint5" if mode == "wrist_pitch" else "joint3"
+        if mode == "wrist_pitch_v13":
+            joint_key = "joint6"
+            if converged:
+                self.wrist_roll_calibrated[self.arm_side] = True
+        elif mode == "wrist_roll_v13":
+            joint_key = "joint5"
+        elif mode == "wrist_pitch":
+            joint_key = "joint5"
+        else:
+            joint_key = "joint3"
         self.joint_offsets_store[self.arm_side][joint_key] = float(self.recommended_joint_offset)
 
         # Revert active offsets to nominal original values in model (until user clicks APPLY)
-        self.joint_offsets[mode] = self.original_joint_offset
-        self.joint_calibrator.joint_offsets[mode] = self.original_joint_offset
-        self.marker_calibrator.joint_offsets[mode] = self.original_joint_offset
+        offset_key = self.get_offset_key_for_mode(mode)
+        self.joint_offsets[offset_key] = self.original_joint_offset
+        self.joint_calibrator.joint_offsets[offset_key] = self.original_joint_offset
+        self.marker_calibrator.joint_offsets[offset_key] = self.original_joint_offset
         self.update_applied_offset_label()
 
         self.log_msg(f"\n" + "="*50)
@@ -2588,7 +2699,15 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"\n[1] Calibration Target: {mode}")
         
         recommended = self.joint_sweep_data.get('recommended_joint_offset', self.joint_sweep_data['optimal_offset'])
-        self.log_msg(f"    - Target Swept Joint       : {'Joint 5' if mode == 'wrist_pitch' else 'Joint 3'}")
+        if mode == "wrist_pitch_v13":
+            joint_name = "Joint 6 (Wrist Roll)"
+        elif mode == "wrist_roll_v13":
+            joint_name = "Joint 5 (Wrist Pitch)"
+        elif mode == "wrist_pitch":
+            joint_name = "Joint 5 (Wrist Pitch)"
+        else:
+            joint_name = "Joint 3 (Elbow Pitch)"
+        self.log_msg(f"    - Target Swept Joint       : {joint_name}")
         self.log_msg(f"    - Estimated Optimal Offset : {recommended:.4f} deg")
         # self.log_msg(f"    - Circle A Fitting RMSE     : {self.joint_sweep_data['rmse_A']:.4f} mm")
         # self.log_msg(f"    - Circle B Fitting RMSE     : {self.joint_sweep_data['rmse_B']:.4f} mm")

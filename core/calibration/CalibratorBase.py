@@ -33,7 +33,7 @@ class BaseCalibrator:
         yaml_path = os.path.join(config_dir, "ready_poses.yaml")
         if os.path.exists(yaml_path):
             try:
-                with open(yaml_path, "r") as f:
+                with open(yaml_path, "r", encoding="utf-8") as f:
                     self.ready_poses = yaml.safe_load(f) or {}
                 logging.info(f"Loaded ready poses from {yaml_path}")
             except Exception as e:
@@ -117,7 +117,7 @@ class BaseCalibrator:
         yaml_path = os.path.join(config_dir, "setting.yaml")
         if os.path.exists(yaml_path):
             try:
-                with open(yaml_path, "r") as f:
+                with open(yaml_path, "r", encoding="utf-8") as f:
                     config_data = yaml.safe_load(f) or {}
                     self.camera_config = config_data.get("camera", {})
                 logging.info(f"Loaded config from setting.yaml")
@@ -422,17 +422,27 @@ class BaseCalibrator:
             
         if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:
             # Offset mapping: Joint 3 (index 3) is elbow
-            # For v1.3, Joint 6 (index 6) is wrist roll
-            # For v1.2, Joint 5 (index 5) is wrist pitch
+            # For v1.3:
+            # - Joint 5 (index 5) is wrist pitch
+            # - Joint 6 (index 6) is wrist roll
+            # For v1.2:
+            # - Joint 5 (index 5) is wrist pitch
             is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
-            wrist_idx = 6 if is_v13 else 5
             if right_arm is not None:
                 right_arm = list(right_arm)
-                right_arm[wrist_idx] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                if is_v13:
+                    right_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
+                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                else:
+                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 right_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
-                left_arm[wrist_idx] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                if is_v13:
+                    left_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
+                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                else:
+                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 left_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
@@ -633,13 +643,13 @@ class BaseCalibrator:
         else:
             R_geom = 280.0 if (axis_prior is not None and abs(axis_prior[2]) > 0.8) else 75.0
             
-        R_init = np.clip(R_geom, 50.0, 450.0)
+        R_init = np.clip(R_geom, 50.0, 800.0)
         
-        if 50.0 <= R_geom <= 450.0 and H_sag > 0.05:
+        if 50.0 <= R_geom <= 800.0 and H_sag > 0.05:
             u_sag = v_sag / H_sag
             c_init = p_mid_arc - R_init * u_sag
         else:
-            R_init = np.clip(radius_fit, 50.0, 450.0)
+            R_init = np.clip(radius_fit, 50.0, 800.0)
             c_init = c_fit
         
         best_opt = None
@@ -655,7 +665,7 @@ class BaseCalibrator:
             
             init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
             lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])
+            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
             # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
             init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
             
@@ -715,7 +725,7 @@ class BaseCalibrator:
                 
             init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
             lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])
+            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
             # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
             init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
             
@@ -805,7 +815,7 @@ class BaseCalibrator:
             return (pts_in - pred_pts).ravel()
             
         lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-        upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [450.0]])
+        upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
         # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
         init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
         
