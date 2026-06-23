@@ -553,33 +553,47 @@ class MarkerCalibrator(BaseCalibrator):
         print(f"DEBUG STAGE 1: roll_diff={roll_diff:.3f}, opt_delta_6_deg={opt_delta_6_deg:.3f}")
 
         # Stage 2: QP optimization for offsets, position, and orientation errors (in meters & radians)
-        L_5_ee_m = L_5_ee / 1000.0
+        # NOTE: L_5_ee is included as a free optimization variable (index 8) because:
+        # - The mock robot returns a nominal 300 mm which may differ from the actual robot
+        # - The physical z_e can be ~-130 mm, far outside z_nom ± 60 mm bounds
+        # - Treating L_5_ee as free allows the optimizer to jointly solve for true geometry
         x_nom_m = x_nom / 1000.0
         y_nom_m = y_nom / 1000.0
-        z_nom_m = z_nom / 1000.0
+        # Estimate a physically meaningful z_e initial value from the J6 sweep radius:
+        # r6 = sqrt(y_e^2 + z_e^2). With y_e ≈ 0, z_e ≈ -r6 (negative Z convention for v1.3)
         radius_6_m = radius_6 / 1000.0
         radius_5_m = radius_5 / 1000.0
         radius_4_m = radius_4 / 1000.0
+        z_init_m = -radius_6_m if radius_6_m > abs(z_nom / 1000.0) + 0.010 else (z_nom / 1000.0)
+        L_5_ee_m = L_5_ee / 1000.0
+        L_nom_m  = L_5_ee_m  # nominal link length from robot model
 
-        # State vector: [yaw_off, pitch_off, roll_off, d5, d6, x_e, y_e, z_e] in METERS
-        x_state = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_nom_m], dtype=float)
-        x_target = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_nom_m], dtype=float)
-        # lock roll_off at 0.0 by setting bounds to 0.0
-        w_reg = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-3, 1e-3, 1e-3])
+        # State vector: [yaw_off, pitch_off, roll_off, d5, d6, x_e, y_e, z_e, L_5_ee] in meters/radians
+        x_state = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
+        x_target = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
+        # Regularization weights:
+        # - y_e: strongly pulled to y_nom (physical bracket should have small y offset ≤1 mm)
+        # - L_5_ee: strongly pulled to robot model value (unlikely to deviate >40 mm)
+        # - x_e, z_e: moderate (allow larger position freedom)
+        w_reg = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-3, 1e-2, 1e-3, 2e-2])
 
+        # Bounds: z_e uses absolute physical range (v1.3 bracket extends up to ~200 mm in -Z)
+        # L_5_ee bounded tightly around robot-model value (±80 mm)
         x_min = np.array([
             -np.radians(30.0), -np.radians(30.0), 0.0,
             -np.radians(15.0), d6_init - np.radians(15.0),
-            x_nom_m - 0.030, y_nom_m - 0.003, z_nom_m - 0.060
+            x_nom_m - 0.030, y_nom_m - 0.003, -0.250,
+            L_nom_m - 0.080
         ])
         x_max = np.array([
             np.radians(30.0), np.radians(30.0), 0.0,
             np.radians(15.0), d6_init + np.radians(15.0),
-            x_nom_m + 0.030, y_nom_m + 0.003, z_nom_m + 0.060
+            x_nom_m + 0.030, y_nom_m + 0.003, 0.010,
+            L_nom_m + 0.080
         ])
 
         def eval_residuals(x):
-            y_off, p_off, r_off, d5_val, d6_val, xe, ye, ze = x
+            y_off, p_off, r_off, d5_val, d6_val, xe, ye, ze, L_m = x
             R_off = R_scipy.from_euler('ZYX', [y_off, p_off, r_off]).as_matrix()
             R_em = R_off @ R_ee_m_ideal
             
@@ -587,7 +601,7 @@ class MarkerCalibrator(BaseCalibrator):
             n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
             
             r6_p = np.sqrt(ye**2 + ze**2)
-            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) + L_5_ee_m
+            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) + L_m
             r5_p = np.sqrt(xe**2 + Z_p**2)
             
             res = []
@@ -609,15 +623,15 @@ class MarkerCalibrator(BaseCalibrator):
                 res.append(w_reg[idx] * (x[idx] - x_target[idx]))
             return np.array(res, dtype=float)
 
-        max_iter = 100
-        eps_converge = 1e-8
+        max_iter = 150
+        eps_converge = 1e-9
         qp_reg = 1e-8
 
         import qpsolvers
         for iteration in range(max_iter):
             f_vals = eval_residuals(x_state)
             
-            # Numeric Jacobian
+            # Numeric Jacobian (centered differences)
             eps_jac = 1e-7
             J = np.zeros((len(f_vals), len(x_state)))
             for j in range(len(x_state)):
@@ -635,7 +649,7 @@ class MarkerCalibrator(BaseCalibrator):
             P = H + qp_reg * np.eye(len(x_state))
             q = g
             
-            dx_max = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05])
+            dx_max = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05])
             lb = np.maximum(-dx_max, x_min - x_state)
             ub = np.minimum(dx_max, x_max - x_state)
             
@@ -648,10 +662,11 @@ class MarkerCalibrator(BaseCalibrator):
             if np.linalg.norm(dx) < eps_converge:
                 break
 
-        yaw_off_opt, pitch_off_opt, roll_off_opt, d5_opt, d6_opt, xe_opt, ye_opt, ze_opt = x_state
+        yaw_off_opt, pitch_off_opt, roll_off_opt, d5_opt, d6_opt, xe_opt, ye_opt, ze_opt, L_5_ee_solved = x_state
         xe_opt = xe_opt * 1000.0
         ye_opt = ye_opt * 1000.0
         ze_opt = ze_opt * 1000.0
+        L_5_ee = L_5_ee_solved * 1000.0  # update with optimized value
 
         opt_delta_5 = float(np.degrees(d5_opt))
         opt_delta_6 = float(np.degrees(d6_opt))
@@ -672,7 +687,7 @@ class MarkerCalibrator(BaseCalibrator):
         return {
             'x_e': xe_opt, 'y_e': ye_opt, 'z_e': ze_opt,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
-            'L_5_ee': L_5_ee,
+            'L_5_ee': L_5_ee,  # optimized link length
             'radius_6': radius_6, 'radius_5': radius_5, 'radius_4': radius_4,
             'ortho_err': ortho_err,
             'rmse_6': marker_data_6.get('rmse', 0.0) if marker_data_6 else 0.0,
