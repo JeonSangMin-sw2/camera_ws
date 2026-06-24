@@ -951,53 +951,36 @@ class JointCalibrator(BaseCalibrator):
                 if log_callback:
                     log_callback(f"  [v1.3 Joint 6 Calibration] Target shift={shift_actual:.4f} mm, Predicted shift(0)={compute_displacement_diff(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
             else: # wrist_roll_v13
-                r_3_meas = r_B  # Sweep B is Joint 3
-                
-                # Compute L5_ee dynamically
-                try:
-                    names = self.robot.model().robot_joint_names
-                    state_L5_ee = dyn_model.make_state(
-                        [f"link_{arm_side}_arm_5", f"ee_{arm_side}"],
-                        names
-                    )
-                    state_L5_ee.set_q(np.zeros(len(names)))
-                    dyn_model.compute_forward_kinematics(state_L5_ee)
-                    T_L5_ee = dyn_model.compute_transformation(state_L5_ee, 0, 1)
-                    L5_ee = np.linalg.norm(T_L5_ee[:3, 3]) * 1000.0 # m to mm
-                except Exception as e:
-                    L5_ee = 300.0
+                # Physical insight: joint3 and joint5 share parallel Y axes (offset in Z by L35).
+                # A joint5 offset changes the marker's XZ position relative to the elbow axis,
+                # so r_B (joint3 sweep radius) IS sensitive to joint5 offset.
+                # r_A (joint5 sweep radius) is invariant to joint5 offset.
+                #
+                # Solve: find delta_5 such that FK-predicted r_B(delta_5) == measured r_B.
+                # Identical structure to wrist_pitch_v13's compute_displacement_diff.
 
-                # Scale nominal Tf_to_marker radius in Y-perpendicular plane to match measured Joint 5 radius r_A
-                tf_vec_mod = list(tf_vec)
-                x_m = tf_vec_mod[0] * 1000.0
-                z_m = tf_vec_mod[2] * 1000.0
-                orig_radius = np.sqrt(x_m**2 + (L5_ee + z_m)**2)
-                if orig_radius > 1e-5:
-                    scale = r_A / orig_radius
-                    tf_vec_mod[0] = (x_m * scale) / 1000.0
-                    tf_vec_mod[2] = ((L5_ee + z_m) * scale - L5_ee) / 1000.0
-                T_ee_to_marker = self.make_transform(tf_vec_mod)
-                
-                def compute_elbow_radius(delta_deg):
+                def predict_r_B_fk(delta_deg):
                     pts_pred = []
                     for q_full, _ in dataset_B:
                         q_mod = np.array(q_full)
                         q_mod[arm_idx[5]] += np.radians(delta_deg)
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
-                        pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
-                    _, _, r_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    return r_fit
-                
-                def residual(delta):
-                    return [compute_elbow_radius(delta[0]) - r_3_meas]
-                
-                res_opt = least_squares(residual, [0.0], bounds=([-15.0], [15.0]))
-                optimal_offset_deg = -res_opt.x[0]
+                        pts_pred.append((T_t5_to_ee @ T_ee_to_marker)[:3, 3] * 1000.0)
+                    _, _, r_pred, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
+                    return r_pred
+
+                def residual_5(delta):
+                    return [predict_r_B_fk(delta[0]) - r_B]
+
+                res_opt5 = least_squares(residual_5, [0.0], bounds=([-15.0], [15.0]))
+                optimal_offset_deg = -res_opt5.x[0]
+
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 5 Calibration] Target r3={r_3_meas:.4f} mm, Predicted r3(0)={compute_elbow_radius(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
+                    log_callback(f"  [v1.3 Joint 5 Calibration] r_B_meas={r_B:.3f}, r_B_pred(δ=0)={predict_r_B_fk(0.0):.3f}, solved δ={res_opt5.x[0]:.4f}°, offset={optimal_offset_deg:.4f}°")
+
 
             sign = -1.0 if optimal_offset_deg < 0.0 else 1.0
+
             
             # Save debug orthogonal plot and return
             if save_debug:
