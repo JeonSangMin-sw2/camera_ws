@@ -131,30 +131,35 @@ class JointCalibrator(BaseCalibrator):
             if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
             return None
 
+        # Build clean final output dict — UI only needs these fields
+        final_output = {
+            'mode': mode,
+            'recommended_joint_offset': staged_offset,
+            'optimal_offset': staged_offset,
+            'converged': converged,
+        }
+
         # Run one final validation sweep with the recommended joint offset
         if log_callback:
             log_callback(f"\n[VALIDATION SWEEP] Running final validation sweep with recommended offset {staged_offset:.4f}°...")
         validation_res = run_single_sweep(staged_offset)
+
         if validation_res:
-            validation_res['recommended_joint_offset'] = staged_offset
-            validation_res['converged'] = converged
             if first_res:
                 plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
-                validation_res['plot_path_combined'] = plot_path
-            return validation_res
+                final_output['plot_path_combined'] = plot_path
         else:
             if getattr(self, 'stop_requested', False):
                 if log_callback: log_callback("[INFO] Joint calibration aborted during validation sweep.")
                 return None
             if log_callback:
                 log_callback("[WARN] Validation sweep failed. Returning last calibration result.")
-            if final_res:
-                final_res['recommended_joint_offset'] = staged_offset
-                final_res['converged'] = converged
-                if first_res:
-                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
-                    final_res['plot_path_combined'] = plot_path
-            return final_res
+            if final_res and first_res:
+                plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
+                final_output['plot_path_combined'] = plot_path
+
+        return final_output
+
 
     def perform_move_to_ready_pose(self, arm_side, mode, log_callback=None):
         if not self.robot:
@@ -1018,15 +1023,12 @@ class JointCalibrator(BaseCalibrator):
                 'r_B': r_B,
                 'rmse_A': rmse_A,
                 'rmse_B': rmse_B,
-                'marker_6_res': None,
                 'pts_a_cam': np.array([T[:3, 3] * 1000.0 for T in poses_a_t5]),
                 'pts_b_cam': np.array([T[:3, 3] * 1000.0 for T in poses_b_t5]),
                 'c_A': c_A,
                 'c_B': c_B,
                 'n_A': n_A,
                 'n_B': n_B,
-                'poses_B': [pose for _, pose in dataset_B],
-                'q_full_B': [q_full for q_full, _ in dataset_B]
             }
 
         poses_A = [pose for q_full, pose in dataset_A]
@@ -1221,8 +1223,7 @@ class JointCalibrator(BaseCalibrator):
                 angle_error_deg=angle_between_normals, log_callback=log_callback
             )
 
-        # Simultaneous Marker Axis 6 parameter calculation (Removed/Bypassed to speed up joint calibration)
-        marker_6_res = None
+
 
         return {
             'mode': mode,
@@ -1240,13 +1241,10 @@ class JointCalibrator(BaseCalibrator):
             'r_B': r_B,
             'rmse_A': rmse_A,
             'rmse_B': rmse_B,
-            'marker_6_res': marker_6_res,
             'pts_a_cam': np.array(pts_a_cam),
             'pts_b_cam': np.array(pts_b_cam),
             'c_A': c_A_c,
             'c_B': c_B_c,
             'n_A': n_A,
             'n_B': n_B,
-            'poses_B': poses_B,
-            'q_full_B': [q_full for q_full, _ in dataset_B]
         }

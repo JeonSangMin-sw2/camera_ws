@@ -9,6 +9,12 @@ from CalibratorBase import BaseCalibrator
 
 class MarkerCalibrator(BaseCalibrator):
 
+    @staticmethod
+    def rodrigues_rotation(vector, axis, theta_rad):
+        cos_t = np.cos(theta_rad)
+        sin_t = np.sin(theta_rad)
+        return vector * cos_t + np.cross(axis, vector) * sin_t + axis * np.dot(axis, vector) * (1 - cos_t)
+
     def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0, max_attempts=5):
         if not self.marker_st:
             if log_callback: log_callback("[ERROR] Camera system not initialized.")
@@ -96,43 +102,6 @@ class MarkerCalibrator(BaseCalibrator):
                 return False
             time.sleep(0.5)
         return True
-
-    def perform_move_to_ready_pose(self, arm_side, log_callback=None, mode="marker"):
-        if not self.robot:
-            if log_callback: log_callback("[ERROR] Robot not connected.")
-            return False
-
-        if log_callback: log_callback(f"[INFO] Moving {arm_side} arm to Marker Ready Pose...")
-        torso = [0, 0, 0, 0, 0, 0]
-        
-        # 1. First move the inactive arm to zero pose to avoid collision
-        if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
-        if arm_side == "right":
-            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0,apply_offsets=False)
-        else:
-            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0,apply_offsets=False)
-            
-        if not success_other:
-            if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")
-            return False
-            
-        # 2. Move active arm and head/torso to ready pose
-        if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
-        
-        version_num = self.get_robot_version()
-        version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
-        
-        if arm_side == "right":
-            right_arm = self.get_ready_pose(version_key, "marker", None, "right")
-            left_arm = None
-        else:
-            right_arm = None
-            left_arm = self.get_ready_pose(version_key, "marker", None, "left")
-            
-        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)
-        if success and log_callback:
-            log_callback("[INFO] Ready Pose Reached.")
-        return success
 
     def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False):
         if getattr(self, 'stop_requested', False):
@@ -432,8 +401,8 @@ class MarkerCalibrator(BaseCalibrator):
         res['captured_q_full'] = captured_q_full
         if save_debug:
             dataset = list(zip(captured_q_full, captured_poses))
-            self.save_marker_debug_points(
-                arm_side, axis_mode, dataset, initial_joint_pos, ee_name, dyn_model, T_t5_to_cam_fixed, log_callback
+            self.save_debug_points(
+                arm_side, axis_mode, dataset, initial_joint_pos, ee_name, dyn_model, T_t5_to_cam_fixed, "marker", log_callback
             )
         return res
 

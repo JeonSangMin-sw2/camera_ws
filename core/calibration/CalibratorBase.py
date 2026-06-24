@@ -5,6 +5,9 @@ import os
 import yaml
 import numpy as np
 import rby1_sdk as rby
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation as R_scipy
 
@@ -12,6 +15,12 @@ from scipy.spatial.transform import Rotation as R_scipy
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 class BaseCalibrator:
+    JOINT_CONFIGS = {
+        "wrist_pitch_v13": {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5},
+        "wrist_roll_v13":  {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3},
+        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6},
+        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4}
+    }
     def __init__(self, marker_st=None, robot=None):
         self.marker_st = marker_st
         self.robot = robot
@@ -47,49 +56,8 @@ class BaseCalibrator:
         return getattr(self, "robot_version", 1.2)
 
     def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
-        # Fallback values
-        fallbacks = {
-            "v1.2": {
-                "joint": {
-                    "wrist_pitch": {
-                        "right_arm": [-55.0, -45.0, 25.0, -127.0, 90.0, 0.0, 0.0],
-                        "left_arm": [-55.0, 45.0, -25.0, -127.0, -90.0, 0.0, 0.0]
-                    },
-                    "elbow": {
-                        "right_arm": [-107.0, -17.0, 0.0, 0.0, 73.0, -80.0, 73.0],
-                        "left_arm": [-107.0, 17.0, 0.0, 0.0, -73.0, -80.0, -73.0]
-                    }
-                },
-                "marker": {
-                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
-                    "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
-                },
-                "check_calib": {
-                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
-                    "left_arm": [-90.0, 45.0, -73.0, -107.0, -80.0, 90.0, 0.0]
-                }
-            },
-            "v1.3": {
-                "joint": {
-                    "wrist_pitch": {
-                        "right_arm": [-55.0, -45.0, 25.0, -127.0, 90.0, 0.0, 0.0],
-                        "left_arm": [-55.0, 45.0, -25.0, -127.0, -90.0, 0.0, 0.0]
-                    },
-                    "elbow": {
-                        "right_arm": [-107.0, -17.0, 0.0, 0.0, 73.0, -80.0, 73.0],
-                        "left_arm": [-107.0, 17.0, 0.0, 0.0, -73.0, -80.0, -73.0]
-                    }
-                },
-                "marker": {
-                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 0.0, 0.0, -80.0],
-                    "left_arm": [-90.0, 45.0, -73.0, -107.0, 0.0, 0.0, 80.0]
-                },
-                "check_calib": {
-                    "right_arm": [-90.0, -45.0, 73.0, -107.0, 0.0, 0.0, -80.0],
-                    "left_arm": [-90.0, 45.0, -73.0, -107.0, 0.0, 0.0, 80.0]
-                }
-            }
-        }
+        if not self.ready_poses:
+            raise RuntimeError("Ready poses are not loaded or the configuration file is empty.")
         
         try:
             val = self.ready_poses[version_key]
@@ -100,16 +68,12 @@ class BaseCalibrator:
             else:
                 val = val["marker"][f"{arm_side}_arm"]
             return np.deg2rad(val)
-        except Exception:
-            # Fallback
-            val = fallbacks[version_key]
-            if type_key == "joint":
-                val = val["joint"][mode_key][f"{arm_side}_arm"]
-            elif type_key == "check_calib":
-                val = val["check_calib"][f"{arm_side}_arm"]
-            else:
-                val = val["marker"][f"{arm_side}_arm"]
-            return np.deg2rad(val)
+        except (KeyError, TypeError) as e:
+            raise KeyError(
+                f"[ERROR] Failed to get ready pose for version='{version_key}', type='{type_key}', mode='{mode_key}', arm='{arm_side}_arm'. "
+                f"Please check your ready_poses.yaml file. Details: {e}"
+            )
+
 
     def load_camera_config(self):
         # Locate setting.yaml
@@ -126,7 +90,7 @@ class BaseCalibrator:
         else:
             logging.warning(f"setting.yaml not found at {yaml_path}")
 
-    def save_debug_points(self, arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback=None):
+    def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None):
         try:
             config_dir = os.path.abspath(os.path.dirname(__file__))
             if not self.robot or self.robot == "mock_robot":
@@ -136,101 +100,19 @@ class BaseCalibrator:
             else:
                 arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
             
-            # Save dataset A (4축 또는 sweep_joint_A)
-            filename_A = os.path.join(config_dir, f"sweep_points_{arm_side}_joint_A_axis_{sweep_joint_A}.txt")
-            with open(filename_A, "w") as f:
-                f.write("# Joint_A_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
-                        "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
-                for q_full, pose in dataset_A:
-                    if not self.robot or self.robot == "mock_robot":
-                        q_val = q_full[7 + sweep_joint_A] if arm_side == "left" else q_full[sweep_joint_A]
-                    else:
-                        q_val = q_full[arm_idx[sweep_joint_A]]
-                    sa_deg = np.degrees(q_val - initial_joint_pos[sweep_joint_A])
-                    p_cam = pose[:3, 3]
-                    
-                    T_cam_to_marker = pose
-                    if not self.robot or self.robot == "mock_robot":
-                        p_meas_t5 = p_cam
-                        p_ee = p_cam
-                        T_t5_to_marker = T_cam_to_marker
-                        T_ee_to_marker = T_cam_to_marker
-                    else:
-                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
-                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                        p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                        p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
-                        T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
-                        T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
-                    
-                    T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
-                    T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
-                    T_ee_flat_str = ", ".join(f"{v:.6f}" for v in T_ee_to_marker.flatten())
-                    
-                    f.write(f"{sa_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
-                            f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
-                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
-                            f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
+            filename = os.path.join(config_dir, f"sweep_points_{arm_side}_{type_key}_axis_{axis_num}.txt")
             
-            # Save dataset B (6축 또는 sweep_joint_B)
-            filename_B = os.path.join(config_dir, f"sweep_points_{arm_side}_joint_B_axis_{sweep_joint_B}.txt")
-            with open(filename_B, "w") as f:
-                f.write("# Joint_B_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
-                        "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
-                for q_full, pose in dataset_B:
-                    if not self.robot or self.robot == "mock_robot":
-                        q_val = q_full[7 + sweep_joint_B] if arm_side == "left" else q_full[sweep_joint_B]
-                    else:
-                        q_val = q_full[arm_idx[sweep_joint_B]]
-                    sb_deg = np.degrees(q_val - initial_joint_pos[sweep_joint_B])
-                    p_cam = pose[:3, 3]
-                    
-                    T_cam_to_marker = pose
-                    if not self.robot or self.robot == "mock_robot":
-                        p_meas_t5 = p_cam
-                        p_ee = p_cam
-                        T_t5_to_marker = T_cam_to_marker
-                        T_ee_to_marker = T_cam_to_marker
-                    else:
-                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
-                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                        p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                        p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
-                        T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
-                        T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
-                    
-                    T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
-                    T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
-                    T_ee_flat_str = ", ".join(f"{v:.6f}" for v in T_ee_to_marker.flatten())
-                    
-                    f.write(f"{sb_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
-                            f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
-                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
-                            f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
-            
-            if log_callback:
-                log_callback(f"[DEBUG] Saved Axis {sweep_joint_A} debug points to {os.path.basename(filename_A)}")
-                log_callback(f"[DEBUG] Saved Axis {sweep_joint_B} debug points to {os.path.basename(filename_B)}")
-        except Exception as e:
-            if log_callback:
-                log_callback(f"[ERROR] Failed to save debug points: {e}")
-
-    def save_marker_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback=None):
-        try:
-            config_dir = os.path.abspath(os.path.dirname(__file__))
-            if not self.robot or self.robot == "mock_robot":
-                arm_idx = [0]*20
-                for i in range(20):
-                    arm_idx[i] = i
+            # Determine prefix for header
+            if type_key == "joint_A":
+                angle_header_name = "Joint_A"
+            elif type_key == "joint_B":
+                angle_header_name = "Joint_B"
             else:
-                arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
-            
-            filename = os.path.join(config_dir, f"sweep_points_{arm_side}_marker_axis_{axis_num}.txt")
+                angle_header_name = f"Joint_{axis_num}"
+                
             with open(filename, "w") as f:
-                f.write(f"# Joint_{axis_num}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
-                        f"T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
+                f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
+                        "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
                 for q_full, pose in dataset:
                     if not self.robot or self.robot == "mock_robot":
                         q_val = q_full[7 + axis_num] if arm_side == "left" else q_full[axis_num]
@@ -263,10 +145,14 @@ class BaseCalibrator:
                             f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
                             f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
             if log_callback:
-                log_callback(f"[DEBUG] Saved Axis {axis_num} marker sweep debug points to {os.path.basename(filename)}")
+                if type_key == "marker":
+                    log_callback(f"[DEBUG] Saved Axis {axis_num} marker sweep debug points to {os.path.basename(filename)}")
+                else:
+                    log_callback(f"[DEBUG] Saved Axis {axis_num} debug points to {os.path.basename(filename)}")
         except Exception as e:
             if log_callback:
-                log_callback(f"[ERROR] Failed to save marker debug points: {e}")
+                log_callback(f"[ERROR] Failed to save debug points: {e}")
+
 
     @staticmethod
     def initialize_robot(address, model, power=".*", servo=".*"):
@@ -407,12 +293,6 @@ class BaseCalibrator:
         roll = data[3]
         T[:3, :3] = R_scipy.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix()
         return T
-
-    @staticmethod
-    def rodrigues_rotation(vector, axis, theta_rad):
-        cos_t = np.cos(theta_rad)
-        sin_t = np.sin(theta_rad)
-        return vector * cos_t + np.cross(axis, vector) * sin_t + axis * np.dot(axis, vector) * (1 - cos_t)
 
     def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
         if getattr(self, 'stop_requested', False):
@@ -962,4 +842,489 @@ class BaseCalibrator:
         except Exception as e:
             if log_callback: log_callback(f"[ERROR] Motion test sweep failed: {e}")
             return False
+
+    def perform_move_to_ready_pose(self, arm_side, mode="marker", log_callback=None):
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot not connected.")
+            return False
+
+        if log_callback: log_callback(f"[INFO] Moving {arm_side} arm to {mode} Ready Pose...")
+        torso = [0, 0, 0, 0, 0, 0]
+        
+        # 1. First move the inactive arm to zero pose to avoid collision
+        if log_callback: log_callback("[INFO] Moving inactive arm to zero pose first...")
+        if arm_side == "right":
+            success_other = self.movej(self.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
+        else:
+            success_other = self.movej(self.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
+            
+        if not success_other:
+            if log_callback: log_callback("[ERROR] Failed to move inactive arm to zero pose.")
+            return False
+            
+        # 2. Move active arm and head/torso to ready pose
+        if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
+        
+        version_num = self.get_robot_version()
+        version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
+        
+        if mode == "marker":
+            type_key = "marker"
+            ready_mode = None
+        else:
+            type_key = "joint"
+            ready_mode = "elbow" if mode == "elbow" else "wrist_pitch"
+            
+        if arm_side == "right":
+            right_arm = self.get_ready_pose(version_key, type_key, ready_mode, "right")
+            left_arm = None
+        else:
+            right_arm = None
+            left_arm = self.get_ready_pose(version_key, type_key, ready_mode, "left")
+
+        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=[0, 0], minimum_time=5.0)
+        if success and log_callback:
+            log_callback("[INFO] Ready Pose Reached.")
+        return success
+
+    def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None):
+        try:
+            import os
+            import numpy as np
+            import matplotlib.pyplot as plt
+
+            fig, axes = plt.subplots(2, 2, figsize=(14, 12))
+
+            def plot_column(res, col_idx, stage_name):
+                pts_a = res['pts_a_cam']
+                pts_b = res['pts_b_cam']
+                c_A = res['c_A']
+                c_B = res['c_B']
+                n_A = res['n_A']
+                n_B = res['n_B']
+                r_A = res['r_A']
+                r_B = res['r_B']
+                angle_error = res['angle_between_normals']
+                center_dist = res['center_dist']
+
+                # Compute local frames algebraically from normals (Z axes)
+                def get_local_vectors(n):
+                    n = n / np.linalg.norm(n)
+                    if abs(n[0]) < 0.9:
+                        u = np.cross(n, [1, 0, 0])
+                    else:
+                        u = np.cross(n, [0, 1, 0])
+                    u = u / np.linalg.norm(u)
+                    v = np.cross(n, u)
+                    v = v / np.linalg.norm(v)
+                    return u, v
+
+                u_A, v_A = get_local_vectors(n_A)
+                u_B, v_B = get_local_vectors(n_B)
+
+                theta = np.linspace(0, 2 * np.pi, 200)
+                circle_pts_a = c_A + r_A * (np.cos(theta)[:, None] * u_A + np.sin(theta)[:, None] * v_A)
+                circle_pts_b = c_B + r_B * (np.cos(theta)[:, None] * u_B + np.sin(theta)[:, None] * v_B)
+
+                # --- 1. TOP VIEW (Row 0, Col col_idx): X-Y Projection ---
+                ax_top = axes[0, col_idx]
+                ax_top.scatter(pts_a[:, 0], pts_a[:, 1], c='red', s=15, alpha=0.5, label='Sweep A Raw')
+                ax_top.scatter(pts_b[:, 0], pts_b[:, 1], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
+                ax_top.plot(circle_pts_a[:, 0], circle_pts_a[:, 1], 'r-', linewidth=1.5, label='Sweep A Fit')
+                ax_top.plot(circle_pts_b[:, 0], circle_pts_b[:, 1], 'b-', linewidth=1.5, label='Sweep B Fit')
+                ax_top.scatter([c_A[0]], [c_A[1]], c='darkred', marker='X', s=100, label='Center A')
+                ax_top.scatter([c_B[0]], [c_B[1]], c='darkblue', marker='X', s=100, label='Center B')
+                ax_top.plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
+                
+                # Normal vector arrows on X-Y
+                scale = min(r_A, r_B) * 0.4
+                ax_top.arrow(c_A[0], c_A[1], n_A[0]*scale, n_A[1]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
+                ax_top.arrow(c_B[0], c_B[1], n_B[0]*scale, n_B[1]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
+
+                ax_top.set_xlabel('X (mm)')
+                ax_top.set_ylabel('Y (mm)')
+                ax_top.set_title(f'[{stage_name}] Top View (X-Y Projection)')
+                ax_top.set_aspect('equal')
+                ax_top.grid(True)
+                ax_top.legend(loc='upper right')
+
+                # --- 2. SIDE VIEW (Row 1, Col col_idx): Y-Z Projection ---
+                ax_side = axes[1, col_idx]
+                ax_side.scatter(pts_a[:, 1], pts_a[:, 2], c='red', s=15, alpha=0.5, label='Sweep A Raw')
+                ax_side.scatter(pts_b[:, 1], pts_b[:, 2], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
+                ax_side.plot(circle_pts_a[:, 1], circle_pts_a[:, 2], 'r-', linewidth=1.5, label='Sweep A Fit')
+                ax_side.plot(circle_pts_b[:, 1], circle_pts_b[:, 2], 'b-', linewidth=1.5, label='Sweep B Fit')
+                ax_side.scatter([c_A[1]], [c_A[2]], c='darkred', marker='X', s=100, label='Center A')
+                ax_side.scatter([c_B[1]], [c_B[2]], c='darkblue', marker='X', s=100, label='Center B')
+                ax_side.plot([c_A[1], c_B[1]], [c_A[2], c_B[2]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
+
+                # Normal vector arrows on Y-Z
+                ax_side.arrow(c_A[1], c_A[2], n_A[1]*scale, n_A[2]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
+                ax_side.arrow(c_B[1], c_B[2], n_B[1]*scale, n_B[2]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
+
+                ax_side.set_xlabel('Y (mm)')
+                ax_side.set_ylabel('Z (mm)')
+                ax_side.set_title(f'[{stage_name}] Side View (Y-Z Projection)\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm')
+                ax_side.set_aspect('equal')
+                ax_side.grid(True)
+                ax_side.legend(loc='upper right')
+
+            def compute_shortest_distance_between_lines(cA, nA, cB, nB):
+                nA_norm = nA / np.linalg.norm(nA)
+                nB_norm = nB / np.linalg.norm(nB)
+                cross = np.cross(nA_norm, nB_norm)
+                cross_norm = np.linalg.norm(cross)
+                diff = cB - cA
+                if cross_norm > 1e-4:
+                    return abs(np.dot(diff, cross)) / cross_norm
+                else:
+                    return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
+
+            nominal_dist_35 = None
+            if mode == "wrist_roll_v13" and self.robot:
+                try:
+                    dyn_model = self.robot.get_dynamics()
+                    names = self.robot.model().robot_joint_names
+                    state_3_5 = dyn_model.make_state(
+                        [f"link_{arm_side}_arm_3", f"link_{arm_side}_arm_5"],
+                        names
+                    )
+                    state_3_5.set_q(np.zeros(len(names)))
+                    dyn_model.compute_forward_kinematics(state_3_5)
+                    T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
+                    nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
+                except Exception as e:
+                    pass
+
+            plot_column(first_res, 0, "BEFORE")
+            plot_column(final_res, 1, "AFTER")
+
+            before_dist_str = ""
+            after_dist_str = ""
+            if mode == "wrist_roll_v13":
+                dist_before = compute_shortest_distance_between_lines(
+                    first_res['c_A'], first_res['n_A'], first_res['c_B'], first_res['n_B']
+                )
+                dist_after = compute_shortest_distance_between_lines(
+                    final_res['c_A'], final_res['n_A'], final_res['c_B'], final_res['n_B']
+                )
+                before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
+                after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
+                if nominal_dist_35 is not None:
+                    after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
+
+            fig.suptitle(
+                f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
+                f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm{before_dist_str}\n"
+                f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm{after_dist_str}",
+                fontsize=16, fontweight='bold'
+            )
+            plt.tight_layout()
+
+            result_dir = os.path.join(os.path.dirname(__file__), "result_img")
+            os.makedirs(result_dir, exist_ok=True)
+            plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
+            plt.savefig(plot_save_path, dpi=150)
+            plt.close()
+
+            if log_callback:
+                log_callback(f"[SUCCESS] Saved combined calibration comparison plot to: {plot_save_path}")
+            return plot_save_path
+        except Exception as e:
+            if log_callback:
+                log_callback(f"[ERROR] Failed to save combined calibration comparison plot: {e}")
+            import traceback
+            if log_callback:
+                log_callback(traceback.format_exc())
+            return None
+
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
+        if getattr(self, 'stop_requested', False):
+            return None
+
+        if use_angle_based_fitting is None:
+            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
+
+        import threading
+        
+        class MoveThread(threading.Thread):
+            def __init__(self, calibrator, robot, torso, right_arm, left_arm, head, minimum_time):
+                super().__init__()
+                self.calibrator = calibrator
+                self.robot = robot
+                self.torso = torso
+                self.right_arm = right_arm
+                self.left_arm = left_arm
+                self.head = head
+                self.minimum_time = minimum_time
+                self.success = False
+
+            def run(self):
+                self.success = self.calibrator.movej(
+                    self.robot, torso=self.torso, 
+                    right_arm=self.right_arm, left_arm=self.left_arm, 
+                    head=self.head, minimum_time=self.minimum_time,
+                    apply_offsets=False
+                )
+
+        if log_callback:
+            log_callback("\n" + "="*50)
+            log_callback(f"   STARTING {mode.upper()} CONTINUOUS OFFSET CALIBRATION SWEEP")
+            if current_offset_deg != 0.0:
+                log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
+            log_callback("="*50)
+
+        if not self.marker_st:
+            if log_callback: log_callback("[ERROR] Camera system is not initialized.")
+            return None
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot not connected.")
+            return None
+
+        # Pre-check marker visibility
+        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+        if not initial_check:
+            if log_callback: log_callback("[ERROR] Marker is not visible.")
+            if status_callback: status_callback(False)
+            return None
+        if status_callback: status_callback(True)
+
+        if getattr(self, 'stop_requested', False):
+            return None
+
+        state = self.robot.get_state()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        initial_joint_pos = list(state.position[arm_idx])
+
+        # Define joint parameters using JOINT_CONFIGS
+        config = self.JOINT_CONFIGS.get(mode)
+        if not config:
+            raise ValueError(f"Unknown calibration mode: {mode}")
+        cand_joint = config["cand_joint"]
+        sweep_joint_A = config["sweep_joint_A"]
+        sweep_joint_B = config["sweep_joint_B"]
+
+        dyn_model = self.robot.get_dynamics()
+        ee_name = f"ee_{arm_side}"
+
+        # Arm cand baseline pose (shifted by current offset)
+        if mode == "wrist_pitch_v13":
+            offset_key = "wrist_roll"
+        elif mode == "wrist_roll_v13":
+            offset_key = "wrist_pitch"
+        else:
+            offset_key = mode
+        active_offset = self.joint_offsets.get(offset_key, 0.0)
+        nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
+        q_cand = list(initial_joint_pos)
+        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
+
+        # 1. PHYSICAL SWEEP JOINT A
+        if log_callback: log_callback(f"\n--- [1/2] Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
+        
+        if getattr(self, 'stop_requested', False):
+            return None
+
+        # Determine sweep ranges
+        range_A = 20.0
+        range_B = 20.0
+        if mode == "wrist_roll_v13":
+            range_B = 10.0
+
+        # Move to start position (-20 deg)
+        q_start_A = list(q_cand)
+        q_start_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(-range_A)
+        if arm_side == "left":
+            ok = self.movej(self.robot, left_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
+        else:
+            ok = self.movej(self.robot, right_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
+            
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to move to Joint A start pose or stop was requested.")
+            return None
+            
+        time.sleep(1.0)
+
+        # Launch motion thread to move from -20 to +20 deg
+        q_end_A = list(q_cand)
+        q_end_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(range_A)
+        
+        move_thread = MoveThread(
+            self, self.robot, torso=None,
+            right_arm=q_end_A if arm_side == "right" else None,
+            left_arm=q_end_A if arm_side == "left" else None,
+            head=None, minimum_time=sweep_duration
+        )
+        
+        dataset_A = []
+        if self.robot and self.robot != "mock_robot":
+            initial_full_pose_A = np.array(self.robot.get_state().position)
+        else:
+            initial_full_pose_A = np.zeros(20)
+
+        t_start_A = time.time()
+        move_thread.start()
+        
+        while move_thread.is_alive():
+            if getattr(self, 'stop_requested', False):
+                if self.robot and self.robot != "mock_robot":
+                    self.robot.cancel_control()
+                move_thread.join()
+                return None
+            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+            if res:
+                pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                
+                t_elapsed = time.time() - t_start_A
+                ratio = min(1.0, max(0.0, t_elapsed / sweep_duration))
+                q_full_captured = np.copy(initial_full_pose_A)
+                global_joint_idx = arm_idx[sweep_joint_A]
+                q_full_captured[global_joint_idx] = q_start_A[sweep_joint_A] + ratio * (q_end_A[sweep_joint_A] - q_start_A[sweep_joint_A])
+                
+                if np.linalg.norm(pose[:3, 3]) > 0.01:
+                    dataset_A.append((q_full_captured, pose))
+            time.sleep(0.01) # 100Hz polling (consistent with Joint B)
+            
+        move_thread.join()
+        if not move_thread.success:
+            if log_callback: log_callback("[ERROR] Joint A sweep motion failed or was cancelled.")
+            return None
+        if log_callback: log_callback(f"    -> Swept {len(dataset_A)} dense raw coordinate frames during Joint A motion.")
+
+        if getattr(self, 'stop_requested', False):
+            return None
+            
+        time.sleep(0.5)
+
+        # 2. PHYSICAL SWEEP JOINT B
+        if log_callback: log_callback(f"\n--- [2/2] Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
+        
+        if getattr(self, 'stop_requested', False):
+            return None
+
+        # Move to start position (-20 deg or -10 deg)
+        q_start_B = list(q_cand)
+        q_start_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(-range_B)
+        if arm_side == "left":
+            ok = self.movej(self.robot, left_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
+        else:
+            ok = self.movej(self.robot, right_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
+            
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to move to Joint B start pose or stop was requested.")
+            return None
+            
+        time.sleep(1.0)
+
+        # Launch motion thread to move from -20 to +20 deg (or -10 to +10 deg)
+        q_end_B = list(q_cand)
+        q_end_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(range_B)
+        
+        move_thread = MoveThread(
+            self, self.robot, torso=None,
+            right_arm=q_end_B if arm_side == "right" else None,
+            left_arm=q_end_B if arm_side == "left" else None,
+            head=None, minimum_time=sweep_duration
+        )
+        
+        dataset_B = []
+        if self.robot and self.robot != "mock_robot":
+            initial_full_pose_B = np.array(self.robot.get_state().position)
+        else:
+            initial_full_pose_B = np.zeros(20)
+
+        t_start_B = time.time()
+        move_thread.start()
+        
+        while move_thread.is_alive():
+            if getattr(self, 'stop_requested', False):
+                if self.robot and self.robot != "mock_robot":
+                    self.robot.cancel_control()
+                move_thread.join()
+                return None
+            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+            if res:
+                pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
+                
+                t_elapsed = time.time() - t_start_B
+                ratio = min(1.0, max(0.0, t_elapsed / sweep_duration))
+                q_full_captured = np.copy(initial_full_pose_B)
+                global_joint_idx = arm_idx[sweep_joint_B]
+                q_full_captured[global_joint_idx] = q_start_B[sweep_joint_B] + ratio * (q_end_B[sweep_joint_B] - q_start_B[sweep_joint_B])
+                
+                if np.linalg.norm(pose[:3, 3]) > 0.01:
+                    dataset_B.append((q_full_captured, pose))
+            time.sleep(0.01) # 30Hz polling
+            
+        move_thread.join()
+        if not move_thread.success:
+            if log_callback: log_callback("[ERROR] Joint B sweep motion failed or was cancelled.")
+            return None
+        if log_callback: log_callback(f"    -> Swept {len(dataset_B)} dense raw coordinate frames during Joint B motion.")
+
+        if getattr(self, 'stop_requested', False):
+            return None
+
+        # Return arm to original ready pose (head=None)
+        if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm to initial pose...")
+        if arm_side == "left":
+            ok = self.movej(self.robot, left_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
+        else:
+            ok = self.movej(self.robot, right_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
+
+        if not ok or getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[ERROR] Failed to return arm to initial pose or stop was requested.")
+            return None
+
+        if len(dataset_A) < 10 or len(dataset_B) < 10:
+            if log_callback: log_callback("[ERROR] Too few valid captured points. Calibration failed.")
+            return None
+
+        # Load mount_to_cam (transform from head mount "link_head_2" to camera)
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_mount_to_cam = self.make_transform(mount_to_cam)
+
+        # Save FULL captured continuous sweep points to debug txt files before downsampling
+        if save_debug:
+            self.save_debug_points(
+                arm_side, sweep_joint_A, dataset_A, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, "joint_A", log_callback
+            )
+            self.save_debug_points(
+                arm_side, sweep_joint_B, dataset_B, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, "joint_B", log_callback
+            )
+        
+        # Keep up to 200 points for speed and accuracy
+        raw_len_A = len(dataset_A)
+        raw_len_B = len(dataset_B)
+        
+        max_pts = 200
+        if len(dataset_A) > max_pts:
+            indices_A = np.round(np.linspace(0, len(dataset_A) - 1, max_pts)).astype(int)
+            dataset_A = [dataset_A[idx] for idx in indices_A]
+        if len(dataset_B) > max_pts:
+            indices_B = np.round(np.linspace(0, len(dataset_B) - 1, max_pts)).astype(int)
+            dataset_B = [dataset_B[idx] for idx in indices_B]
+            
+        if log_callback:
+            log_callback(f"Swept {raw_len_A} dense raw coordinate frames during Joint A motion... downsampled to {len(dataset_A)} for optimization.")
+            log_callback(f"Swept {raw_len_B} dense raw coordinate frames during Joint B motion... downsampled to {len(dataset_B)} for optimization.")
+
+        return self.compute_calibration_results(
+            arm_side=arm_side,
+            mode=mode,
+            dataset_A=dataset_A,
+            dataset_B=dataset_B,
+            initial_joint_pos=initial_joint_pos,
+            current_offset_deg=current_offset_deg,
+            use_angle_based_fitting=use_angle_based_fitting,
+            save_debug=save_debug,
+            log_callback=log_callback,
+            cand_joint=cand_joint,
+            sweep_joint_A=sweep_joint_A,
+            sweep_joint_B=sweep_joint_B
+        )
+
+    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None, cand_joint=None, sweep_joint_A=None, sweep_joint_B=None):
+        raise NotImplementedError("compute_calibration_results must be implemented in subclasses.")
 

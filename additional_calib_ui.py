@@ -648,29 +648,12 @@ class JointCalibrationWorker(QThread):
                     self.log_signal.emit(f"  [STEP {i+1}/5] Mock calibration step executed.")
                     time.sleep(0.2)
                 
-                theta = np.linspace(-np.pi, np.pi, 20)
-                pts_2d_A = np.column_stack((np.cos(theta)*45 + 1.0, np.sin(theta)*45 + 2.0))
-                pts_2d_B = np.column_stack((np.cos(theta)*43 - 0.5, np.sin(theta)*43 + 1.5))
                 opt_offset = -1.5 + self.current_offset_deg
                 res = {
                     'mode': self.mode,
                     'optimal_offset': opt_offset,
                     'recommended_joint_offset': opt_offset,
                     'converged': True,
-                    'pts_2d_A': pts_2d_A,
-                    'uc_A': 1.0,
-                    'vc_A': 2.0,
-                    'r_A': 45.0,
-                    'pts_2d_B': pts_2d_B,
-                    'uc_B': -0.5,
-                    'vc_B': 1.5,
-                    'r_B': 43.0,
-                    'rmse_A': 0.09,
-                    'rmse_B': 0.12,
-                    'c_A': np.array([0.0, 0.0, 0.0]),
-                    'n_A': np.array([0.0, 1.0, 0.0]),
-                    'c_B': np.array([0.0, 300.0, 0.0]),
-                    'n_B': np.array([0.0, 1.0, 0.0])
                 }
             else:
                 res = self.calibrator.perform_3step_joint_calibration(
@@ -687,107 +670,15 @@ class JointCalibrationWorker(QThread):
                 self.log_signal.emit(f"  [1] Calibration Target: {self.mode}")
                 recommended = res.get('recommended_joint_offset', res['optimal_offset'])
                 self.log_signal.emit(f"      Estimated Optimal Offset: {recommended:.3f} deg")
-                # self.log_signal.emit(f"      Sweep RMSE (A/B)       : {res['rmse_A']:.3f} / {res['rmse_B']:.3f}")
                 self.log_signal.emit("-" * 30)
                 self.log_signal.emit("\n[CALIBRATION COMPLETE]\n")
-                
-                # result_img 디렉토리 아래에 저장하도록 수정
-                result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
-                os.makedirs(result_dir, exist_ok=True)
-                plot_filename = f"circle_fit_{self.arm_side}_{self.mode}_joint_calib.png"
-                plot_path_combined = os.path.join(result_dir, plot_filename)
-                
-                if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
-                    self.log_signal.emit(f"      [INFO] Detailed 2x2 comparison plot already exists: {res['plot_path_combined']}")
-                else:
-                    plt.figure(figsize=(10, 5))
-                    
-                    def compute_shortest_distance_between_lines(cA, nA, cB, nB):
-                        nA_norm = nA / np.linalg.norm(nA)
-                        nB_norm = nB / np.linalg.norm(nB)
-                        cross = np.cross(nA_norm, nB_norm)
-                        cross_norm = np.linalg.norm(cross)
-                        diff = cB - cA
-                        if cross_norm > 1e-4:
-                            return abs(np.dot(diff, cross)) / cross_norm
-                        else:
-                            return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
-
-                    # Trajectory representations based on mode
-                    if self.mode == "wrist_pitch":
-                        title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                        title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                    elif self.mode == "wrist_pitch_v13":
-                        title_A = f"Joint 6 (Wrist Roll) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                        title_B = f"Joint 5 (Wrist Pitch) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                    elif self.mode == "wrist_roll_v13":
-                        title_A = f"Joint 5 (Wrist Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                        title_B = f"Joint 3 (Elbow) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                    else: # elbow mode
-                        title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
-                        title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
-                        
-                    # Subplot 1: Circle A
-                    plt.subplot(1, 2, 1)
-                    plt.scatter(res['pts_2d_A'][:, 0], res['pts_2d_A'][:, 1], c='r', label='Sweep Axis A')
-                    circle_A = plt.Circle((res['uc_A'], res['vc_A']), res['r_A'], color='r', fill=False, label='Fit A')
-                    plt.gca().add_patch(circle_A)
-                    plt.plot(res['uc_A'], res['vc_A'], 'rx', markersize=8)
-                    plt.title(title_A)
-                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
-                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
-                    plt.gca().set_aspect('equal')
-                    plt.grid(True)
-                    plt.legend()
-                    
-                    # Subplot 2: Circle B
-                    plt.subplot(1, 2, 2)
-                    plt.scatter(res['pts_2d_B'][:, 0], res['pts_2d_B'][:, 1], c='b', label='Sweep Axis B')
-                    circle_B = plt.Circle((res['uc_B'], res['vc_B']), res['r_B'], color='b', fill=False, label='Fit B')
-                    plt.gca().add_patch(circle_B)
-                    plt.plot(res['uc_B'], res['vc_B'], 'bx', markersize=8)
-                    plt.title(title_B)
-                    plt.xlabel("U coord (mm) [Fitting Local Plane X]")
-                    plt.ylabel("V coord (mm) [Fitting Local Plane Y]")
-                    plt.gca().set_aspect('equal')
-                    plt.grid(True)
-                    plt.legend()
-                    
-                    if self.mode == "wrist_roll_v13":
-                        try:
-                            dist_val = compute_shortest_distance_between_lines(
-                                res['c_A'], res['n_A'], res['c_B'], res['n_B']
-                            )
-                            nominal_dist_35 = None
-                            if self.calibrator.robot and self.calibrator.robot != "mock_robot":
-                                dyn_model = self.calibrator.robot.get_dynamics()
-                                names = self.calibrator.robot.model().robot_joint_names
-                                state_3_5 = dyn_model.make_state(
-                                    [f"link_{self.arm_side}_arm_3", f"link_{self.arm_side}_arm_5"],
-                                    names
-                                )
-                                state_3_5.set_q(np.zeros(len(names)))
-                                dyn_model.compute_forward_kinematics(state_3_5)
-                                T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
-                                nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
-                            
-                            dist_str = f"Axis 3-5 Distance: {dist_val:.2f} mm"
-                            if nominal_dist_35 is not None:
-                                dist_str += f" | Nom: {nominal_dist_35:.2f} mm"
-                            plt.suptitle(f"Joint Calibration: {self.arm_side.upper()} Arm - {self.mode.upper()}\n{dist_str}", fontsize=11, fontweight='bold')
-                        except Exception as e:
-                            pass
-                            
-                    plt.tight_layout()
-                    plt.savefig(plot_path_combined, dpi=120)
-                    plt.close()
-                    res['plot_path_combined'] = plot_path_combined
                 self.finished_signal.emit(res)
             else:
                 self.finished_signal.emit(None)
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Worker exception: {e}")
             self.finished_signal.emit(None)
+
 
 
 class SimulatedMarkerTransform:
