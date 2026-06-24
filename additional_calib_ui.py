@@ -2033,7 +2033,12 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_sweep_data = None
             
             # Sync current offsets with active arm_side from memory store (do not reload from yaml disk)
+            is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
             self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
+            if is_v13:
+                self.joint_offsets["wrist_roll"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint6", 0.0)
+            else:
+                self.joint_offsets["wrist_roll"] = 0.0
             self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -2212,6 +2217,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_offsets_store[self.arm_side]["joint3"] = 0.0
             
             self.joint_offsets["wrist_pitch"] = 0.0
+            self.joint_offsets["wrist_roll"] = 0.0
             self.joint_offsets["elbow"] = 0.0
             self.joint_calibrator.joint_offsets = self.joint_offsets
             self.marker_calibrator.joint_offsets = self.joint_offsets

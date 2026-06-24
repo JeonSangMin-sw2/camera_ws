@@ -247,7 +247,7 @@ def test_joint_5_calibration_recovery(injected_offset_deg):
     
     recovered_offset = res['optimal_offset']
     print(f"J5 Calibration: Injected Offset = {injected_offset_deg:+.4f}°, Recovered Offset = {recovered_offset:+.4f}°")
-    assert np.isclose(recovered_offset, injected_offset_deg, atol=2.0), f"J5 mismatch: {recovered_offset} vs {injected_offset_deg}"
+    assert np.isclose(recovered_offset, injected_offset_deg, atol=0.01), f"J5 mismatch: {recovered_offset} vs {injected_offset_deg}"
     print("J5 test passed successfully!")
 
 def test_real_data_calibration():

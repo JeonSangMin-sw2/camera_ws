@@ -494,13 +494,31 @@ class BaseCalibrator:
             return False
 
     @staticmethod
-    def fit_circle_3d(points):
+    def fit_circle_3d(points, robust=True):
         """
-        Fits a 3D circle to points with robust worst-inlier outlier rejection (up to 15 points).
+        Fits a 3D circle to points.
+        If robust is True, applies robust worst-inlier outlier rejection and moving median filter.
+        Otherwise, performs a smooth closed-form algebraic fit for noise-free kinematics.
         Returns (center_3d, R_circle, radius, rmse, pts_2d, uc, vc)
-        where R_circle is the 3x3 rotation matrix in robot coordinate system: [ex, ey, normal]
         """
         points = np.array(points)
+        
+        if not robust:
+            centroid = np.mean(points, axis=0)
+            pts_centered = points - centroid
+            _, _, vh = np.linalg.svd(pts_centered)
+            normal = vh[2, :]
+            ex = vh[0, :]
+            ey = vh[1, :]
+            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
+            A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
+            b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
+            res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
+            uc, vc = res[0], res[1]
+            radius = np.sqrt(max(0.001, res[2] + uc**2 + vc**2))
+            center_3d = centroid + uc * ex + vc * ey
+            R_circle = np.column_stack((ex, ey, normal))
+            return center_3d, R_circle, radius, 0.0, pts_2d, uc, vc
         
         # Apply 3D Moving Median Filter (window size 5) to smooth out camera sensor jitter
         if len(points) >= 5:
@@ -593,7 +611,6 @@ class BaseCalibrator:
         
         return center_3d, R_circle, R_opt, rmse, pts_2d_all, uc_opt, vc_opt
 
-    @staticmethod
     def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False):
         points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])
         angles_rad_base = np.radians(captured_angles)

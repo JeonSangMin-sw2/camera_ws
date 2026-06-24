@@ -64,9 +64,13 @@ class JointCalibrator(BaseCalibrator):
             # Print iteration summary
             if log_callback:
                 log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
-                log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
-                log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
-                log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
+                if mode == "wrist_roll_v13":
+                    log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
+                    log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
+                else:
+                    log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
+                    log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
+                    log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
             
             # Direct correction
             # When looking at angle error (use_angle_based_fitting is True), we deactivate the 0.05 deg step correction.
@@ -931,7 +935,7 @@ class JointCalibrator(BaseCalibrator):
                         T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
                         pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
                     
-                    c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred)
+                    c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
                     return np.dot(c_fit - c_A, n_B_dir)
                 
                 def residual(delta):
@@ -977,7 +981,7 @@ class JointCalibrator(BaseCalibrator):
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
                         T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
                         pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
-                    _, _, r_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred)
+                    _, _, r_fit, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
                     return r_fit
                 
                 def residual(delta):
@@ -1015,8 +1019,8 @@ class JointCalibrator(BaseCalibrator):
                 'rmse_A': rmse_A,
                 'rmse_B': rmse_B,
                 'marker_6_res': None,
-                'pts_a_cam': np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_A]),
-                'pts_b_cam': np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_B]),
+                'pts_a_cam': np.array([T[:3, 3] * 1000.0 for T in poses_a_t5]),
+                'pts_b_cam': np.array([T[:3, 3] * 1000.0 for T in poses_b_t5]),
                 'c_A': c_A,
                 'c_B': c_B,
                 'n_A': n_A,
