@@ -515,10 +515,10 @@ class BaseCalibrator:
             b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
             res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
             uc, vc = res[0], res[1]
-            radius = np.sqrt(max(0.001, res[2] + uc**2 + vc**2))
             center_3d = centroid + uc * ex + vc * ey
             R_circle = np.column_stack((ex, ey, normal))
-            return center_3d, R_circle, radius, 0.0, pts_2d, uc, vc
+            radius_3d = np.mean(np.linalg.norm(points - center_3d, axis=1))
+            return center_3d, R_circle, radius_3d, 0.0, pts_2d, uc, vc
         
         # Apply 3D Moving Median Filter (window size 5) to smooth out camera sensor jitter
         if len(points) >= 5:
@@ -609,7 +609,9 @@ class BaseCalibrator:
         
         R_circle = np.column_stack((ex, ey, normal))
         
-        return center_3d, R_circle, R_opt, rmse, pts_2d_all, uc_opt, vc_opt
+        radius_3d = np.mean(np.linalg.norm(pts_in - center_3d, axis=1))
+        
+        return center_3d, R_circle, radius_3d, rmse, pts_2d_all, uc_opt, vc_opt
 
     def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False):
         points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])

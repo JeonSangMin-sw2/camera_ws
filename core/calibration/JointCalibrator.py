@@ -942,7 +942,7 @@ class JointCalibrator(BaseCalibrator):
                     return [compute_displacement_diff(delta[0]) - shift_actual]
                 
                 res_opt = least_squares(residual, [0.0], bounds=([-15.0], [15.0]))
-                optimal_offset_deg = res_opt.x[0]
+                optimal_offset_deg = -res_opt.x[0]
                 if log_callback:
                     log_callback(f"  [v1.3 Joint 6 Calibration] Target shift={shift_actual:.4f} mm, Predicted shift(0)={compute_displacement_diff(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
             else: # wrist_roll_v13
@@ -988,7 +988,7 @@ class JointCalibrator(BaseCalibrator):
                     return [compute_elbow_radius(delta[0]) - r_3_meas]
                 
                 res_opt = least_squares(residual, [0.0], bounds=([-15.0], [15.0]))
-                optimal_offset_deg = res_opt.x[0]
+                optimal_offset_deg = -res_opt.x[0]
                 if log_callback:
                     log_callback(f"  [v1.3 Joint 5 Calibration] Target r3={r_3_meas:.4f} mm, Predicted r3(0)={compute_elbow_radius(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
 
