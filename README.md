@@ -13,7 +13,7 @@
 ==================================================
 
 --- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 74 dense raw coordinate frames during Joint A motion.
+    -> Swept 75 dense raw coordinate frames during Joint A motion.
 
 --- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
     -> Swept 72 dense raw coordinate frames during Joint B motion.
@@ -21,67 +21,80 @@
 [INFO] Sweep finished. Returning arm to initial pose...
 [DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_A_axis_5.txt
 [DEBUG] Saved Axis 3 debug points to sweep_points_right_joint_B_axis_3.txt
-Swept 74 dense raw coordinate frames during Joint A motion... downsampled to 74 for optimization.
+Swept 75 dense raw coordinate frames during Joint A motion... downsampled to 75 for optimization.
 Swept 72 dense raw coordinate frames during Joint B motion... downsampled to 72 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 5 Calibration] Target r3=443.2698 mm, Predicted r3(0)=438.7574 mm. Solved offset=-0.0000°
-  * Angle Error (Deviation)     : 2.1223°
-  * Circle Size Error (r_A-r_B) : 281.4538 mm
-  * Center Distance Error       : 310.2350 mm
-  * Max Fitting Error Metric    : 310.2350 mm
-  * Updated Absolute Offset     : -0.0000°
+  [v1.3 Joint 5 Calibration] Target r3=442.2598 mm, Predicted r3(0)=438.4784 mm. Solved offset=2.7790°
+  * Angle Error (Deviation)     : 2.0075°
+  * Forearm Length (Center Dist): 308.9600 mm
+  * Radii Difference (r3 - r5)  : 280.0059 mm
+  * Updated Absolute Offset     : 2.7790°
 
-[SUCCESS] Calibration CONVERGED successfully:
-  * Step Correction: -0.0000° < 0.05° (reached resolution limit)
-  * Recommended Absolute Offset: -0.0000°
-
-[VALIDATION SWEEP] Running final validation sweep with recommended offset -0.0000°...
+[ITERATION 2/8] Sweeping with staged offset 2.7790°...
 
 ==================================================
    STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -0.0000°]
+   [Baseline Shift (Current Applied Offset): 2.7790°]
 ==================================================
 
 --- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 70 dense raw coordinate frames during Joint A motion.
+    -> Swept 78 dense raw coordinate frames during Joint A motion.
 
 --- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
-    -> Swept 74 dense raw coordinate frames during Joint B motion.
+    -> Swept 73 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
 [DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_A_axis_5.txt
 [DEBUG] Saved Axis 3 debug points to sweep_points_right_joint_B_axis_3.txt
-Swept 70 dense raw coordinate frames during Joint A motion... downsampled to 70 for optimization.
-Swept 74 dense raw coordinate frames during Joint B motion... downsampled to 74 for optimization.
+Swept 78 dense raw coordinate frames during Joint A motion... downsampled to 78 for optimization.
+Swept 73 dense raw coordinate frames during Joint B motion... downsampled to 73 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 5 Calibration] Target r3=442.5298 mm, Predicted r3(0)=438.9764 mm. Solved offset=2.6042°
-[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_right_wrist_roll_v13_joint_calib.png
-------------------------------
-  [1] Calibration Target: wrist_roll_v13
-      Estimated Optimal Offset: -0.000 deg
-------------------------------
+  [v1.3 Joint 5 Calibration] Target r3=446.2586 mm, Predicted r3(0)=442.6788 mm. Solved offset=2.8119°
+  * Angle Error (Deviation)     : 1.8470°
+  * Forearm Length (Center Dist): 309.6785 mm
+  * Radii Difference (r3 - r5)  : 284.6535 mm
+  * Updated Absolute Offset     : 5.5910°
 
-[CALIBRATION COMPLETE]
-
-      [INFO] Detailed 2x2 comparison plot already exists: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_right_wrist_roll_v13_joint_calib.png
+[ITERATION 3/8] Sweeping with staged offset 5.5910°...
 
 ==================================================
-   [SUCCESS] 3-STEP POLARITY CALIBRATION CONVERGED SUCCESSFULLY!
-   * Recommended Absolute Offset : -0.0000°
-   * Current Active Offset       : 0.0000° (REVERTED)
-   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 5.5910°]
 ==================================================
 
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
+    -> Swept 75 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
+    -> Swept 79 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+[DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_A_axis_5.txt
+[DEBUG] Saved Axis 3 debug points to sweep_points_right_joint_B_axis_3.txt
+Swept 75 dense raw coordinate frames during Joint A motion... downsampled to 75 for optimization.
+Swept 79 dense raw coordinate frames during Joint B motion... downsampled to 79 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 5 Calibration] Target r3=448.9210 mm, Predicted r3(0)=446.0238 mm. Solved offset=2.4159°
+  * Angle Error (Deviation)     : 1.2201°
+  * Forearm Length (Center Dist): 308.7725 mm
+  * Radii Difference (r3 - r5)  : 286.9389 mm
+  * Updated Absolute Offset     : 8.0068°
+
+[ITERATION 4/8] Sweeping with staged offset 8.0068°...
 
 ==================================================
-       JOINT CALIBRATION ESTIMATED RESULTS
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 8.0068°]
 ==================================================
 
-[1] Calibration Target: wrist_roll_v13
-    - Target Swept Joint       : Joint 5 (Wrist Pitch)
-    - Estimated Optimal Offset : -0.0000 deg
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
 
-[2] Suggested Joint Home Offset update:
-  Add offset: -0.0000 deg to calibration config.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
+[STOP] Stop requested by user.
+[STOP] Sending cancel_control to robot!
+[ERROR] Joint B sweep motion failed or was cancelled.
+[ERROR] Iteration 4 sweep failed. Aborting calibration.
