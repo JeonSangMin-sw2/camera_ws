@@ -666,7 +666,11 @@ class JointCalibrationWorker(QThread):
                     'vc_B': 1.5,
                     'r_B': 43.0,
                     'rmse_A': 0.09,
-                    'rmse_B': 0.12
+                    'rmse_B': 0.12,
+                    'c_A': np.array([0.0, 0.0, 0.0]),
+                    'n_A': np.array([0.0, 1.0, 0.0]),
+                    'c_B': np.array([0.0, 300.0, 0.0]),
+                    'n_B': np.array([0.0, 1.0, 0.0])
                 }
             else:
                 res = self.calibrator.perform_3step_joint_calibration(
@@ -698,10 +702,27 @@ class JointCalibrationWorker(QThread):
                 else:
                     plt.figure(figsize=(10, 5))
                     
+                    def compute_shortest_distance_between_lines(cA, nA, cB, nB):
+                        nA_norm = nA / np.linalg.norm(nA)
+                        nB_norm = nB / np.linalg.norm(nB)
+                        cross = np.cross(nA_norm, nB_norm)
+                        cross_norm = np.linalg.norm(cross)
+                        diff = cB - cA
+                        if cross_norm > 1e-4:
+                            return abs(np.dot(diff, cross)) / cross_norm
+                        else:
+                            return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
+
                     # Trajectory representations based on mode
                     if self.mode == "wrist_pitch":
                         title_A = f"Joint 4 (Wrist Yaw) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
                         title_B = f"Joint 6 (Wrist Roll) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                    elif self.mode == "wrist_pitch_v13":
+                        title_A = f"Joint 6 (Wrist Roll) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                        title_B = f"Joint 5 (Wrist Pitch) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
+                    elif self.mode == "wrist_roll_v13":
+                        title_A = f"Joint 5 (Wrist Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
+                        title_B = f"Joint 3 (Elbow) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
                     else: # elbow mode
                         title_A = f"Joint 2 (Shoulder Pitch) Sweep [Axis A] (RMSE: {res['rmse_A']:.3f})"
                         title_B = f"Joint 4 (Elbow Yaw) Sweep [Axis B] (RMSE: {res['rmse_B']:.3f})"
@@ -732,6 +753,31 @@ class JointCalibrationWorker(QThread):
                     plt.grid(True)
                     plt.legend()
                     
+                    if self.mode == "wrist_roll_v13":
+                        try:
+                            dist_val = compute_shortest_distance_between_lines(
+                                res['c_A'], res['n_A'], res['c_B'], res['n_B']
+                            )
+                            nominal_dist_35 = None
+                            if self.calibrator.robot and self.calibrator.robot != "mock_robot":
+                                dyn_model = self.calibrator.robot.get_dynamics()
+                                names = self.calibrator.robot.model().robot_joint_names
+                                state_3_5 = dyn_model.make_state(
+                                    [f"link_{self.arm_side}_arm_3", f"link_{self.arm_side}_arm_5"],
+                                    names
+                                )
+                                state_3_5.set_q(np.zeros(len(names)))
+                                dyn_model.compute_forward_kinematics(state_3_5)
+                                T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
+                                nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
+                            
+                            dist_str = f"Axis 3-5 Distance: {dist_val:.2f} mm"
+                            if nominal_dist_35 is not None:
+                                dist_str += f" | Nom: {nominal_dist_35:.2f} mm"
+                            plt.suptitle(f"Joint Calibration: {self.arm_side.upper()} Arm - {self.mode.upper()}\n{dist_str}", fontsize=11, fontweight='bold')
+                        except Exception as e:
+                            pass
+                            
                     plt.tight_layout()
                     plt.savefig(plot_path_combined, dpi=120)
                     plt.close()
@@ -1142,6 +1188,7 @@ class UnifiedCalibrationApp(QWidget):
         # Core Calibrator Instances
         self.marker_calibrator = MarkerCalibrator(marker_st, robot)
         self.joint_calibrator = JointCalibrator(marker_st, robot)
+        self.robot_version = 1.2
         
         # Intrinsics Calibrator (Tab 3 용)
         self.intrinsics_calibrator = IntrinsicsCalibrator()
@@ -1354,17 +1401,7 @@ class UnifiedCalibrationApp(QWidget):
             ])
         self.joint_mode_sel.blockSignals(False)
 
-    def on_mock_version_changed(self, text):
-        try:
-            v = float(text)
-            self.robot_version = v
-            self.marker_calibrator.robot_version = v
-            self.joint_calibrator.robot_version = v
-            self.update_joint_modes()
-            self.update_applied_offset_label()
-            self.log_msg(f"[INFO] Mock robot version changed to: {v:.1f}")
-        except Exception as e:
-            self.log_msg(f"[ERROR] Failed to update mock version: {e}")
+
 
     def get_selected_joint_mode(self):
         if not hasattr(self, 'joint_mode_sel'):
@@ -1410,9 +1447,6 @@ class UnifiedCalibrationApp(QWidget):
             self.ip_input.setText("127.0.0.1:50051")
             self.ip_input.setReadOnly(True)
             self.ip_input.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 1px solid #2d2d2d;")
-            self.mock_version_sel = QComboBox()
-            self.mock_version_sel.addItems(["1.2", "1.3"])
-            self.mock_version_sel.currentTextChanged.connect(self.on_mock_version_changed)
             
         self.model_input = QComboBox()
         self.model_input.addItems(["a", "m"])
@@ -1426,9 +1460,6 @@ class UnifiedCalibrationApp(QWidget):
         
         conn_layout.addWidget(QLabel("IP / Port:"))
         conn_layout.addWidget(self.ip_input)
-        if self.ui_only:
-            conn_layout.addWidget(QLabel("Mock Robot Version:"))
-            conn_layout.addWidget(self.mock_version_sel)
         conn_layout.addWidget(QLabel("Robot Model:"))
         conn_layout.addWidget(self.model_input)
         conn_layout.addWidget(self.btn_connect)
@@ -1907,8 +1938,14 @@ class UnifiedCalibrationApp(QWidget):
             if self.robot != "mock_robot":
                 MarkerCalibrator.terminate_robot(self.robot)
             self.robot = None
+            self.robot_version = 1.2
             self.marker_calibrator.robot = None
+            self.marker_calibrator.robot_version = 1.2
             self.joint_calibrator.robot = None
+            self.joint_calibrator.robot_version = 1.2
+            self.update_joint_modes()
+            self.load_offsets_from_yaml()
+            self.update_applied_offset_label()
             self.btn_connect.setText("CONNECT")
             self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
             self.log_msg("[INFO] Robot disconnected.")
@@ -1954,21 +1991,21 @@ class UnifiedCalibrationApp(QWidget):
                         self.log_msg(f"[WARNING] Failed to query version from robot: {e}")
                         detected_version = 1.2
                 else:
-                    if self.ui_only and hasattr(self, 'mock_version_sel'):
-                        detected_version = float(self.mock_version_sel.currentText())
-                        self.log_msg(f"[INFO] Connected to mock robot. Using manually selected version: {detected_version:.1f}")
-                        print(f"[INFO] Connected to mock robot. Using manually selected version: {detected_version:.1f}")
+                    detected_version = 1.2
+                    self.log_msg(f"[INFO] Connected to mock robot. Using default version: {detected_version:.1f}")
+                    print(f"[INFO] Connected to mock robot. Using default version: {detected_version:.1f}")
                 
                 # Cache the version classification on the app instance
                 self.robot_version = detected_version
 
-                # Automatically update combobox in UI-only/mock mode
-                if self.ui_only and hasattr(self, 'mock_version_sel'):
-                    self.mock_version_sel.setCurrentText(f"{detected_version:.1f}")
-
                 # Configure calibrators version
                 self.marker_calibrator.robot_version = detected_version
                 self.joint_calibrator.robot_version = detected_version
+
+                # Update UI modes and offsets based on version classification
+                self.update_joint_modes()
+                self.load_offsets_from_yaml()
+                self.update_applied_offset_label()
 
                 # Setup SimulatedMarkerTransform if simulator is connected in UI Mode
                 if self.ui_only and self.robot != "mock_robot":
@@ -2343,8 +2380,6 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(True)
 
     def get_robot_version(self):
-        if self.ui_only and hasattr(self, 'mock_version_sel'):
-            return float(self.mock_version_sel.currentText())
         return getattr(self, "robot_version", 1.2)
 
     def move_to_ready_full_auto(self):
@@ -2486,10 +2521,9 @@ class UnifiedCalibrationApp(QWidget):
         self.full_auto_stop_event = threading.Event()
         
         # update mock robot version on calibrators just in case
-        if self.ui_only and hasattr(self, 'mock_version_sel'):
-            v = float(self.mock_version_sel.currentText())
-            self.marker_calibrator.robot_version = v
-            self.joint_calibrator.robot_version = v
+        v = self.get_robot_version()
+        self.marker_calibrator.robot_version = v
+        self.joint_calibrator.robot_version = v
         
         self.active_worker = FullAutoWorker(
             self.joint_calibrator,

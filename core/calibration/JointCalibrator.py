@@ -192,6 +192,7 @@ class JointCalibrator(BaseCalibrator):
         return success
 
     def save_debug_orthogonal_plot(self, arm_side, frame, dataset_A, dataset_B, dyn_model, T_mount_to_cam, optimal_offset_rad, ee_name, arm_idx, cand_joint, angle_error_deg=None, log_callback=None):
+        return
         try:
             pts_a = []
             pts_b = []
@@ -431,13 +432,54 @@ class JointCalibrator(BaseCalibrator):
                 ax_side.grid(True)
                 ax_side.legend(loc='upper right')
 
+            def compute_shortest_distance_between_lines(cA, nA, cB, nB):
+                nA_norm = nA / np.linalg.norm(nA)
+                nB_norm = nB / np.linalg.norm(nB)
+                cross = np.cross(nA_norm, nB_norm)
+                cross_norm = np.linalg.norm(cross)
+                diff = cB - cA
+                if cross_norm > 1e-4:
+                    return abs(np.dot(diff, cross)) / cross_norm
+                else:
+                    return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
+
+            nominal_dist_35 = None
+            if mode == "wrist_roll_v13" and self.robot:
+                try:
+                    dyn_model = self.robot.get_dynamics()
+                    names = self.robot.model().robot_joint_names
+                    state_3_5 = dyn_model.make_state(
+                        [f"link_{arm_side}_arm_3", f"link_{arm_side}_arm_5"],
+                        names
+                    )
+                    state_3_5.set_q(np.zeros(len(names)))
+                    dyn_model.compute_forward_kinematics(state_3_5)
+                    T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
+                    nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
+                except Exception as e:
+                    pass
+
             plot_column(first_res, 0, "BEFORE")
             plot_column(final_res, 1, "AFTER")
 
+            before_dist_str = ""
+            after_dist_str = ""
+            if mode == "wrist_roll_v13":
+                dist_before = compute_shortest_distance_between_lines(
+                    first_res['c_A'], first_res['n_A'], first_res['c_B'], first_res['n_B']
+                )
+                dist_after = compute_shortest_distance_between_lines(
+                    final_res['c_A'], final_res['n_A'], final_res['c_B'], final_res['n_B']
+                )
+                before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
+                after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
+                if nominal_dist_35 is not None:
+                    after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
+
             fig.suptitle(
                 f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
-                f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm\n"
-                f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm",
+                f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm{before_dist_str}\n"
+                f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm{after_dist_str}",
                 fontsize=16, fontweight='bold'
             )
             plt.tight_layout()
@@ -557,9 +599,15 @@ class JointCalibrator(BaseCalibrator):
         if getattr(self, 'stop_requested', False):
             return None
 
+        # Determine sweep ranges
+        range_A = 20.0
+        range_B = 20.0
+        if mode == "wrist_roll_v13":
+            range_B = 10.0
+
         # Move to start position (-20 deg)
         q_start_A = list(q_cand)
-        q_start_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(-20.0)
+        q_start_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(-range_A)
         if arm_side == "left":
             ok = self.movej(self.robot, left_arm=q_start_A, head=None, minimum_time=2.0, apply_offsets=False)
         else:
@@ -573,7 +621,7 @@ class JointCalibrator(BaseCalibrator):
 
         # Launch motion thread to move from -20 to +20 deg
         q_end_A = list(q_cand)
-        q_end_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(20.0)
+        q_end_A[sweep_joint_A] = q_cand[sweep_joint_A] + np.radians(range_A)
         
         move_thread = MoveThread(
             self, self.robot, torso=None,
@@ -583,6 +631,12 @@ class JointCalibrator(BaseCalibrator):
         )
         
         dataset_A = []
+        if self.robot and self.robot != "mock_robot":
+            initial_full_pose_A = np.array(self.robot.get_state().position)
+        else:
+            initial_full_pose_A = np.zeros(20)
+
+        t_start_A = time.time()
         move_thread.start()
         
         while move_thread.is_alive():
@@ -594,7 +648,13 @@ class JointCalibrator(BaseCalibrator):
             res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                q_full_captured = np.array(self.robot.get_state().position)
+                
+                t_elapsed = time.time() - t_start_A
+                ratio = min(1.0, max(0.0, t_elapsed / sweep_duration))
+                q_full_captured = np.copy(initial_full_pose_A)
+                global_joint_idx = arm_idx[sweep_joint_A]
+                q_full_captured[global_joint_idx] = q_start_A[sweep_joint_A] + ratio * (q_end_A[sweep_joint_A] - q_start_A[sweep_joint_A])
+                
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     dataset_A.append((q_full_captured, pose))
             time.sleep(0.01) # 100Hz polling (consistent with Joint B)
@@ -626,9 +686,9 @@ class JointCalibrator(BaseCalibrator):
         if getattr(self, 'stop_requested', False):
             return None
 
-        # Move to start position (-20 deg)
+        # Move to start position (-20 deg or -10 deg)
         q_start_B = list(q_cand)
-        q_start_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(-20.0)
+        q_start_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(-range_B)
         if arm_side == "left":
             ok = self.movej(self.robot, left_arm=q_start_B, head=None, minimum_time=2.0, apply_offsets=False)
         else:
@@ -640,9 +700,9 @@ class JointCalibrator(BaseCalibrator):
             
         time.sleep(1.0)
 
-        # Launch motion thread to move from -20 to +20 deg
+        # Launch motion thread to move from -20 to +20 deg (or -10 to +10 deg)
         q_end_B = list(q_cand)
-        q_end_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(20.0)
+        q_end_B[sweep_joint_B] = q_cand[sweep_joint_B] + np.radians(range_B)
         
         move_thread = MoveThread(
             self, self.robot, torso=None,
@@ -652,6 +712,12 @@ class JointCalibrator(BaseCalibrator):
         )
         
         dataset_B = []
+        if self.robot and self.robot != "mock_robot":
+            initial_full_pose_B = np.array(self.robot.get_state().position)
+        else:
+            initial_full_pose_B = np.zeros(20)
+
+        t_start_B = time.time()
         move_thread.start()
         
         while move_thread.is_alive():
@@ -663,7 +729,13 @@ class JointCalibrator(BaseCalibrator):
             res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                q_full_captured = np.array(self.robot.get_state().position)
+                
+                t_elapsed = time.time() - t_start_B
+                ratio = min(1.0, max(0.0, t_elapsed / sweep_duration))
+                q_full_captured = np.copy(initial_full_pose_B)
+                global_joint_idx = arm_idx[sweep_joint_B]
+                q_full_captured[global_joint_idx] = q_start_B[sweep_joint_B] + ratio * (q_end_B[sweep_joint_B] - q_start_B[sweep_joint_B])
+                
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     dataset_B.append((q_full_captured, pose))
             time.sleep(0.01) # 30Hz polling

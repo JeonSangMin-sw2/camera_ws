@@ -334,6 +334,12 @@ class MarkerCalibrator(BaseCalibrator):
         captured_angles = []
         captured_q_full = []
         
+        if self.robot and self.robot != "mock_robot":
+            initial_full_pose = np.array(self.robot.get_state().position)
+        else:
+            initial_full_pose = np.zeros(20)
+
+        t_start = time.time()
         move_thread.start()
         
         # High speed data collection
@@ -346,8 +352,14 @@ class MarkerCalibrator(BaseCalibrator):
             lpf_results = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
             if lpf_results:
                 pose = np.array(lpf_results[0]).reshape(4, 4) if isinstance(lpf_results, list) else np.array(list(lpf_results.values())[0]).reshape(4, 4)
-                q_full_captured = np.array(self.robot.get_state().position)
-                q_captured = q_full_captured[arm_idx[joint_i]]
+                
+                t_elapsed = time.time() - t_start
+                ratio = min(1.0, max(0.0, t_elapsed / 15.0))
+                q_full_captured = np.copy(initial_full_pose)
+                global_joint_idx = arm_idx[joint_i]
+                q_captured = q_start_arm[joint_i] + ratio * (q_end_arm[joint_i] - q_start_arm[joint_i])
+                q_full_captured[global_joint_idx] = q_captured
+                
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     captured_poses.append(pose)
                     captured_angles.append(np.degrees(q_captured - initial_joint_pos[joint_i]))
