@@ -913,89 +913,111 @@ class JointCalibrator(BaseCalibrator):
 
             angle_between_normals = np.degrees(np.arccos(np.clip(abs(np.dot(n_A, n_B)), -1.0, 1.0)))
             diff_centers = c_B - c_A
-            center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A) * n_A)
-            
+            n_A_norm = n_A / np.linalg.norm(n_A)
+            # Perpendicular distance from c_B to the Joint-A rotation axis (line through c_A, dir n_A_norm)
+            axial_offset   = float(np.dot(diff_centers, n_A_norm))           # mm, along Joint-A axis
+            lateral_offset = float(np.linalg.norm(                           # mm, perpendicular to axis
+                diff_centers - axial_offset * n_A_norm))
+
             if mode == "wrist_pitch_v13":
-                # Sweep A is Joint 6 (Wrist Roll)
-                # Sweep B is Joint 5 (Wrist Pitch)
-                # Align normal vector of Joint 5 sweep (n_B) to torso Y direction
-                n_B_dir = n_B if n_B[1] > 0 else -n_B
-                shift_actual = np.dot(c_B - c_A, n_B_dir)
-                
-                # Scale nominal Tf_to_marker radius (x, y) to match measured Joint 6 radius (r_A)
-                tf_vec_mod = list(tf_vec)
-                orig_radius = np.sqrt(tf_vec_mod[0]**2 + tf_vec_mod[1]**2)
-                if orig_radius > 1e-5:
-                    scale = (r_A / 1000.0) / orig_radius
-                    tf_vec_mod[0] *= scale
-                    tf_vec_mod[1] *= scale
-                T_ee_to_marker = self.make_transform(tf_vec_mod)
-                
-                def compute_displacement_diff(delta_deg):
+                # Sweep A = Joint 6 (Wrist Roll) → defines axis (c_A, n_A_norm)
+                # Sweep B = Joint 5 (Wrist Pitch) → c_B must lie ON the Joint 6 axis
+                #
+                # Calibration criterion:
+                #   Perp distance from c_B_predicted to the Joint-6 axis = 0
+                #   i.e. find delta_6 s.t. c_B_pred lies on (c_A, n_A_norm)
+                #
+                # After calibration:
+                #   r_A            = lateral marker offset from Joint 6 axis (bracket design check)
+                #   axial_offset   = marker offset along Joint 6 axis        (bracket design check)
+
+                def perp_dist_axis6(delta_deg):
+                    """FK-predict c_B when Joint 6 is shifted by delta_deg,
+                    return its perpendicular distance to the Joint-6 axis."""
                     pts_pred = []
                     for q_full, _ in dataset_B:
                         q_mod = np.array(q_full)
-                        q_mod[arm_idx[6]] += np.radians(delta_deg)
+                        q_mod[arm_idx[6]] += np.radians(delta_deg)          # perturb Joint 6
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
                         T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
                         pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
-                    
                     c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    return np.dot(c_fit - c_A, n_B_dir)
-                
-                def residual(delta):
-                    return [compute_displacement_diff(delta[0]) - shift_actual]
-                
-                res_opt = least_squares(residual, [0.0], bounds=([-15.0], [15.0]))
-                optimal_offset_deg = -res_opt.x[0]
-                if log_callback:
-                    log_callback(f"  [v1.3 Joint 6 Calibration] Target shift={shift_actual:.4f} mm, Predicted shift(0)={compute_displacement_diff(0.0):.4f} mm. Solved offset={optimal_offset_deg:.4f}°")
-            else: # wrist_roll_v13
-                # Physical insight: joint3 and joint5 share parallel Y axes (offset in Z by L35).
-                # A joint5 offset changes the marker's XZ position relative to the elbow axis,
-                # so r_B (joint3 sweep radius) IS sensitive to joint5 offset.
-                # r_A (joint5 sweep radius) is invariant to joint5 offset.
-                #
-                # Solve: find delta_5 such that FK-predicted r_B(delta_5) == measured r_B.
-                # Identical structure to wrist_pitch_v13's compute_displacement_diff.
+                    v = c_fit - c_A
+                    return float(np.linalg.norm(v - np.dot(v, n_A_norm) * n_A_norm))
 
-                def predict_r_B_fk(delta_deg):
+                perp_before = perp_dist_axis6(0.0)
+                res_opt = least_squares(
+                    lambda delta: [perp_dist_axis6(delta[0])],
+                    [0.0], bounds=([-15.0], [15.0])
+                )
+                optimal_offset_deg = -res_opt.x[0]
+                perp_after = perp_dist_axis6(res_opt.x[0])
+
+                if log_callback:
+                    log_callback(f"  [v1.3 Joint 6 Calibration]")
+                    log_callback(f"    perp_dist(δ=0)   = {perp_before:.4f} mm  (c_B ~ Joint6 axis, before)")
+                    log_callback(f"    solved δ         = {res_opt.x[0]:.4f}°  →  applied offset = {optimal_offset_deg:.4f}°")
+                    log_callback(f"    perp_dist(δ_opt) = {perp_after:.4f} mm  (after)")
+                    log_callback(f"  [Bracket Design Verification]")
+                    log_callback(f"    r_A  (Joint6 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
+                    log_callback(f"    axial offset (c_B along Joint6 axis)                 = {axial_offset:.3f} mm")
+
+            else:  # wrist_roll_v13
+                # Sweep A = Joint 5 (Wrist Pitch) → defines axis (c_A, n_A_norm)
+                # Sweep B = Joint 3 (Elbow)       → c_B must lie ON the Joint-5 axis
+                #
+                # Same geometric criterion: perp distance from c_B_predicted to Joint-5 axis = 0.
+                # Find delta_5 (Joint 5 offset correction) that satisfies this.
+
+                def perp_dist_axis5(delta_deg):
+                    """FK-predict c_B when Joint 5 is shifted by delta_deg,
+                    return its perpendicular distance to the Joint-5 axis."""
                     pts_pred = []
                     for q_full, _ in dataset_B:
                         q_mod = np.array(q_full)
-                        q_mod[arm_idx[5]] += np.radians(delta_deg)
+                        q_mod[arm_idx[5]] += np.radians(delta_deg)          # perturb Joint 5
                         T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                        pts_pred.append((T_t5_to_ee @ T_ee_to_marker)[:3, 3] * 1000.0)
-                    _, _, r_pred, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    return r_pred
+                        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
+                        pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
+                    c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
+                    v = c_fit - c_A
+                    return float(np.linalg.norm(v - np.dot(v, n_A_norm) * n_A_norm))
 
-                def residual_5(delta):
-                    return [predict_r_B_fk(delta[0]) - r_B]
-
-                res_opt5 = least_squares(residual_5, [0.0], bounds=([-15.0], [15.0]))
+                perp_before = perp_dist_axis5(0.0)
+                res_opt5 = least_squares(
+                    lambda delta: [perp_dist_axis5(delta[0])],
+                    [0.0], bounds=([-15.0], [15.0])
+                )
                 optimal_offset_deg = -res_opt5.x[0]
+                perp_after = perp_dist_axis5(res_opt5.x[0])
 
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 5 Calibration] r_B_meas={r_B:.3f}, r_B_pred(δ=0)={predict_r_B_fk(0.0):.3f}, solved δ={res_opt5.x[0]:.4f}°, offset={optimal_offset_deg:.4f}°")
-
+                    log_callback(f"  [v1.3 Joint 5 Calibration]")
+                    log_callback(f"    perp_dist(δ=0)   = {perp_before:.4f} mm  (c_B ~ Joint5 axis, before)")
+                    log_callback(f"    solved δ         = {res_opt5.x[0]:.4f}°  →  applied offset = {optimal_offset_deg:.4f}°")
+                    log_callback(f"    perp_dist(δ_opt) = {perp_after:.4f} mm  (after)")
+                    log_callback(f"  [Bracket Design Verification]")
+                    log_callback(f"    r_A  (Joint5 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
+                    log_callback(f"    axial offset (c_B along Joint5 axis)                 = {axial_offset:.3f} mm")
 
             sign = -1.0 if optimal_offset_deg < 0.0 else 1.0
 
-            
-            # Save debug orthogonal plot and return
             if save_debug:
                 self.save_debug_orthogonal_plot(
-                    arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
-                    np.radians(optimal_offset_deg), ee_name, arm_idx, cand_joint, 
+                    arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam,
+                    np.radians(optimal_offset_deg), ee_name, arm_idx, cand_joint,
                     angle_error_deg=angle_between_normals, log_callback=log_callback
                 )
-            
+
             return {
                 'mode': mode,
                 'optimal_offset': optimal_offset_deg,
                 'angle_between_normals': angle_between_normals,
+                'axial_offset_mm': axial_offset,    # along the Sweep-A rotation axis
+                'lateral_offset_mm': lateral_offset, # perp distance c_B ~ Sweep-A axis (before calib)
+                'perp_dist_before': perp_before,
+                'perp_dist_after': perp_after,
                 'sign': sign,
-                'center_dist': center_dist,
                 'pts_2d_A': pts_2d_A,
                 'uc_A': uc_A,
                 'vc_A': vc_A,

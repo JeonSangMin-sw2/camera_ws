@@ -2640,11 +2640,28 @@ class UnifiedCalibrationApp(QWidget):
             joint_name = "Joint 3 (Elbow Pitch)"
         self.log_msg(f"    - Target Swept Joint       : {joint_name}")
         self.log_msg(f"    - Estimated Optimal Offset : {recommended:.4f} deg")
-        # self.log_msg(f"    - Circle A Fitting RMSE     : {self.joint_sweep_data['rmse_A']:.4f} mm")
-        # self.log_msg(f"    - Circle B Fitting RMSE     : {self.joint_sweep_data['rmse_B']:.4f} mm")
-        
+
         self.log_msg("\n[2] Suggested Joint Home Offset update:")
         self.log_msg(f"  Add offset: {recommended:.4f} deg to calibration config.")
+
+        # v1.3 전용: 브래킷 설계값 확인 결과 표시
+        if mode in ("wrist_pitch_v13", "wrist_roll_v13"):
+            d = self.joint_sweep_data
+            sweep_axis_label = "Joint 6" if mode == "wrist_pitch_v13" else "Joint 5"
+            self.log_msg(f"\n[3] Bracket Design Verification ({sweep_axis_label} 회전축 기준)")
+            perp_b = d.get('perp_dist_before', float('nan'))
+            perp_a = d.get('perp_dist_after',  float('nan'))
+            self.log_msg(f"    - c_B ~ {sweep_axis_label} axis perp. dist (before) : {perp_b:.4f} mm")
+            self.log_msg(f"    - c_B ~ {sweep_axis_label} axis perp. dist (after)  : {perp_a:.4f} mm")
+            r_A = d.get('r_A', float('nan'))
+            axial  = d.get('axial_offset_mm',   float('nan'))
+            lateral = d.get('lateral_offset_mm', float('nan'))
+            self.log_msg(f"    - Sweep A 피팅원 반경 (r_A, lateral 마커 오프셋)    : {r_A:.3f} mm")
+            self.log_msg(f"    - Axial  마커 오프셋 (c_B along {sweep_axis_label} axis)  : {axial:.3f} mm")
+            self.log_msg(f"    - Lateral 마커 오프셋 (c_B perp {sweep_axis_label} axis)  : {lateral:.3f} mm")
+            axis_dir = "X" if mode == "wrist_pitch_v13" else "Y"
+            self.log_msg(f"    ※ 설계 기준 오프셋 방향: {axis_dir}축")
+
         self.log_msg("="*50)
 
 
