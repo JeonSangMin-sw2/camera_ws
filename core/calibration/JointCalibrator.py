@@ -125,10 +125,7 @@ class JointCalibrator(BaseCalibrator):
             # Convergence check:
             # - For v1.3: step correction < 0.05° or angle deviation <= 0.5° or perp_dist_after <= 0.1 mm
             # - For others: step correction < 0.05° or angle error <= 0.1° or center_dist <= 0.1 mm
-            if is_v13_mode:
-                converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.5 or center_dist <= 0.1)
-            else:
-                converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
+            converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
 
             if converged_criteria:
                 converged = True
@@ -137,10 +134,7 @@ class JointCalibrator(BaseCalibrator):
                     if abs(step_correction) < 0.05:
                         log_callback(f"  * Step Correction: {step_correction:.4f}° < 0.05° (reached resolution limit)")
                     else:
-                        if is_v13_mode:
-                            log_callback(f"  * Circle Normals Angle Error Deviation: {angle_dev:.4f}° <= 0.5°")
-                        else:
-                            log_callback(f"  * Circle Normals Angle Error: {angle_dev:.4f}° <= 0.1°")
+                        log_callback(f"  * Circle Normals Angle Error: {angle_dev:.4f}° <= 0.1°")
                         log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
                     log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                 break
@@ -982,7 +976,7 @@ class JointCalibrator(BaseCalibrator):
                         T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
                         pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
                     c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    v = c_fit - c_A
+                    v = c_fit - c_B
                     return float(np.linalg.norm(v - np.dot(v, n_A_norm) * n_A_norm))
 
                 perp_before = perp_dist_axis6(0.0)
@@ -1043,7 +1037,9 @@ class JointCalibrator(BaseCalibrator):
 
                 for q_f, pose_f in ref_frames:
                     # Camera-measured marker position (torso frame, mm)
-                    p_cam = pose_f[:3, 3] * 1000.0
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_f, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    p_cam = (T_t5_to_cam @ pose_f)[:3, 3] * 1000.0
 
                     # FK-predicted marker position (torso frame, mm)
                     T_fk  = BaseCalibrator.compute_fk(self.robot, dyn_model, q_f, ee_name)
