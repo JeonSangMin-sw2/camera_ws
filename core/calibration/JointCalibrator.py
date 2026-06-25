@@ -95,6 +95,9 @@ class JointCalibrator(BaseCalibrator):
             # we apply a 0.05 deg step correction instead of the raw angle_error.
             # Use the pre-calculated damped optimal offset correction to ensure convergence
             step_correction = res.get('optimal_offset', 0.0)
+            # [SAFETY] 1회 Iteration 당 최대 변화량 제한 — 축 반전 등으로 인한 발산 폭주 방지
+            MAX_STEP_DEG = 5.0
+            step_correction = np.clip(step_correction, -MAX_STEP_DEG, MAX_STEP_DEG)
             staged_offset += step_correction
             final_res = res
             # Elbow Safety Check: Elbow offset must unconditionally be negative.
@@ -924,6 +927,9 @@ class JointCalibrator(BaseCalibrator):
             )
             c_A = res_A['c_opt']
             n_A = res_A['axis_opt']
+            # [FIX] 피팅된 법선 벡터가 물리적 명목 축과 반대(180° 반전)면 강제로 뒤집기
+            if np.dot(n_A, a_A_prior) < 0:
+                n_A = -n_A
             r_A = res_A['radius']
             rmse_A = res_A['rmse']
             pts_2d_A = res_A['pts_2d']
@@ -939,6 +945,9 @@ class JointCalibrator(BaseCalibrator):
             )
             c_B = res_B['c_opt']
             n_B = res_B['axis_opt']
+            # [FIX] Sweep B 법선 벡터도 동일하게 물리적 축 방향으로 강제 정렬
+            if np.dot(n_B, a_B_prior) < 0:
+                n_B = -n_B
             r_B = res_B['radius']
             rmse_B = res_B['rmse']
             pts_2d_B = res_B['pts_2d']

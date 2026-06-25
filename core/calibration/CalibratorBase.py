@@ -603,9 +603,42 @@ class BaseCalibrator:
                 raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 1 failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
             rmse = np.sqrt(np.mean(opt_res.fun**2))
             if rmse < best_rmse:
-                best_rmse = rmse
-                best_opt = opt_res
-                best_sign = sign
+                # [FIX] axis_prior가 주어진 경우, 피팅된 축이 선험 방향과 같은 반공간에 있을 때만 채택
+                # → 노이즈 과적합으로 인해 잘못된 sign(-1)이 수학적으로 더 낮은 RMSE를 갖는 상황 방지
+                if axis_prior is not None:
+                    axis_candidate = opt_res.x[3:6]
+                    axis_candidate_norm = axis_candidate / (np.linalg.norm(axis_candidate) + 1e-9)
+                    if np.dot(axis_candidate_norm, n_nominal) > 0:
+                        best_rmse = rmse
+                        best_opt = opt_res
+                        best_sign = sign
+                else:
+                    best_rmse = rmse
+                    best_opt = opt_res
+                    best_sign = sign
+
+        # Fallback: if axis_prior direction check rejected all candidates (edge case),
+        # fall back to the lowest-RMSE result to avoid best_opt being None
+        if best_opt is None:
+            for sign in [1, -1]:
+                angles_rad = angles_rad_base * sign
+                r_dir_init = points[0] - c_init
+                r_dir_init -= np.dot(r_dir_init, best_normal) * best_normal
+                if np.linalg.norm(r_dir_init) > 1e-6:
+                    r_dir_init /= np.linalg.norm(r_dir_init)
+                init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
+                lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
+                upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
+                init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
+                try:
+                    opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
+                    rmse = np.sqrt(np.mean(opt_res.fun**2))
+                    if rmse < best_rmse:
+                        best_rmse = rmse
+                        best_opt = opt_res
+                        best_sign = sign
+                except Exception:
+                    pass
 
         # Extract optimal
         c_init = best_opt.x[0:3]
