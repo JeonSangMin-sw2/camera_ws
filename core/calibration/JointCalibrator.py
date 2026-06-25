@@ -991,58 +991,124 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"    axial offset (c_B along Joint6 axis)                 = {axial_offset:.3f} mm")
 
             else:  # wrist_pitch_v13
-                # Sweep A = Joint 5 (Wrist Pitch) → c_A, n_A_norm = J5 rotation axis
-                # Sweep B = Joint 3 (Elbow)       → c_B = center of J3-sweep circle
+                # Sweep A = Joint 5 (WP)  → c_A, n_A_norm = J5 axis, r_A = radial marker offset
+                # Sweep B = Joint 3 (Elbow) → c_B (cross-check only)
                 #
-                # Key geometry:
-                #   c_B (J3-sweep center) lies on J3 axis, which is ~d(J3,J5) away from J5 axis.
-                #   perp_dist(c_B, J5_axis) ≈ constant regardless of J5 offset → NOT usable as criterion.
+                # DIRECT VECTOR-BASED J5 OFFSET COMPUTATION
+                # ─────────────────────────────────────────────────────────────
+                # Key insight (user formula):  vec(J5→Marker) = vec(c_A→p_marker)_perp
                 #
-                # Correct calibration criterion:
-                #   |c_J3_FK(delta) - c_J3_camera| → 0
+                # At q5_commanded (= staged_offset), compare:
+                #   v_fk  = FK-predicted marker vector in J5 perp-plane
+                #   v_cam = camera-measured marker vector in J5 perp-plane
                 #
-                #   c_J3_camera = circle center from camera-measured torso-frame poses (Sweep B)
-                #   c_J3_FK(delta) = circle center from FK-predicted marker positions with J5 offset = delta
+                # signed_angle(v_fk → v_cam) = J5 zero offset (direct, no iteration)
                 #
-                #   When delta = true J5 offset error: FK prediction matches reality
-                #   → c_J3_FK ≈ c_J3_camera → residual = 0
+                # ALSO yields marker design values:
+                #   r_A      = |v_cam_perp| (radial offset from J5 axis)
+                #   axial    = (p_cam - c_A) · n_J5 (axial offset along J5)
+                #   mounting = direction of v_cam_perp (bracket phase angle)
+                #
+                # Cross-check: minimize_scalar on center_match (J3 sweep center shift)
+                # Expected sensitivity ~5.4mm/°. If scan is U-shaped → FK consistent.
 
-                # Camera-measured c_J3 (from torso-frame poses saved in Sweep B)
-                c_J3_camera = c_B   # already computed above from res_B['c_opt'] (torso frame)
+                # ── 1. Reference frames at q5 ≈ q_cand (the sweep midpoint) ──────────
+                q_ref = q_cand[cand_joint]   # commanded q5 during sweep (arm-local index)
+                ref_window = np.radians(2.0)
+
+                ref_frames = [(q, p) for q, p in dataset_A
+                              if abs(q[arm_idx[cand_joint]] - q_ref) <= ref_window]
+                if not ref_frames:
+                    # fallback: closest single frame
+                    idx_closest = int(np.argmin(
+                        [abs(q[arm_idx[cand_joint]] - q_ref) for q, _ in dataset_A]))
+                    ref_frames = [dataset_A[idx_closest]]
+
+                # ── 2. Compute signed J5 offset for each reference frame ──────────────
+                delta_list  = []
+                r_A_list    = []
+                axial_list  = []
+
+                for q_f, pose_f in ref_frames:
+                    # Camera-measured marker position (torso frame, mm)
+                    p_cam = pose_f[:3, 3] * 1000.0
+
+                    # FK-predicted marker position (torso frame, mm)
+                    T_fk  = BaseCalibrator.compute_fk(self.robot, dyn_model, q_f, ee_name)
+                    p_fk  = (T_fk @ T_ee_to_marker)[:3, 3] * 1000.0
+
+                    # Project to J5 perpendicular plane (relative to c_A)
+                    def _perp(p):
+                        v = p - c_A
+                        return v - np.dot(v, n_A_norm) * n_A_norm
+
+                    v_cam_perp = _perp(p_cam)
+                    v_fk_perp  = _perp(p_fk)
+
+                    # Guard: skip if either vector is near-zero (shouldn't happen, r_A~161mm)
+                    if np.linalg.norm(v_cam_perp) < 1.0 or np.linalg.norm(v_fk_perp) < 1.0:
+                        continue
+
+                    # Signed angle from FK-expected to camera-measured = J5 zero offset
+                    cross = np.dot(np.cross(v_fk_perp, v_cam_perp), n_A_norm)
+                    dot   = np.dot(v_fk_perp, v_cam_perp)
+                    delta_list.append(np.degrees(np.arctan2(cross, dot)))
+                    r_A_list.append(np.linalg.norm(v_cam_perp))
+                    axial_list.append(float(np.dot(p_cam - c_A, n_A_norm)))
+
+                # Robust aggregation (median over reference window)
+                if delta_list:
+                    delta_direct = float(np.median(delta_list))
+                    r_A_direct   = float(np.median(r_A_list))
+                    axial_direct = float(np.median(axial_list))
+                    direct_ok    = True
+                else:
+                    delta_direct = 0.0
+                    r_A_direct   = r_A
+                    axial_direct = axial_offset
+                    direct_ok    = False
+
+                # ── 3. Cross-check: center-match scan on Sweep B (J3 circle center) ──
+                c_J3_camera = c_B
 
                 def center_match_residual(delta_deg):
-                    """FK-predict marker positions during J3-sweep with J5 perturbed by delta_deg.
-                    Returns 3D distance between predicted circle center and camera-measured c_J3."""
                     pts_pred = []
                     for q_full, _ in dataset_B:
                         q_mod = np.array(q_full)
-                        q_mod[arm_idx[5]] += np.radians(delta_deg)          # perturb Joint 5
-                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
-                        pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
+                        q_mod[arm_idx[5]] += np.radians(delta_deg)
+                        T_ee  = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
+                        pts_pred.append((T_ee @ T_ee_to_marker)[:3, 3] * 1000.0)
                     c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
                     return float(np.linalg.norm(c_fit - c_J3_camera))
 
-                dist_before = center_match_residual(0.0)
-                res_opt5 = least_squares(
-                    lambda delta: [center_match_residual(delta[0])],
-                    [0.0], bounds=([-15.0], [15.0])
-                )
-                optimal_offset_deg = +res_opt5.x[0]
-                dist_after = center_match_residual(res_opt5.x[0])
-
-                # perp_before/perp_after kept for log compatibility (now mean 3D center distance)
-                perp_before = dist_before
-                perp_after  = dist_after
+                scan_pts = [-10.0, -5.0, -3.0, -1.0, 0.0, 1.0, 3.0, 5.0, 10.0]
+                scan_vals = [(d, center_match_residual(d)) for d in scan_pts]
+                best_scan  = min(scan_vals, key=lambda x: x[1])
+                center_match_at0 = scan_vals[4][1]
 
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 5 Calibration]")
-                    log_callback(f"    |c_J3_FK - c_J3_cam|(δ=0)   = {dist_before:.4f} mm  (before)")
-                    log_callback(f"    solved δ                     = {res_opt5.x[0]:.4f}°  →  applied offset = {optimal_offset_deg:.4f}°")
-                    log_callback(f"    |c_J3_FK - c_J3_cam|(δ_opt) = {dist_after:.4f} mm  (after)")
-                    log_callback(f"  [Bracket Design Verification]")
-                    log_callback(f"    r_A  (Joint5 sweep radius = marker lateral offset from J5-axis) = {r_A:.3f} mm")
-                    log_callback(f"    axial offset (c_B along Joint5 axis)                            = {axial_offset:.3f} mm")
+                    log_callback("  [J5 center-match cross-check scan]")
+                    for d, v in scan_vals:
+                        tag = " <-min" if d == best_scan[0] else ""
+                        log_callback(f"    delta={d:+6.1f}deg -> |c_FK-c_cam| = {v:.3f} mm{tag}")
+
+                # ── 4. Primary result: direct vector method ──────────────────────────
+                optimal_offset_deg = delta_direct if direct_ok else best_scan[0]
+                converged_wp = direct_ok and (abs(delta_direct) < 0.2)
+
+                # perp_before/after kept for UI compatibility (repurposed as center-match dist)
+                perp_before = center_match_at0
+                perp_after  = center_match_residual(optimal_offset_deg) if direct_ok else best_scan[1]
+
+                if log_callback:
+                    log_callback(f"  [v1.3 Joint 5 Calibration  — DIRECT vector method]")
+                    log_callback(f"    reference frames used        : {len(ref_frames)} (±2° window)")
+                    log_callback(f"    J5 offset (direct, primary)  : {delta_direct:.4f}deg")
+                    log_callback(f"    J5 offset (scan minimum)     : {best_scan[0]:.1f}deg  (dist={best_scan[1]:.3f}mm)")
+                    log_callback(f"  [Marker Design Values from Sweep A reference frame]")
+                    log_callback(f"    r_A (sweep-fit)              : {r_A:.3f} mm")
+                    log_callback(f"    r_A (direct, vec|cam-perp|)  : {r_A_direct:.3f} mm")
+                    log_callback(f"    axial offset along J5 axis   : {axial_direct:.3f} mm  (sweep B: {axial_offset:.3f} mm)")
 
             sign = -1.0 if optimal_offset_deg < 0.0 else 1.0
 
@@ -1056,7 +1122,7 @@ class JointCalibrator(BaseCalibrator):
             return {
                 'mode': mode,
                 'optimal_offset': optimal_offset_deg,
-                'converged': False,
+                'converged': converged_wp if mode == "wrist_pitch_v13" else False,
                 'angle_between_normals': angle_between_normals,
                 'sign': sign,
                 'perp_dist_before': perp_before,
