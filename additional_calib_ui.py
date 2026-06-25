@@ -1,15 +1,6 @@
 import sys
 import os
-os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
-# Ensure local core module is imported first
-current_dir = os.path.dirname(os.path.abspath(__file__))
-core_dir = os.path.abspath(os.path.join(current_dir, "core"))
-calibration_dir = os.path.abspath(os.path.join(core_dir, "calibration"))
-if core_dir not in sys.path:
-    sys.path.insert(0, core_dir)
-if calibration_dir not in sys.path:
-    sys.path.insert(1, calibration_dir)
-
+# os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
 import cv2
 import numpy as np
 import time
@@ -17,14 +8,14 @@ import argparse
 import logging
 import rby1_sdk as rby
 import threading
-
+import yaml
+import traceback
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
                              QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
-
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
@@ -32,14 +23,32 @@ from scipy.spatial.transform import Rotation as R_scipy
 from pathlib import Path
 
 # Import custom calibrator logic
-from Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
-from IntrinsicsCalibrator import IntrinsicsCalibrator
+from marker_detection import Marker_Detection, Marker_Transform
+from calibration.Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
+from calibration.IntrinsicsCalibrator import IntrinsicsCalibrator
 from homeoffset_core import (
     reset_current_pose_home_offsets,
     save_home_reset_baseline_json,
     move_to_offset_candidate_from_json,
     load_offset_from_json
 )
+current_dir = os.path.dirname(os.path.abspath(__file__))
+calibration_dir = os.path.abspath(os.path.join(current_dir,"core","calibration"))
+# --- Configuration & Paths ---
+CONFIG_PATHS = {
+    "setting_yaml": os.path.abspath(os.path.join(current_dir, "config", "setting.yaml")),
+    "camera_intrinsics": os.path.abspath(os.path.join(current_dir, "config", "camera_intrinsics.yaml")),
+    "result_dir": os.path.abspath(os.path.join(current_dir, "result")),
+    "plot_dir": os.path.abspath(os.path.join(calibration_dir, "result_img")),
+}
+
+UI_DROPDOWNS = {
+    "robot_models": ["a", "m"],
+    "arm_sides": ["Right Arm", "Left Arm"],
+    "marker_axes": ["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"],
+    "joint_modes_v13": ["wrist_pitch_v13 (6-Axis Sweep)", "wrist_roll_v13 (5-Axis Sweep)", "elbow (3-Axis Sweep)"],
+    "joint_modes_v12": ["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"]
+}
 
 # --- Premium Dark CSS Stylesheet ---
 DARK_STYLESHEET = """
@@ -389,8 +398,8 @@ class FullAutoReadyWorker(QThread):
         try:
             self.log_signal.emit("Moving robot arms to Full Auto initial ready poses...")
             version_num = self.marker_calibrator.get_robot_version()
-            is_v13 = (abs(version_num - 1.3) < 0.05)
-            self.log_signal.emit(f"[INFO] Detected Robot Version: {version_num:.1f} (is_v1.3: {is_v13})")
+            is_v13 = self.marker_calibrator.is_v13()
+            self.log_signal.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
 
             is_mock_run = self.ui_only or (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot")
             
@@ -430,7 +439,7 @@ class MarkerCalibrationWorker(QThread):
     def run(self):
         try:
             version_num = self.calibrator.get_robot_version()
-            is_v13 = (abs(version_num - 1.3) < 0.05)
+            is_v13 = self.calibrator.is_v13()
             
             is_mock_run = (not self.calibrator.robot or self.calibrator.robot == "mock_robot")
             if not is_mock_run:
@@ -568,57 +577,15 @@ class MarkerCalibrationWorker(QThread):
             if is_v13 and res_4 is not None:
                 unified_res['res_4'] = res_4
 
-            # Helper plot function
-            def plot_single_axis(ax, res, axis_num, color):
-                ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured Points')
-                circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fitted Circle')
-                ax.add_patch(circle)
-                ax.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
-                
-                x_min, x_max = res['pts_2d'][:, 0].min(), res['pts_2d'][:, 0].max()
-                y_min, y_max = res['pts_2d'][:, 1].min(), res['pts_2d'][:, 1].max()
-                span = max(x_max - x_min, y_max - y_min)
-                margin = max(1.0, span * 0.5)
-                cx = (x_max + x_min) / 2
-                cy = (y_max + y_min) / 2
-                ax.set_xlim(cx - span/2 - margin, cx + span/2 + margin)
-                ax.set_ylim(cy - span/2 - margin, cy + span/2 + margin)
-                ax.set_aspect('equal')
-                ax.grid(True)
-                ax.set_title(f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {res['rmse']:.3f})")
-                ax.legend()
+            # Save plot using the calibrator method
+            plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{self.arm_side}_marker_unified.png")
+            plot_saved = self.calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, self.arm_side, is_v13, plot_path)
             
-            # Plot results
-            if is_v13 and res_4 is not None:
-                fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
-                plot_single_axis(ax1, res_6, 6, 'blue')
-                plot_single_axis(ax2, res_5, 5, 'green')
-                plot_single_axis(ax3, res_4, 4, 'purple')
-                fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
-                             f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
-                             f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°\n"
-                             f"Opt d5: {unified_res.get('opt_delta_5', 0.0):.3f}° | Opt d6: {unified_res.get('opt_delta_6', 0.0):.3f}° | Min Radius: {unified_res.get('min_radius', 0.0):.2f} mm", fontsize=12, fontweight='bold')
-            else:
-                fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-                plot_single_axis(ax1, res_6, 6, 'blue')
-                plot_single_axis(ax2, res_5, 5, 'green')
-                fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm)\n"
-                             f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
-                             f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°", fontsize=12, fontweight='bold')
-            
-            plt.tight_layout()
-            
-            result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
-            os.makedirs(result_dir, exist_ok=True)
-            plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_marker_unified.png")
-            plt.savefig(plot_path, dpi=150)
-            plt.close()
-            
-            unified_res['plot_path_combined'] = plot_path
+            if plot_saved:
+                unified_res['plot_path_combined'] = plot_path
             self.finished_signal.emit(unified_res)
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Worker exception: {e}")
-            import traceback
             self.log_signal.emit(traceback.format_exc())
             self.finished_signal.emit(None)
 
@@ -700,7 +667,7 @@ class SimulatedMarkerTransform:
             dyn_model = self.robot.get_dynamics()
             
             ee_name = f"ee_{side}"
-            from CalibratorBase import BaseCalibrator
+            
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q, ee_name, "link_torso_5")
             
             T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head_2", "link_torso_5")
@@ -754,8 +721,8 @@ class FullAutoWorker(QThread):
                 self.log_msg.emit("="*50 + "\n")
                 
                 version_num = self.get_robot_version()
-                is_v13 = (abs(version_num - 1.3) < 0.05)
-                self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num:.1f} (is_v1.3: {is_v13})")
+                is_v13 = (version_num == "1.3")
+                self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
                 
                 is_mock_run = self.ui_only and (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot")
                 if is_mock_run:
@@ -1079,7 +1046,7 @@ class UnifiedCalibrationApp(QWidget):
         # Core Calibrator Instances
         self.marker_calibrator = MarkerCalibrator(marker_st, robot)
         self.joint_calibrator = JointCalibrator(marker_st, robot)
-        self.robot_version = 1.2
+        self.robot_version = "1.2"
         
         # Intrinsics Calibrator (Tab 3 용)
         self.intrinsics_calibrator = IntrinsicsCalibrator()
@@ -1087,7 +1054,7 @@ class UnifiedCalibrationApp(QWidget):
         self.intrinsics_calibrator.set_board(8, 5, IntrinsicsCalibrator.BoardPattern.CHARUCOBOARD, 36.0, 27.0, "DICT_5X5_100")
         
         try:
-            from marker_detection import Marker_Detection
+            
             self.marker_detector = Marker_Detection()
             self.marker_detector.set_marker_type("plate")
         except ImportError:
@@ -1095,7 +1062,7 @@ class UnifiedCalibrationApp(QWidget):
             
         self.monitor_enabled = False
         self.captured_images = []
-        self.output_yaml = os.path.abspath(os.path.join(os.path.dirname(__file__), "config", "camera_intrinsics.yaml"))
+        self.output_yaml = CONFIG_PATHS["camera_intrinsics"]
         
         # Saved Calibration Results
         self.marker_data_4 = None
@@ -1135,9 +1102,7 @@ class UnifiedCalibrationApp(QWidget):
         self.active_worker = None
 
     def load_offsets_from_yaml(self):
-        import yaml
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
+        config_path = CONFIG_PATHS["setting_yaml"]
         try:
             if not os.path.exists(config_path):
                 self.joint_offsets_store = {
@@ -1168,7 +1133,7 @@ class UnifiedCalibrationApp(QWidget):
                     self.log_msg(f"[WARNING] Added default joint_offset to setting.yaml.")
             
             # Sync current offsets with active arm_side from YAML
-            is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+            is_v13 = self.get_robot_version() == "1.3"
             if is_v13:
                 self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
                 self.joint_offsets["wrist_roll"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint6", 0.0)
@@ -1193,8 +1158,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator.joint_offsets = self.joint_offsets
 
     def save_offsets_to_yaml(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
+        config_path = CONFIG_PATHS["setting_yaml"]
         os.makedirs(os.path.dirname(config_path), exist_ok=True)
         
         try:
@@ -1242,7 +1206,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
-        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        is_v13 = self.get_robot_version() == "1.3"
         if is_v13:
             if col == 0:
                 joint_key = "joint6"
@@ -1276,20 +1240,13 @@ class UnifiedCalibrationApp(QWidget):
     def update_joint_modes(self):
         if not hasattr(self, 'joint_mode_sel'):
             return
-        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        is_v13 = self.get_robot_version() == "1.3"
         self.joint_mode_sel.blockSignals(True)
         self.joint_mode_sel.clear()
         if is_v13:
-            self.joint_mode_sel.addItems([
-                "wrist_pitch_v13 (6-Axis Sweep)",
-                "wrist_roll_v13 (5-Axis Sweep)",
-                "elbow (3-Axis Sweep)"
-            ])
+            self.joint_mode_sel.addItems(UI_DROPDOWNS["joint_modes_v13"])
         else:
-            self.joint_mode_sel.addItems([
-                "wrist_pitch (5-Axis Sweep)",
-                "elbow (3-Axis Sweep)"
-            ])
+            self.joint_mode_sel.addItems(UI_DROPDOWNS["joint_modes_v12"])
         self.joint_mode_sel.blockSignals(False)
 
 
@@ -1340,7 +1297,7 @@ class UnifiedCalibrationApp(QWidget):
             self.ip_input.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 1px solid #2d2d2d;")
             
         self.model_input = QComboBox()
-        self.model_input.addItems(["a", "m"])
+        self.model_input.addItems(UI_DROPDOWNS["robot_models"])
         self.btn_connect = QPushButton("CONNECT")
         self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
         self.btn_connect.clicked.connect(self.connect_robot)
@@ -1358,7 +1315,7 @@ class UnifiedCalibrationApp(QWidget):
 
         # Target Arm Selection (Variables bound internally, layout placed in Calibration Workflows header)
         self.arm_sel = QComboBox()
-        self.arm_sel.addItems(["Right Arm", "Left Arm"])
+        self.arm_sel.addItems(UI_DROPDOWNS["arm_sides"])
         idx = 1 if self.arm_side == "left" else 0
         self.arm_sel.setCurrentIndex(idx)
         self.arm_sel.currentTextChanged.connect(self.on_arm_side_changed)
@@ -1495,7 +1452,7 @@ class UnifiedCalibrationApp(QWidget):
         marker_sublayout = QVBoxLayout()
         
         self.marker_axis_sel = QComboBox()
-        self.marker_axis_sel.addItems(["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"])
+        self.marker_axis_sel.addItems(UI_DROPDOWNS["marker_axes"])
         
         tol_lay = QHBoxLayout()
         tol_lay.addWidget(QLabel("Tolerance (deg):"))
@@ -1829,11 +1786,11 @@ class UnifiedCalibrationApp(QWidget):
             if self.robot != "mock_robot":
                 MarkerCalibrator.terminate_robot(self.robot)
             self.robot = None
-            self.robot_version = 1.2
+            self.robot_version = "1.2"
             self.marker_calibrator.robot = None
-            self.marker_calibrator.robot_version = 1.2
+            self.marker_calibrator.robot_version = "1.2"
             self.joint_calibrator.robot = None
-            self.joint_calibrator.robot_version = 1.2
+            self.joint_calibrator.robot_version = "1.2"
             self.update_joint_modes()
             self.load_offsets_from_yaml()
             self.update_applied_offset_label()
@@ -1866,7 +1823,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.joint_calibrator.robot = self.robot
                 
                 # Determine version classification automatically
-                detected_version = 1.2
+                detected_version = "1.2"
                 if self.robot != "mock_robot":
                     try:
                         robot_info = self.robot.get_robot_info()
@@ -1875,16 +1832,16 @@ class UnifiedCalibrationApp(QWidget):
                         print(f"[INFO] Connected robot model version string: '{raw_version}'")
                         
                         if "1.3" in raw_version:
-                            detected_version = 1.3
+                            detected_version = "1.3"
                         else:
-                            detected_version = 1.2
+                            detected_version = "1.2"
                     except Exception as e:
                         self.log_msg(f"[WARNING] Failed to query version from robot: {e}")
-                        detected_version = 1.2
+                        detected_version = "1.2"
                 else:
-                    detected_version = 1.2
-                    self.log_msg(f"[INFO] Connected to mock robot. Using default version: {detected_version:.1f}")
-                    print(f"[INFO] Connected to mock robot. Using default version: {detected_version:.1f}")
+                    detected_version = "1.2"
+                    self.log_msg(f"[INFO] Connected to mock robot. Using default version: {detected_version}")
+                    print(f"[INFO] Connected to mock robot. Using default version: {detected_version}")
                 
                 # Cache the version classification on the app instance
                 self.robot_version = detected_version
@@ -1924,7 +1881,7 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_sweep_data = None
             
             # Sync current offsets with active arm_side from memory store (do not reload from yaml disk)
-            is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+            is_v13 = self.get_robot_version() == "1.3"
             self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
             if is_v13:
                 self.joint_offsets["wrist_roll"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint6", 0.0)
@@ -2030,7 +1987,7 @@ class UnifiedCalibrationApp(QWidget):
         if not hasattr(self, 'tbl_offset_monitor') or not hasattr(self, 'btn_joint_apply'):
             return
         
-        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        is_v13 = self.get_robot_version() == "1.3"
         if is_v13:
             self.tbl_offset_monitor.setColumnCount(3)
             self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 6 (Roll)", "Joint 5 (Pitch)", "Joint 3 (Elbow)"])
@@ -2053,7 +2010,7 @@ class UnifiedCalibrationApp(QWidget):
         # Keeps the apply button permanently visible on the Right Panel dashboard
 
     def apply_joint_offset(self):
-        is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+        is_v13 = self.get_robot_version() == "1.3"
         
         if is_v13:
             self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
@@ -2119,9 +2076,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[CLEAR] Staged and saved offsets cleared to 0.0 for {self.arm_side.upper()} Arm.")
 
     def load_bracket_design_values(self):
-        import yaml
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
+        config_path = CONFIG_PATHS["setting_yaml"]
         try:
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
@@ -2143,9 +2098,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[ERROR] Failed to load setting.yaml: {e}")
 
     def apply_bracket_design_values(self, silent=False):
-        import yaml
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        config_path = os.path.abspath(os.path.join(current_dir, "config", "setting.yaml"))
+        config_path = CONFIG_PATHS["setting_yaml"]
         try:
             try:
                 x = float(self.txt_bracket_x.text())
@@ -2276,8 +2229,8 @@ class UnifiedCalibrationApp(QWidget):
     def on_action_finished(self):
         self.set_controls_enabled(True)
 
-    def get_robot_version(self):
-        return getattr(self, "robot_version", 1.2)
+    def get_robot_version(self) -> str:
+        return str(getattr(self, "robot_version", "1.2"))
 
     def move_to_ready_full_auto(self):
         if not self.ui_only and not self.robot:
@@ -2305,8 +2258,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.poll_timer.start(200)
 
     def get_latest_result_path(self):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        result_dir = Path(os.path.abspath(os.path.join(current_dir, "result")))
+        result_dir = Path(CONFIG_PATHS["result_dir"])
         if not result_dir.exists():
             result_dir.mkdir(parents=True, exist_ok=True)
         result_files = sorted(
@@ -2414,7 +2366,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.poll_timer.isActive():
             self.poll_timer.stop()
         
-        import threading
+        
         self.full_auto_stop_event = threading.Event()
         
         # update mock robot version on calibrators just in case
@@ -2709,7 +2661,6 @@ class UnifiedCalibrationApp(QWidget):
 
         self.joint_calibrator.stop_requested = False
         self.marker_calibrator.stop_requested = False
-        import threading
         self.stop_event_mc = threading.Event()
         self.active_worker = MoveCenterWorker(self.marker_calibrator, self.arm_side, self.stop_event_mc, target_dist=target_dist)
         self.active_worker.log_signal.connect(self.log_msg)
@@ -2749,7 +2700,7 @@ class UnifiedCalibrationApp(QWidget):
                     self.arm_side = arm_side
                 def run(self):
                     version_num = self.ui.get_robot_version()
-                    is_v13 = (abs(version_num - 1.3) < 0.05)
+                    is_v13 = (version_num == "1.3")
                     
                     time.sleep(0.5)
                     
@@ -2837,38 +2788,11 @@ class UnifiedCalibrationApp(QWidget):
                         unified_res['opt_delta_6'] = -0.12
                         unified_res['min_radius'] = 0.35
                     
-                    def plot_single(ax, res, axis_num, color):
-                        ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured')
-                        circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fit')
-                        ax.add_patch(circle)
-                        ax.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
-                        ax.set_aspect('equal')
-                        ax.grid(True)
-                        ax.set_title(f"Axis {axis_num} Sweep (MOCK)")
-                        ax.legend()
-
-                    if is_v13 and res_4 is not None:
-                        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
-                        plot_single(ax1, res_6, 6, 'blue')
-                        plot_single(ax2, res_5, 5, 'green')
-                        plot_single(ax3, res_4, 4, 'purple')
-                        fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK\n"
-                                     f"Opt d5: {unified_res['opt_delta_5']:.3f}° | Opt d6: {unified_res['opt_delta_6']:.3f}° | Min Radius: {unified_res['min_radius']:.2f} mm")
-                    else:
-                        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
-                        plot_single(ax1, res_6, 6, 'blue')
-                        plot_single(ax2, res_5, 5, 'green')
-                        fig.suptitle(f"Unified Marker Sweep Results ({self.arm_side.upper()} Arm) - MOCK")
-                        
-                    plt.tight_layout()
+                    plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{self.arm_side}_marker_unified.png")
+                    plot_saved = self.ui.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, self.arm_side, is_v13, plot_path)
                     
-                    result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
-                    os.makedirs(result_dir, exist_ok=True)
-                    plot_path = os.path.join(result_dir, f"circle_fit_{self.arm_side}_marker_unified.png")
-                    plt.savefig(plot_path, dpi=150)
-                    plt.close()
-                    
-                    unified_res['plot_path_combined'] = plot_path
+                    if plot_saved:
+                        unified_res['plot_path_combined'] = plot_path
                     self.finished_sig.emit(unified_res)
             
             self.active_worker = MockMarkerWorker(self, self.arm_side)
@@ -3122,8 +3046,6 @@ class UnifiedCalibrationApp(QWidget):
         if self.intrinsics_calibrator.cameraMatrix is None:
             self.log_msg("[ERROR] No calibration data to save!")
             return
-            
-        import yaml
         try:
             data = {
                 "camera_matrix": self.intrinsics_calibrator.cameraMatrix.tolist(),
@@ -3151,29 +3073,10 @@ class UnifiedCalibrationApp(QWidget):
             return
             
         test_img = self.captured_images[-1]
-        h, w = test_img.shape[:2]
+        save_path = os.path.join(CONFIG_PATHS["plot_dir"], "camera_intrinsics_verification.png")
         
-        new_mtx, _ = cv2.getOptimalNewCameraMatrix(self.intrinsics_calibrator.cameraMatrix, self.intrinsics_calibrator.distCoeffs, (w, h), 1, (w, h))
-        undistorted = cv2.undistort(test_img, self.intrinsics_calibrator.cameraMatrix, self.intrinsics_calibrator.distCoeffs, None, new_mtx)
-        
-        combined_res = np.hstack((test_img, undistorted))
-        h_res, w_res = combined_res.shape[:2]
-
-        grid_size = 60
-        for y in range(0, h_res, grid_size):
-            cv2.line(combined_res, (0, y), (w_res, y), (0, 255, 0), 1)
-        for x in range(0, w_res, grid_size):
-            cv2.line(combined_res, (x, 0), (x, h_res), (0, 255, 0), 1)
-
-        cv2.putText(combined_res, "Original", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
-        cv2.putText(combined_res, "Undistorted", (w + 30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
-        cv2.putText(combined_res, f"RMS Error: {self.intrinsics_calibrator.rms_error:.4f}", (w + 30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
-
-        # Save to result_img folder
-        result_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "core", "calibration", "result_img")
-        os.makedirs(result_dir, exist_ok=True)
-        save_path = os.path.join(result_dir, "camera_intrinsics_verification.png")
-        cv2.imwrite(save_path, combined_res)
+        # Delegate image generation to IntrinsicsCalibrator
+        self.intrinsics_calibrator.generate_verification_image(test_img, save_path)
         
         # Load inside Plot & Img tab
         pix = QPixmap(save_path).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -3213,7 +3116,6 @@ def main():
     if not args.ui:
         print("[INFO] Initializing Camera Marker Transform System...")
         try:
-            from marker_detection import Marker_Transform
             marker_st = Marker_Transform()
             marker_st.marker_detection.set_marker_type("plate")
         except Exception as e:

@@ -24,7 +24,7 @@ class BaseCalibrator:
     def __init__(self, marker_st=None, robot=None):
         self.marker_st = marker_st
         self.robot = robot
-        self.robot_version = 1.2
+        self.robot_version = "1.2"
         
         # Load camera setting config if available
         self.camera_config = {}
@@ -52,8 +52,13 @@ class BaseCalibrator:
             logging.error(f"ready_poses.yaml not found at {yaml_path}!")
             sys.exit(f"[CRITICAL ERROR] ready_poses.yaml not found at {yaml_path}!")
 
-    def get_robot_version(self):
-        return getattr(self, "robot_version", 1.2)
+    def get_robot_version(self) -> str:
+        """Returns the robot version as a string: '1.0', '1.1', '1.2', or '1.3'."""
+        return str(getattr(self, "robot_version", "1.2"))
+
+    def is_v13(self) -> bool:
+        """Returns True only for model-m v1.3 robots."""
+        return self.get_robot_version() == "1.3"
 
     def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
         if not self.ready_poses:
@@ -307,7 +312,7 @@ class BaseCalibrator:
             # - Joint 6 (index 6) is wrist roll
             # For v1.2:
             # - Joint 5 (index 5) is wrist pitch
-            is_v13 = abs(self.get_robot_version() - 1.3) < 0.05
+            is_v13 = self.is_v13()
             if right_arm is not None:
                 right_arm = list(right_arm)
                 if is_v13:
@@ -865,8 +870,7 @@ class BaseCalibrator:
         # 2. Move active arm and head/torso to ready pose
         if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
         
-        version_num = self.get_robot_version()
-        version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
+        version_key = "v1.3" if self.is_v13() else "v1.2"
         
         if mode == "marker":
             type_key = "marker"

@@ -8,14 +8,14 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares, minimize_scalar
 from scipy.spatial.transform import Rotation as R_scipy
-from CalibratorBase import BaseCalibrator
+from .CalibratorBase import BaseCalibrator
 
 class JointCalibrator(BaseCalibrator):
     def __init__(self, marker_st=None, robot=None):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
-    def perform_3step_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
+    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -25,11 +25,15 @@ class JointCalibrator(BaseCalibrator):
             log_callback(f"   Target Arm: {arm_side.upper()} | Joint Target: {mode.upper()}")
             log_callback("="*60 + "\n")
             
+        # save_debug는 첫 번째 sweep(원본 데이터)에서만 저장
+        _sweep_count = [0]
         def run_single_sweep(offset):
+            _sweep_count[0] += 1
+            do_save = save_debug and (_sweep_count[0] == 1)
             return self.perform_calibration_sweep_continuous(
                 arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                 current_offset_deg=offset, sweep_duration=sweep_duration,
-                use_angle_based_fitting=use_angle_based_fitting, save_debug=save_debug
+                use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
             )
             
         max_iterations = 8
@@ -55,7 +59,15 @@ class JointCalibrator(BaseCalibrator):
 
             angle_error = res.get('angle_between_normals', 0.0)
             sign = res.get('sign', 1.0)
-            center_dist = res.get('center_dist', 999.0)
+            
+            is_v13_mode = mode in ("wrist_pitch_v13", "wrist_roll_v13")
+            if is_v13_mode:
+                center_dist = res.get('perp_dist_after', 999.0)
+                angle_dev = abs(angle_error - 90.0)
+            else:
+                center_dist = res.get('center_dist', 999.0)
+                angle_dev = angle_error
+                
             r_A = res.get('r_A', 0.0)
             r_B = res.get('r_B', 0.0)
             size_error = abs(r_A - r_B)
@@ -63,14 +75,19 @@ class JointCalibrator(BaseCalibrator):
             
             # Print iteration summary
             if log_callback:
-                log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
-                if mode == "wrist_roll_v13":
-                    log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
-                    log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
+                if is_v13_mode:
+                    log_callback(f"  * Angle Error (Deviation from 90°) : {angle_dev:.4f}°")
+                    log_callback(f"  * Perpendicular Distance (After)   : {center_dist:.4f} mm")
+                    log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
                 else:
-                    log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
-                    log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
-                    log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
+                    log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
+                    if mode == "wrist_roll_v13":
+                        log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
+                        log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
+                    else:
+                        log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
+                        log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
+                        log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
             
             # Direct correction
             # When looking at angle error (use_angle_based_fitting is True), we deactivate the 0.05 deg step correction.
@@ -105,15 +122,25 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
-            # Convergence check: step correction < 0.05° or angle error <= 0.1° and center distance <= 0.1 mm
-            if abs(step_correction) < 0.05 or angle_error <= 0.1 or center_dist <= 0.1:
+            # Convergence check:
+            # - For v1.3: step correction < 0.05° or angle deviation <= 0.5° or perp_dist_after <= 0.1 mm
+            # - For others: step correction < 0.05° or angle error <= 0.1° or center_dist <= 0.1 mm
+            if is_v13_mode:
+                converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.5 or center_dist <= 0.1)
+            else:
+                converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
+
+            if converged_criteria:
                 converged = True
                 if log_callback:
                     log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
                     if abs(step_correction) < 0.05:
                         log_callback(f"  * Step Correction: {step_correction:.4f}° < 0.05° (reached resolution limit)")
                     else:
-                        log_callback(f"  * Circle Normals Angle Error: {angle_error:.4f}° <= 0.1°")
+                        if is_v13_mode:
+                            log_callback(f"  * Circle Normals Angle Error Deviation: {angle_dev:.4f}° <= 0.5°")
+                        else:
+                            log_callback(f"  * Circle Normals Angle Error: {angle_dev:.4f}° <= 0.1°")
                         log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
                     log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                 break
@@ -132,6 +159,7 @@ class JointCalibrator(BaseCalibrator):
             return None
 
         # Build clean final output dict — UI only needs these fields
+        # _plot_data is internal-only; strip it before returning to the UI
         final_output = {
             'mode': mode,
             'recommended_joint_offset': staged_offset,
@@ -183,8 +211,7 @@ class JointCalibrator(BaseCalibrator):
         # 2. Move active arm and head/torso to ready pose
         if log_callback: log_callback("[INFO] Moving active arm, torso, and head to ready pose...")
         
-        version_num = self.get_robot_version()
-        version_key = "v1.3" if abs(version_num - 1.3) < 0.05 else "v1.2"
+        version_key = "v1.3" if self.is_v13() else "v1.2"
         
         ready_mode = "elbow" if mode == "elbow" else "wrist_pitch"
         
@@ -368,16 +395,25 @@ class JointCalibrator(BaseCalibrator):
             fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
             def plot_column(res, col_idx, stage_name):
-                pts_a = res['pts_a_cam']
-                pts_b = res['pts_b_cam']
-                c_A = res['c_A']
-                c_B = res['c_B']
-                n_A = res['n_A']
-                n_B = res['n_B']
-                r_A = res['r_A']
-                r_B = res['r_B']
-                angle_error = res['angle_between_normals']
-                center_dist = res['center_dist']
+                # Read from internal _plot_data bundle
+                pd = res.get('_plot_data', {})
+                pts_a      = pd.get('pts_a_cam')
+                pts_b      = pd.get('pts_b_cam')
+                c_A        = pd.get('c_A')
+                c_B        = pd.get('c_B')
+                n_A        = pd.get('n_A')
+                n_B        = pd.get('n_B')
+                r_A        = pd.get('r_A', res.get('r_A', 1.0))
+                r_B        = pd.get('r_B', res.get('r_B', 1.0))
+                angle_error  = pd.get('angle_between_normals', res.get('angle_between_normals', 0.0))
+                center_dist  = pd.get('center_dist', res.get('center_dist', 0.0))
+
+                if pts_a is None or c_A is None or n_A is None:
+                    # No plot data available for this sweep — leave panel blank
+                    for row in range(2):
+                        axes[row, col_idx].set_title(f'[{stage_name}] No plot data')
+                        axes[row, col_idx].axis('off')
+                    return
 
                 # Compute local frames algebraically from normals (Z axes)
                 def get_local_vectors(n):
@@ -407,12 +443,10 @@ class JointCalibrator(BaseCalibrator):
                 ax_top.scatter([c_A[0]], [c_A[1]], c='darkred', marker='X', s=100, label='Center A')
                 ax_top.scatter([c_B[0]], [c_B[1]], c='darkblue', marker='X', s=100, label='Center B')
                 ax_top.plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
-                
-                # Normal vector arrows on X-Y
+
                 scale = min(r_A, r_B) * 0.4
                 ax_top.arrow(c_A[0], c_A[1], n_A[0]*scale, n_A[1]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
                 ax_top.arrow(c_B[0], c_B[1], n_B[0]*scale, n_B[1]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
-
                 ax_top.set_xlabel('X (mm)')
                 ax_top.set_ylabel('Y (mm)')
                 ax_top.set_title(f'[{stage_name}] Top View (X-Y Projection)')
@@ -429,11 +463,8 @@ class JointCalibrator(BaseCalibrator):
                 ax_side.scatter([c_A[1]], [c_A[2]], c='darkred', marker='X', s=100, label='Center A')
                 ax_side.scatter([c_B[1]], [c_B[2]], c='darkblue', marker='X', s=100, label='Center B')
                 ax_side.plot([c_A[1], c_B[1]], [c_A[2], c_B[2]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
-
-                # Normal vector arrows on Y-Z
                 ax_side.arrow(c_A[1], c_A[2], n_A[1]*scale, n_A[2]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
                 ax_side.arrow(c_B[1], c_B[2], n_B[1]*scale, n_B[2]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
-
                 ax_side.set_xlabel('Y (mm)')
                 ax_side.set_ylabel('Z (mm)')
                 ax_side.set_title(f'[{stage_name}] Side View (Y-Z Projection)\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm')
@@ -465,7 +496,7 @@ class JointCalibrator(BaseCalibrator):
                     dyn_model.compute_forward_kinematics(state_3_5)
                     T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
                     nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
-                except Exception as e:
+                except Exception:
                     pass
 
             plot_column(first_res, 0, "BEFORE")
@@ -474,21 +505,27 @@ class JointCalibrator(BaseCalibrator):
             before_dist_str = ""
             after_dist_str = ""
             if mode == "wrist_roll_v13":
-                dist_before = compute_shortest_distance_between_lines(
-                    first_res['c_A'], first_res['n_A'], first_res['c_B'], first_res['n_B']
-                )
-                dist_after = compute_shortest_distance_between_lines(
-                    final_res['c_A'], final_res['n_A'], final_res['c_B'], final_res['n_B']
-                )
-                before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
-                after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
-                if nominal_dist_35 is not None:
-                    after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
+                first_pd = first_res.get('_plot_data', {})
+                final_pd = final_res.get('_plot_data', {})
+                if all(k in first_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
+                    dist_before = compute_shortest_distance_between_lines(
+                        first_pd['c_A'], first_pd['n_A'], first_pd['c_B'], first_pd['n_B']
+                    )
+                    before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
+                if all(k in final_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
+                    dist_after = compute_shortest_distance_between_lines(
+                        final_pd['c_A'], final_pd['n_A'], final_pd['c_B'], final_pd['n_B']
+                    )
+                    after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
+                    if nominal_dist_35 is not None:
+                        after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
 
+            first_pd = first_res.get('_plot_data', first_res)
+            final_pd = final_res.get('_plot_data', final_res)
             fig.suptitle(
                 f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
-                f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm{before_dist_str}\n"
-                f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm{after_dist_str}",
+                f"Before: Angle Dev = {first_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {first_pd.get('center_dist', 0.0):.2f} mm{before_dist_str}\n"
+                f"After : Angle Dev = {final_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {final_pd.get('center_dist', 0.0):.2f} mm{after_dist_str}",
                 fontsize=16, fontweight='bold'
             )
             plt.tight_layout()
@@ -780,8 +817,10 @@ class JointCalibrator(BaseCalibrator):
         # Save FULL captured continuous sweep points to debug txt files before downsampling
         if save_debug:
             self.save_debug_points(
-                arm_side, mode, dataset_A, dataset_B, sweep_joint_A, sweep_joint_B, 
-                cand_joint, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, log_callback
+                arm_side, sweep_joint_A, dataset_A, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, "joint_A", log_callback
+            )
+            self.save_debug_points(
+                arm_side, sweep_joint_B, dataset_B, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, "joint_B", log_callback
             )
         
         # Keep up to 200 points for speed and accuracy
@@ -854,8 +893,7 @@ class JointCalibrator(BaseCalibrator):
 
         if mode in ["wrist_pitch_v13", "wrist_roll_v13"]:
             # Load Tf_to_marker
-            version_num = self.get_robot_version()
-            version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+            version_suffix = "_v13" if self.is_v13() else "_v12"
             tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
             tf_vec = self.camera_config.get(tf_key)
             if tf_vec is None:
@@ -950,7 +988,7 @@ class JointCalibrator(BaseCalibrator):
                     lambda delta: [perp_dist_axis6(delta[0])],
                     [0.0], bounds=([-15.0], [15.0])
                 )
-                optimal_offset_deg = -res_opt.x[0]
+                optimal_offset_deg = +res_opt.x[0]
                 perp_after = perp_dist_axis6(res_opt.x[0])
 
                 if log_callback:
@@ -988,7 +1026,7 @@ class JointCalibrator(BaseCalibrator):
                     lambda delta: [perp_dist_axis5(delta[0])],
                     [0.0], bounds=([-15.0], [15.0])
                 )
-                optimal_offset_deg = -res_opt5.x[0]
+                optimal_offset_deg = +res_opt5.x[0]
                 perp_after = perp_dist_axis5(res_opt5.x[0])
 
                 if log_callback:
@@ -1012,28 +1050,25 @@ class JointCalibrator(BaseCalibrator):
             return {
                 'mode': mode,
                 'optimal_offset': optimal_offset_deg,
+                'converged': False,
                 'angle_between_normals': angle_between_normals,
-                'axial_offset_mm': axial_offset,    # along the Sweep-A rotation axis
-                'lateral_offset_mm': lateral_offset, # perp distance c_B ~ Sweep-A axis (before calib)
+                'sign': sign,
                 'perp_dist_before': perp_before,
                 'perp_dist_after': perp_after,
-                'sign': sign,
-                'pts_2d_A': pts_2d_A,
-                'uc_A': uc_A,
-                'vc_A': vc_A,
+                'axial_offset_mm': axial_offset,
+                'lateral_offset_mm': lateral_offset,
                 'r_A': r_A,
-                'pts_2d_B': pts_2d_B,
-                'uc_B': uc_B,
-                'vc_B': vc_B,
                 'r_B': r_B,
-                'rmse_A': rmse_A,
-                'rmse_B': rmse_B,
-                'pts_a_cam': np.array([T[:3, 3] * 1000.0 for T in poses_a_t5]),
-                'pts_b_cam': np.array([T[:3, 3] * 1000.0 for T in poses_b_t5]),
-                'c_A': c_A,
-                'c_B': c_B,
-                'n_A': n_A,
-                'n_B': n_B,
+                # plot 전용 내부 필드 (UI final_output에는 포함되지 않음)
+                '_plot_data': {
+                    'pts_a_cam': np.array([p[:3, 3] * 1000.0 for p in poses_a_t5]),
+                    'pts_b_cam': np.array([p[:3, 3] * 1000.0 for p in poses_b_t5]),
+                    'c_A': c_A, 'c_B': c_B,
+                    'n_A': n_A, 'n_B': n_B,
+                    'r_A': r_A, 'r_B': r_B,
+                    'angle_between_normals': angle_between_normals,
+                    'center_dist': lateral_offset,
+                },
             }
 
         poses_A = [pose for q_full, pose in dataset_A]
@@ -1233,23 +1268,23 @@ class JointCalibrator(BaseCalibrator):
         return {
             'mode': mode,
             'optimal_offset': optimal_offset_deg,
+            'converged': False,
             'angle_between_normals': angle_between_normals,
             'sign': sign,
             'center_dist': center_dist,
-            'pts_2d_A': pts_2d_A,
-            'uc_A': uc_A,
-            'vc_A': vc_A,
             'r_A': r_A,
-            'pts_2d_B': pts_2d_B,
-            'uc_B': uc_B,
-            'vc_B': vc_B,
             'r_B': r_B,
-            'rmse_A': rmse_A,
-            'rmse_B': rmse_B,
-            'pts_a_cam': np.array(pts_a_cam),
-            'pts_b_cam': np.array(pts_b_cam),
-            'c_A': c_A_c,
-            'c_B': c_B_c,
-            'n_A': n_A,
-            'n_B': n_B,
+            # plot 전용 내부 필드 (UI final_output에는 포함되지 않음)
+            '_plot_data': {
+                'pts_a_cam': pts_a_cam,
+                'pts_b_cam': pts_b_cam,
+                'c_A': c_A_c,
+                'c_B': c_B_c,
+                'n_A': n_A,
+                'n_B': n_B,
+                'r_A': r_A,
+                'r_B': r_B,
+                'angle_between_normals': angle_between_normals,
+                'center_dist': center_dist,
+            },
         }

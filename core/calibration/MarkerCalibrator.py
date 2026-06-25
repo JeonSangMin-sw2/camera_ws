@@ -5,7 +5,7 @@ import numpy as np
 import rby1_sdk as rby
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation as R_scipy
-from CalibratorBase import BaseCalibrator
+from .CalibratorBase import BaseCalibrator
 
 class MarkerCalibrator(BaseCalibrator):
 
@@ -428,8 +428,7 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
-        version_num = self.get_robot_version()
-        version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+        version_suffix = "_v13" if self.is_v13() else "_v12"
         tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
         tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
@@ -666,6 +665,7 @@ class MarkerCalibrator(BaseCalibrator):
         ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
 
         return {
+            'converged': True,
             'x_e': xe_opt, 'y_e': ye_opt, 'z_e': ze_opt,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
             'L_5_ee': L_5_ee,  # optimized link length
@@ -682,15 +682,13 @@ class MarkerCalibrator(BaseCalibrator):
         }
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
-        version_num = self.get_robot_version()
-        if abs(version_num - 1.3) < 0.05:
+        if self.is_v13():
             return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance, marker_data_4=marker_data_4)
 
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
-        version_num = self.get_robot_version()
-        version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+        version_suffix = "_v13" if self.is_v13() else "_v12"
         tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
         tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
@@ -890,7 +888,7 @@ class MarkerCalibrator(BaseCalibrator):
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
         
         # Load nominal values
-        version_suffix = "_v13" if abs(version_num - 1.3) < 0.05 else "_v12"
+        version_suffix = "_v13" if self.is_v13() else "_v12"
         tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
         tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
@@ -937,6 +935,7 @@ class MarkerCalibrator(BaseCalibrator):
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
         
         return {
+            'converged': True,
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
             'L_5_ee': L_5_ee, 'radius_6': radius_6, 'radius_5': radius_5,
@@ -948,3 +947,61 @@ class MarkerCalibrator(BaseCalibrator):
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
             'warn_large_angle': rot_err_deg > 15.0
         }
+
+    def generate_marker_plot(self, res_5, res_6, res_4, unified_res, arm_side, is_v13, save_path):
+        """
+        Generates unified marker calibration plots and saves the image to disk.
+        """
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+
+        def plot_single_axis(ax, res, axis_num, color):
+            if res is None or 'pts_2d' not in res:
+                return
+            ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, label='Captured Points')
+            circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fitted Circle')
+            ax.add_patch(circle)
+            ax.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
+            
+            x_min, x_max = res['pts_2d'][:, 0].min(), res['pts_2d'][:, 0].max()
+            y_min, y_max = res['pts_2d'][:, 1].min(), res['pts_2d'][:, 1].max()
+            span = max(x_max - x_min, y_max - y_min)
+            margin = max(1.0, span * 0.5)
+            cx = (x_max + x_min) / 2
+            cy = (y_max + y_min) / 2
+            ax.set_xlim(cx - span/2 - margin, cx + span/2 + margin)
+            ax.set_ylim(cy - span/2 - margin, cy + span/2 + margin)
+            ax.set_aspect('equal')
+            ax.grid(True)
+            ax.set_title(f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {res['rmse']:.3f})")
+            ax.legend()
+
+        # Plot results
+        if is_v13 and res_4 is not None:
+            fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
+            plot_single_axis(ax1, res_6, 6, 'blue')
+            plot_single_axis(ax2, res_5, 5, 'green')
+            plot_single_axis(ax3, res_4, 4, 'purple')
+            fig.suptitle(f"Unified Marker Sweep Results ({arm_side.upper()} Arm)\n"
+                         f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
+                         f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°\n"
+                         f"Opt d5: {unified_res.get('opt_delta_5', 0.0):.3f}° | Opt d6: {unified_res.get('opt_delta_6', 0.0):.3f}° | Min Radius: {unified_res.get('min_radius', 0.0):.2f} mm", fontsize=12, fontweight='bold')
+        else:
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+            plot_single_axis(ax1, res_6, 6, 'blue')
+            plot_single_axis(ax2, res_5, 5, 'green')
+            fig.suptitle(f"Unified Marker Sweep Results ({arm_side.upper()} Arm)\n"
+                         f"Y-Offset: {unified_res['y_e']:.2f} mm | Z-Offset: {unified_res['z_e']:.2f} mm\n"
+                         f"Roll: {unified_res['roll_e']:.2f}° | Pitch: {unified_res['pitch_e']:.2f}° | Yaw: {unified_res['yaw_e']:.2f}°", fontsize=12, fontweight='bold')
+        
+        plt.tight_layout()
+        try:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            plt.savefig(save_path, dpi=150)
+            return True
+        except Exception as e:
+            logging.warning(f"[generate_marker_plot] Failed to save plot: {e}")
+            return False
+        finally:
+            plt.close()

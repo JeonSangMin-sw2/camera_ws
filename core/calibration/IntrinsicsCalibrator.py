@@ -190,3 +190,32 @@ class IntrinsicsCalibrator:
         with open(output_yaml, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
         print(f"Results saved to {output_yaml} ({width}x{height})")
+
+    def generate_verification_image(self, test_img, save_path):
+        """
+        Generates an undistorted side-by-side comparison with grids and saves it.
+        """
+        if test_img is None:
+            return False
+            
+        h, w = test_img.shape[:2]
+        
+        new_mtx, _ = cv2.getOptimalNewCameraMatrix(self.cameraMatrix, self.distCoeffs, (w, h), 1, (w, h))
+        undistorted = cv2.undistort(test_img, self.cameraMatrix, self.distCoeffs, None, new_mtx)
+        
+        combined_res = np.hstack((test_img, undistorted))
+        h_res, w_res = combined_res.shape[:2]
+
+        grid_size = 60
+        for y in range(0, h_res, grid_size):
+            cv2.line(combined_res, (0, y), (w_res, y), (0, 255, 0), 1)
+        for x in range(0, w_res, grid_size):
+            cv2.line(combined_res, (x, 0), (x, h_res), (0, 255, 0), 1)
+
+        cv2.putText(combined_res, "Original", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, "Undistorted", (w + 30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, f"RMS Error: {self.rms_error:.4f}", (w + 30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        cv2.imwrite(save_path, combined_res)
+        return True
