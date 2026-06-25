@@ -623,7 +623,7 @@ class JointCalibrationWorker(QThread):
                     'converged': True,
                 }
             else:
-                res = self.calibrator.perform_3step_joint_calibration(
+                res = self.calibrator.perform_joint_calibration(
                     self.arm_side, self.mode,
                     log_callback=self.log_signal.emit, 
                     status_callback=self.status_signal.emit,
