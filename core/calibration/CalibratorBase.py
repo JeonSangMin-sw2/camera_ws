@@ -16,8 +16,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 class BaseCalibrator:
     JOINT_CONFIGS = {
-        "wrist_pitch_v13": {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5},
-        "wrist_roll_v13":  {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3},
+        "wrist_roll_v13": {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5},
+        "wrist_pitch_v13":  {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3},
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4}
     }
@@ -985,7 +985,7 @@ class BaseCalibrator:
                     return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
 
             nominal_dist_35 = None
-            if mode == "wrist_roll_v13" and self.robot:
+            if mode == "wrist_pitch_v13" and self.robot:
                 try:
                     dyn_model = self.robot.get_dynamics()
                     names = self.robot.model().robot_joint_names
@@ -1005,7 +1005,7 @@ class BaseCalibrator:
 
             before_dist_str = ""
             after_dist_str = ""
-            if mode == "wrist_roll_v13":
+            if mode == "wrist_pitch_v13":
                 dist_before = compute_shortest_distance_between_lines(
                     first_res['c_A'], first_res['n_A'], first_res['c_B'], first_res['n_B']
                 )
@@ -1113,9 +1113,9 @@ class BaseCalibrator:
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        if mode == "wrist_pitch_v13":
+        if mode == "wrist_roll_v13":
             offset_key = "wrist_roll"
-        elif mode == "wrist_roll_v13":
+        elif mode == "wrist_pitch_v13":
             offset_key = "wrist_pitch"
         else:
             offset_key = mode
@@ -1133,7 +1133,7 @@ class BaseCalibrator:
         # Determine sweep ranges
         range_A = 20.0
         range_B = 20.0
-        if mode == "wrist_roll_v13":
+        if mode == "wrist_pitch_v13":
             range_B = 10.0
 
         # Move to start position (-20 deg)

@@ -60,7 +60,7 @@ class JointCalibrator(BaseCalibrator):
             angle_error = res.get('angle_between_normals', 0.0)
             sign = res.get('sign', 1.0)
             
-            is_v13_mode = mode in ("wrist_pitch_v13", "wrist_roll_v13")
+            is_v13_mode = mode in ("wrist_roll_v13", "wrist_pitch_v13")
             if is_v13_mode:
                 center_dist = res.get('perp_dist_after', 999.0)
                 angle_dev = abs(angle_error - 90.0)
@@ -81,7 +81,7 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
                 else:
                     log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
-                    if mode == "wrist_roll_v13":
+                    if mode == "wrist_pitch_v13":
                         log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
                         log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
                     else:
@@ -484,7 +484,7 @@ class JointCalibrator(BaseCalibrator):
                     return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
 
             nominal_dist_35 = None
-            if mode == "wrist_roll_v13" and self.robot:
+            if mode == "wrist_pitch_v13" and self.robot:
                 try:
                     dyn_model = self.robot.get_dynamics()
                     names = self.robot.model().robot_joint_names
@@ -504,7 +504,7 @@ class JointCalibrator(BaseCalibrator):
 
             before_dist_str = ""
             after_dist_str = ""
-            if mode == "wrist_roll_v13":
+            if mode == "wrist_pitch_v13":
                 first_pd = first_res.get('_plot_data', {})
                 final_pd = final_res.get('_plot_data', {})
                 if all(k in first_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
@@ -607,11 +607,11 @@ class JointCalibrator(BaseCalibrator):
         initial_joint_pos = list(state.position[arm_idx])
 
         # Define joint parameters based on mode
-        if mode == "wrist_pitch_v13":
+        if mode == "wrist_roll_v13":
             cand_joint = 6
             sweep_joint_A = 6
             sweep_joint_B = 5
-        elif mode == "wrist_roll_v13":
+        elif mode == "wrist_pitch_v13":
             cand_joint = 5
             sweep_joint_A = 5
             sweep_joint_B = 3
@@ -628,9 +628,9 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        if mode == "wrist_pitch_v13":
+        if mode == "wrist_roll_v13":
             offset_key = "wrist_roll"
-        elif mode == "wrist_roll_v13":
+        elif mode == "wrist_pitch_v13":
             offset_key = "wrist_pitch"
         else:
             offset_key = mode
@@ -648,7 +648,7 @@ class JointCalibrator(BaseCalibrator):
         # Determine sweep ranges
         range_A = 20.0
         range_B = 20.0
-        if mode == "wrist_roll_v13":
+        if mode == "wrist_pitch_v13":
             range_B = 10.0
 
         # Move to start position (-20 deg)
@@ -713,16 +713,6 @@ class JointCalibrator(BaseCalibrator):
 
         if getattr(self, 'stop_requested', False):
             return None
-
-        # # Return to baseline candidate pose
-        # if arm_side == "left":
-        #     ok = self.movej(self.robot, left_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
-        # else:
-        #     ok = self.movej(self.robot, right_arm=q_cand, head=None, minimum_time=1.5, apply_offsets=False)
-            
-        # if not ok or getattr(self, 'stop_requested', False):
-        #     if log_callback: log_callback("[ERROR] Failed to return to baseline candidate pose or stop was requested.")
-        #     return None
             
         time.sleep(0.5)
 
@@ -867,11 +857,11 @@ class JointCalibrator(BaseCalibrator):
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
 
         # Define joint parameters based on mode
-        if mode == "wrist_pitch_v13":
+        if mode == "wrist_roll_v13":
             cand_joint = 6
             sweep_joint_A = 6
             sweep_joint_B = 5
-        elif mode == "wrist_roll_v13":
+        elif mode == "wrist_pitch_v13":
             cand_joint = 5
             sweep_joint_A = 5
             sweep_joint_B = 3
@@ -891,7 +881,7 @@ class JointCalibrator(BaseCalibrator):
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
         T_mount_to_cam = self.make_transform(mount_to_cam)
 
-        if mode in ["wrist_pitch_v13", "wrist_roll_v13"]:
+        if mode in ["wrist_roll_v13", "wrist_pitch_v13"]:
             # Load Tf_to_marker
             version_suffix = "_v13" if self.is_v13() else "_v12"
             tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
@@ -920,9 +910,9 @@ class JointCalibrator(BaseCalibrator):
             angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
 
             # Fit Sweep A rotation axis in torso frame
-            # For wrist_pitch_v13: Sweep A is Joint 6 (Roll, rotates about Z axis)
-            # For wrist_roll_v13: Sweep A is Joint 5 (Pitch, rotates about Y axis)
-            a_A_prior = np.array([0.0, 0.0, 1.0]) if mode == "wrist_pitch_v13" else np.array([0.0, 1.0, 0.0])
+            # For wrist_roll_v13: Sweep A is Joint 6 (Roll, rotates about Z axis)
+            # For wrist_pitch_v13: Sweep A is Joint 5 (Pitch, rotates about Y axis)
+            a_A_prior = np.array([0.0, 0.0, 1.0]) if mode == "wrist_roll_v13" else np.array([0.0, 1.0, 0.0])
             res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
                 poses_a_t5, angles_A, axis_prior=a_A_prior
             )
@@ -935,8 +925,8 @@ class JointCalibrator(BaseCalibrator):
             vc_A = res_A['vc_opt']
 
             # Fit Sweep B rotation axis in torso frame
-            # For wrist_pitch_v13: Sweep B is Joint 5 (Pitch, rotates about Y axis)
-            # For wrist_roll_v13: Sweep B is Joint 3 (Elbow, rotates about Y axis)
+            # For wrist_roll_v13: Sweep B is Joint 5 (Pitch, rotates about Y axis)
+            # For wrist_pitch_v13: Sweep B is Joint 3 (Elbow, rotates about Y axis)
             a_B_prior = np.array([0.0, 1.0, 0.0])
             res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(
                 poses_b_t5, angles_B, axis_prior=a_B_prior
@@ -957,7 +947,7 @@ class JointCalibrator(BaseCalibrator):
             lateral_offset = float(np.linalg.norm(                           # mm, perpendicular to axis
                 diff_centers - axial_offset * n_A_norm))
 
-            if mode == "wrist_pitch_v13":
+            if mode == "wrist_roll_v13":
                 # Sweep A = Joint 6 (Wrist Roll) → defines axis (c_A, n_A_norm)
                 # Sweep B = Joint 5 (Wrist Pitch) → c_B must lie ON the Joint 6 axis
                 #
@@ -1000,16 +990,29 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"    r_A  (Joint6 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
                     log_callback(f"    axial offset (c_B along Joint6 axis)                 = {axial_offset:.3f} mm")
 
-            else:  # wrist_roll_v13
-                # Sweep A = Joint 5 (Wrist Pitch) → defines axis (c_A, n_A_norm)
-                # Sweep B = Joint 3 (Elbow)       → c_B must lie ON the Joint-5 axis
+            else:  # wrist_pitch_v13
+                # Sweep A = Joint 5 (Wrist Pitch) → c_A, n_A_norm = J5 rotation axis
+                # Sweep B = Joint 3 (Elbow)       → c_B = center of J3-sweep circle
                 #
-                # Same geometric criterion: perp distance from c_B_predicted to Joint-5 axis = 0.
-                # Find delta_5 (Joint 5 offset correction) that satisfies this.
+                # Key geometry:
+                #   c_B (J3-sweep center) lies on J3 axis, which is ~d(J3,J5) away from J5 axis.
+                #   perp_dist(c_B, J5_axis) ≈ constant regardless of J5 offset → NOT usable as criterion.
+                #
+                # Correct calibration criterion:
+                #   |c_J3_FK(delta) - c_J3_camera| → 0
+                #
+                #   c_J3_camera = circle center from camera-measured torso-frame poses (Sweep B)
+                #   c_J3_FK(delta) = circle center from FK-predicted marker positions with J5 offset = delta
+                #
+                #   When delta = true J5 offset error: FK prediction matches reality
+                #   → c_J3_FK ≈ c_J3_camera → residual = 0
 
-                def perp_dist_axis5(delta_deg):
-                    """FK-predict c_B when Joint 5 is shifted by delta_deg,
-                    return its perpendicular distance to the Joint-5 axis."""
+                # Camera-measured c_J3 (from torso-frame poses saved in Sweep B)
+                c_J3_camera = c_B   # already computed above from res_B['c_opt'] (torso frame)
+
+                def center_match_residual(delta_deg):
+                    """FK-predict marker positions during J3-sweep with J5 perturbed by delta_deg.
+                    Returns 3D distance between predicted circle center and camera-measured c_J3."""
                     pts_pred = []
                     for q_full, _ in dataset_B:
                         q_mod = np.array(q_full)
@@ -1018,25 +1021,28 @@ class JointCalibrator(BaseCalibrator):
                         T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
                         pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
                     c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    v = c_fit - c_A
-                    return float(np.linalg.norm(v - np.dot(v, n_A_norm) * n_A_norm))
+                    return float(np.linalg.norm(c_fit - c_J3_camera))
 
-                perp_before = perp_dist_axis5(0.0)
+                dist_before = center_match_residual(0.0)
                 res_opt5 = least_squares(
-                    lambda delta: [perp_dist_axis5(delta[0])],
+                    lambda delta: [center_match_residual(delta[0])],
                     [0.0], bounds=([-15.0], [15.0])
                 )
                 optimal_offset_deg = +res_opt5.x[0]
-                perp_after = perp_dist_axis5(res_opt5.x[0])
+                dist_after = center_match_residual(res_opt5.x[0])
+
+                # perp_before/perp_after kept for log compatibility (now mean 3D center distance)
+                perp_before = dist_before
+                perp_after  = dist_after
 
                 if log_callback:
                     log_callback(f"  [v1.3 Joint 5 Calibration]")
-                    log_callback(f"    perp_dist(δ=0)   = {perp_before:.4f} mm  (c_B ~ Joint5 axis, before)")
-                    log_callback(f"    solved δ         = {res_opt5.x[0]:.4f}°  →  applied offset = {optimal_offset_deg:.4f}°")
-                    log_callback(f"    perp_dist(δ_opt) = {perp_after:.4f} mm  (after)")
+                    log_callback(f"    |c_J3_FK - c_J3_cam|(δ=0)   = {dist_before:.4f} mm  (before)")
+                    log_callback(f"    solved δ                     = {res_opt5.x[0]:.4f}°  →  applied offset = {optimal_offset_deg:.4f}°")
+                    log_callback(f"    |c_J3_FK - c_J3_cam|(δ_opt) = {dist_after:.4f} mm  (after)")
                     log_callback(f"  [Bracket Design Verification]")
-                    log_callback(f"    r_A  (Joint5 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
-                    log_callback(f"    axial offset (c_B along Joint5 axis)                 = {axial_offset:.3f} mm")
+                    log_callback(f"    r_A  (Joint5 sweep radius = marker lateral offset from J5-axis) = {r_A:.3f} mm")
+                    log_callback(f"    axial offset (c_B along Joint5 axis)                            = {axial_offset:.3f} mm")
 
             sign = -1.0 if optimal_offset_deg < 0.0 else 1.0
 

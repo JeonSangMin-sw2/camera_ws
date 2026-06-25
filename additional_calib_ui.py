@@ -46,7 +46,7 @@ UI_DROPDOWNS = {
     "robot_models": ["a", "m"],
     "arm_sides": ["Right Arm", "Left Arm"],
     "marker_axes": ["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"],
-    "joint_modes_v13": ["wrist_pitch_v13 (6-Axis Sweep)", "wrist_roll_v13 (5-Axis Sweep)", "elbow (3-Axis Sweep)"],
+    "joint_modes_v13": ["wrist_roll_v13 (6-Axis Sweep)", "wrist_pitch_v13 (5-Axis Sweep)", "elbow (3-Axis Sweep)"],
     "joint_modes_v12": ["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"]
 }
 
@@ -1862,7 +1862,7 @@ class UnifiedCalibrationApp(QWidget):
                     self.joint_calibrator.marker_st = self.marker_st
                     self.log_msg("[INFO] Configured SimulatedMarkerTransform for simulation motion.")
 
-                self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version:.1f}).")
+                self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version}).")
                 self.btn_connect.setText("DISCONNECT")
                 self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold;")
             else:
@@ -2480,12 +2480,12 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         mode = self.get_selected_joint_mode()
-        if mode == "wrist_roll_v13" and not self.wrist_roll_calibrated.get(self.arm_side, False):
+        if mode == "wrist_pitch_v13" and not self.wrist_roll_calibrated.get(self.arm_side, False):
             reply = QMessageBox.warning(
                 self,
                 "Calibration Sequence Warning",
                 "Wrist Roll (Joint 6) has not been calibrated yet.\n"
-                "It is highly recommended to calibrate Joint 6 (wrist_pitch_v13) first.\n"
+                "It is highly recommended to calibrate Joint 6 (wrist_roll_v13) first.\n"
                 "Do you want to proceed anyway?",
                 QMessageBox.Yes | QMessageBox.No,
                 QMessageBox.No
@@ -2538,11 +2538,11 @@ class UnifiedCalibrationApp(QWidget):
             
         self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
 
-        if mode == "wrist_pitch_v13":
+        if mode == "wrist_roll_v13":
             joint_key = "joint6"
             if converged:
                 self.wrist_roll_calibrated[self.arm_side] = True
-        elif mode == "wrist_roll_v13":
+        elif mode == "wrist_pitch_v13":
             joint_key = "joint5"
         elif mode == "wrist_pitch":
             joint_key = "joint5"
@@ -2582,9 +2582,9 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"\n[1] Calibration Target: {mode}")
         
         recommended = self.joint_sweep_data.get('recommended_joint_offset', self.joint_sweep_data['optimal_offset'])
-        if mode == "wrist_pitch_v13":
+        if mode == "wrist_roll_v13":
             joint_name = "Joint 6 (Wrist Roll)"
-        elif mode == "wrist_roll_v13":
+        elif mode == "wrist_pitch_v13":
             joint_name = "Joint 5 (Wrist Pitch)"
         elif mode == "wrist_pitch":
             joint_name = "Joint 5 (Wrist Pitch)"
@@ -2599,7 +2599,7 @@ class UnifiedCalibrationApp(QWidget):
         # v1.3 전용: 브래킷 설계값 확인 결과 표시
         if mode in ("wrist_pitch_v13", "wrist_roll_v13"):
             d = self.joint_sweep_data
-            sweep_axis_label = "Joint 6" if mode == "wrist_pitch_v13" else "Joint 5"
+            sweep_axis_label = "Joint 6" if mode == "wrist_roll_v13" else "Joint 5"
             self.log_msg(f"\n[3] Bracket Design Verification ({sweep_axis_label} 회전축 기준)")
             perp_b = d.get('perp_dist_before', float('nan'))
             perp_a = d.get('perp_dist_after',  float('nan'))
@@ -2611,7 +2611,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"    - Sweep A 피팅원 반경 (r_A, lateral 마커 오프셋)    : {r_A:.3f} mm")
             self.log_msg(f"    - Axial  마커 오프셋 (c_B along {sweep_axis_label} axis)  : {axial:.3f} mm")
             self.log_msg(f"    - Lateral 마커 오프셋 (c_B perp {sweep_axis_label} axis)  : {lateral:.3f} mm")
-            axis_dir = "X" if mode == "wrist_pitch_v13" else "Y"
+            axis_dir = "X" if mode == "wrist_roll_v13" else "Y"
             self.log_msg(f"    ※ 설계 기준 오프셋 방향: {axis_dir}축")
 
         self.log_msg("="*50)

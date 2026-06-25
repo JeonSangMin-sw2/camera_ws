@@ -174,7 +174,7 @@ def test_joint_6_calibration_recovery(injected_offset_deg):
     # Run the continuous calibration sweep analysis offline
     initial_joint_pos = [0.0] * 7
     res = calibrator.compute_calibration_results(
-        arm_side, "wrist_pitch_v13", dataset_A, dataset_B, initial_joint_pos,
+        arm_side, "wrist_roll_v13", dataset_A, dataset_B, initial_joint_pos,
         current_offset_deg=0.0, use_angle_based_fitting=True, save_debug=False
     )
     
@@ -241,7 +241,7 @@ def test_joint_5_calibration_recovery(injected_offset_deg):
     # Run the continuous calibration sweep analysis offline
     initial_joint_pos = [0.0] * 7
     res = calibrator.compute_calibration_results(
-        arm_side, "wrist_roll_v13", dataset_A, dataset_B, initial_joint_pos,
+        arm_side, "wrist_pitch_v13", dataset_A, dataset_B, initial_joint_pos,
         current_offset_deg=0.0, use_angle_based_fitting=True, save_debug=False
     )
     
@@ -303,18 +303,18 @@ def test_real_data_calibration():
         print(f"Real Data v1.2 wrist_pitch offset: {res_v12['optimal_offset']:.4f}° (center_dist={res_v12['center_dist']:.4f} mm)")
         print("Real Data v1.2 wrist_pitch calibration smoke test passed!")
 
-        # Run v1.3 wrist_pitch_v13 calibration (Sweep A = J6, Sweep B = J5)
+        # Run v1.3 wrist_roll_v13 calibration (Sweep A = J6, Sweep B = J5)
         calibrator.get_robot_version = lambda: 1.3
         calibrator.camera_config = {
             "Tf_to_marker_right_v13": [0.095, 0.0, -0.005, 90.0, 0.0, 180.0],
             "mount_to_cam": [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
         }
         res_v13 = calibrator.compute_calibration_results(
-            arm_side, "wrist_pitch_v13", dataset_6, dataset_5, initial_joint_pos,
+            arm_side, "wrist_roll_v13", dataset_6, dataset_5, initial_joint_pos,
             current_offset_deg=0.0, use_angle_based_fitting=True, save_debug=False
         )
-        print(f"Real Data v1.3 wrist_pitch_v13 offset: {res_v13['optimal_offset']:.4f}° (center_dist={res_v13['center_dist']:.4f} mm)")
-        print("Real Data v1.3 wrist_pitch_v13 calibration smoke test passed!")
+        print(f"Real Data v1.3 wrist_roll_v13 offset: {res_v13['optimal_offset']:.4f}° (center_dist={res_v13['center_dist']:.4f} mm)")
+        print("Real Data v1.3 wrist_roll_v13 calibration smoke test passed!")
     else:
         print("Warning: Real sweep files not found. Skipping real data test.")
 
