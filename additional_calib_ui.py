@@ -1266,9 +1266,9 @@ class UnifiedCalibrationApp(QWidget):
 
     def get_offset_key_for_mode(self, mode):
         if mode == "wrist_pitch_v13":
-            return "wrist_roll"
-        elif mode == "wrist_roll_v13":
             return "wrist_pitch"
+        elif mode == "wrist_roll_v13":
+            return "wrist_roll"
         else:
             return mode
 

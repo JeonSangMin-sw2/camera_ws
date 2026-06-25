@@ -877,6 +877,18 @@ class JointCalibrator(BaseCalibrator):
         dyn_model = self.robot.get_dynamics()
         ee_name = f"ee_{arm_side}"
 
+        # Arm cand baseline pose (shifted by current offset)
+        if mode == "wrist_roll_v13":
+            offset_key = "wrist_roll"
+        elif mode == "wrist_pitch_v13":
+            offset_key = "wrist_pitch"
+        else:
+            offset_key = mode
+        active_offset = self.joint_offsets.get(offset_key, 0.0)
+        nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
+        q_cand = list(initial_joint_pos)
+        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
+
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
         T_mount_to_cam = self.make_transform(mount_to_cam)
