@@ -963,44 +963,91 @@ class JointCalibrator(BaseCalibrator):
                 diff_centers - axial_offset * n_A_norm))
 
             if mode == "wrist_roll_v13":
-                # Sweep A = Joint 6 (Wrist Roll) → defines axis (c_A, n_A_norm)
-                # Sweep B = Joint 5 (Wrist Pitch) → c_B must lie ON the Joint 6 axis
+                # ─────────────────────────────────────────────────────────────────
+                # Sweep A = Joint 6 (Wrist Roll)   → c_A, n_A = J6 circle
+                # Sweep B = Joint 5 (Wrist Pitch)  → pts_b_t5 measured during J5 sweep
                 #
-                # Calibration criterion:
-                #   Perp distance from c_B_predicted to the Joint-6 axis = 0
-                #   i.e. find delta_6 s.t. c_B_pred lies on (c_A, n_A_norm)
+                # 올바른 J6 보정각 계산 방법 (직접 기하학적 방법):
                 #
-                # After calibration:
-                #   r_A            = lateral marker offset from Joint 6 axis (bracket design check)
-                #   axial_offset   = marker offset along Joint 6 axis        (bracket design check)
+                #   1) J6 sweep의 encoder 각도 vs J6 평면 내 마커 방향을 1:1 선형 매핑
+                #      → encoder=0° 일 때의 J6 평면 기준 방향(angle_at_j6_zero) 추출
+                #
+                #   2) J5 sweep은 J6를 0°에 고정한 채 수행됨.
+                #      J5 포인트들을 J6 평면에 투영하면 모두 같은 방향을 향해야 함.
+                #      이 평균 방향(mean_j5_plane_angle)이 J5 sweep 당시의 실제 J6 위치.
+                #
+                #   3) J6 보정각 = mean_j5_plane_angle - angle_at_j6_zero
+                #
+                # 이전 방법(perp_dist FK 최적화)의 문제:
+                #   - FK 예측이 부정확하거나 노이즈로 인해 수렴 불안정
+                #   - 수치 최적화가 25° 같은 물리적으로 무의미한 값을 반환할 수 있음
+                # ─────────────────────────────────────────────────────────────────
 
-                def perp_dist_axis6(delta_deg):
-                    """FK-predict c_B when Joint 6 is shifted by delta_deg,
-                    return its perpendicular distance to the Joint-6 axis."""
-                    pts_pred = []
-                    for q_full, _ in dataset_B:
-                        q_mod = np.array(q_full)
-                        q_mod[arm_idx[6]] += np.radians(delta_deg)          # perturb Joint 6
-                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker
-                        pts_pred.append(T_t5_to_marker[:3, 3] * 1000.0)
-                    c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    v = c_fit - c_B
-                    return float(np.linalg.norm(v - np.dot(v, n_A_norm) * n_A_norm))
+                # J6 평면 임의 기저 (n_A 기준 일관된 좌표계)
+                _ref = np.array([0.0, 0.0, 1.0]) if abs(n_A[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+                _ex6 = np.cross(n_A, _ref); _ex6 /= np.linalg.norm(_ex6)
+                _ey6 = np.cross(n_A, _ex6)
 
-                perp_before = perp_dist_axis6(0.0)
-                res_opt = least_squares(
-                    lambda delta: [perp_dist_axis6(delta[0])],
-                    [0.0], bounds=([-15.0], [15.0])
-                )
-                optimal_offset_deg = +res_opt.x[0]
-                perp_after = perp_dist_axis6(res_opt.x[0])
+                def _to2d_j6(p):
+                    """3D 포인트를 J6 평면(c_A 원점, n_A 법선)에 투영해 2D 좌표 반환."""
+                    v = p - c_A
+                    vi = v - np.dot(v, n_A) * n_A
+                    return float(np.dot(vi, _ex6)), float(np.dot(vi, _ey6))
+
+                # ── (A) J6 encoder → J6 평면 각도 선형 매핑 ────────────────────
+                pts_a_xyz = np.array([p[:3, 3] * 1000.0 for p in poses_a_t5])
+                angles_A_arr = np.array(angles_A)   # encoder-relative deg
+
+                j6_plane_angles_rad = np.array([
+                    np.arctan2(*_to2d_j6(p)[::-1]) for p in pts_a_xyz
+                ])
+                j6_plane_angles_rad = np.unwrap(j6_plane_angles_rad)
+                j6_plane_angles_deg = np.degrees(j6_plane_angles_rad)
+                j6_coeffs = np.polyfit(angles_A_arr, j6_plane_angles_deg, 1)
+                slope_enc2plane = j6_coeffs[0]      # ≈ 1.0 이어야 함
+                angle_at_j6_zero = j6_coeffs[1]     # J6 encoder=0° 시 J6 평면 기준방향
+
+                # ── (B) J5 포인트들의 J6 평면 내 평균 방향 ──────────────────────
+                # J5=0° 에 가장 가까운 포인트를 보간(sweep 비대칭 편향 제거)
+                pts_b_xyz = np.array([p[:3, 3] * 1000.0 for p in poses_b_t5])
+                angles_B_arr = np.array(angles_B)
+
+                # J5=0° 보간 (encoder 기준 relative)
+                idx_b0 = int(np.argmin(np.abs(angles_B_arr)))
+                if idx_b0 + 1 < len(angles_B_arr):
+                    t_interp = -angles_B_arr[idx_b0] / (angles_B_arr[idx_b0 + 1] - angles_B_arr[idx_b0] + 1e-9)
+                    t_interp = float(np.clip(t_interp, 0.0, 1.0))
+                    p_j5_zero = pts_b_xyz[idx_b0] + t_interp * (pts_b_xyz[idx_b0 + 1] - pts_b_xyz[idx_b0])
+                else:
+                    p_j5_zero = pts_b_xyz[idx_b0]
+
+                x_j5z, y_j5z = _to2d_j6(p_j5_zero)
+                mean_j5_plane_angle = float(np.degrees(np.arctan2(y_j5z, x_j5z)))
+
+                # ── (C) J6 보정각 = 두 방향의 차이 ──────────────────────────────
+                j6_correction_raw = mean_j5_plane_angle - angle_at_j6_zero
+                j6_correction_raw = float((j6_correction_raw + 180.0) % 360.0 - 180.0)
+
+                # 불확실성 추산: J6 피팅 잔차 기반
+                j6_fit_residuals = j6_plane_angles_deg - (slope_enc2plane * angles_A_arr + angle_at_j6_zero)
+                j6_dir_uncertainty = float(j6_fit_residuals.std() / np.sqrt(len(angles_A_arr)))
+
+                # ── (D) 참고용: c_B→J6 축 수직 거리 (구 방법 perp_dist) ──────────
+                v_cb = c_B - c_A
+                perp_before = float(np.linalg.norm(v_cb - np.dot(v_cb, n_A_norm) * n_A_norm))
+                perp_after  = perp_before   # 새 방법은 FK 예측 없음, 동일값 유지
+
+                optimal_offset_deg = j6_correction_raw
 
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 6 Calibration]")
-                    log_callback(f"    perp_dist(δ=0)   = {perp_before:.4f} mm  (c_B ~ Joint6 axis, before)")
-                    log_callback(f"    solved δ         = {res_opt.x[0]:.4f}°  →  applied offset = {optimal_offset_deg:.4f}°")
-                    log_callback(f"    perp_dist(δ_opt) = {perp_after:.4f} mm  (after)")
+                    log_callback(f"  [v1.3 Joint 6 Calibration — 직접 기하학적 방법]")
+                    log_callback(f"    J6 encoder→plane 기울기     : {slope_enc2plane:.4f} (이상: 1.0)")
+                    log_callback(f"    J6 encoder=0° 기준방향       : {angle_at_j6_zero:.4f}°")
+                    log_callback(f"    J5=0° 마커 방향 (J6 평면)   : {mean_j5_plane_angle:.4f}°")
+                    log_callback(f"    ★ J6 보정각                  : {j6_correction_raw:+.4f}°")
+                    log_callback(f"    불확실성(±1σ)                : ±{j6_dir_uncertainty:.4f}°")
+                    log_callback(f"  [참고: 구 방법 perp_dist]")
+                    log_callback(f"    perp_dist(c_B to J6 axis)   : {perp_before:.4f} mm  (새 방법에서는 참고만)")
                     log_callback(f"  [Bracket Design Verification]")
                     log_callback(f"    r_A  (Joint6 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
                     log_callback(f"    axial offset (c_B along Joint6 axis)                 = {axial_offset:.3f} mm")
