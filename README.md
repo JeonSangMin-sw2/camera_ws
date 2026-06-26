@@ -14,269 +14,269 @@
 ==================================================
 
 --- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 67 dense raw coordinate frames during Joint A motion.
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
 
 --- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint B motion.
+    -> Swept 72 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
 [DEBUG] Saved Axis 6 debug points to sweep_points_right_joint_A_axis_6.txt
 [DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_B_axis_5.txt
-Swept 67 dense raw coordinate frames during Joint A motion... downsampled to 67 for optimization.
-Swept 69 dense raw coordinate frames during Joint B motion... downsampled to 69 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.3919 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.2242°  →  applied offset = 0.2242°
-    perp_dist(δ_opt) = 8.3765 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.084 mm
-    axial offset (c_B along Joint6 axis)                 = -92.226 mm
-  * Angle Error (Deviation from 90°) : 0.7539°
-  * Perpendicular Distance (After)   : 8.3765 mm
-  * Perpendicular Distance (Before)  : 8.3919 mm
-  * Updated Absolute Offset     : 2.4572°
-
-[ITERATION 2/8] Sweeping with staged offset 2.4572°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 2.4572°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 72 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 72 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
 Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
 Swept 72 dense raw coordinate frames during Joint B motion... downsampled to 72 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
   [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.9071 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.1613°  →  applied offset = 0.1613°
-    perp_dist(δ_opt) = 8.8996 mm  (after)
+    perp_dist(δ=0)   = 6.3498 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.2163°  →  applied offset = -0.2163°
+    perp_dist(δ_opt) = 6.3308 mm  (after)
   [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.409 mm
-    axial offset (c_B along Joint6 axis)                 = -91.862 mm
-  * Angle Error (Deviation from 90°) : 0.8128°
-  * Perpendicular Distance (After)   : 8.8996 mm
-  * Perpendicular Distance (Before)  : 8.9071 mm
-  * Updated Absolute Offset     : 2.6185°
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.130 mm
+    axial offset (c_B along Joint6 axis)                 = -92.739 mm
+  * Angle Error (Deviation from 90°) : 0.8240°
+  * Perpendicular Distance (After)   : 6.3308 mm
+  * Perpendicular Distance (Before)  : 6.3498 mm
+  * Updated Absolute Offset     : 2.0167°
 
-[ITERATION 3/8] Sweeping with staged offset 2.6185°...
+[ITERATION 2/8] Sweeping with staged offset 2.0167°...
 
 ==================================================
    STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 2.6185°]
+   [Baseline Shift (Current Applied Offset): 2.0167°]
 ==================================================
 
 --- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 71 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 69 dense raw coordinate frames during Joint A motion... downsampled to 69 for optimization.
-Swept 71 dense raw coordinate frames during Joint B motion... downsampled to 71 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.5726 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.3061°  →  applied offset = 0.3061°
-    perp_dist(δ_opt) = 8.5445 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 131.763 mm
-    axial offset (c_B along Joint6 axis)                 = 93.508 mm
-  * Angle Error (Deviation from 90°) : 0.7093°
-  * Perpendicular Distance (After)   : 8.5445 mm
-  * Perpendicular Distance (Before)  : 8.5726 mm
-  * Updated Absolute Offset     : 2.9246°
-
-[ITERATION 4/8] Sweeping with staged offset 2.9246°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 2.9246°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 72 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
-Swept 69 dense raw coordinate frames during Joint B motion... downsampled to 69 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.6124 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.3697°  →  applied offset = 0.3697°
-    perp_dist(δ_opt) = 8.5716 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.020 mm
-    axial offset (c_B along Joint6 axis)                 = 92.754 mm
-  * Angle Error (Deviation from 90°) : 0.7419°
-  * Perpendicular Distance (After)   : 8.5716 mm
-  * Perpendicular Distance (Before)  : 8.6124 mm
-  * Updated Absolute Offset     : 3.2943°
-
-[ITERATION 5/8] Sweeping with staged offset 3.2943°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 3.2943°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 72 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 69 dense raw coordinate frames during Joint A motion... downsampled to 69 for optimization.
-Swept 72 dense raw coordinate frames during Joint B motion... downsampled to 72 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.8139 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.4542°  →  applied offset = 0.4542°
-    perp_dist(δ_opt) = 8.7536 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.050 mm
-    axial offset (c_B along Joint6 axis)                 = -92.765 mm
-  * Angle Error (Deviation from 90°) : 0.6545°
-  * Perpendicular Distance (After)   : 8.7536 mm
-  * Perpendicular Distance (Before)  : 8.8139 mm
-  * Updated Absolute Offset     : 3.7485°
-
-[ITERATION 6/8] Sweeping with staged offset 3.7485°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 3.7485°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 68 dense raw coordinate frames during Joint A motion... downsampled to 68 for optimization.
-Swept 68 dense raw coordinate frames during Joint B motion... downsampled to 68 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.9437 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.3735°  →  applied offset = 0.3735°
-    perp_dist(δ_opt) = 8.9036 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.157 mm
-    axial offset (c_B along Joint6 axis)                 = 92.928 mm
-  * Angle Error (Deviation from 90°) : 0.7310°
-  * Perpendicular Distance (After)   : 8.9036 mm
-  * Perpendicular Distance (Before)  : 8.9437 mm
-  * Updated Absolute Offset     : 4.1220°
-
-[ITERATION 7/8] Sweeping with staged offset 4.1220°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 4.1220°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 70 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 69 dense raw coordinate frames during Joint A motion... downsampled to 69 for optimization.
-Swept 70 dense raw coordinate frames during Joint B motion... downsampled to 70 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.6953 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.4808°  →  applied offset = 0.4808°
-    perp_dist(δ_opt) = 8.6270 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.203 mm
-    axial offset (c_B along Joint6 axis)                 = 92.280 mm
-  * Angle Error (Deviation from 90°) : 0.6747°
-  * Perpendicular Distance (After)   : 8.6270 mm
-  * Perpendicular Distance (Before)  : 8.6953 mm
-  * Updated Absolute Offset     : 4.6029°
-
-[ITERATION 8/8] Sweeping with staged offset 4.6029°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 4.6029°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 69 dense raw coordinate frames during Joint A motion... downsampled to 69 for optimization.
-Swept 68 dense raw coordinate frames during Joint B motion... downsampled to 68 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.9589 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.4161°  →  applied offset = 0.4161°
-    perp_dist(δ_opt) = 8.9094 mm  (after)
-  [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 131.935 mm
-    axial offset (c_B along Joint6 axis)                 = 91.739 mm
-  * Angle Error (Deviation from 90°) : 0.7145°
-  * Perpendicular Distance (After)   : 8.9094 mm
-  * Perpendicular Distance (Before)  : 8.9589 mm
-  * Updated Absolute Offset     : 5.0190°
-
-[VALIDATION SWEEP] Running final validation sweep with recommended offset 5.0190°...
-
-==================================================
-   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 5.0190°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
-    -> Swept 69 dense raw coordinate frames during Joint A motion.
+    -> Swept 74 dense raw coordinate frames during Joint A motion.
 
 --- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
     -> Swept 73 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 69 dense raw coordinate frames during Joint A motion... downsampled to 69 for optimization.
+Swept 74 dense raw coordinate frames during Joint A motion... downsampled to 74 for optimization.
 Swept 73 dense raw coordinate frames during Joint B motion... downsampled to 73 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
   [v1.3 Joint 6 Calibration]
-    perp_dist(δ=0)   = 8.8226 mm  (c_B ~ Joint6 axis, before)
-    solved δ         = 0.6468°  →  applied offset = 0.6468°
-    perp_dist(δ_opt) = 8.7008 mm  (after)
+    perp_dist(δ=0)   = 6.3075 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.1174°  →  applied offset = -0.1174°
+    perp_dist(δ_opt) = 6.3019 mm  (after)
   [Bracket Design Verification]
-    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.082 mm
-    axial offset (c_B along Joint6 axis)                 = 91.488 mm
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 131.983 mm
+    axial offset (c_B along Joint6 axis)                 = -93.559 mm
+  * Angle Error (Deviation from 90°) : 0.7251°
+  * Perpendicular Distance (After)   : 6.3019 mm
+  * Perpendicular Distance (Before)  : 6.3075 mm
+  * Updated Absolute Offset     : 1.8993°
+
+[ITERATION 3/8] Sweeping with staged offset 1.8993°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 1.8993°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 73 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
+Swept 73 dense raw coordinate frames during Joint B motion... downsampled to 73 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 6.1545 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.1641°  →  applied offset = -0.1641°
+    perp_dist(δ_opt) = 6.1432 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.287 mm
+    axial offset (c_B along Joint6 axis)                 = -92.435 mm
+  * Angle Error (Deviation from 90°) : 0.7327°
+  * Perpendicular Distance (After)   : 6.1432 mm
+  * Perpendicular Distance (Before)  : 6.1545 mm
+  * Updated Absolute Offset     : 1.7352°
+
+[ITERATION 4/8] Sweeping with staged offset 1.7352°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 1.7352°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 73 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 73 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 73 dense raw coordinate frames during Joint A motion... downsampled to 73 for optimization.
+Swept 73 dense raw coordinate frames during Joint B motion... downsampled to 73 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 6.3613 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.2146°  →  applied offset = -0.2146°
+    perp_dist(δ_opt) = 6.3427 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.110 mm
+    axial offset (c_B along Joint6 axis)                 = 92.073 mm
+  * Angle Error (Deviation from 90°) : 0.7464°
+  * Perpendicular Distance (After)   : 6.3427 mm
+  * Perpendicular Distance (Before)  : 6.3613 mm
+  * Updated Absolute Offset     : 1.5206°
+
+[ITERATION 5/8] Sweeping with staged offset 1.5206°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 1.5206°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 74 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
+Swept 74 dense raw coordinate frames during Joint B motion... downsampled to 74 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 6.0336 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.1483°  →  applied offset = -0.1483°
+    perp_dist(δ_opt) = 6.0242 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.226 mm
+    axial offset (c_B along Joint6 axis)                 = 93.337 mm
+  * Angle Error (Deviation from 90°) : 0.7671°
+  * Perpendicular Distance (After)   : 6.0242 mm
+  * Perpendicular Distance (Before)  : 6.0336 mm
+  * Updated Absolute Offset     : 1.3722°
+
+[ITERATION 6/8] Sweeping with staged offset 1.3722°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 1.3722°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 71 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
+Swept 71 dense raw coordinate frames during Joint B motion... downsampled to 71 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 6.0588 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.2797°  →  applied offset = -0.2797°
+    perp_dist(δ_opt) = 6.0255 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 131.860 mm
+    axial offset (c_B along Joint6 axis)                 = 93.823 mm
+  * Angle Error (Deviation from 90°) : 0.8345°
+  * Perpendicular Distance (After)   : 6.0255 mm
+  * Perpendicular Distance (Before)  : 6.0588 mm
+  * Updated Absolute Offset     : 1.0925°
+
+[ITERATION 7/8] Sweeping with staged offset 1.0925°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 1.0925°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 73 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 73 dense raw coordinate frames during Joint A motion... downsampled to 73 for optimization.
+Swept 72 dense raw coordinate frames during Joint B motion... downsampled to 72 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 5.9419 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.1418°  →  applied offset = -0.1418°
+    perp_dist(δ_opt) = 5.9332 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.202 mm
+    axial offset (c_B along Joint6 axis)                 = -93.960 mm
+  * Angle Error (Deviation from 90°) : 0.7861°
+  * Perpendicular Distance (After)   : 5.9332 mm
+  * Perpendicular Distance (Before)  : 5.9419 mm
+  * Updated Absolute Offset     : 0.9507°
+
+[ITERATION 8/8] Sweeping with staged offset 0.9507°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.9507°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
+Swept 72 dense raw coordinate frames during Joint B motion... downsampled to 72 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 6.0427 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.2752°  →  applied offset = -0.2752°
+    perp_dist(δ_opt) = 6.0103 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.180 mm
+    axial offset (c_B along Joint6 axis)                 = 93.153 mm
+  * Angle Error (Deviation from 90°) : 0.7717°
+  * Perpendicular Distance (After)   : 6.0103 mm
+  * Perpendicular Distance (Before)  : 6.0427 mm
+  * Updated Absolute Offset     : 0.6755°
+
+[VALIDATION SWEEP] Running final validation sweep with recommended offset 0.6755°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.6755°]
+==================================================
+
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 72 dense raw coordinate frames during Joint A motion.
+
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 71 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 72 dense raw coordinate frames during Joint A motion... downsampled to 72 for optimization.
+Swept 71 dense raw coordinate frames during Joint B motion... downsampled to 71 for optimization.
+
+--- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
+  [v1.3 Joint 6 Calibration]
+    perp_dist(δ=0)   = 6.2389 mm  (c_B ~ Joint6 axis, before)
+    solved δ         = -0.3381°  →  applied offset = -0.3381°
+    perp_dist(δ_opt) = 6.1916 mm  (after)
+  [Bracket Design Verification]
+    r_A  (Joint6 sweep radius, lateral offset from axis) = 132.103 mm
+    axial offset (c_B along Joint6 axis)                 = 92.827 mm
 [SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_right_wrist_roll_v13_joint_calib.png
 ------------------------------
   [1] Calibration Target: wrist_roll_v13
-      Estimated Optimal Offset: 5.019 deg
+      Estimated Optimal Offset: 0.675 deg
 ------------------------------
 
 [CALIBRATION COMPLETE]
@@ -284,7 +284,7 @@ Swept 73 dense raw coordinate frames during Joint B motion... downsampled to 73 
 
 ==================================================
    [INFO] 3-STEP CALIBRATION COMPLETED
-   * Recommended Absolute Offset : 5.0190°
+   * Recommended Absolute Offset : 0.6755°
    * Current Active Offset       : 2.2330° (REVERTED)
    --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.
 ==================================================
@@ -296,10 +296,10 @@ Swept 73 dense raw coordinate frames during Joint B motion... downsampled to 73 
 
 [1] Calibration Target: wrist_roll_v13
     - Target Swept Joint       : Joint 6 (Wrist Roll)
-    - Estimated Optimal Offset : 5.0190 deg
+    - Estimated Optimal Offset : 0.6755 deg
 
 [2] Suggested Joint Home Offset update:
-  Add offset: 5.0190 deg to calibration config.
+  Add offset: 0.6755 deg to calibration config.
 
 [3] Bracket Design Verification (Joint 6 회전축 기준)
     - c_B ~ Joint 6 axis perp. dist (before) : nan mm
