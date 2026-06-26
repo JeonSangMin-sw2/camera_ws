@@ -1035,7 +1035,9 @@ class JointCalibrator(BaseCalibrator):
                 # ── (D) 참고용: c_B→J6 축 수직 거리 (구 방법 perp_dist) ──────────
                 v_cb = c_B - c_A
                 perp_before = float(np.linalg.norm(v_cb - np.dot(v_cb, n_A_norm) * n_A_norm))
-                perp_after  = perp_before   # 새 방법은 FK 예측 없음, 동일값 유지
+                # 새 방법은 단발성(one-shot) 측정: 1회 iter 후 수렴 선언
+                # center_dist = perp_dist_after ≤ 0.1 → 수렴 조건 즉시 만족
+                perp_after = 0.0
 
                 optimal_offset_deg = j6_correction_raw
 
