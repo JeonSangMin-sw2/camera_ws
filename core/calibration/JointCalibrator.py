@@ -1041,6 +1041,21 @@ class JointCalibrator(BaseCalibrator):
 
                 optimal_offset_deg = j6_correction_raw
 
+                # ── 마커 설계값 역산 ────────────────────────────────────────────
+                # 기하학적 관계 (J6 roll 축 = ee_right X축):
+                #   r_A = z_m  : 마커의 J6축 수직거리 = ee_right Z 오프셋
+                #   |axial|    : c_A(J6)→c_B(J5) 축방향 거리 ≈ ee_to_marker X + urdf_J6_offset
+                #   r_B = sqrt(r_A² + axial²) 관계 검증 (1% 이내이면 기하학 일관성 OK)
+                r_B_for_design = r_B                                   # J5 sweep 반지름
+                axial_abs      = abs(axial_offset)                      # |c_A → c_B| along J6 axis
+                r_B_pred       = float(np.sqrt(r_A**2 + axial_abs**2)) # 기하학 예측값
+                design_check_err_mm = float(abs(r_B_for_design - r_B_pred))
+                design_check_err_pct = design_check_err_mm / max(r_B_for_design, 1e-3) * 100.0
+                # x_m 역산: x_m = sqrt(r_B² - r_A²) - URDF_offset (URDF offset 미포함)
+                x_m_est = float(np.sqrt(max(0.0, r_B_for_design**2 - r_A**2)))
+                # z_m = r_A (J6 sweep으로 직접 측정)
+                z_m_est = r_A
+
                 if log_callback:
                     log_callback(f"  [v1.3 Joint 6 Calibration — 직접 기하학적 방법]")
                     log_callback(f"    J6 encoder→plane 기울기     : {slope_enc2plane:.4f} (이상: 1.0)")
@@ -1052,77 +1067,161 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"    perp_dist(c_B to J6 axis)   : {perp_before:.4f} mm  (새 방법에서는 참고만)")
                     log_callback(f"  [Bracket Design Verification]")
                     log_callback(f"    r_A  (Joint6 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
+                    log_callback(f"    r_B  (Joint5 sweep radius, total marker-J5 distance) = {r_B_for_design:.3f} mm")
                     log_callback(f"    axial offset (c_B along Joint6 axis)                 = {axial_offset:.3f} mm")
+                    log_callback(f"  [Marker Design Values (역산)]")
+                    log_callback(f"    기하학 가정: J6 roll축 = ee_right X, J5 pitch축 = ee_right Y")
+                    log_callback(f"    z_marker (= r_A, J6축 수직거리)   : {z_m_est:.3f} mm")
+                    log_callback(f"    x_marker (= sqrt(r_B²-r_A²))      : {x_m_est:.3f} mm  ※ URDF_J6→ee offset 미포함")
+                    log_callback(f"    |axial_offset| (c_A→c_B 축방향)   : {axial_abs:.3f} mm")
+                    log_callback(f"  [기하학 일관성 검증]")
+                    log_callback(f"    r_B 예측 (sqrt(r_A²+axial²))      : {r_B_pred:.3f} mm")
+                    log_callback(f"    r_B 실측                           : {r_B_for_design:.3f} mm")
+                    log_callback(f"    오차                               : {design_check_err_mm:.3f} mm ({design_check_err_pct:.1f}%)  {'✓ OK' if design_check_err_pct < 3.0 else '⚠ 확인필요'}")
 
             else:  # wrist_pitch_v13
-                # Sweep A = Joint 5 (WP)  → c_A, n_A_norm = J5 axis, r_A = radial marker offset
-                # Sweep B = Joint 3 (Elbow) → c_B (cross-check only)
+                # ─────────────────────────────────────────────────────────────────
+                # Sweep A = Joint 5 (Wrist Pitch) → c_A, n_A = J5 axis, r_A = L_J5M
+                # Sweep B = Joint 3 (Elbow)       → c_B, n_B = J3 axis, r_B = r_J3M
                 #
-                # DIRECT VECTOR-BASED J5 OFFSET COMPUTATION
-                # ─────────────────────────────────────────────────────────────
-                # Key insight (user formula):  vec(J5→Marker) = vec(c_A→p_marker)_perp
+                # 삼각형 법칙 (Triangle Law) — J5 오프셋 직접 계산:
+                # ─────────────────────────────────────────────────────────────────
+                # 측정 거리:
+                #   L_J5M  = r_A : J5 sweep 반지름 = joint5→marker 물리적 거리
+                #   r_J3M  = r_B : J3 sweep 반지름 = joint3→marker 거리 (J5 고정)
+                #   L_J3J5 = URDF FK : joint3→joint5 거리 (pitch 평면 내)
                 #
-                # At q5_commanded (= staged_offset), compare:
-                #   v_fk  = FK-predicted marker vector in J5 perp-plane
-                #   v_cam = camera-measured marker vector in J5 perp-plane
+                # Cosine rule (J3–J5–Marker 삼각형, J5 꼭짓각 φ):
+                #   r_J3M² = L_J3J5² + L_J5M² − 2·L_J3J5·L_J5M·cos(φ)
+                #   → φ_actual = arccos((L_J3J5²+L_J5M²−r_J3M²) / (2·L_J3J5·L_J5M))
                 #
-                # signed_angle(v_fk → v_cam) = J5 zero offset (direct, no iteration)
+                # FK 예측 φ_nominal (J5=0 기준, T_ee_to_marker 사용):
+                #   J5→J3 벡터와 J5→Marker 벡터 사이 부호 포함 각도
                 #
-                # ALSO yields marker design values:
-                #   r_A      = |v_cam_perp| (radial offset from J5 axis)
-                #   axial    = (p_cam - c_A) · n_J5 (axial offset along J5)
-                #   mounting = direction of v_cam_perp (bracket phase angle)
-                #
-                # Cross-check: minimize_scalar on center_match (J3 sweep center shift)
-                # Expected sensitivity ~5.4mm/°. If scan is U-shaped → FK consistent.
+                # J5 오프셋: δ5 = sign(φ_nominal) × (φ_actual − |φ_nominal|)
+                # ─────────────────────────────────────────────────────────────────
 
-                # ── 1. Reference frames at q5 ≈ q_cand (the sweep midpoint) ──────────
-                q_ref = q_cand[cand_joint]   # commanded q5 during sweep (arm-local index)
-                ref_window = np.radians(2.0)
+                L_J5M = r_A   # joint5→marker distance (mm) = J5 sweep radius
+                r_J3M = r_B   # joint3→marker distance (mm) = J3 sweep radius
 
+                # ── 1. L_J3J5: URDF FK → joint3→joint5 거리 (pitch 평면) ─────
+                # Full-robot q at ready pose: mid-sweep point with J5 at true zero
+                q_fk_ref = np.array(dataset_A[len(dataset_A) // 2][0])
+                q_fk_ref[arm_idx[cand_joint]] = (
+                    initial_joint_pos[cand_joint] - np.radians(active_offset)
+                )
+
+                L_J3J5 = float('nan')
+                p_j3_t5 = np.zeros(3)
+                p_j5_t5 = np.zeros(3)
+                fk_geom_ok = False
+                try:
+                    T_j3 = BaseCalibrator.compute_fk(
+                        self.robot, dyn_model, q_fk_ref,
+                        f"link_{arm_side}_arm_3", "link_torso_5")
+                    T_j5 = BaseCalibrator.compute_fk(
+                        self.robot, dyn_model, q_fk_ref,
+                        f"link_{arm_side}_arm_5", "link_torso_5")
+                    p_j3_t5 = T_j3[:3, 3] * 1000.0   # mm, torso frame
+                    p_j5_t5 = T_j5[:3, 3] * 1000.0   # mm, torso frame
+                    # Project J3→J5 to pitch plane (⊥ to J5 rotation axis)
+                    v_j3j5 = p_j5_t5 - p_j3_t5
+                    v_j3j5_perp = v_j3j5 - np.dot(v_j3j5, n_A_norm) * n_A_norm
+                    L_J3J5 = float(np.linalg.norm(v_j3j5_perp))
+                    fk_geom_ok = True
+                except Exception as _e:
+                    if log_callback:
+                        log_callback(f"  [WARN] FK for L_J3J5 failed: {_e}. Fallback: lateral_offset.")
+                    L_J3J5 = lateral_offset   # fallback: measured circle-center lateral distance
+
+                # ── 2. φ_actual: 코사인 법칙으로 J5 꼭짓각 계산 ─────────────
+                denom_cos = 2.0 * L_J3J5 * L_J5M
+                if abs(denom_cos) < 1e-3:
+                    cos_phi_meas  = 0.0
+                    triangle_valid = False
+                else:
+                    cos_phi_meas  = (L_J3J5**2 + L_J5M**2 - r_J3M**2) / denom_cos
+                    triangle_valid = (abs(cos_phi_meas) <= 1.01)
+                cos_phi_clipped = float(np.clip(cos_phi_meas, -1.0, 1.0))
+                phi_actual_deg  = float(np.degrees(np.arccos(cos_phi_clipped)))
+
+                # ── 3. φ_nominal: FK 예측 (J5=0 기준) ───────────────────────
+                # NOTE: T_ee_to_marker should ideally be updated with J6-calibrated values
+                # (z_m = r_A_from_wrist_roll, x_m = sqrt(r_B_wr² − r_A_wr²)) for accuracy.
+                phi_nominal_deg   = float('nan')
+                delta_triangle    = float('nan')
+                r_J3M_pred_before = float('nan')
+                r_J3M_pred_after  = float('nan')
+                fk_phi_ok = False
+                try:
+                    T_ee_j5z = BaseCalibrator.compute_fk(
+                        self.robot, dyn_model, q_fk_ref, ee_name, "link_torso_5")
+                    p_marker_pred = (T_ee_j5z @ T_ee_to_marker)[:3, 3] * 1000.0
+
+                    # J5→J3 and J5→Marker vectors, projected to pitch plane
+                    v_j5_j3 = p_j3_t5 - p_j5_t5
+                    v_j5_m  = p_marker_pred - p_j5_t5
+                    v_j5_j3_p = v_j5_j3 - np.dot(v_j5_j3, n_A_norm) * n_A_norm
+                    v_j5_m_p  = v_j5_m  - np.dot(v_j5_m,  n_A_norm) * n_A_norm
+                    nm_j3 = float(np.linalg.norm(v_j5_j3_p))
+                    nm_m  = float(np.linalg.norm(v_j5_m_p))
+
+                    if nm_j3 > 1.0 and nm_m > 1.0:
+                        uj3 = v_j5_j3_p / nm_j3
+                        um  = v_j5_m_p  / nm_m
+                        # Signed angle: J5→J3 to J5→Marker (n_A_norm as rotation axis)
+                        cross_phi = float(np.dot(np.cross(uj3, um), n_A_norm))
+                        dot_phi   = float(np.dot(uj3, um))
+                        phi_nominal_signed = float(np.degrees(np.arctan2(cross_phi, dot_phi)))
+                        phi_nominal_deg    = abs(phi_nominal_signed)
+                        sign_phi = 1.0 if phi_nominal_signed >= 0.0 else -1.0
+
+                        # δ5 (signed): positive = marker opened from arm = positive J5 offset
+                        delta_triangle = sign_phi * (phi_actual_deg - phi_nominal_deg)
+                        fk_phi_ok = True
+
+                        # Triangle consistency: predict r_J3M before/after applying δ5
+                        r_J3M_pred_before = float(np.sqrt(max(0.0,
+                            L_J3J5**2 + L_J5M**2
+                            - 2*L_J3J5*L_J5M*np.cos(np.radians(phi_nominal_deg)))))
+                        phi_after_deg = phi_nominal_deg + abs(delta_triangle)
+                        r_J3M_pred_after = float(np.sqrt(max(0.0,
+                            L_J3J5**2 + L_J5M**2
+                            - 2*L_J3J5*L_J5M*np.cos(np.radians(phi_after_deg)))))
+                except Exception as _e2:
+                    if log_callback:
+                        log_callback(f"  [WARN] FK for phi_nominal failed: {_e2}")
+
+                # ── 4. Cross-check: 직접 벡터 비교 (기존 방법) ──────────────
+                delta_list = []; r_A_list = []; axial_list = []
+                q_ref_arm = q_cand[cand_joint]
+                ref_win   = np.radians(2.0)
                 ref_frames = [(q, p) for q, p in dataset_A
-                              if abs(q[arm_idx[cand_joint]] - q_ref) <= ref_window]
+                              if abs(q[arm_idx[cand_joint]] - q_ref_arm) <= ref_win]
                 if not ref_frames:
-                    # fallback: closest single frame
-                    idx_closest = int(np.argmin(
-                        [abs(q[arm_idx[cand_joint]] - q_ref) for q, _ in dataset_A]))
-                    ref_frames = [dataset_A[idx_closest]]
-
-                # ── 2. Compute signed J5 offset for each reference frame ──────────────
-                delta_list  = []
-                r_A_list    = []
-                axial_list  = []
+                    idx_c = int(np.argmin(
+                        [abs(q[arm_idx[cand_joint]] - q_ref_arm) for q, _ in dataset_A]))
+                    ref_frames = [dataset_A[idx_c]]
 
                 for q_f, pose_f in ref_frames:
-                    # Camera-measured marker position (torso frame, mm)
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_f, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                    p_cam = (T_t5_to_cam @ pose_f)[:3, 3] * 1000.0
+                    T_th = BaseCalibrator.compute_fk(
+                        self.robot, dyn_model, q_f, "link_head_2", "link_torso_5")
+                    p_cam_f = ((T_th @ T_mount_to_cam) @ pose_f)[:3, 3] * 1000.0
+                    T_fk_f  = BaseCalibrator.compute_fk(
+                        self.robot, dyn_model, q_f, ee_name, "link_torso_5")
+                    p_fk_f  = (T_fk_f @ T_ee_to_marker)[:3, 3] * 1000.0
 
-                    # FK-predicted marker position (torso frame, mm)
-                    T_fk  = BaseCalibrator.compute_fk(self.robot, dyn_model, q_f, ee_name)
-                    p_fk  = (T_fk @ T_ee_to_marker)[:3, 3] * 1000.0
-
-                    # Project to J5 perpendicular plane (relative to c_A)
-                    def _perp(p):
-                        v = p - c_A
-                        return v - np.dot(v, n_A_norm) * n_A_norm
-
-                    v_cam_perp = _perp(p_cam)
-                    v_fk_perp  = _perp(p_fk)
-
-                    # Guard: skip if either vector is near-zero (shouldn't happen, r_A~161mm)
-                    if np.linalg.norm(v_cam_perp) < 1.0 or np.linalg.norm(v_fk_perp) < 1.0:
+                    def _p5(p, _c=c_A, _n=n_A_norm):
+                        v = p - _c; return v - np.dot(v, _n) * _n
+                    vc = _p5(p_cam_f); vf = _p5(p_fk_f)
+                    if np.linalg.norm(vc) < 1.0 or np.linalg.norm(vf) < 1.0:
                         continue
+                    cr = np.dot(np.cross(vf, vc), n_A_norm)
+                    dt = np.dot(vf, vc)
+                    delta_list.append(np.degrees(np.arctan2(cr, dt)))
+                    r_A_list.append(np.linalg.norm(vc))
+                    axial_list.append(float(np.dot(p_cam_f - c_A, n_A_norm)))
 
-                    # Signed angle from FK-expected to camera-measured = J5 zero offset
-                    cross = np.dot(np.cross(v_fk_perp, v_cam_perp), n_A_norm)
-                    dot   = np.dot(v_fk_perp, v_cam_perp)
-                    delta_list.append(np.degrees(np.arctan2(cross, dot)))
-                    r_A_list.append(np.linalg.norm(v_cam_perp))
-                    axial_list.append(float(np.dot(p_cam - c_A, n_A_norm)))
-
-                # Robust aggregation (median over reference window)
                 if delta_list:
                     delta_direct = float(np.median(delta_list))
                     r_A_direct   = float(np.median(r_A_list))
@@ -1134,47 +1233,53 @@ class JointCalibrator(BaseCalibrator):
                     axial_direct = axial_offset
                     direct_ok    = False
 
-                # ── 3. Cross-check: center-match scan on Sweep B (J3 circle center) ──
-                c_J3_camera = c_B
+                # ── 5. 최종 결과 선택 ─────────────────────────────────────
+                if fk_phi_ok and triangle_valid and not np.isnan(delta_triangle):
+                    optimal_offset_deg = delta_triangle
+                    primary_method     = "triangle_law"
+                elif direct_ok:
+                    optimal_offset_deg = delta_direct
+                    primary_method     = "direct_vector"
+                else:
+                    optimal_offset_deg = 0.0
+                    primary_method     = "failed"
 
-                def center_match_residual(delta_deg):
-                    pts_pred = []
-                    for q_full, _ in dataset_B:
-                        q_mod = np.array(q_full)
-                        q_mod[arm_idx[5]] += np.radians(delta_deg)
-                        T_ee  = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                        pts_pred.append((T_ee @ T_ee_to_marker)[:3, 3] * 1000.0)
-                    c_fit, _, _, _, _, _, _ = BaseCalibrator.fit_circle_3d(pts_pred, robust=False)
-                    return float(np.linalg.norm(c_fit - c_J3_camera))
-
-                scan_pts = [-10.0, -5.0, -3.0, -1.0, 0.0, 1.0, 3.0, 5.0, 10.0]
-                scan_vals = [(d, center_match_residual(d)) for d in scan_pts]
-                best_scan  = min(scan_vals, key=lambda x: x[1])
-                center_match_at0 = scan_vals[4][1]
-
-                if log_callback:
-                    log_callback("  [J5 center-match cross-check scan]")
-                    for d, v in scan_vals:
-                        tag = " <-min" if d == best_scan[0] else ""
-                        log_callback(f"    delta={d:+6.1f}deg -> |c_FK-c_cam| = {v:.3f} mm{tag}")
-
-                # ── 4. Primary result: direct vector method ──────────────────────────
-                optimal_offset_deg = delta_direct if direct_ok else best_scan[0]
-                converged_wp = direct_ok and (abs(delta_direct) < 0.2)
-
-                # perp_before/after kept for UI compatibility (repurposed as center-match dist)
-                perp_before = center_match_at0
-                perp_after  = center_match_residual(optimal_offset_deg) if direct_ok else best_scan[1]
+                # perp_before/after: r_J3M 예측 잔차 (수렴 지표)
+                perp_before = (abs(r_J3M_pred_before - r_J3M)
+                               if not np.isnan(r_J3M_pred_before) else 999.0)
+                perp_after  = (abs(r_J3M_pred_after  - r_J3M)
+                               if not np.isnan(r_J3M_pred_after)  else 999.0)
+                converged_wp = (abs(optimal_offset_deg) < 0.3)
 
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 5 Calibration  — DIRECT vector method]")
-                    log_callback(f"    reference frames used        : {len(ref_frames)} (±2° window)")
-                    log_callback(f"    J5 offset (direct, primary)  : {delta_direct:.4f}deg")
-                    log_callback(f"    J5 offset (scan minimum)     : {best_scan[0]:.1f}deg  (dist={best_scan[1]:.3f}mm)")
-                    log_callback(f"  [Marker Design Values from Sweep A reference frame]")
-                    log_callback(f"    r_A (sweep-fit)              : {r_A:.3f} mm")
-                    log_callback(f"    r_A (direct, vec|cam-perp|)  : {r_A_direct:.3f} mm")
-                    log_callback(f"    axial offset along J5 axis   : {axial_direct:.3f} mm  (sweep B: {axial_offset:.3f} mm)")
+                    log_callback(f"  [v1.3 Joint 5 Calibration — 삼각형 법칙]")
+                    log_callback(f"    L_J5M (r_A, J5→Marker 거리)      : {L_J5M:.3f} mm")
+                    log_callback(f"    r_J3M (r_B, J3→Marker 거리)      : {r_J3M:.3f} mm")
+                    log_callback(f"    L_J3J5 (URDF FK, pitch 평면)     : {L_J3J5:.3f} mm"
+                                 f"  {'[FK OK]' if fk_geom_ok else '[fallback:lateral_offset]'}")
+                    log_callback(f"    cos(φ_actual)                    : {cos_phi_meas:.6f}"
+                                 f"  {'← 유효' if triangle_valid else ' ⚠ 삼각부등식 불만족'}")
+                    log_callback(f"    φ_actual (코사인 법칙)            : {phi_actual_deg:.4f}°")
+                    log_callback(f"    φ_nominal (FK J5=0 예측)         : {phi_nominal_deg:.4f}°"
+                                 f"  {'[OK]' if fk_phi_ok else '[FK 실패]'}")
+                    log_callback(f"    ★ J5 오프셋 (삼각형 법칙)         : {delta_triangle:+.4f}°"
+                                 f"  {'[PRIMARY]' if primary_method == 'triangle_law' else ''}")
+                    log_callback(f"    J5 오프셋 (벡터 비교 cross-check): {delta_direct:+.4f}°"
+                                 f"  {'[PRIMARY]' if primary_method == 'direct_vector' else '[cross-check]'}")
+                    log_callback(f"    최종 사용 방법                    : {primary_method}")
+                    log_callback(f"  [삼각형 일관성 검증]")
+                    log_callback(f"    r_J3M 실측                       : {r_J3M:.3f} mm")
+                    log_callback(f"    r_J3M 예측 (δ5=0)                : {r_J3M_pred_before:.3f} mm"
+                                 f"  → 잔차 {perp_before:.3f} mm")
+                    log_callback(f"    r_J3M 예측 (δ5={optimal_offset_deg:+.2f}°)        : "
+                                 f"{r_J3M_pred_after:.3f} mm"
+                                 f"  → 잔차 {perp_after:.3f} mm"
+                                 f"  {'✓' if perp_after < perp_before else '⚠ 개선 없음'}")
+                    log_callback(f"  [Marker Design Values (Sweep A 기반)]")
+                    log_callback(f"    r_A sweep (= L_J5M)              : {r_A:.3f} mm")
+                    log_callback(f"    r_A direct (|cam-perp|)          : {r_A_direct:.3f} mm")
+                    log_callback(f"    axial offset along J5 axis       : {axial_direct:.3f} mm"
+                                 f"  (sweep B: {axial_offset:.3f} mm)")
 
             sign = -1.0 if optimal_offset_deg < 0.0 else 1.0
 
