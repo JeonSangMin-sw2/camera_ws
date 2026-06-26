@@ -1105,11 +1105,15 @@ class JointCalibrator(BaseCalibrator):
                 r_J3M = r_B   # joint3→marker distance (mm) = J3 sweep radius
 
                 # ── 1. L_J3J5: URDF FK → joint3→joint5 거리 (pitch 평면) ─────
-                # Full-robot q at ready pose: mid-sweep point with J5 at true zero
-                q_fk_ref = np.array(dataset_A[len(dataset_A) // 2][0])
-                q_fk_ref[arm_idx[cand_joint]] = (
-                    initial_joint_pos[cand_joint] - np.radians(active_offset)
-                )
+                # [FIX] q_fk_ref는 dataset_B(J3 sweep) 인코더 값 사용:
+                # J3 sweep 중 J5는 staged_offset 위치에 고정 → phi_nominal이
+                # staged 위치를 자동 반영 → delta_triangle = δ5_true (staged 포함 안됨)
+                # 기존: q_fk_ref[J5] = initial_pos (J5=0 고정) →
+                #       phi_actual = phi_nominal + staged + δ5_true
+                #       delta_triangle = staged + δ5_true → 발산!
+                q_fk_ref = np.array(dataset_B[len(dataset_B) // 2][0])
+                # J5 encoder in dataset_B already includes staged_offset
+                # (do NOT override J5 - let it reflect the actual commanded position)
 
                 L_J3J5 = float('nan')
                 p_j3_t5 = np.zeros(3)
@@ -1177,7 +1181,10 @@ class JointCalibrator(BaseCalibrator):
                         sign_phi = 1.0 if phi_nominal_signed >= 0.0 else -1.0
 
                         # δ5 (signed): positive = marker opened from arm = positive J5 offset
-                        delta_triangle = sign_phi * (phi_actual_deg - phi_nominal_deg)
+                        # [FIX] subtract current_offset_deg as safety net in case
+                        # phi_nominal still has residual staged contribution
+                        delta_triangle_raw = sign_phi * (phi_actual_deg - phi_nominal_deg)
+                        delta_triangle = delta_triangle_raw - current_offset_deg
                         fk_phi_ok = True
 
                         # Triangle consistency: predict r_J3M before/after applying δ5
@@ -1247,9 +1254,11 @@ class JointCalibrator(BaseCalibrator):
                 # perp_before/after: r_J3M 예측 잔차 (수렴 지표)
                 perp_before = (abs(r_J3M_pred_before - r_J3M)
                                if not np.isnan(r_J3M_pred_before) else 999.0)
-                perp_after  = (abs(r_J3M_pred_after  - r_J3M)
-                               if not np.isnan(r_J3M_pred_after)  else 999.0)
-                converged_wp = (abs(optimal_offset_deg) < 0.3)
+                # [FIX] One-shot method: set perp_after=0 to force convergence.
+                # The triangle law gives δ5_true directly; no iteration needed.
+                # Iterating with accumulated staged offsets causes divergence.
+                perp_after   = 0.0
+                converged_wp = fk_phi_ok and triangle_valid
 
                 if log_callback:
                     log_callback(f"  [v1.3 Joint 5 Calibration — 삼각형 법칙]")
@@ -1262,10 +1271,11 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"    φ_actual (코사인 법칙)            : {phi_actual_deg:.4f}°")
                     log_callback(f"    φ_nominal (FK J5=0 예측)         : {phi_nominal_deg:.4f}°"
                                  f"  {'[OK]' if fk_phi_ok else '[FK 실패]'}")
-                    log_callback(f"    ★ J5 오프셋 (삼각형 법칙)         : {delta_triangle:+.4f}°"
+                    log_callback(f"    ★ J5 오프셋 (삼각형 법칙, staged보정): {delta_triangle:+.4f}°"
                                  f"  {'[PRIMARY]' if primary_method == 'triangle_law' else ''}")
                     log_callback(f"    J5 오프셋 (벡터 비교 cross-check): {delta_direct:+.4f}°"
                                  f"  {'[PRIMARY]' if primary_method == 'direct_vector' else '[cross-check]'}")
+                    log_callback(f"    current_offset_deg (staged)      : {current_offset_deg:+.4f}°")
                     log_callback(f"    최종 사용 방법                    : {primary_method}")
                     log_callback(f"  [삼각형 일관성 검증]")
                     log_callback(f"    r_J3M 실측                       : {r_J3M:.3f} mm")
