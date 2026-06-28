@@ -6,10 +6,16 @@ from scipy.spatial.transform import Rotation as R_scipy
 # 1. Pure Mock Classes (Pure mathematical mock when SDK/URDF is unavailable)
 # ==============================================================================
 
+class MockRobotState:
+    def __init__(self, dof=20):
+        self.position = np.zeros(dof)
+
 class PureMockModel:
     def __init__(self):
         self.left_arm_idx = list(range(7))
         self.right_arm_idx = list(range(7))
+        self.head_idx = [18, 19]
+        self.torso_idx = list(range(10, 16))
         self.robot_joint_names = [f"joint_{i}" for i in range(20)]
 
 class PureMockState:
@@ -54,6 +60,7 @@ class PureMockRobot:
         self._dynamics = PureMockDynamics(arm_side)
         self.is_pure_mock = True
         self.model_name = model_name
+        self._state = MockRobotState(20)
     
     def model(self):
         return self._model
@@ -62,10 +69,34 @@ class PureMockRobot:
         return self._dynamics
         
     def get_state(self):
-        class State:
+        return self._state
+
+    def send_command(self, command, priority=10):
+        class CommandResult:
             def __init__(self):
-                self.position = np.zeros(20)
-        return State()
+                try:
+                    import rby1_sdk as rby
+                    self.finish_code = rby.RobotCommandFeedback.FinishCode.Ok
+                except ImportError:
+                    class FinishCode:
+                        Ok = 0
+                    self.finish_code = FinishCode.Ok
+        
+        class CommandFeedback:
+            def get(self):
+                return CommandResult()
+                
+        return CommandFeedback()
+
+    def cancel_control(self):
+        pass
+
+    def get_robot_info(self):
+        class RobotInfo:
+            def __init__(self, version):
+                self.robot_model_version = version
+        version = "1.3" if self.model_name == "m" else "1.2"
+        return RobotInfo(version)
 
 def pure_mock_compute_fk_impl(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
     T = np.eye(4)
@@ -145,6 +176,7 @@ class OfflineRobot:
         self._model = self._create_model_meta()
         self.is_pure_mock = False
         self.model_name = model_name
+        self._state = MockRobotState(self.dyn_robot.get_dof())
         
     def model(self):
         return self._model
@@ -153,10 +185,34 @@ class OfflineRobot:
         return self.dyn_robot
         
     def get_state(self):
-        class State:
-            def __init__(self, dof):
-                self.position = np.zeros(dof)
-        return State(self.dyn_robot.get_dof())
+        return self._state
+        
+    def send_command(self, command, priority=10):
+        class CommandResult:
+            def __init__(self):
+                try:
+                    import rby1_sdk as rby
+                    self.finish_code = rby.RobotCommandFeedback.FinishCode.Ok
+                except ImportError:
+                    class FinishCode:
+                        Ok = 0
+                    self.finish_code = FinishCode.Ok
+        
+        class CommandFeedback:
+            def get(self):
+                return CommandResult()
+                
+        return CommandFeedback()
+
+    def cancel_control(self):
+        pass
+
+    def get_robot_info(self):
+        class RobotInfo:
+            def __init__(self, version):
+                self.robot_model_version = version
+        version = "1.3" if self.model_name == "m" else "1.2"
+        return RobotInfo(version)
         
     def _create_model_meta(self):
         class ModelMeta:
@@ -164,6 +220,25 @@ class OfflineRobot:
                 self.robot_joint_names = dyn_robot.get_joint_names()
                 self.right_arm_idx = [self.robot_joint_names.index(f"right_arm_{i}") for i in range(7)]
                 self.left_arm_idx = [self.robot_joint_names.index(f"left_arm_{i}") for i in range(7)]
+                
+                self.head_idx = []
+                for name in ["head_0", "head_1", "head_yaw", "head_pitch"]:
+                    if name in self.robot_joint_names:
+                        self.head_idx.append(self.robot_joint_names.index(name))
+                if len(self.head_idx) < 2:
+                    self.head_idx = [i for i, n in enumerate(self.robot_joint_names) if "head" in n.lower()][:2]
+                if len(self.head_idx) < 2:
+                    self.head_idx = [18, 19]
+                    
+                self.torso_idx = []
+                for i in range(6):
+                    for name in [f"torso_{i}", f"torso_joint_{i}"]:
+                        if name in self.robot_joint_names:
+                            self.torso_idx.append(self.robot_joint_names.index(name))
+                if len(self.torso_idx) < 6:
+                    self.torso_idx = [i for i, n in enumerate(self.robot_joint_names) if "torso" in n.lower()][:6]
+                if len(self.torso_idx) < 6:
+                    self.torso_idx = list(range(6))
         return ModelMeta(self.dyn_robot)
 
 # ==============================================================================

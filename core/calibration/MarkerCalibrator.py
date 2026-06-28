@@ -133,20 +133,19 @@ class MarkerCalibrator(BaseCalibrator):
             log_callback(f"   STARTING {str(axis_mode).upper()} CONTINUOUS MARKER SWEEP")
             log_callback("="*50)
             
-        if not self.marker_st:
-            if log_callback: log_callback("[ERROR] Camera system not initialized.")
-            return None
-        if not self.robot:
-            if log_callback: log_callback("[ERROR] Robot not connected.")
-            return None
+        is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
 
-        # Pre-check marker visibility
-        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
-        if not initial_check:
-            if log_callback: log_callback("[ERROR] Marker is not visible in ready pose.")
-            if status_callback: status_callback(False)
-            return None
-        if status_callback: status_callback(True)
+        if not is_camera_mock:
+            # Pre-check marker visibility
+            initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+            if not initial_check:
+                if log_callback: log_callback("[ERROR] Marker is not visible in ready pose.")
+                if status_callback: status_callback(False)
+                return None
+            if status_callback: status_callback(True)
+        else:
+            if status_callback: status_callback(True)
+
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -228,47 +227,9 @@ class MarkerCalibrator(BaseCalibrator):
         q_head_start = None
         q_head_end = None
         
-        # 이 아래는 헤드가 마커를 트레킹하기 위한 로직이었음
         if use_head_tracking and head_idx is not None and q_head_0 is not None:
-            try:
-                # T_ee_start = self.compute_fk(self.robot, dyn_model, q_full_start, ee_name, "link_torso_5")
-                # p_marker_start = T_ee_start[:3, 3]
-                
-                # T_neck = self.compute_fk(self.robot, dyn_model, state.position, "link_head_2", "link_torso_5")
-                # p_neck = T_neck[:3, 3]
-                
-                # T_ee_0 = self.compute_fk(self.robot, dyn_model, state.position, ee_name, "link_torso_5")
-                # p_marker_0 = T_ee_0[:3, 3]
-                
-                # v_0 = p_marker_0 - p_neck
-                # v_start = p_marker_start - p_neck
-                
-                # yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
-                # pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
-                
-                # yaw_geo_start = np.arctan2(v_start[1], v_start[0])
-                # pitch_geo_start = np.arctan2(v_start[2], np.sqrt(v_start[0]**2 + v_start[1]**2))
-                
-                # yaw_target_start = np.clip(q_head_0[0] + (yaw_geo_start - yaw_geo_0), -np.radians(25.0), np.radians(25.0))
-                # pitch_target_start = np.clip(q_head_0[1] - (pitch_geo_start - pitch_geo_0), -np.radians(20.0), np.radians(20.0))
-                # q_head_start = np.array([yaw_target_start, pitch_target_start])
-
-                # T_ee_end = self.compute_fk(self.robot, dyn_model, q_full_end, ee_name, "link_torso_5")
-                # p_marker_end = T_ee_end[:3, 3]
-                # v_end = p_marker_end - p_neck
-                
-                # yaw_geo_end = np.arctan2(v_end[1], v_end[0])
-                # pitch_geo_end = np.arctan2(v_end[2], np.sqrt(v_end[0]**2 + v_end[1]**2))
-                
-                # yaw_target_end = np.clip(q_head_0[0] + (yaw_geo_end - yaw_geo_0), -np.radians(25.0), np.radians(25.0))
-                # pitch_target_end = np.clip(q_head_0[1] - (pitch_geo_end - pitch_geo_0), -np.radians(20.0), np.radians(20.0))
-                # q_head_end = np.array([yaw_target_end, pitch_target_end])
-                q_head_start = q_head_0
-                q_head_end = q_head_0
-            except Exception as e:
-                if log_callback: log_callback(f"[WARN] Failed to compute target head angles: {e}")
-                q_head_start = q_head_0
-                q_head_end = q_head_0
+            q_head_start = q_head_0
+            q_head_end = q_head_0
         else:
             q_head_start = None
             q_head_end = None
@@ -318,22 +279,29 @@ class MarkerCalibrator(BaseCalibrator):
                     self.robot.cancel_control()
                 move_thread.join()
                 return None
-            lpf_results = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                
+            if is_camera_mock:
+                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=joint_i)
+                lpf_results = [pose.tolist()]
+            else:
+                lpf_results = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                
             if lpf_results:
                 pose = np.array(lpf_results[0]).reshape(4, 4) if isinstance(lpf_results, list) else np.array(list(lpf_results.values())[0]).reshape(4, 4)
                 
-                t_elapsed = time.time() - t_start
-                ratio = min(1.0, max(0.0, t_elapsed / 15.0))
-                q_full_captured = np.copy(initial_full_pose)
+                q_full_captured = np.array(self.robot.get_state().position)
                 global_joint_idx = arm_idx[joint_i]
-                q_captured = q_start_arm[joint_i] + ratio * (q_end_arm[joint_i] - q_start_arm[joint_i])
-                q_full_captured[global_joint_idx] = q_captured
+                q_captured = q_full_captured[global_joint_idx]
                 
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     captured_poses.append(pose)
                     captured_angles.append(np.degrees(q_captured - initial_joint_pos[joint_i]))
                     captured_q_full.append(q_full_captured)
-            time.sleep(0.01) # 100Hz polling
+                    
+            if is_camera_mock:
+                time.sleep(0.3)
+            else:
+                time.sleep(0.01)
 
         move_thread.join()
         if not move_thread.success:
@@ -342,7 +310,7 @@ class MarkerCalibrator(BaseCalibrator):
             
         if getattr(self, 'stop_requested', False):
             return None
-            
+                
         if log_callback: log_callback(f"    -> Swept {len(captured_poses)} dense raw coordinate frames.")
 
         # Return arm and head to original ready pose

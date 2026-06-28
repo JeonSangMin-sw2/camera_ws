@@ -162,6 +162,12 @@ class JointCalibrator(BaseCalibrator):
             'recommended_joint_offset': staged_offset,
             'optimal_offset': staged_offset,
             'converged': converged,
+            'perp_dist_before': final_res.get('perp_dist_before', float('nan')) if final_res else float('nan'),
+            'perp_dist_after': final_res.get('perp_dist_after', float('nan')) if final_res else float('nan'),
+            'axial_offset_mm': final_res.get('axial_offset_mm', float('nan')) if final_res else float('nan'),
+            'lateral_offset_mm': final_res.get('lateral_offset_mm', float('nan')) if final_res else float('nan'),
+            'r_A': final_res.get('r_A', float('nan')) if final_res else float('nan'),
+            'r_B': final_res.get('r_B', float('nan')) if final_res else float('nan'),
         }
 
         # Run one final validation sweep with the recommended joint offset
@@ -580,20 +586,18 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
             log_callback("="*50)
 
-        if not self.marker_st:
-            if log_callback: log_callback("[ERROR] Camera system is not initialized.")
-            return None
-        if not self.robot:
-            if log_callback: log_callback("[ERROR] Robot not connected.")
-            return None
+        is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
 
-        # Pre-check marker visibility
-        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
-        if not initial_check:
-            if log_callback: log_callback("[ERROR] Marker is not visible.")
-            if status_callback: status_callback(False)
-            return None
-        if status_callback: status_callback(True)
+        if not is_camera_mock:
+            # Pre-check marker visibility
+            initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+            if not initial_check:
+                if log_callback: log_callback("[ERROR] Marker is not visible.")
+                if status_callback: status_callback(False)
+                return None
+            if status_callback: status_callback(True)
+        else:
+            if status_callback: status_callback(True)
 
         if getattr(self, 'stop_requested', False):
             return None
@@ -636,17 +640,17 @@ class JointCalibrator(BaseCalibrator):
         q_cand = list(initial_joint_pos)
         q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
 
-        # 1. PHYSICAL SWEEP JOINT A
-        if log_callback: log_callback(f"\n--- [1/2] Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
-        
-        if getattr(self, 'stop_requested', False):
-            return None
-
         # Determine sweep ranges
         range_A = 20.0
         range_B = 20.0
         if mode == "wrist_pitch_v13":
             range_B = 10.0
+
+        # 1. PHYSICAL SWEEP JOINT A
+        if log_callback: log_callback(f"\n--- [1/2] Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
+        
+        if getattr(self, 'stop_requested', False):
+            return None
 
         # Move to start position (-20 deg)
         q_start_A = list(q_cand)
@@ -688,19 +692,24 @@ class JointCalibrator(BaseCalibrator):
                     self.robot.cancel_control()
                 move_thread.join()
                 return None
-            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                
+            if is_camera_mock:
+                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint_A, current_offset_deg=current_offset_deg)
+                res = [pose.tolist()]
+            else:
+                res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                
-                t_elapsed = time.time() - t_start_A
-                ratio = min(1.0, max(0.0, t_elapsed / sweep_duration))
-                q_full_captured = np.copy(initial_full_pose_A)
-                global_joint_idx = arm_idx[sweep_joint_A]
-                q_full_captured[global_joint_idx] = q_start_A[sweep_joint_A] + ratio * (q_end_A[sweep_joint_A] - q_start_A[sweep_joint_A])
+                q_full_captured = np.array(self.robot.get_state().position)
                 
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     dataset_A.append((q_full_captured, pose))
-            time.sleep(0.01) # 100Hz polling (consistent with Joint B)
+                    
+            if is_camera_mock:
+                time.sleep(0.3)
+            else:
+                time.sleep(0.01)
             
         move_thread.join()
         if not move_thread.success:
@@ -745,12 +754,7 @@ class JointCalibrator(BaseCalibrator):
         )
         
         dataset_B = []
-        if self.robot and self.robot != "mock_robot":
-            initial_full_pose_B = np.array(self.robot.get_state().position)
-        else:
-            initial_full_pose_B = np.zeros(20)
 
-        t_start_B = time.time()
         move_thread.start()
         
         while move_thread.is_alive():
@@ -759,20 +763,25 @@ class JointCalibrator(BaseCalibrator):
                     self.robot.cancel_control()
                 move_thread.join()
                 return None
-            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                
+            if is_camera_mock:
+                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint_B, current_offset_deg=current_offset_deg)
+                res = [pose.tolist()]
+            else:
+                res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                
             if res:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                
-                t_elapsed = time.time() - t_start_B
-                ratio = min(1.0, max(0.0, t_elapsed / sweep_duration))
-                q_full_captured = np.copy(initial_full_pose_B)
-                global_joint_idx = arm_idx[sweep_joint_B]
-                q_full_captured[global_joint_idx] = q_start_B[sweep_joint_B] + ratio * (q_end_B[sweep_joint_B] - q_start_B[sweep_joint_B])
+                q_full_captured = np.array(self.robot.get_state().position)
                 
                 if np.linalg.norm(pose[:3, 3]) > 0.01:
                     dataset_B.append((q_full_captured, pose))
-            time.sleep(0.01) # 30Hz polling
-            
+                    
+            if is_camera_mock:
+                time.sleep(0.3)
+            else:
+                time.sleep(0.01)
+                
         move_thread.join()
         if not move_thread.success:
             if log_callback: log_callback("[ERROR] Joint B sweep motion failed or was cancelled.")
@@ -994,7 +1003,7 @@ class JointCalibrator(BaseCalibrator):
                     vi = v - np.dot(v, n_A) * n_A
                     return float(np.dot(vi, _ex6)), float(np.dot(vi, _ey6))
 
-                # ── (A) J6 encoder → J6 평면 각도 선형 매핑 ────────────────────
+                # ── (A) J6 encoder -> J6 plane angle linear mapping ────────────────────
                 pts_a_xyz = np.array([p[:3, 3] * 1000.0 for p in poses_a_t5])
                 angles_A_arr = np.array(angles_A)   # encoder-relative deg
 
@@ -1004,80 +1013,85 @@ class JointCalibrator(BaseCalibrator):
                 j6_plane_angles_rad = np.unwrap(j6_plane_angles_rad)
                 j6_plane_angles_deg = np.degrees(j6_plane_angles_rad)
                 j6_coeffs = np.polyfit(angles_A_arr, j6_plane_angles_deg, 1)
-                slope_enc2plane = j6_coeffs[0]      # ≈ 1.0 이어야 함
-                angle_at_j6_zero = j6_coeffs[1]     # J6 encoder=0° 시 J6 평면 기준방향
+                slope_enc2plane = j6_coeffs[0]      # should be ≈ 1.0
+                angle_at_j6_zero = j6_coeffs[1]     # J6 plane reference angle when J6 encoder = 0°
 
-                # ── (B) J5 포인트들의 J6 평면 내 평균 방향 ──────────────────────
-                # J5=0° 에 가장 가까운 포인트를 보간(sweep 비대칭 편향 제거)
-                pts_b_xyz = np.array([p[:3, 3] * 1000.0 for p in poses_b_t5])
-                angles_B_arr = np.array(angles_B)
+                # ── (B) J6 nominal design angle in J6 plane ───────────────────
+                # Determine J6 nominal ready pose (J5=0, J6=0 nominal)
+                q_ready = np.array(dataset_A[0][0])
+                q_ready[arm_idx[cand_joint]] = nominal_joint_pos
+                
+                angle_design_zero = 0.0
+                try:
+                    # Compute nominal EE position in link_torso_5 frame at q_ready
+                    T_t5_to_ee_nom = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, ee_name, "link_torso_5")
+                    T_t5_to_marker_nom = T_t5_to_ee_nom @ T_ee_to_marker
+                    p_marker_nom_t5 = T_t5_to_marker_nom[:3, 3] * 1000.0
+                    
+                    x_nom, y_nom = _to2d_j6(p_marker_nom_t5)
+                    angle_design_zero = np.degrees(np.arctan2(y_nom, x_nom))
+                except Exception as _ex:
+                    if log_callback:
+                        log_callback(f"  [WARN] Failed to compute nominal J6 design angle: {_ex}. Falling back to J5 sweep angle.")
+                    # Fallback to J5 sweep angle if FK fails
+                    pts_b_xyz = np.array([p[:3, 3] * 1000.0 for p in poses_b_t5])
+                    angles_B_arr = np.array(angles_B)
+                    idx_b0 = int(np.argmin(np.abs(angles_B_arr)))
+                    if idx_b0 + 1 < len(angles_B_arr):
+                        t_interp = -angles_B_arr[idx_b0] / (angles_B_arr[idx_b0 + 1] - angles_B_arr[idx_b0] + 1e-9)
+                        t_interp = float(np.clip(t_interp, 0.0, 1.0))
+                        p_j5_zero = pts_b_xyz[idx_b0] + t_interp * (pts_b_xyz[idx_b0 + 1] - pts_b_xyz[idx_b0])
+                    else:
+                        p_j5_zero = pts_b_xyz[idx_b0]
+                    x_j5z, y_j5z = _to2d_j6(p_j5_zero)
+                    angle_design_zero = float(np.degrees(np.arctan2(y_j5z, x_j5z)))
 
-                # J5=0° 보간 (encoder 기준 relative)
-                idx_b0 = int(np.argmin(np.abs(angles_B_arr)))
-                if idx_b0 + 1 < len(angles_B_arr):
-                    t_interp = -angles_B_arr[idx_b0] / (angles_B_arr[idx_b0 + 1] - angles_B_arr[idx_b0] + 1e-9)
-                    t_interp = float(np.clip(t_interp, 0.0, 1.0))
-                    p_j5_zero = pts_b_xyz[idx_b0] + t_interp * (pts_b_xyz[idx_b0 + 1] - pts_b_xyz[idx_b0])
-                else:
-                    p_j5_zero = pts_b_xyz[idx_b0]
+                # ── (C) J6 Calibration Angle = angle_at_j6_zero - angle_design_zero ─────
+                j6_offset_deg = angle_at_j6_zero - angle_design_zero
+                j6_offset_deg = float((j6_offset_deg + 180.0) % 360.0 - 180.0)
+                j6_correction_raw = -j6_offset_deg
 
-                x_j5z, y_j5z = _to2d_j6(p_j5_zero)
-                mean_j5_plane_angle = float(np.degrees(np.arctan2(y_j5z, x_j5z)))
-
-                # ── (C) J6 보정각 = 두 방향의 차이 ──────────────────────────────
-                j6_correction_raw = mean_j5_plane_angle - angle_at_j6_zero
-                j6_correction_raw = float((j6_correction_raw + 180.0) % 360.0 - 180.0)
-
-                # 불확실성 추산: J6 피팅 잔차 기반
+                # Uncertainty estimation: based on J6 fitting residuals
                 j6_fit_residuals = j6_plane_angles_deg - (slope_enc2plane * angles_A_arr + angle_at_j6_zero)
                 j6_dir_uncertainty = float(j6_fit_residuals.std() / np.sqrt(len(angles_A_arr)))
 
-                # ── (D) 참고용: c_B→J6 축 수직 거리 (구 방법 perp_dist) ──────────
+                # ── (D) Reference only: c_B -> J6 axis perp. distance ──────────
                 v_cb = c_B - c_A
                 perp_before = float(np.linalg.norm(v_cb - np.dot(v_cb, n_A_norm) * n_A_norm))
-                # 새 방법은 단발성(one-shot) 측정: 1회 iter 후 수렴 선언
-                # center_dist = perp_dist_after ≤ 0.1 → 수렴 조건 즉시 만족
-                perp_after = 0.0
-
+                perp_after = 0.0  # One-shot calibration method: converges in 1 iteration
                 optimal_offset_deg = j6_correction_raw
 
-                # ── 마커 설계값 역산 ────────────────────────────────────────────
-                # 기하학적 관계 (J6 roll 축 = ee_right X축):
-                #   r_A = z_m  : 마커의 J6축 수직거리 = ee_right Z 오프셋
-                #   |axial|    : c_A(J6)→c_B(J5) 축방향 거리 ≈ ee_to_marker X + urdf_J6_offset
-                #   r_B = sqrt(r_A² + axial²) 관계 검증 (1% 이내이면 기하학 일관성 OK)
-                r_B_for_design = r_B                                   # J5 sweep 반지름
-                axial_abs      = abs(axial_offset)                      # |c_A → c_B| along J6 axis
-                r_B_pred       = float(np.sqrt(r_A**2 + axial_abs**2)) # 기하학 예측값
+                # ── Bracket Design Values (Back-calculated) ───────────────────────
+                r_B_for_design = r_B                                   # J5 sweep radius
+                axial_abs      = abs(axial_offset)                      # |c_A -> c_B| along J6 axis
+                r_B_pred       = float(np.sqrt(r_A**2 + axial_abs**2)) # design geometry prediction
                 design_check_err_mm = float(abs(r_B_for_design - r_B_pred))
                 design_check_err_pct = design_check_err_mm / max(r_B_for_design, 1e-3) * 100.0
-                # x_m 역산: x_m = sqrt(r_B² - r_A²) - URDF_offset (URDF offset 미포함)
                 x_m_est = float(np.sqrt(max(0.0, r_B_for_design**2 - r_A**2)))
-                # z_m = r_A (J6 sweep으로 직접 측정)
                 z_m_est = r_A
 
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 6 Calibration — 직접 기하학적 방법]")
-                    log_callback(f"    J6 encoder→plane 기울기     : {slope_enc2plane:.4f} (이상: 1.0)")
-                    log_callback(f"    J6 encoder=0° 기준방향       : {angle_at_j6_zero:.4f}°")
-                    log_callback(f"    J5=0° 마커 방향 (J6 평면)   : {mean_j5_plane_angle:.4f}°")
-                    log_callback(f"    ★ J6 보정각                  : {j6_correction_raw:+.4f}°")
-                    log_callback(f"    불확실성(±1σ)                : ±{j6_dir_uncertainty:.4f}°")
-                    log_callback(f"  [참고: 구 방법 perp_dist]")
-                    log_callback(f"    perp_dist(c_B to J6 axis)   : {perp_before:.4f} mm  (새 방법에서는 참고만)")
+                    log_callback(f"  [v1.3 Joint 6 Calibration — Direct Geometric Method]")
+                    log_callback(f"    J6 encoder->plane slope     : {slope_enc2plane:.4f} (Ideal: 1.0)")
+                    log_callback(f"    J6 encoder=0° Ref Angle     : {angle_at_j6_zero:.4f}°")
+                    log_callback(f"    J6 Design Nominal Angle      : {angle_design_zero:.4f}°")
+                    log_callback(f"    ★ J6 Calibration Angle       : {j6_correction_raw:+.4f}°")
+                    log_callback(f"    Uncertainty (±1σ)            : ±{j6_dir_uncertainty:.4f}°")
+                    log_callback(f"  [Reference: Old perp_dist Method]")
+                    log_callback(f"    perp_dist(c_B to J6 axis)   : {perp_before:.4f} mm (Reference Only)")
                     log_callback(f"  [Bracket Design Verification]")
-                    log_callback(f"    r_A  (Joint6 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
-                    log_callback(f"    r_B  (Joint5 sweep radius, total marker-J5 distance) = {r_B_for_design:.3f} mm")
+                    log_callback(f"    r_A (Joint6 sweep radius, lateral offset from axis) = {r_A:.3f} mm")
+                    log_callback(f"    r_B (Joint5 sweep radius, total marker-J5 distance) = {r_B_for_design:.3f} mm")
                     log_callback(f"    axial offset (c_B along Joint6 axis)                 = {axial_offset:.3f} mm")
-                    log_callback(f"  [Marker Design Values (역산)]")
-                    log_callback(f"    기하학 가정: J6 roll축 = ee_right X, J5 pitch축 = ee_right Y")
-                    log_callback(f"    z_marker (= r_A, J6축 수직거리)   : {z_m_est:.3f} mm")
-                    log_callback(f"    x_marker (= sqrt(r_B²-r_A²))      : {x_m_est:.3f} mm  ※ URDF_J6→ee offset 미포함")
-                    log_callback(f"    |axial_offset| (c_A→c_B 축방향)   : {axial_abs:.3f} mm")
-                    log_callback(f"  [기하학 일관성 검증]")
-                    log_callback(f"    r_B 예측 (sqrt(r_A²+axial²))      : {r_B_pred:.3f} mm")
-                    log_callback(f"    r_B 실측                           : {r_B_for_design:.3f} mm")
-                    log_callback(f"    오차                               : {design_check_err_mm:.3f} mm ({design_check_err_pct:.1f}%)  {'✓ OK' if design_check_err_pct < 3.0 else '⚠ 확인필요'}")
+                    log_callback(f"  [Marker Design Values (Back-calculated)]")
+                    log_callback(f"    Geometric Assumptions: J6 roll axis = ee_{arm_side} X, J5 pitch axis = ee_{arm_side} Y")
+                    log_callback(f"    z_marker (= r_A, J6 axis perp. dist) : {z_m_est:.3f} mm")
+                    log_callback(f"    x_marker (= sqrt(r_B²-r_A²))         : {x_m_est:.3f} mm  * Excludes URDF J6->ee offset")
+                    log_callback(f"    |axial_offset| (c_A->c_B axial)      : {axial_abs:.3f} mm")
+                    log_callback(f"  [Geometric Consistency Verification]")
+                    log_callback(f"    r_B Predicted (sqrt(r_A²+axial²))    : {r_B_pred:.3f} mm")
+                    log_callback(f"    r_B Measured                         : {r_B_for_design:.3f} mm")
+                    log_callback(f"    Error                                : {design_check_err_mm:.3f} mm ({design_check_err_pct:.1f}%)  {'✓ OK' if design_check_err_pct < 3.0 else '⚠ Check needed'}")
 
             else:  # wrist_pitch_v13
                 # ─────────────────────────────────────────────────────────────────
@@ -1261,31 +1275,31 @@ class JointCalibrator(BaseCalibrator):
                 converged_wp = fk_phi_ok and triangle_valid
 
                 if log_callback:
-                    log_callback(f"  [v1.3 Joint 5 Calibration — 삼각형 법칙]")
-                    log_callback(f"    L_J5M (r_A, J5→Marker 거리)      : {L_J5M:.3f} mm")
-                    log_callback(f"    r_J3M (r_B, J3→Marker 거리)      : {r_J3M:.3f} mm")
-                    log_callback(f"    L_J3J5 (URDF FK, pitch 평면)     : {L_J3J5:.3f} mm"
+                    log_callback(f"  [v1.3 Joint 5 Calibration — Triangle Law]")
+                    log_callback(f"    L_J5M (r_A, J5->Marker dist)     : {L_J5M:.3f} mm")
+                    log_callback(f"    r_J3M (r_B, J3->Marker dist)     : {r_J3M:.3f} mm")
+                    log_callback(f"    L_J3J5 (URDF FK, pitch plane)    : {L_J3J5:.3f} mm"
                                  f"  {'[FK OK]' if fk_geom_ok else '[fallback:lateral_offset]'}")
-                    log_callback(f"    cos(φ_actual)                    : {cos_phi_meas:.6f}"
-                                 f"  {'← 유효' if triangle_valid else ' ⚠ 삼각부등식 불만족'}")
-                    log_callback(f"    φ_actual (코사인 법칙)            : {phi_actual_deg:.4f}°")
-                    log_callback(f"    φ_nominal (FK J5=0 예측)         : {phi_nominal_deg:.4f}°"
-                                 f"  {'[OK]' if fk_phi_ok else '[FK 실패]'}")
-                    log_callback(f"    ★ J5 오프셋 (삼각형 법칙, staged보정): {delta_triangle:+.4f}°"
+                    log_callback(f"    cos(phi_actual)                  : {cos_phi_meas:.6f}"
+                                 f"  {'<- Valid' if triangle_valid else ' [Warning: Triangle inequality violated]'}")
+                    log_callback(f"    phi_actual (Cosine Rule)         : {phi_actual_deg:.4f}°")
+                    log_callback(f"    phi_nominal (FK J5=0 Prediction) : {phi_nominal_deg:.4f}°"
+                                 f"  {'[OK]' if fk_phi_ok else '[FK Failed]'}")
+                    log_callback(f"    ★ J5 Offset (Triangle Law, staged adjusted): {delta_triangle:+.4f}°"
                                  f"  {'[PRIMARY]' if primary_method == 'triangle_law' else ''}")
-                    log_callback(f"    J5 오프셋 (벡터 비교 cross-check): {delta_direct:+.4f}°"
+                    log_callback(f"    J5 Offset (Vector Cross-Check)   : {delta_direct:+.4f}°"
                                  f"  {'[PRIMARY]' if primary_method == 'direct_vector' else '[cross-check]'}")
                     log_callback(f"    current_offset_deg (staged)      : {current_offset_deg:+.4f}°")
-                    log_callback(f"    최종 사용 방법                    : {primary_method}")
-                    log_callback(f"  [삼각형 일관성 검증]")
-                    log_callback(f"    r_J3M 실측                       : {r_J3M:.3f} mm")
-                    log_callback(f"    r_J3M 예측 (δ5=0)                : {r_J3M_pred_before:.3f} mm"
-                                 f"  → 잔차 {perp_before:.3f} mm")
-                    log_callback(f"    r_J3M 예측 (δ5={optimal_offset_deg:+.2f}°)        : "
+                    log_callback(f"    Selected Method                  : {primary_method}")
+                    log_callback(f"  [Triangle Consistency Verification]")
+                    log_callback(f"    r_J3M Measured                   : {r_J3M:.3f} mm")
+                    log_callback(f"    r_J3M Predicted (delta5=0)       : {r_J3M_pred_before:.3f} mm"
+                                 f"  -> Residual: {perp_before:.3f} mm")
+                    log_callback(f"    r_J3M Predicted (delta5={optimal_offset_deg:+.2f}°) : "
                                  f"{r_J3M_pred_after:.3f} mm"
-                                 f"  → 잔차 {perp_after:.3f} mm"
-                                 f"  {'✓' if perp_after < perp_before else '⚠ 개선 없음'}")
-                    log_callback(f"  [Marker Design Values (Sweep A 기반)]")
+                                 f"  -> Residual: {perp_after:.3f} mm"
+                                 f"  {'✓' if perp_after < perp_before else '[Warning: No improvement]'}")
+                    log_callback(f"  [Marker Design Values (Based on Sweep A)]")
                     log_callback(f"    r_A sweep (= L_J5M)              : {r_A:.3f} mm")
                     log_callback(f"    r_A direct (|cam-perp|)          : {r_A_direct:.3f} mm")
                     log_callback(f"    axial offset along J5 axis       : {axial_direct:.3f} mm"
@@ -1457,8 +1471,26 @@ class JointCalibrator(BaseCalibrator):
         # Wrap diff_angle to [-pi, pi]
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
+        # Initialize/reset adaptive controller variables on iteration 1
+        if current_offset_deg == 0.0:
+            self.last_staged_offset = None
+            self.last_diff_angle = None
+
+        estimated_J_sign = 1.0
+        if getattr(self, "last_staged_offset", None) is not None and getattr(self, "last_diff_angle", None) is not None:
+            delta_offset = current_offset_deg - self.last_staged_offset
+            delta_error = diff_angle - self.last_diff_angle
+            if abs(delta_offset) > 1e-4:
+                estimated_J_sign = np.sign(delta_error) * np.sign(delta_offset)
+                if estimated_J_sign == 0.0:
+                    estimated_J_sign = 1.0
+
+        # Save current state for the next iteration
+        self.last_staged_offset = current_offset_deg
+        self.last_diff_angle = diff_angle
+
         # Match the physical motor driver rotations (negative feedback loop)
-        sign = -1.0 if diff_angle > 0.0 else 1.0
+        sign = - estimated_J_sign if diff_angle > 0.0 else estimated_J_sign
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")

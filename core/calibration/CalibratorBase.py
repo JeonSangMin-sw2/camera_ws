@@ -240,12 +240,8 @@ class BaseCalibrator:
                 logging.error(f"Failed to configure control manager: {ex}")
 
         if is_servo_ok:
-            # 맞으면, 컨트롤 매니저가 enable인지 확인하고 안돼있으면 enable
-            if not is_cm_enabled:
-                logging.info("Servos are ON but Control Manager is disabled. Enabling...")
-                enable_cm_helper(robot)
-            else:
-                logging.info("Servos are ON and Control Manager is already enabled.")
+            logging.info("Servos are ON. Ensuring Control Manager is enabled with unlimited mode...")
+            enable_cm_helper(robot)
         else:
             # 아니면, 일단 disable한다음에 양팔 서보 키고 enable
             logging.info("Servos are not ON. Disabling Control Manager first to turn on servos...")
@@ -299,11 +295,210 @@ class BaseCalibrator:
         T[:3, :3] = R_scipy.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix()
         return T
 
+    def generate_simulated_sweep_dataset(self, arm_side, sweep_joint, sweep_angles_deg, is_joint_calibration=False, mode=None, current_offset_deg=0.0):
+        is_v13 = self.is_v13()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        ee_name = f"ee_{arm_side}"
+        
+        version_key = "v1.3" if is_v13 else "v1.2"
+        if is_joint_calibration:
+            ready_mode = "elbow" if mode == "elbow" else "wrist_pitch"
+            type_key = "joint"
+        else:
+            ready_mode = None
+            type_key = "marker"
+            
+        base_ready_pose = self.get_ready_pose(version_key, type_key, ready_mode, arm_side)
+        if base_ready_pose is None:
+            base_ready_pose = [0.0] * 7
+            
+        if arm_side == "right":
+            j6_gt = 3.2
+            j5_gt = -2.1 if is_v13 else 1.5
+            j3_gt = -1.2
+            bracket_pos_gt = [0.003, -0.001, 0.004]
+            bracket_rpy_gt = [1.0, -1.2, 0.8]
+        else:
+            j6_gt = -2.5
+            j5_gt = 3.6 if is_v13 else -1.8
+            j3_gt = -1.8
+            bracket_pos_gt = [-0.002, 0.001, -0.003]
+            bracket_rpy_gt = [-0.8, 1.5, -1.2]
+            
+        injected_joint_offsets_deg = [0.0] * 7
+        injected_joint_offsets_deg[3] = j3_gt
+        injected_joint_offsets_deg[5] = j5_gt
+        injected_joint_offsets_deg[6] = j6_gt
+        
+        version_suffix = "_v13" if is_v13 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            
+        if tf_vec is not None and len(tf_vec) >= 6:
+            nominal_pos = tf_vec[:3]
+            nominal_rpy = tf_vec[3:6]
+        else:
+            nominal_pos = [0.095, 0.0, -0.005]
+            if arm_side == "left":
+                nominal_rpy = [90.0, 0.0, 0.0] if not is_v13 else [90.0, 0.0, -90.0]
+            else:
+                nominal_rpy = [90.0, 0.0, 180.0] if not is_v13 else [90.0, 0.0, 180.0]
+                
+        marker_pos_gt = np.array(nominal_pos) + np.array(bracket_pos_gt)
+        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+        R_bracket_offset = R_scipy.from_euler('ZYX', [bracket_rpy_gt[2], bracket_rpy_gt[1], bracket_rpy_gt[0]], degrees=True).as_matrix()
+        R_ee_m_gt = R_bracket_offset @ R_ee_m_ideal
+        
+        T_ee_to_marker_gt = np.eye(4)
+        T_ee_to_marker_gt[:3, :3] = R_ee_m_gt
+        T_ee_to_marker_gt[:3, 3] = marker_pos_gt
+        
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_head_to_cam_gt = self.make_transform(mount_to_cam)
+        
+        dataset = []
+        dof = len(self.robot.get_state().position) if hasattr(self.robot, "get_state") else 20
+        dyn_model = self.robot.get_dynamics()
+        
+        for angle_deg in sweep_angles_deg:
+            q_captured = np.zeros(dof)
+            q_actual = np.zeros(dof)
+            
+            for i, val in enumerate(base_ready_pose):
+                q_captured[arm_idx[i]] = val
+                q_actual[arm_idx[i]] = val + np.radians(injected_joint_offsets_deg[i])
+                
+            q_captured[arm_idx[sweep_joint]] = base_ready_pose[sweep_joint] + np.radians(angle_deg)
+            q_actual[arm_idx[sweep_joint]] = base_ready_pose[sweep_joint] + np.radians(angle_deg + injected_joint_offsets_deg[sweep_joint] - current_offset_deg)
+            
+            T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
+            T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
+            
+            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_head_to_cam_gt
+            
+            T_cam_to_marker = np.linalg.inv(T_t5_to_cam) @ T_t5_to_marker
+            
+            dataset.append((q_captured, T_cam_to_marker))
+            
+        return dataset
+
+    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0):
+        is_v13 = self.is_v13()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        ee_name = f"ee_{arm_side}"
+        
+        if arm_side == "right":
+            j6_gt = 3.2
+            j5_gt = -2.1 if is_v13 else 1.5
+            j3_gt = 0.8
+            bracket_pos_gt = [0.003, -0.001, 0.004]
+            bracket_rpy_gt = [1.0, -1.2, 0.8]
+        else:
+            j6_gt = -2.5
+            j5_gt = 3.6 if is_v13 else -1.8
+            j3_gt = 0.8
+            bracket_pos_gt = [-0.002, 0.001, -0.003]
+            bracket_rpy_gt = [-0.8, 1.5, -1.2]
+            
+        injected_joint_offsets_deg = [0.0] * 7
+        injected_joint_offsets_deg[3] = j3_gt
+        injected_joint_offsets_deg[5] = j5_gt
+        injected_joint_offsets_deg[6] = j6_gt
+        
+        state = self.robot.get_state()
+        q_actual = np.array(state.position)
+        
+        for i in range(7):
+            q_actual[arm_idx[i]] += np.radians(injected_joint_offsets_deg[i])
+            
+
+        dyn_model = self.robot.get_dynamics()
+        T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
+        
+        version_suffix = "_v13" if is_v13 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            
+        if tf_vec is not None and len(tf_vec) >= 6:
+            nominal_pos = tf_vec[:3]
+            nominal_rpy = tf_vec[3:6]
+        else:
+            nominal_pos = [0.095, 0.0, -0.005]
+            if arm_side == "left":
+                nominal_rpy = [90.0, 0.0, 0.0] if not is_v13 else [90.0, 0.0, -90.0]
+            else:
+                nominal_rpy = [90.0, 0.0, 180.0] if not is_v13 else [90.0, 0.0, 180.0]
+                
+        marker_pos_gt = np.array(nominal_pos) + np.array(bracket_pos_gt)
+        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+        R_bracket_offset = R_scipy.from_euler('ZYX', [bracket_rpy_gt[2], bracket_rpy_gt[1], bracket_rpy_gt[0]], degrees=True).as_matrix()
+        R_ee_m_gt = R_bracket_offset @ R_ee_m_ideal
+        
+        T_ee_to_marker_gt = np.eye(4)
+        T_ee_to_marker_gt[:3, :3] = R_ee_m_gt
+        T_ee_to_marker_gt[:3, 3] = marker_pos_gt
+        
+        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
+        
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_head_to_cam_gt = self.make_transform(mount_to_cam)
+        
+        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_2", "link_torso_5")
+        T_t5_to_cam = T_t5_to_head @ T_head_to_cam_gt
+        
+        T_cam_to_marker = np.linalg.inv(T_t5_to_cam) @ T_t5_to_marker
+        
+        return T_cam_to_marker
+
     def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
         if getattr(self, 'stop_requested', False):
             return False
         if not robot:
             return False
+            
+        is_mock = (robot == "mock_robot" or getattr(robot, "is_pure_mock", False) or hasattr(robot, "is_pure_mock") or type(robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+        if is_mock:
+            logging.info(f"[MOCK] movej executed: torso={torso}, right_arm={right_arm}, left_arm={left_arm}, head={head}")
+            state = robot.get_state()
+            model = robot.model()
+            
+            q_start = state.position.copy()
+            q_end = state.position.copy()
+            
+            if right_arm is not None:
+                for i, val in enumerate(right_arm):
+                    q_end[model.right_arm_idx[i]] = val
+            if left_arm is not None:
+                for i, val in enumerate(left_arm):
+                    q_end[model.left_arm_idx[i]] = val
+            if head is not None:
+                head_idx = getattr(model, "head_idx", [18, 19])
+                for i, val in enumerate(head):
+                    q_end[head_idx[i]] = val
+            if torso is not None:
+                torso_idx = getattr(model, "torso_idx", list(range(6)))
+                for i, val in enumerate(torso):
+                    q_end[torso_idx[i]] = val
+                    
+            t_start = time.time()
+            duration = minimum_time if minimum_time > 0 else 0.1
+            
+            while True:
+                t_elapsed = time.time() - t_start
+                ratio = min(1.0, t_elapsed / duration)
+                state.position = q_start + ratio * (q_end - q_start)
+                if ratio >= 1.0:
+                    break
+                time.sleep(0.05)
+                
+            return True
             
         if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:
             # Offset mapping: Joint 3 (index 3) is elbow
@@ -498,6 +693,7 @@ class BaseCalibrator:
         
         return center_3d, R_circle, radius_3d, rmse, pts_2d_all, uc_opt, vc_opt
 
+    @staticmethod
     def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False):
         points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])
         angles_rad_base = np.radians(captured_angles)
