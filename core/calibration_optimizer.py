@@ -1326,3 +1326,96 @@ class CalibrationOptimizer:
         mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_cam)
         head_base_to_cam_new = self.get_calibrated_head_base_to_cam(xi_cam)
         return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new
+
+
+def optimize_with_divergence_check(optimizer, q_arm_list, q_head_list, T_meas_list):
+    """
+    Runs the optimization loop on an optimizer instance (either QPCalibrationOptimizer or CalibrationOptimizer)
+    with divergence detection and safe state recovery.
+    """
+    if optimizer.use_head_kinematics and q_head_list is None:
+        raise RuntimeError(
+            "Head kinematics are enabled for this ndof, but q_head_list is missing."
+        )
+
+    q_arm_offset = np.zeros(len(optimizer.arm_idx))
+    q_head_offset = np.zeros(len(optimizer.head_idx)) if optimizer.optimize_head else None
+    xi_cam = np.zeros(6)
+
+    best_err = float('inf')
+    best_q_arm_offset = q_arm_offset.copy()
+    best_q_head_offset = q_head_offset.copy() if q_head_offset is not None else None
+    best_xi_cam = xi_cam.copy()
+    consecutive_increases = 0
+
+    for it in range(optimizer.max_iter):
+        try:
+            dx, total_err = optimizer.compute_step(
+                q_arm_list,
+                q_head_list,
+                T_meas_list,
+                q_arm_offset,
+                q_head_offset,
+                xi_cam,
+            )
+        except Exception as e:
+            print(f"[WARNING] Optimization step failed with exception: {e} at iteration {it}! Reverting to best parameters and halting.")
+            q_arm_offset = best_q_arm_offset.copy()
+            if q_head_offset is not None:
+                q_head_offset = best_q_head_offset.copy()
+            xi_cam = best_xi_cam.copy()
+            break
+
+        
+        # Check for divergence before updating state
+        if np.isnan(total_err) or np.isinf(total_err):
+            print(f"[WARNING] Optimization error is numerical invalid ({total_err}) at iteration {it}! Reverting to best parameters and halting.")
+            q_arm_offset = best_q_arm_offset.copy()
+            if q_head_offset is not None:
+                q_head_offset = best_q_head_offset.copy()
+            xi_cam = best_xi_cam.copy()
+            break
+
+        if total_err < best_err:
+            best_err = total_err
+            best_q_arm_offset = q_arm_offset.copy()
+            if q_head_offset is not None:
+                best_q_head_offset = q_head_offset.copy()
+            best_xi_cam = xi_cam.copy()
+            consecutive_increases = 0
+        else:
+            consecutive_increases += 1
+
+        if total_err > best_err * 2.0:
+            print(f"[WARNING] Optimization error exploded ({total_err:.3e} > 2.0 * best_error {best_err:.3e}) at iteration {it}! Reverting to best parameters and halting.")
+            q_arm_offset = best_q_arm_offset.copy()
+            if q_head_offset is not None:
+                q_head_offset = best_q_head_offset.copy()
+            xi_cam = best_xi_cam.copy()
+            break
+
+        if consecutive_increases >= 5:
+            print(f"[WARNING] Optimization error has been increasing consecutively for {consecutive_increases} iterations (current error: {total_err:.3e}, best error: {best_err:.3e}) at iteration {it}! Reverting to best parameters and halting.")
+            q_arm_offset = best_q_arm_offset.copy()
+            if q_head_offset is not None:
+                q_head_offset = best_q_head_offset.copy()
+            xi_cam = best_xi_cam.copy()
+            break
+
+        q_arm_offset, q_head_offset, xi_cam = optimizer.apply_update(
+            q_arm_offset,
+            q_head_offset,
+            xi_cam,
+            dx,
+        )
+
+        print(f"[{it:02d}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
+
+        if np.linalg.norm(dx) < optimizer.eps:
+            print("Converged.")
+            break
+
+    mount_to_cam_new = optimizer.get_calibrated_mount_to_cam(xi_cam)
+    head_base_to_cam_new = optimizer.get_calibrated_head_base_to_cam(xi_cam)
+    return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new
+

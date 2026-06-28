@@ -681,6 +681,276 @@ class MarkerCalibrator(BaseCalibrator):
             'min_radius': radius_4
         }
 
+    def compute_unified_bracket_calibration_v1_3_with_divergence_check(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
+        L_5_ee = self.get_link_length(arm_side)
+
+        # 1. Nominal marker orientation in EE frame
+        version_suffix = "_v13" if self.is_v13() else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            
+        if tf_vec is not None and len(tf_vec) >= 6:
+            nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
+        else:
+            nominal_rpy = [90.0, 0.0, -90.0]
+        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+
+        # Helper to extract rotation axis
+        def extract_axis_from_rotations(poses, ideal_axis):
+            if len(poses) < 2: return ideal_axis
+            mid_idx = len(poses) // 2
+            R_ref = poses[mid_idx][:3, :3]
+            axes = []
+            for i, T in enumerate(poses):
+                if i == mid_idx: continue
+                R_rel = R_ref.T @ T[:3, :3] 
+                rotvec = R_scipy.from_matrix(R_rel).as_rotvec()
+                angle = np.linalg.norm(rotvec)
+                if angle > np.radians(1.0):
+                    axis = rotvec / angle
+                    if np.dot(axis, ideal_axis) < 0: axis = -axis
+                    axes.append(axis)
+            if len(axes) > 0:
+                avg_axis = np.mean(axes, axis=0)
+                return avg_axis / np.linalg.norm(avg_axis)
+            return ideal_axis
+
+        # Ideal axes in marker frame (for sign resolution)
+        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
+        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
+
+        poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
+        n6_marker_actual = extract_axis_from_rotations(poses_6, x_ee_m_ideal)
+
+        poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
+        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+
+        if marker_data_4 is not None:
+            poses_4 = marker_data_4.get('captured_poses', [])
+            n4_marker_actual = extract_axis_from_rotations(poses_4, z_ee_m_ideal)
+        else:
+            n4_marker_actual = None
+
+        radius_6 = marker_data_6.get('radius', 0.0) if marker_data_6 else 0.0
+        radius_5 = marker_data_5.get('radius', 0.0) if marker_data_5 else 0.0
+        radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
+
+        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else 95.0
+        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else 0.0
+        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else -5.0
+
+        # Stage 1: Solve for Joint 6 offset and marker roll misalignment using 6-axis sweep data
+        R_list_6 = []
+        if self.robot and self.robot != "mock_robot":
+            try:
+                mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+                T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+                R_t5_to_cam = T_t5_to_cam_fixed[:3, :3]
+                dyn_model = self.robot.get_dynamics()
+                ee_name = f"ee_{arm_side}"
+                q_full_6 = marker_data_6.get('captured_q_full', [])
+                for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
+                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                    R_ee_to_t5 = T_t5_to_ee[:3, :3].T
+                    R_cam_to_marker = T_cam_to_marker[:3, :3]
+                    R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
+                    R_list_6.append(R_ee_to_marker)
+            except Exception as e:
+                logging.warning(f"Kinematic calculation failed in stage 1: {e}")
+
+        if len(R_list_6) > 0:
+            M = np.mean(R_list_6, axis=0)
+            U, S, Vt = np.linalg.svd(M)
+            R_ee_m_measured = U @ Vt
+            if np.linalg.det(R_ee_m_measured) < 0:
+                U[:, 2] *= -1
+                R_ee_m_measured = U @ Vt
+        else:
+            # Fallback to Gram-Schmidt if no robot kinematics available
+            x_col = n6_marker_actual
+            y_col = n5_marker_actual - np.dot(n5_marker_actual, x_col) * x_col
+            y_col /= np.linalg.norm(y_col)
+            z_col = np.cross(x_col, y_col)
+            R_ee_m_measured = np.column_stack((x_col, y_col, z_col)).T
+
+        # Decompose R_ee_m_measured into ZYX Euler angles
+        # Calculate rotation difference in the EE frame: R_diff = R_ee_m_measured @ R_ee_m_ideal.T
+        R_diff = R_ee_m_measured @ R_ee_m_ideal.T
+        yaw_diff, pitch_diff, roll_diff = R_scipy.from_matrix(R_diff).as_euler('ZYX', degrees=True)
+        
+        # Calculate J6 offset based on marker roll misalignment in the EE frame
+        opt_delta_6_deg = roll_diff
+        # Normalize to [-180, 180] range
+        opt_delta_6_deg = (opt_delta_6_deg + 180.0) % 360.0 - 180.0
+        d6_init = np.radians(opt_delta_6_deg)
+
+        # Stage 2: QP optimization for offsets, position, and orientation errors (in meters & radians)
+        x_nom_m = x_nom / 1000.0
+        y_nom_m = y_nom / 1000.0
+        radius_6_m = radius_6 / 1000.0
+        radius_5_m = radius_5 / 1000.0
+        radius_4_m = radius_4 / 1000.0
+        z_init_m = -radius_6_m if radius_6_m > abs(z_nom / 1000.0) + 0.010 else (z_nom / 1000.0)
+        L_5_ee_m = L_5_ee / 1000.0
+        L_nom_m  = L_5_ee_m  # nominal link length from robot model
+
+        # State vector: [yaw_off, pitch_off, roll_off, d5, d6, x_e, y_e, z_e, L_5_ee] in meters/radians
+        x_state = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
+        x_target = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
+        w_reg = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-3, 1e-2, 1e-3, 2e-2])
+
+        x_min = np.array([
+            -np.radians(30.0), -np.radians(30.0), 0.0,
+            -np.radians(15.0), d6_init - np.radians(15.0),
+            x_nom_m - 0.030, y_nom_m - 0.003, -0.250,
+            L_nom_m - 0.080
+        ])
+        x_max = np.array([
+            np.radians(30.0), np.radians(30.0), 0.0,
+            np.radians(15.0), d6_init + np.radians(15.0),
+            x_nom_m + 0.030, y_nom_m + 0.003, 0.010,
+            L_nom_m + 0.080
+        ])
+
+        def eval_residuals(x):
+            y_off, p_off, r_off, d5_val, d6_val, xe, ye, ze, L_m = x
+            R_off = R_scipy.from_euler('ZYX', [y_off, p_off, r_off]).as_matrix()
+            R_em = R_off @ R_ee_m_ideal
+            
+            n6_p = R_em.T @ np.array([1.0, 0.0, 0.0])
+            n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
+            
+            r6_p = np.sqrt(ye**2 + ze**2)
+            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) + L_m
+            r5_p = np.sqrt(xe**2 + Z_p**2)
+            
+            res = []
+            res.extend(n6_marker_actual - n6_p)
+            res.extend(n5_marker_actual - n5_p)
+            
+            if n4_marker_actual is not None:
+                n4_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ R_scipy.from_euler('Y', -d5_val).as_matrix() @ np.array([0.0, 0.0, 1.0])
+                res.extend(n4_marker_actual - n4_p)
+                
+            res.append(radius_6_m - r6_p)
+            res.append(radius_5_m - r5_p)
+            if marker_data_4 is not None:
+                Y_p = ye * np.cos(d6_val) - ze * np.sin(d6_val)
+                r4_p = np.sqrt((xe * np.cos(d5_val) + Z_p * np.sin(d5_val))**2 + Y_p**2)
+                res.append(radius_4_m - r4_p)
+                
+            for idx in range(len(x)):
+                res.append(w_reg[idx] * (x[idx] - x_target[idx]))
+            return np.array(res, dtype=float)
+
+        max_iter = 150
+        eps_converge = 1e-9
+        qp_reg = 1e-8
+
+        import qpsolvers
+        best_err = float('inf')
+        best_x_state = x_state.copy()
+        consecutive_increases = 0
+
+        for iteration in range(max_iter):
+            f_vals = eval_residuals(x_state)
+            curr_err = np.linalg.norm(f_vals)
+
+            if np.isnan(curr_err) or np.isinf(curr_err):
+                print(f"[WARNING] Bracket calibration optimization error is numerical invalid ({curr_err}) at iteration {iteration}! Reverting to best parameters and halting.")
+                x_state = best_x_state.copy()
+                break
+
+            if curr_err < best_err:
+                best_err = curr_err
+                best_x_state = x_state.copy()
+                consecutive_increases = 0
+            else:
+                consecutive_increases += 1
+
+            if curr_err > best_err * 2.0:
+                print(f"[WARNING] Bracket calibration optimization error exploded ({curr_err:.3e} > 2.0 * best_error {best_err:.3e}) at iteration {iteration}! Reverting to best parameters and halting.")
+                x_state = best_x_state.copy()
+                break
+
+            if consecutive_increases >= 10:
+                print(f"[WARNING] Bracket calibration optimization error has been increasing consecutively for {consecutive_increases} iterations (current error: {curr_err:.3e}, best error: {best_err:.3e}) at iteration {iteration}! Reverting to best parameters and halting.")
+                x_state = best_x_state.copy()
+                break
+            
+            # Numeric Jacobian (centered differences)
+            eps_jac = 1e-7
+            J = np.zeros((len(f_vals), len(x_state)))
+            for j in range(len(x_state)):
+                x_plus = x_state.copy()
+                x_plus[j] += eps_jac
+                f_plus = eval_residuals(x_plus)
+                x_minus = x_state.copy()
+                x_minus[j] -= eps_jac
+                f_minus = eval_residuals(x_minus)
+                J[:, j] = (f_plus - f_minus) / (2.0 * eps_jac)
+                
+            H = J.T @ J
+            g = J.T @ f_vals
+            
+            P = H + qp_reg * np.eye(len(x_state))
+            q = g
+            
+            dx_max = np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.05, 0.05, 0.05, 0.05])
+            lb = np.maximum(-dx_max, x_min - x_state)
+            ub = np.minimum(dx_max, x_max - x_state)
+            
+            dx = qpsolvers.solve_qp(P, q, lb=lb, ub=ub, solver='osqp')
+            if dx is None:
+                dx = -0.1 * g / (np.linalg.norm(g) + 1e-8)
+                dx = np.clip(dx, lb, ub)
+                
+            x_state += dx
+            if np.linalg.norm(dx) < eps_converge:
+                break
+
+        yaw_off_opt, pitch_off_opt, roll_off_opt, d5_opt, d6_opt, xe_opt, ye_opt, ze_opt, L_5_ee_solved = x_state
+        xe_opt = xe_opt * 1000.0
+        ye_opt = ye_opt * 1000.0
+        ze_opt = ze_opt * 1000.0
+        L_5_ee = L_5_ee_solved * 1000.0  # update with optimized value
+
+        opt_delta_5 = float(np.degrees(d5_opt))
+        opt_delta_6 = float(np.degrees(d6_opt))
+
+        R_off_opt = R_scipy.from_euler('ZYX', [yaw_off_opt, pitch_off_opt, roll_off_opt]).as_matrix()
+        R_ee_m_actual = R_off_opt @ R_ee_m_ideal
+        euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
+        yaw_e, pitch_e, roll_e = euler_deg
+        if arm_side == "right" and yaw_e < 0:
+            yaw_e += 360.0
+
+        rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
+        rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
+
+        dot_val = np.dot(n6_marker_actual, n5_marker_actual)
+        ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
+
+        return {
+            'converged': True,
+            'x_e': xe_opt, 'y_e': ye_opt, 'z_e': ze_opt,
+            'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
+            'L_5_ee': L_5_ee,  # optimized link length
+            'radius_6': radius_6, 'radius_5': radius_5, 'radius_4': radius_4,
+            'ortho_err': ortho_err,
+            'rmse_6': marker_data_6.get('rmse', 0.0) if marker_data_6 else 0.0,
+            'rmse_5': marker_data_5.get('rmse', 0.0) if marker_data_5 else 0.0,
+            'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 is not None else 0.0,
+            'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
+            'warn_large_angle': rot_err_deg > 15.0,
+            'opt_delta_5': opt_delta_5,
+            'opt_delta_6': opt_delta_6,
+            'min_radius': radius_4
+        }
+
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
         if self.is_v13():
             return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance, marker_data_4=marker_data_4)

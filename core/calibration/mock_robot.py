@@ -35,6 +35,19 @@ class PureMockDynamics:
         T[2, 3] = self.L_3_5 / 1000.0
         return T
 
+    def get_limit_q_lower(self, state):
+        return np.full(20, -3.14)
+
+    def get_limit_q_upper(self, state):
+        return np.full(20, 3.14)
+
+    def compute_diff_forward_kinematics(self, state):
+        pass
+
+    def compute_body_jacobian(self, state, idx_from, idx_to):
+        return np.zeros((6, 20))
+
+
 class PureMockRobot:
     def __init__(self, arm_side="right", model_name="m"):
         self._model = PureMockModel()

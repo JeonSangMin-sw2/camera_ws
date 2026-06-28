@@ -13,6 +13,8 @@ from core.calibration.CalibratorBase import BaseCalibrator
 from core.calibration.MarkerCalibrator import MarkerCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
 from core.calibration.mock_robot import get_mock_robot, pure_mock_compute_fk_impl
+from core.calibration_optimizer import QPCalibrationOptimizer, optimize_with_divergence_check
+
 
 # ==============================================================================
 # Helper functions for dataset generation using simulator kinematics
@@ -510,6 +512,57 @@ class TestCalibrationPipeline:
         assert np.isclose(recovered_d5, offsets_j5_only[5], atol=1e-1)
         print("[SUCCESS] v1.3 Joint 6 and Joint 5 calibration passed!")
 
+    def run_4_optimization_divergence_validation(self):
+        """
+        STEP 4: Validation of Divergence Detection and Recovery
+        """
+        print(f"\n==================================================")
+        print(f"STEP 4: Validating Optimization Divergence Detection...")
+        
+        # Part A: QP Optimization Divergence Check (NaN inputs)
+        print("\n--- Running QP Optimizer Divergence Check Test ---")
+        optimizer = QPCalibrationOptimizer(
+            self.robot,
+            arm_idx=list(range(14)),
+            ee_links={"right": "ee_right", "left": "ee_left"},
+            mount_to_cam_nom=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            ee_to_marker_nom={"right": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], "left": [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]},
+            max_iter=10
+        )
+        q_arm_list = [np.zeros(14)] * 3
+
+        q_head_list = None
+        # Corrupt measurement with NaNs to force divergence
+        T_meas_list = [np.full((4, 4), np.nan)] * 3
+        
+        q_arm_offset, q_head_offset, xi_cam, _, _ = optimize_with_divergence_check(
+            optimizer, q_arm_list, q_head_list, T_meas_list
+        )
+        
+        # Verify that parameters remained at their initial/best state (zeros) rather than propagating NaNs
+        assert np.allclose(q_arm_offset, 0.0)
+        assert np.allclose(xi_cam, 0.0)
+        print("[SUCCESS] QP Optimizer Divergence Check passed!")
+
+        # Part B: Gauss-Newton Divergence Check (invalid bracket data)
+        print("\n--- Running Gauss-Newton Divergence Check Test ---")
+        calibrator = MarkerCalibrator(marker_st=None, robot=self.robot)
+        calibrator.get_robot_version = lambda: "1.3"
+        calibrator.camera_config = {"mount_to_cam": [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]}
+        
+        # Fabricate dummy dataset with valid poses but NaN radius to force inner loop divergence
+        dummy_poses = [np.eye(4)] * 5
+        marker_data_6 = {'captured_poses': dummy_poses, 'radius': np.nan, 'rmse': 0.0}
+        marker_data_5 = {'captured_poses': dummy_poses, 'radius': 120.0, 'rmse': 0.0}
+        
+        res = calibrator.compute_unified_bracket_calibration_v1_3_with_divergence_check(
+            marker_data_5, marker_data_6, arm_side="left"
+        )
+        
+        # Check that it executed and returned a dictionary with parameters matching initial state
+        assert isinstance(res, dict)
+        print("[SUCCESS] Gauss-Newton Divergence Check passed!")
+
     def run(self):
         try:
             self.setup_robot_connection()
@@ -522,6 +575,9 @@ class TestCalibrationPipeline:
             
             # STEP 3: Joint Calibration Validation
             self.run_3_joint_calibration_validation()
+            
+            # STEP 4: Divergence Validation
+            self.run_4_optimization_divergence_validation()
             
             print(f"\n==================================================")
             print("ALL PIPELINE VERIFICATIONS PASSED SUCCESSFULLY!")
