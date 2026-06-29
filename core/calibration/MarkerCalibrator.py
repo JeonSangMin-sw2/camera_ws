@@ -182,8 +182,6 @@ class MarkerCalibrator(BaseCalibrator):
             global_joint_idx = arm_idx[joint_i]
             q_min = q_lower_all[global_joint_idx]
             q_max = q_upper_all[global_joint_idx]
-            if log_callback:
-                log_callback(f"[INFO] Active joint {global_joint_idx} limits: min={np.degrees(q_min):.2f}°, max={np.degrees(q_max):.2f}°")
         except Exception as e:
             if log_callback:
                 log_callback(f"[WARN] Failed to retrieve joint limits: {e}")
@@ -392,7 +390,7 @@ class MarkerCalibrator(BaseCalibrator):
             logging.warning(f"Failed to get link kinematics: {e}")
             return 300.0
 
-    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
+    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
@@ -517,8 +515,14 @@ class MarkerCalibrator(BaseCalibrator):
         L_nom_m  = L_5_ee_m  # nominal link length from robot model
 
         # State vector: [yaw_off, pitch_off, roll_off, d5, d6, x_e, y_e, z_e, L_5_ee] in meters/radians
-        x_state = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
-        x_target = np.array([0.0, 0.0, 0.0, 0.0, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
+        d5_init = np.radians(calib_pitch_deg) if calib_pitch_deg is not None else 0.0
+        d6_init = np.radians(calib_roll_deg) if calib_roll_deg is not None else d6_init
+        
+        d5_half = 1e-5 if calib_pitch_deg is not None else np.radians(15.0)
+        d6_half = 1e-5 if calib_roll_deg is not None else np.radians(15.0)
+
+        x_state = np.array([0.0, 0.0, 0.0, d5_init, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
+        x_target = np.array([0.0, 0.0, 0.0, d5_init, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
         # Regularization weights:
         # - y_e: strongly pulled to y_nom (physical bracket should have small y offset ≤1 mm)
         # - L_5_ee: strongly pulled to robot model value (unlikely to deviate >40 mm)
@@ -529,13 +533,13 @@ class MarkerCalibrator(BaseCalibrator):
         # L_5_ee bounded tightly around robot-model value (±80 mm)
         x_min = np.array([
             -np.radians(30.0), -np.radians(30.0), 0.0,
-            -np.radians(15.0), d6_init - np.radians(15.0),
+            d5_init - d5_half, d6_init - d6_half,
             x_nom_m - 0.030, y_nom_m - 0.003, -0.250,
             L_nom_m - 0.080
         ])
         x_max = np.array([
             np.radians(30.0), np.radians(30.0), 0.0,
-            np.radians(15.0), d6_init + np.radians(15.0),
+            d5_init + d5_half, d6_init + d6_half,
             x_nom_m + 0.030, y_nom_m + 0.003, 0.010,
             L_nom_m + 0.080
         ])
@@ -919,9 +923,9 @@ class MarkerCalibrator(BaseCalibrator):
             'min_radius': radius_4
         }
 
-    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None):
+    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None):
         if self.is_v13():
-            return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance, marker_data_4=marker_data_4)
+            return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance, marker_data_4=marker_data_4, calib_roll_deg=calib_roll_deg, calib_pitch_deg=calib_pitch_deg)
 
         L_5_ee = self.get_link_length(arm_side)
 

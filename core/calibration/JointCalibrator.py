@@ -8,7 +8,39 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares, minimize_scalar
 from scipy.spatial.transform import Rotation as R_scipy
-from .CalibratorBase import BaseCalibrator
+class DebugLogger:
+    def __init__(self, original_log_callback, file_path):
+        self.original_log_callback = original_log_callback
+        self.file_path = file_path
+        self.buffer = []
+        
+    def log(self, msg):
+        self.buffer.append(msg)
+        msg_upper = msg.upper()
+        if (
+            "[SAFETY WARNING]" in msg_upper or
+            "[SUCCESS]" in msg_upper or
+            "[ERROR]" in msg_upper or
+            "[WARN]" in msg_upper or
+            "[INFO]" in msg_upper or
+            "[VALIDATION SWEEP]" in msg_upper or
+            "[ITERATION" in msg_upper or
+            "RECOMMENDED ABSOLUTE OFFSET" in msg_upper or
+            "STEP CORRECTION" in msg_upper or
+            "COMMENCING" in msg_upper or
+            "SWEPT" in msg_upper or
+            "SWEEP COMPLETE" in msg_upper or
+            "STARTING" in msg_upper
+        ):
+            if self.original_log_callback:
+                self.original_log_callback(msg)
+                
+    def save(self):
+        try:
+            with open(self.file_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(self.buffer) + "\n")
+        except Exception:
+            pass
 
 class JointCalibrator(BaseCalibrator):
     def __init__(self, marker_st=None, robot=None):
@@ -19,155 +51,164 @@ class JointCalibrator(BaseCalibrator):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
-        if log_callback:
-            log_callback("\n" + "="*60)
-            log_callback("   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE")
-            log_callback(f"   Target Arm: {arm_side.upper()} | Joint Target: {mode.upper()}")
-            log_callback("="*60 + "\n")
+        config_dir = os.path.abspath(os.path.dirname(__file__))
+        debug_file_path = os.path.join(config_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
+        logger = DebugLogger(log_callback, debug_file_path)
+        original_log = log_callback
+        log_callback = logger.log
+
+        try:
+            if original_log:
+                log_callback("\n" + "="*60)
+                log_callback("   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE")
+                log_callback(f"   Target Arm: {arm_side.upper()} | Joint Target: {mode.upper()}")
+                log_callback("="*60 + "\n")
+                
+            # save_debug는 첫 번째 sweep(원본 데이터)에서만 저장
+            _sweep_count = [0]
+            def run_single_sweep(offset):
+                _sweep_count[0] += 1
+                do_save = save_debug and (_sweep_count[0] == 1)
+                return self.perform_calibration_sweep_continuous(
+                    arm_side, mode, log_callback=log_callback, status_callback=status_callback,
+                    current_offset_deg=offset, sweep_duration=sweep_duration,
+                    use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
+                )
+                
+            max_iterations = 6
+            staged_offset = current_offset_deg
+            final_res = None
+            first_res = None
+            converged = False
             
-        # save_debug는 첫 번째 sweep(원본 데이터)에서만 저장
-        _sweep_count = [0]
-        def run_single_sweep(offset):
-            _sweep_count[0] += 1
-            do_save = save_debug and (_sweep_count[0] == 1)
-            return self.perform_calibration_sweep_continuous(
-                arm_side, mode, log_callback=log_callback, status_callback=status_callback,
-                current_offset_deg=offset, sweep_duration=sweep_duration,
-                use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
-            )
-            
-        max_iterations = 8
-        staged_offset = current_offset_deg
-        final_res = None
-        first_res = None
-        converged = False
+            for i in range(1, max_iterations + 1):
+                if getattr(self, 'stop_requested', False):
+                    if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
+                    return None
+                if log_callback:
+                    log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping with staged offset {staged_offset:.4f}°...")
+                    
+                res = run_single_sweep(staged_offset)
+                if not res:
+                    if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
+                    return None
+                    
+                if first_res is None:
+                    first_res = res
         
-        for i in range(1, max_iterations + 1):
-            if getattr(self, 'stop_requested', False):
-                if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
-                return None
-            if log_callback:
-                log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping with staged offset {staged_offset:.4f}°...")
+                angle_error = res.get('angle_between_normals', 0.0)
+                sign = res.get('sign', 1.0)
                 
-            res = run_single_sweep(staged_offset)
-            if not res:
-                if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
-                return None
-                
-            if first_res is None:
-                first_res = res
-
-            angle_error = res.get('angle_between_normals', 0.0)
-            sign = res.get('sign', 1.0)
-            
-            is_v13_mode = mode in ("wrist_roll_v13", "wrist_pitch_v13")
-            if is_v13_mode:
-                center_dist = res.get('perp_dist_after', 999.0)
-                angle_dev = abs(angle_error - 90.0)
-            else:
-                center_dist = res.get('center_dist', 999.0)
-                angle_dev = angle_error
-                
-            r_A = res.get('r_A', 0.0)
-            r_B = res.get('r_B', 0.0)
-            size_error = abs(r_A - r_B)
-            current_error = max(size_error, center_dist)
-            
-            # Print iteration summary
-            if log_callback:
+                is_v13_mode = mode in ("wrist_roll_v13", "wrist_pitch_v13")
                 if is_v13_mode:
-                    log_callback(f"  * Angle Error (Deviation from 90°) : {angle_dev:.4f}°")
-                    log_callback(f"  * Perpendicular Distance (After)   : {center_dist:.4f} mm")
-                    log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
+                    center_dist = res.get('perp_dist_after', 999.0)
+                    angle_dev = abs(angle_error - 90.0)
                 else:
-                    log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
-                    if mode == "wrist_pitch_v13":
-                        log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
-                        log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
+                    center_dist = res.get('center_dist', 999.0)
+                    angle_dev = angle_error
+                    
+                r_A = res.get('r_A', 0.0)
+                r_B = res.get('r_B', 0.0)
+                size_error = abs(r_A - r_B)
+                current_error = max(size_error, center_dist)
+                
+                # Print iteration summary
+                if log_callback:
+                    if is_v13_mode:
+                        log_callback(f"  * Angle Error (Deviation from 90°) : {angle_dev:.4f}°")
+                        log_callback(f"  * Perpendicular Distance (After)   : {center_dist:.4f} mm")
+                        log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
                     else:
-                        log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
-                        log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
-                        log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
-            
-            # Use the pre-calculated damped optimal offset correction to ensure convergence
-            step_correction = res.get('optimal_offset', 0.0)
-            staged_offset += step_correction
-            final_res = res
-
-            # Safety: clamp staged_offset to the joint's configured offset range
+                        log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
+                        if mode == "wrist_pitch_v13":
+                            log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
+                            log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
+                        else:
+                            log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
+                            log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
+                            log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
+                
+                # Use the pre-calculated damped optimal offset correction to ensure convergence
+                step_correction = res.get('optimal_offset', 0.0)
+                staged_offset += step_correction
+                final_res = res
+        
+                # Safety: clamp staged_offset to the joint's configured offset range
+                jcfg = self.JOINT_CONFIGS.get(mode, {})
+                off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
+                if staged_offset < off_min or staged_offset > off_max:
+                    if log_callback:
+                        log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+                    staged_offset = float(np.clip(staged_offset, off_min, off_max))
+                    
+                if log_callback:
+                    log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
+                    
+                # Convergence check:
+                # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
+                converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
+        
+                if converged_criteria:
+                    converged = True
+                    if log_callback:
+                        log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
+                        if abs(step_correction) < 0.05:
+                            log_callback(f"  * Step Correction: {step_correction:.4f}° < 0.05° (reached resolution limit)")
+                        else:
+                            log_callback(f"  * Circle Normals Angle Error: {angle_dev:.4f}° <= 0.1°")
+                            log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
+                        log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
+                    break
+        
+            # Final range safety: clamp to configured offset_range
             jcfg = self.JOINT_CONFIGS.get(mode, {})
             off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
             if staged_offset < off_min or staged_offset > off_max:
                 if log_callback:
-                    log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+                    log_callback(f"  [SAFETY WARNING] Recommended final offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
                 staged_offset = float(np.clip(staged_offset, off_min, off_max))
-                
-            if log_callback:
-                log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
-                
-            # Convergence check:
-            # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
-            converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
-
-            if converged_criteria:
-                converged = True
-                if log_callback:
-                    log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                    if abs(step_correction) < 0.05:
-                        log_callback(f"  * Step Correction: {step_correction:.4f}° < 0.05° (reached resolution limit)")
-                    else:
-                        log_callback(f"  * Circle Normals Angle Error: {angle_dev:.4f}° <= 0.1°")
-                        log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
-                    log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
-                break
-
-        # Final range safety: clamp to configured offset_range
-        jcfg = self.JOINT_CONFIGS.get(mode, {})
-        off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
-        if staged_offset < off_min or staged_offset > off_max:
-            if log_callback:
-                log_callback(f"  [SAFETY WARNING] Recommended final offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
-            staged_offset = float(np.clip(staged_offset, off_min, off_max))
-
-        if getattr(self, 'stop_requested', False):
-            if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
-            return None
-
-        # Build clean final output dict — UI only needs these fields
-        # _plot_data is internal-only; strip it before returning to the UI
-        final_output = {
-            'mode': mode,
-            'recommended_joint_offset': staged_offset,
-            'optimal_offset': staged_offset,
-            'converged': converged,
-            'perp_dist_before': final_res.get('perp_dist_before', float('nan')) if final_res else float('nan'),
-            'perp_dist_after': final_res.get('perp_dist_after', float('nan')) if final_res else float('nan'),
-            'axial_offset_mm': final_res.get('axial_offset_mm', float('nan')) if final_res else float('nan'),
-            'lateral_offset_mm': final_res.get('lateral_offset_mm', float('nan')) if final_res else float('nan'),
-            'r_A': final_res.get('r_A', float('nan')) if final_res else float('nan'),
-            'r_B': final_res.get('r_B', float('nan')) if final_res else float('nan'),
-        }
-
-        # Run one final validation sweep with the recommended joint offset
-        if log_callback:
-            log_callback(f"\n[VALIDATION SWEEP] Running final validation sweep with recommended offset {staged_offset:.4f}°...")
-        validation_res = run_single_sweep(staged_offset)
-
-        if validation_res:
-            if first_res:
-                plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
-                final_output['plot_path_combined'] = plot_path
-        else:
+        
             if getattr(self, 'stop_requested', False):
-                if log_callback: log_callback("[INFO] Joint calibration aborted during validation sweep.")
+                if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
                 return None
+        
+            # Build clean final output dict — UI only needs these fields
+            # _plot_data is internal-only; strip it before returning to the UI
+            final_output = {
+                'mode': mode,
+                'recommended_joint_offset': staged_offset,
+                'optimal_offset': staged_offset,
+                'converged': converged,
+                'perp_dist_before': final_res.get('perp_dist_before', float('nan')) if final_res else float('nan'),
+                'perp_dist_after': final_res.get('perp_dist_after', float('nan')) if final_res else float('nan'),
+                'axial_offset_mm': final_res.get('axial_offset_mm', float('nan')) if final_res else float('nan'),
+                'lateral_offset_mm': final_res.get('lateral_offset_mm', float('nan')) if final_res else float('nan'),
+                'r_A': final_res.get('r_A', float('nan')) if final_res else float('nan'),
+                'r_B': final_res.get('r_B', float('nan')) if final_res else float('nan'),
+            }
+        
+            # Run one final validation sweep with the recommended joint offset
             if log_callback:
-                log_callback("[WARN] Validation sweep failed. Returning last calibration result.")
-            if final_res and first_res:
-                plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
-                final_output['plot_path_combined'] = plot_path
-
-        return final_output
+                log_callback(f"\n[VALIDATION SWEEP] Running final validation sweep with recommended offset {staged_offset:.4f}°...")
+            validation_res = run_single_sweep(staged_offset)
+        
+            if validation_res:
+                if first_res:
+                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
+                    final_output['plot_path_combined'] = plot_path
+            else:
+                if getattr(self, 'stop_requested', False):
+                    if log_callback: log_callback("[INFO] Joint calibration aborted during validation sweep.")
+                    return None
+                if log_callback:
+                    log_callback("[WARN] Validation sweep failed. Returning last calibration result.")
+                if final_res and first_res:
+                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
+                    final_output['plot_path_combined'] = plot_path
+        
+            return final_output
+        finally:
+            logger.save()
 
 
     def perform_move_to_ready_pose(self, arm_side, mode, log_callback=None):
