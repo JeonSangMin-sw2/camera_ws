@@ -368,7 +368,10 @@ class Marker_Detection:
     def __init__(self):
         # 어떤 마커를 인식시킬건지 정의
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
-        self.parameters = cv2.aruco.DetectorParameters()
+        if hasattr(cv2.aruco, 'DetectorParameters_create'):
+            self.parameters = cv2.aruco.DetectorParameters_create()
+        else:
+            self.parameters = cv2.aruco.DetectorParameters()
         # 마커 인식 정밀도 향상을 위한 파라미터 튜닝
         # 1. 서브픽셀 정밀도 극대화
         self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
@@ -414,36 +417,11 @@ class Marker_Detection:
 
         self.marker_depth = 0
         self.stereo_depth = 0
-        self.kalman_filters = {}
 
-    def get_kalman_filter(self, marker_id, initial_meas=None):
-        if marker_id not in self.kalman_filters:
-            # 12-state (6 params + 6 velocities), 6-measurement (x, y, z, rx, ry, rz)
-            kf = cv2.KalmanFilter(12, 6)
-            
-            # Transition Matrix (12x12) - constant velocity model
-            transition_matrix = np.eye(12, dtype=np.float32)
-            for i in range(6):
-                transition_matrix[i, i+6] = 1.0
-            kf.transitionMatrix = transition_matrix
-
-            # Measurement Matrix (6x12)
-            measurement_matrix = np.zeros((6, 12), dtype=np.float32)
-            for i in range(6):
-                measurement_matrix[i, i] = 1.0
-            kf.measurementMatrix = measurement_matrix
-
-            kf.processNoiseCov = np.eye(12, dtype=np.float32) * 1e-4
-            kf.measurementNoiseCov = np.eye(6, dtype=np.float32) * 1e-2
-            kf.errorCovPost = np.eye(12, dtype=np.float32)
-            
-            if initial_meas is not None and len(initial_meas) == 6:
-                statePost = np.zeros((12, 1), dtype=np.float32)
-                for i in range(6):
-                    statePost[i, 0] = initial_meas[i]
-                kf.statePost = statePost
-            self.kalman_filters[marker_id] = kf
-        return self.kalman_filters[marker_id]
+        if hasattr(cv2.aruco, 'ArucoDetector'):
+            self.detector = cv2.aruco.ArucoDetector(self.dictionary, self.parameters)
+        else:
+            self.detector = None
 
     # 연산에 필요한 카메라 파라미터 설정
     def set_intrinsics_param(self, param):
@@ -497,7 +475,10 @@ class Marker_Detection:
             pnp_dist_coeffs = None
             
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
-        corners, ids, _ = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
+        if self.detector is not None:
+            corners, ids, _ = self.detector.detectMarkers(gray)
+        else:
+            corners, ids, _ = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         
         # Step 2: 서브픽셀 정밀도 강제화
         if corners is not None and len(corners) > 0:
@@ -561,24 +542,8 @@ class Marker_Detection:
                 if not success:
                     continue
                 rot_matrix, _ = cv2.Rodrigues(rvec)
-                rvec_list = rvec.flatten().tolist()
                 center_pos = tvec.flatten().tolist()
-                
-                # Plate group ID 결정 및 Kalman Filter 6D 도입
-                kf_id = "plate_left" if marker_id in getattr(self, 'plate_left_ids', []) else ("plate_right" if marker_id in getattr(self, 'plate_right_ids', []) else f"plate_{marker_id}")
-                
-                meas_array = center_pos + rvec_list
-                if use_filter:
-                    kf = self.get_kalman_filter(kf_id, initial_meas=meas_array)
-                    kf.predict()
-                    meas = np.array([[m] for m in meas_array], dtype=np.float32)
-                    est = kf.correct(meas)
-                    
-                    center_pos = [est[0,0], est[1,0], est[2,0]]
-                    smoothed_rvec = np.array([[est[3,0]], [est[4,0]], [est[5,0]]], dtype=np.float32)
-                    rot_matrix_smoothed, _ = cv2.Rodrigues(smoothed_rvec)
-                else:
-                    rot_matrix_smoothed = rot_matrix
+                rot_matrix_smoothed = rot_matrix
                 
                 transform = [
                     rot_matrix_smoothed[0][0], rot_matrix_smoothed[0][1], rot_matrix_smoothed[0][2], center_pos[0],

@@ -1112,7 +1112,7 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_calibrator.joint_offsets = self.joint_offsets
         
         self.setWindowTitle("Unified Robot Calibration Suite")
-        self.resize(1400, 800)
+        self.resize(1000, 500)
         self.setStyleSheet(DARK_STYLESHEET)
         
         # 1. 200ms poll timer (탭 1, 2, 4 용)
@@ -1304,7 +1304,7 @@ class UnifiedCalibrationApp(QWidget):
             return mode
 
     def init_ui(self):
-        # Main horizontal split layout
+        # Main horizontal layout
         main_layout = QHBoxLayout()
         
         # --- Left Panel (TabWidget based!) ---
@@ -1318,33 +1318,86 @@ class UnifiedCalibrationApp(QWidget):
         main_tab_layout = QVBoxLayout()
         main_tab_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Connection Box
-        conn_box = QGroupBox("Robot Connection")
+        # --- COLUMN 1 (Robot Connection, Head & Home, Workflows) ---
+        col1_layout = QVBoxLayout()
+        
+        # Connection Box (Robot Model next to IP/Port)
+        conn_box = QGroupBox("Robot Connection & Control")
         conn_layout = QVBoxLayout()
+        conn_layout.setSpacing(4)
+        conn_layout.setContentsMargins(6, 6, 6, 6)
+        
+        ip_row = QHBoxLayout()
+        ip_row.addWidget(QLabel("IP/Port:"))
         self.ip_input = QLineEdit("192.168.30.1:50051")
         if self.ui_only:
             self.ip_input.setText("127.0.0.1:50051")
-            self.ip_input.setReadOnly(True)
-            self.ip_input.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 1px solid #2d2d2d;")
-            
+        ip_row.addWidget(self.ip_input)
+        
+        ip_row.addWidget(QLabel("Model:"))
         self.model_input = QComboBox()
         self.model_input.addItems(UI_DROPDOWNS["robot_models"])
+        ip_row.addWidget(self.model_input)
+        conn_layout.addLayout(ip_row)
+        
         self.btn_connect = QPushButton("CONNECT")
         self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
         self.btn_connect.clicked.connect(self.connect_robot)
+        self.btn_connect.setFixedHeight(24)
+        conn_layout.addWidget(self.btn_connect)
+        
+        conn_box.setLayout(conn_layout)
+
+        # Manual Head Control Box
+        head_box = QGroupBox("Manual Head Control")
+        head_layout = QVBoxLayout()
+        head_layout.setSpacing(4)
+        head_layout.setContentsMargins(6, 6, 6, 6)
+        
+        inputs_row = QHBoxLayout()
+        inputs_row.addWidget(QLabel("Yaw:"))
+        self.txt_head_yaw = QLineEdit("0.0")
+        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        inputs_row.addWidget(self.txt_head_yaw)
+        
+        inputs_row.addWidget(QLabel("Pitch:"))
+        self.txt_head_pitch = QLineEdit("0.0")
+        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        inputs_row.addWidget(self.txt_head_pitch)
+        head_layout.addLayout(inputs_row)
+        
+        self.btn_move_head = QPushButton("MOVE HEAD")
+        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
+        self.btn_move_head.clicked.connect(self.move_head_manually)
+        self.btn_move_head.setFixedHeight(24)
+        head_layout.addWidget(self.btn_move_head)
+        
+        head_box.setLayout(head_layout)
+
+        # Standalone Robot Home Offset Reset Box (Relocated to the right of Head Control)
+        home_offset_box = QGroupBox("Robot Home Offset")
+        home_offset_layout = QVBoxLayout()
+        home_offset_layout.setSpacing(4)
+        home_offset_layout.setContentsMargins(6, 6, 6, 6)
+        
+        home_offset_layout.addWidget(QLabel("Reset joint offsets:"))
+        self.btn_home_reset = QPushButton("Home Offset Reset")
+        self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
+        self.btn_home_reset.clicked.connect(self.home_offset_reset)
+        self.btn_home_reset.setFixedHeight(24)
+        home_offset_layout.addWidget(self.btn_home_reset)
+        
+        home_offset_box.setLayout(home_offset_layout)
+
+        # Calibration Workflows Box
+        workflow_box = QGroupBox("Calibration Workflows")
+        workflow_layout = QVBoxLayout()
         
         self.btn_stop_motion = QPushButton("STOP MOTION")
         self.btn_stop_motion.setStyleSheet("background-color: #ff1744; color: #ffffff; font-weight: bold;")
         self.btn_stop_motion.clicked.connect(self.stop_motion)
-        
-        conn_layout.addWidget(QLabel("IP / Port:"))
-        conn_layout.addWidget(self.ip_input)
-        conn_layout.addWidget(QLabel("Robot Model:"))
-        conn_layout.addWidget(self.model_input)
-        conn_layout.addWidget(self.btn_connect)
-        conn_box.setLayout(conn_layout)
 
-        # Target Arm Selection (Variables bound internally, layout placed in Calibration Workflows header)
+        # Target Arm Selection
         self.arm_sel = QComboBox()
         self.arm_sel.addItems(UI_DROPDOWNS["arm_sides"])
         idx = 1 if self.arm_side == "left" else 0
@@ -1354,7 +1407,259 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_arm_sel = self.arm_sel
         self.marker_arm_sel = self.arm_sel
 
-        # Status Indicator
+        workflow_header = QHBoxLayout()
+        arm_side_layout = QHBoxLayout()
+        arm_side_layout.addWidget(QLabel("Active Arm Side:"))
+        arm_side_layout.addWidget(self.arm_sel)
+        workflow_header.addLayout(arm_side_layout)
+        workflow_header.addStretch()
+        workflow_header.addWidget(self.btn_stop_motion)
+        
+        workflow_layout.addLayout(workflow_header)
+        
+        self.workflow_tabs = QTabWidget()
+        
+        # Sub-tab 1: Joint Calibration
+        joint_subtab = QWidget()
+        joint_sublayout = QVBoxLayout()
+        
+        self.joint_mode_sel = QComboBox()
+        self.update_joint_modes()
+        self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
+        
+        self.btn_joint_ready = QPushButton("MOVE TO READY")
+        self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
+        self.btn_joint_ready.clicked.connect(self.move_to_ready_pose_joint)
+        
+        self.btn_joint_start = QPushButton("START SWEEP")
+        self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
+        self.btn_joint_start.clicked.connect(self.start_calibration_joint)
+        
+        joint_sublayout.addWidget(QLabel("Joint Sweeps for Polarities & Kinematics:"))
+        joint_sublayout.addWidget(self.joint_mode_sel)
+        joint_sublayout.addWidget(self.btn_joint_ready)
+        joint_sublayout.addWidget(self.btn_joint_start)
+        joint_subtab.setLayout(joint_sublayout)
+        
+        # Sub-tab 2: Marker Bracket Calibration
+        marker_subtab = QWidget()
+        marker_sublayout = QVBoxLayout()
+        
+        self.marker_axis_sel = QComboBox()
+        self.marker_axis_sel.addItems(UI_DROPDOWNS["marker_axes"])
+        
+        tol_lay = QHBoxLayout()
+        tol_lay.addWidget(QLabel("Tolerance (deg):"))
+        self.tolerance_input = QLineEdit("0.5")
+        self.tolerance_input.setFixedWidth(50)
+        tol_lay.addWidget(self.tolerance_input)
+        
+        self.btn_marker_ready = QPushButton("MOVE TO READY")
+        self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
+        self.btn_marker_ready.clicked.connect(self.move_to_ready_pose_marker)
+        
+        self.btn_marker_center = QPushButton("MOVE TO CENTER")
+        self.btn_marker_center.setStyleSheet("background-color: #00838f; color: white;")
+        self.btn_marker_center.clicked.connect(self.move_to_center_marker)
+        
+        self.btn_marker_start = QPushButton("START SWEEP")
+        self.btn_marker_start.setStyleSheet("background-color: #1565c0; color: white;")
+        self.btn_marker_start.clicked.connect(self.start_calibration_marker)
+        
+        self.btn_marker_result = QPushButton("UNIFIED RESULT")
+        self.btn_marker_result.setStyleSheet("background-color: #2e7d32; color: white;")
+        self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
+        
+        marker_sublayout.addWidget(QLabel("Marker Bracket Alignment Sweeps:"))
+        marker_sublayout.addWidget(self.marker_axis_sel)
+        marker_sublayout.addLayout(tol_lay)
+        marker_sublayout.addWidget(self.btn_marker_ready)
+        marker_sublayout.addWidget(self.btn_marker_center)
+        marker_sublayout.addWidget(self.btn_marker_start)
+        marker_subtab.setLayout(marker_sublayout)
+        
+        # Sub-tab 3: Full Auto Calibration
+        full_auto_subtab = QWidget()
+        full_auto_sublayout = QVBoxLayout()
+        
+        self.btn_full_auto_ready = QPushButton("MOVE TO READY")
+        self.btn_full_auto_ready.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold;")
+        self.btn_full_auto_ready.clicked.connect(self.move_to_ready_full_auto)
+        
+        self.btn_full_auto_start = QPushButton("START FULL AUTO")
+        self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        self.btn_full_auto_start.clicked.connect(self.start_full_auto)
+        
+        self.btn_full_auto_stop = QPushButton("STOP")
+        self.btn_full_auto_stop.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold;")
+        self.btn_full_auto_stop.clicked.connect(self.stop_full_auto)
+        
+        full_auto_sublayout.addWidget(QLabel("Full Auto Sequential Calibration:"))
+        full_auto_sublayout.addWidget(self.btn_full_auto_ready)
+        full_auto_sublayout.addWidget(self.btn_full_auto_start)
+        full_auto_sublayout.addWidget(self.btn_full_auto_stop)
+        full_auto_sublayout.addStretch()
+        full_auto_subtab.setLayout(full_auto_sublayout)
+        
+        # Add workflow subtabs in order of: Full Auto, Marker Calib, Joint Calib
+        self.workflow_tabs.addTab(full_auto_subtab, "1. Full Auto")
+        self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
+        self.workflow_tabs.addTab(joint_subtab, "3. Joint Calib")
+        
+        workflow_layout.addWidget(self.workflow_tabs)
+        workflow_box.setLayout(workflow_layout)
+
+        # Assemble Column 1
+        col1_layout.addWidget(conn_box)
+        col1_layout.addWidget(head_box)
+        col1_layout.addWidget(workflow_box)
+        col1_layout.addStretch()
+
+        # --- COLUMN 2 (Calibration Status & Monitoring) ---
+        col2_layout = QVBoxLayout()
+
+        dash_box = QGroupBox("Calibration Status & Monitoring")
+        dash_layout = QVBoxLayout()
+        dash_layout.setSpacing(4)
+        dash_layout.setContentsMargins(8, 4, 8, 4)
+        
+        # Monitoring Table
+        self.tbl_offset_monitor = QTableWidget(2, 2)
+        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
+        self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
+        self.tbl_offset_monitor.setFixedHeight(100)
+        self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_offset_monitor.cellDoubleClicked.connect(self.on_cell_double_clicked)
+        self.tbl_offset_monitor.setStyleSheet("""
+            QTableWidget {
+                background-color: #121212;
+                color: #00e5ff;
+                gridline-color: #2d2d2d;
+                font-weight: bold;
+                border: 1px solid #2d2d2d;
+                border-radius: 4px;
+            }
+            QHeaderView::section {
+                background-color: #1a1a1a;
+                color: #888888;
+                font-weight: bold;
+                padding: 2px;
+                border: 1px solid #2d2d2d;
+            }
+        """)
+        dash_layout.addWidget(self.tbl_offset_monitor)
+        
+        # Marker Bracket Design Offset UI GroupBox (Nested inside dash_box)
+        bracket_box = QGroupBox("Marker Bracket Design Offset (Tf_to_marker)")
+        bracket_layout = QVBoxLayout()
+        bracket_layout.setSpacing(4)
+        bracket_layout.setContentsMargins(6, 6, 6, 6)
+        
+        input_style = "background-color: #1c1c1c; color: #00e5ff; border: 1px solid #3d3d3d; border-radius: 3px; padding: 2px;"
+        
+        grid = QGridLayout()
+        grid.setSpacing(6)
+        
+        # Column headers
+        grid.addWidget(QLabel("Parameter"), 0, 0)
+        grid.addWidget(QLabel("Left Arm"), 0, 1)
+        grid.addWidget(QLabel("Right Arm"), 0, 2)
+        
+        # Row 1: X
+        grid.addWidget(QLabel("X (m):"), 1, 0)
+        self.txt_bracket_l_x = QLineEdit()
+        self.txt_bracket_l_x.setStyleSheet(input_style)
+        self.txt_bracket_r_x = QLineEdit()
+        self.txt_bracket_r_x.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_l_x, 1, 1)
+        grid.addWidget(self.txt_bracket_r_x, 1, 2)
+        
+        # Row 2: Y
+        grid.addWidget(QLabel("Y (m):"), 2, 0)
+        self.txt_bracket_l_y = QLineEdit()
+        self.txt_bracket_l_y.setStyleSheet(input_style)
+        self.txt_bracket_r_y = QLineEdit()
+        self.txt_bracket_r_y.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_l_y, 2, 1)
+        grid.addWidget(self.txt_bracket_r_y, 2, 2)
+        
+        # Row 3: Z
+        grid.addWidget(QLabel("Z (m):"), 3, 0)
+        self.txt_bracket_l_z = QLineEdit()
+        self.txt_bracket_l_z.setStyleSheet(input_style)
+        self.txt_bracket_r_z = QLineEdit()
+        self.txt_bracket_r_z.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_l_z, 3, 1)
+        grid.addWidget(self.txt_bracket_r_z, 3, 2)
+        
+        # Row 4: Roll
+        grid.addWidget(QLabel("Roll (deg):"), 4, 0)
+        self.txt_bracket_l_roll = QLineEdit()
+        self.txt_bracket_l_roll.setStyleSheet(input_style)
+        self.txt_bracket_r_roll = QLineEdit()
+        self.txt_bracket_r_roll.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_l_roll, 4, 1)
+        grid.addWidget(self.txt_bracket_r_roll, 4, 2)
+        
+        # Row 5: Pitch
+        grid.addWidget(QLabel("Pitch (deg):"), 5, 0)
+        self.txt_bracket_l_pitch = QLineEdit()
+        self.txt_bracket_l_pitch.setStyleSheet(input_style)
+        self.txt_bracket_r_pitch = QLineEdit()
+        self.txt_bracket_r_pitch.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_l_pitch, 5, 1)
+        grid.addWidget(self.txt_bracket_r_pitch, 5, 2)
+        
+        # Row 6: Yaw
+        grid.addWidget(QLabel("Yaw (deg):"), 6, 0)
+        self.txt_bracket_l_yaw = QLineEdit()
+        self.txt_bracket_l_yaw.setStyleSheet(input_style)
+        self.txt_bracket_r_yaw = QLineEdit()
+        self.txt_bracket_r_yaw.setStyleSheet(input_style)
+        grid.addWidget(self.txt_bracket_l_yaw, 6, 1)
+        grid.addWidget(self.txt_bracket_r_yaw, 6, 2)
+        
+        bracket_layout.addLayout(grid)
+        
+        self.btn_apply_bracket = QPushButton("APPLY BRACKETS")
+        self.btn_apply_bracket.setStyleSheet("background-color: #2979ff; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_apply_bracket.setFixedHeight(24)
+        self.btn_apply_bracket.clicked.connect(self.apply_bracket_design_values)
+        bracket_layout.addWidget(self.btn_apply_bracket)
+        
+        bracket_box.setLayout(bracket_layout)
+        dash_layout.addWidget(bracket_box)
+        
+        # Apply & Clear buttons for Joint offsets
+        btn_joint_layout = QHBoxLayout()
+        btn_joint_layout.setSpacing(6)
+        
+        self.btn_joint_apply = QPushButton("APPLY OFFSET")
+        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
+        self.btn_joint_apply.setFixedHeight(24)
+        
+        self.btn_joint_clear = QPushButton("CLEAR OFFSET")
+        self.btn_joint_clear.setStyleSheet("background-color: #555555; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_joint_clear.clicked.connect(self.clear_joint_offset)
+        self.btn_joint_clear.setFixedHeight(24)
+        
+        btn_joint_layout.addWidget(self.btn_joint_apply)
+        btn_joint_layout.addWidget(self.btn_joint_clear)
+        
+        dash_layout.addLayout(btn_joint_layout)
+        dash_box.setLayout(dash_layout)
+
+        col2_layout.addWidget(home_offset_box)
+        col2_layout.addWidget(dash_box)
+        col2_layout.addStretch()
+
+        # --- COLUMN 3 (Camera Status & System Log/Plots) ---
+        col3_layout = QVBoxLayout()
+
+        # Status Indicator Box (Constructed here for Col 3)
         status_box = QGroupBox("Camera & Marker Status")
         status_layout = QVBoxLayout()
         
@@ -1389,165 +1694,55 @@ class UnifiedCalibrationApp(QWidget):
         status_layout.addWidget(self.chk_save_debug)
         status_box.setLayout(status_layout)
 
-        # Row 1 layout
-        row1_layout = QHBoxLayout()
-        row1_layout.addWidget(conn_box)
-        row1_layout.addWidget(status_box)
-        main_tab_layout.addLayout(row1_layout)
+        # Right Tab Widget
+        self.right_tabs = QTabWidget()
+        self.right_tabs.setMinimumHeight(320) # Sized down for overall UI height reduction
+        
+        # Tab 1: System Log
+        log_tab = QWidget()
+        log_layout = QVBoxLayout()
+        console_title = QLabel("System Log / Execution Console")
+        console_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        console_title.setStyleSheet("color: #2979ff; margin-bottom: 2px;")
+        
+        self.log_text = QTextEdit()
+        self.log_text.setReadOnly(True)
+        self.log_text.setFont(QFont("Consolas", 10))
+        
+        log_layout.addWidget(console_title)
+        log_layout.addWidget(self.log_text)
+        log_tab.setLayout(log_layout)
+        
+        # Tab 2: Interactive Plot Viewer (Plot & Img)
+        self.plot_tab = QWidget()
+        plot_layout = QVBoxLayout()
+        
+        self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations")
+        self.plot_label_combined.setAlignment(Qt.AlignCenter)
+        self.plot_label_combined.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
+        
+        plot_layout.addWidget(self.plot_label_combined)
+        self.plot_tab.setLayout(plot_layout)
+        
+        self.right_tabs.addTab(log_tab, "System Log")
+        self.right_tabs.addTab(self.plot_tab, "Plot / Img")
 
-        # Manual Head Control Standalone Box
-        head_box = QGroupBox("Manual Head Control")
-        head_layout = QVBoxLayout()
-        
-        yaw_layout = QHBoxLayout()
-        yaw_layout.addWidget(QLabel("Yaw (deg):"))
-        self.txt_head_yaw = QLineEdit("0.0")
-        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
-        yaw_layout.addWidget(self.txt_head_yaw)
-        
-        pitch_layout = QHBoxLayout()
-        pitch_layout.addWidget(QLabel("Pitch (deg):"))
-        self.txt_head_pitch = QLineEdit("0.0")
-        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 4px;")
-        pitch_layout.addWidget(self.txt_head_pitch)
-        
-        self.btn_move_head = QPushButton("MOVE HEAD")
-        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
-        self.btn_move_head.clicked.connect(self.move_head_manually)
-        
-        head_layout.addLayout(yaw_layout)
-        head_layout.addLayout(pitch_layout)
-        head_layout.addWidget(self.btn_move_head)
-        head_box.setLayout(head_layout)
+        col3_layout.addWidget(status_box)
+        col3_layout.addWidget(self.right_tabs, 1)
 
-        # Robot Home Offset Standalone Box
-        home_offset_box = QGroupBox("Robot Home Offset")
-        home_offset_layout = QVBoxLayout()
+        # Assemble side-by-side 3 Columns (3:3:4 weight)
+        main_tab_columns = QHBoxLayout()
+        main_tab_columns.addLayout(col1_layout, 3)
+        main_tab_columns.addLayout(col2_layout, 3)
+        main_tab_columns.addLayout(col3_layout, 4)
         
-        self.btn_home_reset = QPushButton("Home Offset Reset")
-        self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
-        self.btn_home_reset.clicked.connect(self.home_offset_reset)
-        
-        home_offset_layout.addWidget(self.btn_home_reset)
-        home_offset_layout.addStretch()
-        home_offset_box.setLayout(home_offset_layout)
-
-        # Row 2 layout
-        row2_layout = QHBoxLayout()
-        row2_layout.addWidget(head_box)
-        row2_layout.addWidget(home_offset_box)
-        main_tab_layout.addLayout(row2_layout)
-
-        # Sub-Workflow Selector Tabs
-        workflow_box = QGroupBox("Calibration Workflows")
-        workflow_layout = QVBoxLayout()
-        
-        workflow_header = QHBoxLayout()
-        
-        arm_side_layout = QHBoxLayout()
-        arm_side_layout.addWidget(QLabel("Active Arm Side:"))
-        arm_side_layout.addWidget(self.arm_sel)
-        workflow_header.addLayout(arm_side_layout)
-        workflow_header.addStretch()
-        workflow_header.addWidget(self.btn_stop_motion)
-        
-        workflow_layout.addLayout(workflow_header)
-        
-        self.workflow_tabs = QTabWidget()
-        
-        # Sub-tab 1: Joint Calibration
-        joint_subtab = QWidget()
-        joint_sublayout = QVBoxLayout()
-        
-        self.joint_mode_sel = QComboBox()
-        self.update_joint_modes()
-        self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
-        
-        self.btn_joint_ready = QPushButton("MOVE TO READY")
-        self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
-        self.btn_joint_ready.clicked.connect(self.move_to_ready_pose_joint)
-        
-        self.btn_joint_start = QPushButton("START SWEEP")
-        self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
-        self.btn_joint_start.clicked.connect(self.start_calibration_joint)
-        
-        joint_sublayout.addWidget(QLabel("Calibration Mode:"))
-        joint_sublayout.addWidget(self.joint_mode_sel)
-        joint_sublayout.addWidget(self.btn_joint_ready)
-        joint_sublayout.addWidget(self.btn_joint_start)
-        joint_subtab.setLayout(joint_sublayout)
-        self.workflow_tabs.addTab(joint_subtab, "1. Joint Calib")
-        
-        # Sub-tab 2: Marker Bracket Calibration
-        marker_subtab = QWidget()
-        marker_sublayout = QVBoxLayout()
-        
-        self.marker_axis_sel = QComboBox()
-        self.marker_axis_sel.addItems(UI_DROPDOWNS["marker_axes"])
-        
-        tol_lay = QHBoxLayout()
-        tol_lay.addWidget(QLabel("Tolerance (deg):"))
-        self.tolerance_input = QLineEdit("0.5")
-        self.tolerance_input.setFixedWidth(50)
-        tol_lay.addWidget(self.tolerance_input)
-        
-        self.btn_marker_ready = QPushButton("MOVE TO READY")
-        self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
-        self.btn_marker_ready.clicked.connect(self.move_to_ready_pose_marker)
-        
-        self.btn_marker_center = QPushButton("MOVE TO CENTER")
-        self.btn_marker_center.setStyleSheet("background-color: #00838f; color: white;")
-        self.btn_marker_center.clicked.connect(self.move_to_center_marker)
-        
-        self.btn_marker_start = QPushButton("START SWEEP")
-        self.btn_marker_start.setStyleSheet("background-color: #1565c0; color: white;")
-        self.btn_marker_start.clicked.connect(self.start_calibration_marker)
-        
-        self.btn_marker_result = QPushButton("UNIFIED RESULT")
-        self.btn_marker_result.setStyleSheet("background-color: #2e7d32; color: white;")
-        self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
-        
-        marker_sublayout.addLayout(tol_lay)
-        marker_sublayout.addWidget(self.btn_marker_ready)
-        marker_sublayout.addWidget(self.btn_marker_center)
-        marker_sublayout.addWidget(self.btn_marker_start)
-        marker_subtab.setLayout(marker_sublayout)
-        self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
-        
-        # Sub-tab 3: Full Auto Calibration
-        full_auto_subtab = QWidget()
-        full_auto_sublayout = QVBoxLayout()
-        
-        self.btn_full_auto_ready = QPushButton("MOVE TO READY")
-        self.btn_full_auto_ready.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold;")
-        self.btn_full_auto_ready.clicked.connect(self.move_to_ready_full_auto)
-        
-        self.btn_full_auto_start = QPushButton("START FULL AUTO")
-        self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
-        self.btn_full_auto_start.clicked.connect(self.start_full_auto)
-        
-        self.btn_full_auto_stop = QPushButton("STOP")
-        self.btn_full_auto_stop.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold;")
-        self.btn_full_auto_stop.clicked.connect(self.stop_full_auto)
-        
-        full_auto_sublayout.addWidget(QLabel("Full Auto Sequential Calibration:"))
-        full_auto_sublayout.addWidget(self.btn_full_auto_ready)
-        full_auto_sublayout.addWidget(self.btn_full_auto_start)
-        full_auto_sublayout.addWidget(self.btn_full_auto_stop)
-        full_auto_sublayout.addStretch()
-        full_auto_subtab.setLayout(full_auto_sublayout)
-        self.workflow_tabs.addTab(full_auto_subtab, "3. Full Auto")
-        
-        workflow_layout.addWidget(self.workflow_tabs)
-        workflow_box.setLayout(workflow_layout)
-        main_tab_layout.addWidget(workflow_box)
+        main_tab_layout.addLayout(main_tab_columns)
         
         # Quit Button
         self.btn_quit = QPushButton("QUIT")
         self.btn_quit.setStyleSheet("background-color: #b71c1c; color: white;")
         self.btn_quit.clicked.connect(self.close)
         main_tab_layout.addWidget(self.btn_quit)
-        main_tab_layout.addStretch()
         
         main_tab.setLayout(main_tab_layout)
         self.left_tabs.addTab(main_tab, "1. Main")
@@ -1581,6 +1776,7 @@ class UnifiedCalibrationApp(QWidget):
         instr_box.setLayout(instr_layout)
         int_left.addWidget(instr_box, 1)
 
+        # Move Calibration Controls from left column to right column underneath Stats Box
         controls_box = QGroupBox("Calibration Controls")
         controls_layout = QVBoxLayout()
         
@@ -1610,11 +1806,9 @@ class UnifiedCalibrationApp(QWidget):
         controls_layout.addWidget(self.btn_int_reset)
         
         controls_box.setLayout(controls_layout)
-        int_left.addWidget(controls_box, 1)
         
         int_right = QVBoxLayout()
         
-        # Relocated permanently from bottom left to top right
         stats_box = QGroupBox("Capture Stats")
         stats_layout = QHBoxLayout()
         self.lbl_captured = QLabel("Captured Frames: 0")
@@ -1629,7 +1823,9 @@ class UnifiedCalibrationApp(QWidget):
         stats_layout.addStretch()
         stats_layout.addWidget(self.lbl_temp)
         stats_box.setLayout(stats_layout)
+        
         int_right.addWidget(stats_box)
+        int_right.addWidget(controls_box) # Placed below stats box!
         int_right.addStretch()
         
         camera_tab_layout.addLayout(int_left, 2)
@@ -1637,158 +1833,8 @@ class UnifiedCalibrationApp(QWidget):
         camera_tab.setLayout(camera_tab_layout)
         self.left_tabs.addTab(camera_tab, "2. Camera")
         
-        # --- Right Panel ---
-        right_panel_container = QWidget()
-        right_panel_layout = QVBoxLayout(right_panel_container)
-        right_panel_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # 1. Calibration Status & Monitoring Dashboard
-        dash_box = QGroupBox("Calibration Status & Monitoring")
-        dash_layout = QVBoxLayout()
-        dash_layout.setSpacing(3)
-        dash_layout.setContentsMargins(8, 4, 8, 4)
-        
-        # Monitoring Table
-        self.tbl_offset_monitor = QTableWidget(2, 2)
-        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
-        self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
-        self.tbl_offset_monitor.setFixedHeight(75)
-        self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self.tbl_offset_monitor.cellDoubleClicked.connect(self.on_cell_double_clicked)
-        self.tbl_offset_monitor.setStyleSheet("""
-            QTableWidget {
-                background-color: #121212;
-                color: #00e5ff;
-                gridline-color: #2d2d2d;
-                font-weight: bold;
-                border: 1px solid #2d2d2d;
-                border-radius: 4px;
-            }
-            QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #888888;
-                font-weight: bold;
-                padding: 2px;
-                border: 1px solid #2d2d2d;
-            }
-        """)
-        dash_layout.addWidget(self.tbl_offset_monitor)
-        
-        # Marker Bracket Design Offset UI GroupBox
-        bracket_box = QGroupBox("Marker Bracket Design Offset (Tf_to_marker)")
-        bracket_layout = QVBoxLayout()
-        bracket_layout.setSpacing(4)
-        bracket_layout.setContentsMargins(6, 6, 6, 6)
-        
-        input_style = "background-color: #1c1c1c; color: #00e5ff; border: 1px solid #3d3d3d; border-radius: 3px; padding: 2px;"
-        
-        grid = QGridLayout()
-        grid.setSpacing(6)
-        
-        # Row 0: Translation X, Y, Z
-        grid.addWidget(QLabel("X (m):"), 0, 0)
-        self.txt_bracket_x = QLineEdit()
-        self.txt_bracket_x.setStyleSheet(input_style)
-        grid.addWidget(self.txt_bracket_x, 0, 1)
-        
-        grid.addWidget(QLabel("Y (m):"), 0, 2)
-        self.txt_bracket_y = QLineEdit()
-        self.txt_bracket_y.setStyleSheet(input_style)
-        grid.addWidget(self.txt_bracket_y, 0, 3)
-        
-        grid.addWidget(QLabel("Z (m):"), 0, 4)
-        self.txt_bracket_z = QLineEdit()
-        self.txt_bracket_z.setStyleSheet(input_style)
-        grid.addWidget(self.txt_bracket_z, 0, 5)
-        
-        # Row 1: Rotation Roll, Pitch, Yaw
-        grid.addWidget(QLabel("Roll (deg):"), 1, 0)
-        self.txt_bracket_roll = QLineEdit()
-        self.txt_bracket_roll.setStyleSheet(input_style)
-        grid.addWidget(self.txt_bracket_roll, 1, 1)
-        
-        grid.addWidget(QLabel("Pitch (deg):"), 1, 2)
-        self.txt_bracket_pitch = QLineEdit()
-        self.txt_bracket_pitch.setStyleSheet(input_style)
-        grid.addWidget(self.txt_bracket_pitch, 1, 3)
-        
-        grid.addWidget(QLabel("Yaw (deg):"), 1, 4)
-        self.txt_bracket_yaw = QLineEdit()
-        self.txt_bracket_yaw.setStyleSheet(input_style)
-        grid.addWidget(self.txt_bracket_yaw, 1, 5)
-        
-        bracket_layout.addLayout(grid)
-        
-        self.btn_apply_bracket = QPushButton("APPLY BRACKET")
-        self.btn_apply_bracket.setStyleSheet("background-color: #2979ff; color: white; font-weight: bold; font-size: 11px;")
-        self.btn_apply_bracket.setFixedHeight(24)
-        self.btn_apply_bracket.clicked.connect(self.apply_bracket_design_values)
-        bracket_layout.addWidget(self.btn_apply_bracket)
-        
-        bracket_box.setLayout(bracket_layout)
-        dash_layout.addWidget(bracket_box)
-        
-        # Apply & Clear buttons
-        btn_joint_layout = QHBoxLayout()
-        btn_joint_layout.setSpacing(6)
-        
-        self.btn_joint_apply = QPushButton("APPLY OFFSET")
-        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 11px;")
-        self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
-        self.btn_joint_apply.setFixedHeight(24)
-        
-        self.btn_joint_clear = QPushButton("CLEAR OFFSET")
-        self.btn_joint_clear.setStyleSheet("background-color: #555555; color: white; font-weight: bold; font-size: 11px;")
-        self.btn_joint_clear.clicked.connect(self.clear_joint_offset)
-        self.btn_joint_clear.setFixedHeight(24)
-        
-        btn_joint_layout.addWidget(self.btn_joint_apply)
-        btn_joint_layout.addWidget(self.btn_joint_clear)
-        
-        dash_layout.addLayout(btn_joint_layout)
-        
-        dash_box.setLayout(dash_layout)
-        right_panel_layout.addWidget(dash_box)
-        
-        # 2. Right Tabs
-        self.right_tabs = QTabWidget()
-        
-        # Tab 1: System Log
-        log_tab = QWidget()
-        log_layout = QVBoxLayout()
-        console_title = QLabel("System Log / Execution Console")
-        console_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        console_title.setStyleSheet("color: #2979ff; margin-bottom: 2px;")
-        
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setFont(QFont("Consolas", 10))
-        
-        log_layout.addWidget(console_title)
-        log_layout.addWidget(self.log_text)
-        log_tab.setLayout(log_layout)
-        
-        # Tab 2: Interactive Plot Viewer (Plot & Img)
-        self.plot_tab = QWidget()
-        plot_layout = QVBoxLayout()
-        
-        self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations")
-        self.plot_label_combined.setAlignment(Qt.AlignCenter)
-        self.plot_label_combined.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
-        
-        plot_layout.addWidget(self.plot_label_combined)
-        self.plot_tab.setLayout(plot_layout)
-        
-        self.right_tabs.addTab(log_tab, "System Log")
-        self.right_tabs.addTab(self.plot_tab, "Plot / Img")
-        
-        right_panel_layout.addWidget(self.right_tabs)
-        
-        # Assemble side-by-side (Stretch factor 3:7)
-        main_layout.addWidget(self.left_tabs, 3)
-        main_layout.addWidget(right_panel_container, 7)
+        # Assemble full-width tabs
+        main_layout.addWidget(self.left_tabs)
         
         self.setLayout(main_layout)
         
@@ -1984,27 +2030,29 @@ class UnifiedCalibrationApp(QWidget):
             return
             
         try:
+            # 좌/우 중 하나라도 인식되었는지 확인하기 위해 "all"로 검출 수행
+            res_all = self.marker_st.get_marker_transform(sampling_time=0, side="all")
+            detected = bool(res_all and len(res_all) > 0)
+            self.update_marker_indicator(detected)
+            
             if not self.btn_monitor.isChecked():
-                self.update_marker_indicator(False)
                 if hasattr(self, 'lbl_marker_pos'):
                     self.lbl_marker_pos.setText("Position: Monitor Off")
                 return
                 
+            # 모니터가 켜진 경우, 현재 active arm side의 개별 마커 좌표 조회 및 표시
             res = self.marker_st.get_marker_transform(sampling_time=0, side=self.arm_side)
-            detected = bool(res and len(res) > 0)
-            self.update_marker_indicator(detected)
-            
-            if detected:
+            if res and len(res) > 0:
                 pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
                 x, y, z = pose[:3, 3] * 1000.0
                 
-                self.log_msg(f"[LIVE] Marker X:{x:.1f} Y:{y:.1f} Z:{z:.1f} mm")
+                self.log_msg(f"[LIVE] Marker ({self.arm_side}) X:{x:.1f} Y:{y:.1f} Z:{z:.1f} mm")
                 
                 if hasattr(self, 'lbl_marker_pos'):
-                    self.lbl_marker_pos.setText(f"Position: X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
+                    self.lbl_marker_pos.setText(f"Position ({self.arm_side}): X: {x:.1f}, Y: {y:.1f}, Z: {z:.1f} mm")
             else:
                 if hasattr(self, 'lbl_marker_pos'):
-                    self.lbl_marker_pos.setText("Position: Marker Not Detected")
+                    self.lbl_marker_pos.setText(f"Position ({self.arm_side}): Marker Not Detected")
             
             self.marker_st.camera.get_color_image()
             temp = self.marker_st.camera.get_camera_temperature()
@@ -2130,18 +2178,29 @@ class UnifiedCalibrationApp(QWidget):
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f)
                 if data and "camera" in data:
-                    key = f"Tf_to_marker_{self.arm_side}"
-                    val_list = data["camera"].get(key, None)
-                    if val_list and len(val_list) == 6:
-                        self.txt_bracket_x.setText(f"{val_list[0]:.5f}")
-                        self.txt_bracket_y.setText(f"{val_list[1]:.5f}")
-                        self.txt_bracket_z.setText(f"{val_list[2]:.5f}")
-                        self.txt_bracket_roll.setText(f"{val_list[3]:.2f}")
-                        self.txt_bracket_pitch.setText(f"{val_list[4]:.2f}")
-                        self.txt_bracket_yaw.setText(f"{val_list[5]:.2f}")
-                        self.log_msg(f"[INFO] Loaded {key} from setting.yaml: {val_list}")
-                        return
-            self.log_msg(f"[WARNING] Could not load bracket design values for {self.arm_side} from setting.yaml.")
+                    # Load Left Arm values
+                    val_left = data["camera"].get("Tf_to_marker_left", None)
+                    if val_left and len(val_left) == 6:
+                        self.txt_bracket_l_x.setText(f"{val_left[0]:.4f}")
+                        self.txt_bracket_l_y.setText(f"{val_left[1]:.4f}")
+                        self.txt_bracket_l_z.setText(f"{val_left[2]:.4f}")
+                        self.txt_bracket_l_roll.setText(f"{val_left[3]:.2f}")
+                        self.txt_bracket_l_pitch.setText(f"{val_left[4]:.2f}")
+                        self.txt_bracket_l_yaw.setText(f"{val_left[5]:.2f}")
+                    
+                    # Load Right Arm values
+                    val_right = data["camera"].get("Tf_to_marker_right", None)
+                    if val_right and len(val_right) == 6:
+                        self.txt_bracket_r_x.setText(f"{val_right[0]:.4f}")
+                        self.txt_bracket_r_y.setText(f"{val_right[1]:.4f}")
+                        self.txt_bracket_r_z.setText(f"{val_right[2]:.4f}")
+                        self.txt_bracket_r_roll.setText(f"{val_right[3]:.2f}")
+                        self.txt_bracket_r_pitch.setText(f"{val_right[4]:.2f}")
+                        self.txt_bracket_r_yaw.setText(f"{val_right[5]:.2f}")
+                    
+                    self.log_msg(f"[INFO] Loaded Tf_to_marker values for both arms from setting.yaml")
+                    return
+            self.log_msg("[WARNING] Could not load bracket design values from setting.yaml.")
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to load setting.yaml: {e}")
 
@@ -2149,12 +2208,19 @@ class UnifiedCalibrationApp(QWidget):
         config_path = CONFIG_PATHS["setting_yaml"]
         try:
             try:
-                x = float(self.txt_bracket_x.text())
-                y = float(self.txt_bracket_y.text())
-                z = float(self.txt_bracket_z.text())
-                roll = float(self.txt_bracket_roll.text())
-                pitch = float(self.txt_bracket_pitch.text())
-                yaw = float(self.txt_bracket_yaw.text())
+                l_x = float(self.txt_bracket_l_x.text())
+                l_y = float(self.txt_bracket_l_y.text())
+                l_z = float(self.txt_bracket_l_z.text())
+                l_roll = float(self.txt_bracket_l_roll.text())
+                l_pitch = float(self.txt_bracket_l_pitch.text())
+                l_yaw = float(self.txt_bracket_l_yaw.text())
+                
+                r_x = float(self.txt_bracket_r_x.text())
+                r_y = float(self.txt_bracket_r_y.text())
+                r_z = float(self.txt_bracket_r_z.text())
+                r_roll = float(self.txt_bracket_r_roll.text())
+                r_pitch = float(self.txt_bracket_r_pitch.text())
+                r_yaw = float(self.txt_bracket_r_yaw.text())
             except ValueError:
                 if not silent:
                     QMessageBox.critical(self, "Invalid Inputs", "Please enter valid numeric values for all bracket design fields.")
@@ -2165,63 +2231,62 @@ class UnifiedCalibrationApp(QWidget):
                 with open(config_path, "r") as f:
                     lines = f.readlines()
             
-            camera_idx = -1
-            for i, line in enumerate(lines):
-                if line.strip().startswith("camera:"):
-                    camera_idx = i
-                    break
-            
-            key = f"Tf_to_marker_{self.arm_side}"
-            new_vals = [x, y, z, roll, pitch, yaw]
-            new_val_str = f"[{x:.5f}, {y:.5f}, {z:.5f}, {roll:.2f}, {pitch:.2f}, {yaw:.2f}]"
-            
-            key_found = False
-            if camera_idx != -1:
-                i = camera_idx + 1
-                while i < len(lines):
-                    line = lines[i]
-                    stripped = line.strip()
-                    if not stripped:
-                        i += 1
-                        continue
-                    # If we hit another top-level key, we stop
-                    if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+            def update_key_in_lines(lines_list, key_str, new_vals_list):
+                camera_idx = -1
+                for idx, line in enumerate(lines_list):
+                    if line.strip().startswith("camera:"):
+                        camera_idx = idx
                         break
-                    
-                    if stripped.startswith(f"{key}:"):
-                        comment = ""
-                        if "#" in line:
-                            comment_idx = line.find("#")
-                            comment = " " + line[comment_idx:].rstrip()
+                
+                new_val_str = f"[{new_vals_list[0]:.5f}, {new_vals_list[1]:.5f}, {new_vals_list[2]:.5f}, {new_vals_list[3]:.2f}, {new_vals_list[4]:.2f}, {new_vals_list[5]:.2f}]"
+                key_found = False
+                if camera_idx != -1:
+                    i = camera_idx + 1
+                    while i < len(lines_list):
+                        line = lines_list[i]
+                        stripped = line.strip()
+                        if not stripped:
+                            i += 1
+                            continue
+                        if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+                            break
                         
-                        indent = len(line) - len(line.lstrip())
-                        lines[i] = " " * indent + f"{key}: {new_val_str}{comment}\n"
-                        key_found = True
-                        break
-                    i += 1
+                        if stripped.startswith(f"{key_str}:"):
+                            comment = ""
+                            if "#" in line:
+                                comment_idx = line.find("#")
+                                comment = " " + line[comment_idx:].rstrip()
+                            
+                            indent = len(line) - len(line.lstrip())
+                            lines_list[i] = " " * indent + f"{key_str}: {new_val_str}{comment}\n"
+                            key_found = True
+                            break
+                        i += 1
+                
+                if not key_found:
+                    if camera_idx == -1:
+                        lines_list.append("camera:\n")
+                        lines_list.append(f"  {key_str}: {new_val_str}\n")
+                    else:
+                        lines_list.insert(camera_idx + 1, f"  {key_str}: {new_val_str}\n")
             
-            if not key_found:
-                if camera_idx == -1:
-                    lines.append("camera:\n")
-                    lines.append(f"  {key}: {new_val_str}\n")
-                else:
-                    lines.insert(camera_idx + 1, f"  {key}: {new_val_str}\n")
+            update_key_in_lines(lines, "Tf_to_marker_left", [l_x, l_y, l_z, l_roll, l_pitch, l_yaw])
+            update_key_in_lines(lines, "Tf_to_marker_right", [r_x, r_y, r_z, r_roll, r_pitch, r_yaw])
             
             with open(config_path, "w") as f:
                 f.writelines(lines)
                 
-            self.log_msg(f"[SUCCESS] Saved {key} to setting.yaml: {new_vals}")
+            self.log_msg(f"[SUCCESS] Saved Tf_to_marker values for both arms to setting.yaml")
             if not silent:
-                QMessageBox.information(self, "Success", f"Bracket design values saved for {self.arm_side.upper()} arm!")
+                QMessageBox.information(self, "Success", "Bracket design values saved for both arms!")
             
             if not self.ui_only and self.marker_st is not None:
                 detector = self.marker_st.marker_detection
                 if hasattr(detector, 'camera_config'):
-                    detector.camera_config[key] = new_vals
-                    tf_vec_l = detector.camera_config.get("Tf_to_marker_left", [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0])
-                    tf_vec_r = detector.camera_config.get("Tf_to_marker_right", [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0])
-                    detector.Tf_to_marker_tf_left = detector.make_transform(tf_vec_l)
-                    detector.Tf_to_marker_tf_right = detector.make_transform(tf_vec_r)
+                    detector.camera_config["Tf_to_marker_left"] = [l_x, l_y, l_z, l_roll, l_pitch, l_yaw]
+                    detector.camera_config["Tf_to_marker_right"] = [r_x, r_y, r_z, r_roll, r_pitch, r_yaw]
+                    detector.Tf_to_marker_tf_left = detector.make_transform(detector.camera_config["Tf_to_marker_left"])
+                    detector.Tf_to_marker_tf_right = detector.make_transform(detector.camera_config["Tf_to_marker_right"])
                     self.log_msg("[INFO] Dynamically updated marker detector Tf_to_marker transforms in memory.")
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to save bracket values: {e}")
@@ -2239,13 +2304,20 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'btn_apply_bracket'):
             self.btn_apply_bracket.setEnabled(enabled)
             
-        if hasattr(self, 'txt_bracket_x'):
-            self.txt_bracket_x.setEnabled(enabled)
-            self.txt_bracket_y.setEnabled(enabled)
-            self.txt_bracket_z.setEnabled(enabled)
-            self.txt_bracket_roll.setEnabled(enabled)
-            self.txt_bracket_pitch.setEnabled(enabled)
-            self.txt_bracket_yaw.setEnabled(enabled)
+        if hasattr(self, 'txt_bracket_l_x'):
+            self.txt_bracket_l_x.setEnabled(enabled)
+            self.txt_bracket_l_y.setEnabled(enabled)
+            self.txt_bracket_l_z.setEnabled(enabled)
+            self.txt_bracket_l_roll.setEnabled(enabled)
+            self.txt_bracket_l_pitch.setEnabled(enabled)
+            self.txt_bracket_l_yaw.setEnabled(enabled)
+            
+            self.txt_bracket_r_x.setEnabled(enabled)
+            self.txt_bracket_r_y.setEnabled(enabled)
+            self.txt_bracket_r_z.setEnabled(enabled)
+            self.txt_bracket_r_roll.setEnabled(enabled)
+            self.txt_bracket_r_pitch.setEnabled(enabled)
+            self.txt_bracket_r_yaw.setEnabled(enabled)
         
         self.btn_marker_ready.setEnabled(enabled)
         self.btn_marker_center.setEnabled(enabled)
@@ -2406,6 +2478,26 @@ class UnifiedCalibrationApp(QWidget):
             
         self.log_text.clear()
         self.log_msg("[INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...")
+        if self.ui_only:
+            self.log_msg("[MOCK GT] Simulated Ground-Truth Offsets:")
+            is_v13 = self.get_robot_version() == "1.3"
+            for arm in ["right", "left"]:
+                if arm == "right":
+                    j6_gt = 3.2
+                    j5_gt = -2.1 if is_v13 else 1.5
+                    j3_gt = 0.8
+                    pos_gt = [3.0, -1.0, 4.0] # mm
+                    rpy_gt = [1.0, -1.2, 0.8] # deg
+                else:
+                    j6_gt = -2.5
+                    j5_gt = 3.6 if is_v13 else -1.8
+                    j3_gt = 0.8
+                    pos_gt = [-2.0, 1.0, -3.0] # mm
+                    rpy_gt = [-0.8, 1.5, -1.2] # deg
+                self.log_msg(f"  --- {arm.upper()} ARM ---")
+                self.log_msg(f"  * Bracket Pos: X: {pos_gt[0]:+.1f}, Y: {pos_gt[1]:+.1f}, Z: {pos_gt[2]:+.1f} mm")
+                self.log_msg(f"  * Bracket Rot: R: {rpy_gt[0]:+.2f}, P: {rpy_gt[1]:+.2f}, Y: {rpy_gt[2]:+.2f} deg")
+                self.log_msg(f"  * Joint Offsets: Joint 6: {j6_gt:+.2f}°, Joint 5: {j5_gt:+.2f}°, Joint 3: {j3_gt:+.2f}°")
         
         self.set_controls_enabled(False)
         self.btn_full_auto_start.setEnabled(False)
@@ -2460,50 +2552,47 @@ class UnifiedCalibrationApp(QWidget):
                 self.poll_timer.start(200)
 
     def handle_full_auto_bracket_finished(self, bracket_res):
-        orig_side = self.arm_side
         arm_side = bracket_res['arm_side']
-        self.arm_side = arm_side
         
-        # Update UI text boxes
-        self.txt_bracket_x.setText(f"{bracket_res['x_e']/1000.0:.5f}")
-        self.txt_bracket_y.setText(f"{bracket_res['y_e']/1000.0:.5f}")
-        self.txt_bracket_z.setText(f"{bracket_res['z_e']/1000.0:.5f}")
-        self.txt_bracket_roll.setText(f"{bracket_res['roll_e']:.2f}")
-        self.txt_bracket_pitch.setText(f"{bracket_res['pitch_e']:.2f}")
-        self.txt_bracket_yaw.setText(f"{bracket_res['yaw_e']:.2f}")
-        
-        # Save to setting.yaml and apply in memory (silent=True)
-        self.apply_bracket_design_values(silent=True)
-        
-        self.arm_side = orig_side
+        # Update UI text boxes for corresponding arm
+        if arm_side == "left":
+            self.txt_bracket_l_x.setText(f"{bracket_res['x_e']/1000.0:.4f}")
+            self.txt_bracket_l_y.setText(f"{bracket_res['y_e']/1000.0:.4f}")
+            self.txt_bracket_l_z.setText(f"{bracket_res['z_e']/1000.0:.4f}")
+            self.txt_bracket_l_roll.setText(f"{bracket_res['roll_e']:.2f}")
+            self.txt_bracket_l_pitch.setText(f"{bracket_res['pitch_e']:.2f}")
+            self.txt_bracket_l_yaw.setText(f"{bracket_res['yaw_e']:.2f}")
+        else:
+            self.txt_bracket_r_x.setText(f"{bracket_res['x_e']/1000.0:.4f}")
+            self.txt_bracket_r_y.setText(f"{bracket_res['y_e']/1000.0:.4f}")
+            self.txt_bracket_r_z.setText(f"{bracket_res['z_e']/1000.0:.4f}")
+            self.txt_bracket_r_roll.setText(f"{bracket_res['roll_e']:.2f}")
+            self.txt_bracket_r_pitch.setText(f"{bracket_res['pitch_e']:.2f}")
+            self.txt_bracket_r_yaw.setText(f"{bracket_res['yaw_e']:.2f}")
+            
+        self.log_msg(f"[INFO] Full Auto: Finished bracket calibration for {arm_side.upper()} arm. Values staged in UI (click APPLY BRACKETS to save).")
 
     def handle_full_auto_joint_finished(self, joint_res):
-        orig_side = self.arm_side
         arm_side = joint_res['arm_side']
-        self.arm_side = arm_side
         mode = joint_res.get('mode', 'elbow')
         
         recommended = joint_res['recommended_joint_offset']
         if mode == "wrist_roll_v13":
             joint_key = "joint6"
-            offset_key = "wrist_roll"
         elif mode in ("wrist_pitch_v13", "wrist_pitch"):
             joint_key = "joint5"
-            offset_key = "wrist_pitch"
         else:
             joint_key = "joint3"
-            offset_key = "elbow"
             recommended = np.clip(recommended, -3.0, 0.0)
             
+        # Update staged offsets store
         self.joint_offsets_store[arm_side][joint_key] = float(recommended)
-        self.joint_offsets[offset_key] = self.joint_offsets_store[arm_side][joint_key]
-        self.joint_calibrator.joint_offsets = self.joint_offsets
-        self.marker_calibrator.joint_offsets = self.joint_offsets
         
-        self.save_offsets_to_yaml()
+        # Refresh offset monitor table view
         self.update_applied_offset_label()
         
-        self.arm_side = orig_side
+        self.log_msg(f"[INFO] Full Auto: Finished joint calibration for {arm_side.upper()} {mode}. Staged: {recommended:.4f}° (click APPLY OFFSET to save).")
+        
         if hasattr(self, 'stop_event_mc'):
             self.stop_event_mc.clear()
         
@@ -2557,6 +2646,14 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_calibrator.stop_requested = False
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
+        if self.ui_only:
+            is_v13 = self.get_robot_version() == "1.3"
+            if self.arm_side == "right":
+                j_gt = {"wrist_roll_v13": 3.2, "wrist_pitch_v13": -2.1, "wrist_pitch": 1.5, "elbow": 0.8}
+            else:
+                j_gt = {"wrist_roll_v13": -2.5, "wrist_pitch_v13": 3.6, "wrist_pitch": -1.8, "elbow": 0.8}
+            gt_val = j_gt.get(mode, 0.0)
+            self.log_msg(f"[MOCK GT] Simulated Target Joint Offset: {gt_val:+.2f}°")
         
         curr_offset = self.joint_offsets.get(offset_key, 0.0)
         self.active_worker = JointCalibrationWorker(
@@ -2723,7 +2820,7 @@ class UnifiedCalibrationApp(QWidget):
         self.on_action_finished()
 
     def start_calibration_marker(self):
-        if not self.robot:
+        if not self.ui_only and not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
@@ -2737,6 +2834,16 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_calibrator.stop_requested = False
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: {use_head})")
+        if self.ui_only:
+            if self.arm_side == "right":
+                pos_gt = [3.0, -1.0, 4.0] # mm
+                rpy_gt = [1.0, -1.2, 0.8] # deg
+            else:
+                pos_gt = [-2.0, 1.0, -3.0] # mm
+                rpy_gt = [-0.8, 1.5, -1.2] # deg
+            self.log_msg(f"[MOCK GT] Simulated Bracket Offset (Tf_to_marker):")
+            self.log_msg(f"  * Pos: X: {pos_gt[0]:+.1f}, Y: {pos_gt[1]:+.1f}, Z: {pos_gt[2]:+.1f} mm")
+            self.log_msg(f"  * Rot: R: {rpy_gt[0]:+.2f}, P: {rpy_gt[1]:+.2f}, Y: {rpy_gt[2]:+.2f} deg")
 
         try:
             tolerance = float(self.tolerance_input.text())
