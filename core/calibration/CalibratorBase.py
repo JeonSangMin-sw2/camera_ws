@@ -331,11 +331,11 @@ class BaseCalibrator:
         injected_joint_offsets_deg[5] = j5_gt
         injected_joint_offsets_deg[6] = j6_gt
         
-        version_suffix = "_v13" if is_v13 else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
         if tf_vec is None:
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            version_suffix = "_v13" if is_v13 else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_pos = tf_vec[:3]
@@ -420,11 +420,11 @@ class BaseCalibrator:
         dyn_model = self.robot.get_dynamics()
         T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
         
-        version_suffix = "_v13" if is_v13 else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
         if tf_vec is None:
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            version_suffix = "_v13" if is_v13 else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_pos = tf_vec[:3]

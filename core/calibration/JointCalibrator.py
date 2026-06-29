@@ -901,11 +901,11 @@ class JointCalibrator(BaseCalibrator):
 
         if mode in ["wrist_roll_v13", "wrist_pitch_v13"]:
             # Load Tf_to_marker
-            version_suffix = "_v13" if self.is_v13() else "_v12"
-            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            tf_vec = self.camera_config.get(tf_key)
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
             if tf_vec is None:
-                tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+                version_suffix = "_v13" if self.is_v13() else "_v12"
+                tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+                tf_vec = self.camera_config.get(tf_key)
             if tf_vec is None:
                 if arm_side == "left":
                     tf_vec = [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0]

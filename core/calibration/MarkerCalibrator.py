@@ -396,11 +396,11 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
-        version_suffix = "_v13" if self.is_v13() else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
         if tf_vec is None:
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            version_suffix = "_v13" if self.is_v13() else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
@@ -653,11 +653,11 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
-        version_suffix = "_v13" if self.is_v13() else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
         if tf_vec is None:
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            version_suffix = "_v13" if self.is_v13() else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
@@ -926,11 +926,11 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
-        version_suffix = "_v13" if self.is_v13() else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
         if tf_vec is None:
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            version_suffix = "_v13" if self.is_v13() else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
@@ -1126,11 +1126,11 @@ class MarkerCalibrator(BaseCalibrator):
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
         
         # Load nominal values
-        version_suffix = "_v13" if self.is_v13() else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
         if tf_vec is None:
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+            version_suffix = "_v13" if self.is_v13() else "_v12"
+            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            tf_vec = self.camera_config.get(tf_key)
             
         x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else 0.0
         y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else (77.5 if arm_side == "left" else -77.5)

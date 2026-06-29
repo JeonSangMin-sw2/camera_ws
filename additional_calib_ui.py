@@ -1112,7 +1112,7 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_calibrator.joint_offsets = self.joint_offsets
         
         self.setWindowTitle("Unified Robot Calibration Suite")
-        self.resize(1000, 500)
+        self.resize(1050, 550)
         self.setStyleSheet(DARK_STYLESHEET)
         
         # 1. 200ms poll timer (탭 1, 2, 4 용)
@@ -2570,6 +2570,13 @@ class UnifiedCalibrationApp(QWidget):
             self.txt_bracket_r_pitch.setText(f"{bracket_res['pitch_e']:.2f}")
             self.txt_bracket_r_yaw.setText(f"{bracket_res['yaw_e']:.2f}")
             
+        # Stage Joint 5 and Joint 6 offsets if solved (v1.3)
+        if 'opt_delta_5' in bracket_res:
+            self.joint_offsets_store[arm_side]["joint5"] = float(bracket_res['opt_delta_5'])
+            self.joint_offsets_store[arm_side]["joint6"] = float(bracket_res['opt_delta_6'])
+            self.update_applied_offset_label()
+            self.log_msg(f"[INFO] Full Auto: Staged joint offsets for {arm_side.upper()} Arm - Joint 5: {bracket_res['opt_delta_5']:.4f}°, Joint 6: {bracket_res['opt_delta_6']:.4f}°")
+
         self.log_msg(f"[INFO] Full Auto: Finished bracket calibration for {arm_side.upper()} arm. Values staged in UI (click APPLY BRACKETS to save).")
 
     def handle_full_auto_joint_finished(self, joint_res):
@@ -2868,6 +2875,13 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_data_6 = res['res_6']
             self.marker_data_4 = res.get('res_4', None)
                 
+            # Stage Joint 5 and Joint 6 offsets if solved (v1.3)
+            if 'opt_delta_5' in res:
+                self.joint_offsets_store[self.arm_side]["joint5"] = float(res['opt_delta_5'])
+                self.joint_offsets_store[self.arm_side]["joint6"] = float(res['opt_delta_6'])
+                self.update_applied_offset_label()
+                self.log_msg(f"[INFO] Staged joint offsets for {self.arm_side.upper()} Arm - Joint 5: {res['opt_delta_5']:.4f}°, Joint 6: {res['opt_delta_6']:.4f}°")
+
             if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
                 pix = QPixmap(res['plot_path_combined']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
                 self.plot_label_combined.setPixmap(pix)
@@ -2902,9 +2916,9 @@ class UnifiedCalibrationApp(QWidget):
         x_m, y_m, z_m = res['x_e']/1000.0, res['y_e']/1000.0, res['z_e']/1000.0
         
         if self.arm_side == "left":
-            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+            self.log_msg(f"  Tf_to_marker_left:  [{x_m:.4f}, {y_m:.4f}, {z_m:.4f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
         else:
-            self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+            self.log_msg(f"  Tf_to_marker_right: [{x_m:.4f}, {y_m:.4f}, {z_m:.4f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
             
         self.log_msg(f"\n[4] Confidence Metrics:")
         self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
@@ -2958,9 +2972,9 @@ class UnifiedCalibrationApp(QWidget):
             x_m, y_m, z_m = res['x_e']/1000.0, res['y_e']/1000.0, res['z_e']/1000.0
             
             if self.arm_side == "left":
-                self.log_msg(f"  Tf_to_marker_left:  [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+                self.log_msg(f"  Tf_to_marker_left:  [{x_m:.4f}, {y_m:.4f}, {z_m:.4f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
             else:
-                self.log_msg(f"  Tf_to_marker_right: [{x_m:.5f}, {y_m:.5f}, {z_m:.5f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
+                self.log_msg(f"  Tf_to_marker_right: [{x_m:.4f}, {y_m:.4f}, {z_m:.4f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
                 
             self.log_msg(f"\n[4] Confidence Metrics:")
             self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
@@ -3023,6 +3037,14 @@ class UnifiedCalibrationApp(QWidget):
         if not self.ui_only and self.marker_st is not None:
             self.marker_st.camera.capture_image()
             img = self.marker_st.camera.get_color_image()
+            
+            # 백그라운드 마커 검출 및 상태 표시 업데이트
+            try:
+                res_all = self.marker_st.get_marker_transform(sampling_time=0, side="all")
+                detected = bool(res_all and len(res_all) > 0)
+                self.update_marker_indicator(detected)
+            except Exception:
+                pass
         else:
             # Mock image
             img = np.zeros((720, 1280, 3), dtype=np.uint8)
