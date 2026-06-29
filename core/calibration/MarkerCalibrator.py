@@ -243,7 +243,10 @@ class MarkerCalibrator(BaseCalibrator):
             if log_callback: log_callback("[ERROR] Failed to move to start sweep position or stop was requested.")
             return None
             
-        time.sleep(1.0)
+        if is_camera_mock:
+            time.sleep(0.01)
+        else:
+            time.sleep(1.0)
 
         # 2. Continuous sweep from start to end position (15s duration)
         if log_callback: log_callback(f"[INFO] Commencing Continuous Sweep on Marker Axis {axis_mode} (duration=15s)...")
@@ -297,7 +300,7 @@ class MarkerCalibrator(BaseCalibrator):
                     captured_q_full.append(q_full_captured)
                     
             if is_camera_mock:
-                time.sleep(0.3)
+                time.sleep(0.002)
             else:
                 time.sleep(0.01)
 
@@ -373,7 +376,8 @@ class MarkerCalibrator(BaseCalibrator):
         return res
 
     def get_link_length(self, arm_side):
-        if not self.robot or self.robot == "mock_robot":
+        is_mock = not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ in ("PureMockRobot", "OfflineRobot")
+        if is_mock:
             return 300.0
         try:
             dyn_model = self.robot.get_dynamics()
@@ -448,9 +452,14 @@ class MarkerCalibrator(BaseCalibrator):
         radius_5 = marker_data_5.get('radius', 0.0) if marker_data_5 else 0.0
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
 
-        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else 95.0
-        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else 0.0
-        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else -5.0
+        # 오차 전파 차단을 위해 기존 setting.yaml의 Tf_to_marker 값을 쓰지 않고, 
+        # 무조건 고정 설계 템플릿(NOMINAL_BRACKET_TEMPLATES)만 명목 목표값으로 사용하며,
+        # v1.3의 경우 y_nom을 0.0으로 구속합니다.
+        ver_key = "1.3" if self.is_v13() else "1.2"
+        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+        x_nom = nominal_vec[0] * 1000.0
+        y_nom = 0.0  # v1.3 설계값 구속 (y = 0)
+        z_nom = nominal_vec[2] * 1000.0
 
         # Stage 1: Solve for Joint 6 offset and marker roll misalignment using 6-axis sweep data
         R_list_6 = []
@@ -535,16 +544,17 @@ class MarkerCalibrator(BaseCalibrator):
 
         # Bounds: z_e uses absolute physical range (v1.3 bracket extends up to ~200 mm in -Z)
         # L_5_ee bounded tightly around robot-model value (±80 mm)
+        # v1.3 설계치 구속 (y_e = 0.0)을 위해 ye 범위를 [-1e-9, 1e-9] 수준으로 묶어 고정합니다.
         x_min = np.array([
             -np.radians(30.0), -np.radians(30.0), 0.0,
             d5_init - d5_half, d6_init - d6_half,
-            x_nom_m - 0.030, y_nom_m - 0.003, -0.250,
+            x_nom_m - 0.030, y_nom_m - 1e-9, -0.250,
             L_nom_m - 0.080
         ])
         x_max = np.array([
             np.radians(30.0), np.radians(30.0), 0.0,
             d5_init + d5_half, d6_init + d6_half,
-            x_nom_m + 0.030, y_nom_m + 0.003, 0.010,
+            x_nom_m + 0.030, y_nom_m + 1e-9, 0.010,
             L_nom_m + 0.080
         ])
 
@@ -557,7 +567,7 @@ class MarkerCalibrator(BaseCalibrator):
             n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
             
             r6_p = np.sqrt(ye**2 + ze**2)
-            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) + L_m
+            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) - L_m
             r5_p = np.sqrt(xe**2 + Z_p**2)
             
             res = []
@@ -801,7 +811,7 @@ class MarkerCalibrator(BaseCalibrator):
             n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
             
             r6_p = np.sqrt(ye**2 + ze**2)
-            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) + L_m
+            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) - L_m
             r5_p = np.sqrt(xe**2 + Z_p**2)
             
             res = []
@@ -1134,6 +1144,11 @@ class MarkerCalibrator(BaseCalibrator):
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
+        # v1.2: Z축 회전 방향 비틀림(Torsion) 오차 배제 - 명목 설계값 yaw으로 고정
+        ver_key = "1.3" if self.is_v13() else "1.2"
+        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+        yaw_e = nominal_vec[5]
+        
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
 
@@ -1142,18 +1157,11 @@ class MarkerCalibrator(BaseCalibrator):
         radius_5 = marker_data_5.get('radius', 0.0)
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
         
-        # Load nominal values
-        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
-        if tf_vec is None:
-            version_suffix = "_v13" if self.is_v13() else "_v12"
-            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            tf_vec = self.camera_config.get(tf_key)
-            
-        ver_key = "1.3" if self.is_v13() else "1.2"
-        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else nominal_vec[0] * 1000.0
-        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else nominal_vec[1] * 1000.0
-        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else nominal_vec[2] * 1000.0
+        # 오차 전파 차단을 위해 기존 setting.yaml의 Tf_to_marker 값을 쓰지 않고, 
+        # 무조건 고정 설계 템플릿(NOMINAL_BRACKET_TEMPLATES)만 명목 목표값으로 사용합니다.
+        x_nom = nominal_vec[0] * 1000.0
+        y_nom = nominal_vec[1] * 1000.0
+        z_nom = nominal_vec[2] * 1000.0
         
         # In v1.2, we assume J5/J6 joint offsets are already zero/corrected
         opt_delta_5_rad = 0.0
@@ -1161,8 +1169,8 @@ class MarkerCalibrator(BaseCalibrator):
         
         from scipy.optimize import least_squares
         def residuals_trans(params):
-            xe, ye, ze = params
-            # v1.2: Joint 6 rotates about local Z, Joint 5 rotates about local Y.
+            ye, ze = params
+            xe = 0.0  # v1.2 설계값 구속 (x = 0)
             r6_pred = np.sqrt(xe**2 + ye**2)
             Z_prime = ze + L_5_ee
             r5_pred = np.sqrt(xe**2 + Z_prime**2)
@@ -1174,14 +1182,26 @@ class MarkerCalibrator(BaseCalibrator):
                 res.append(np.sqrt(xe**2 + ye**2) - radius_4)
                 
             reg_weight = 1e-7
-            res.append(reg_weight * (xe - x_nom))
             res.append(reg_weight * (ye - y_nom))
             res.append(reg_weight * (ze - z_nom))
             return res
             
-        initial_guess = [x_nom, y_nom, z_nom]
-        opt_res = least_squares(residuals_trans, initial_guess, loss='huber')
-        x_e, y_e, z_e = opt_res.x
+        initial_guess = [y_nom, z_nom]
+        lower_bounds = [y_nom - 30.0, -250.0]  # Z축 음수 한계 범위 강제
+        upper_bounds = [y_nom + 30.0, 10.0]
+        opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
+        y_e, z_e = opt_res.x
+        x_e = 0.0
+        
+        print(f"DEBUG SOLVER v1.2: arm_side={arm_side}", flush=True)
+        print(f"  L_5_ee = {L_5_ee:.4f}", flush=True)
+        print(f"  radius_6 = {radius_6:.4f}, radius_5 = {radius_5:.4f}", flush=True)
+        print(f"  y_nom = {y_nom:.4f}, z_nom = {z_nom:.4f}", flush=True)
+        print(f"  y_e = {y_e:.4f}, z_e = {z_e:.4f}", flush=True)
+        print(f"  Initial guess: {initial_guess}", flush=True)
+        print(f"  Lower bounds: {lower_bounds}", flush=True)
+        print(f"  Upper bounds: {upper_bounds}", flush=True)
+        print(f"  Optimal residuals: {residuals_trans(opt_res.x)}", flush=True)
 
         # 6. 알고리즘 신뢰도 평가 점수
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)

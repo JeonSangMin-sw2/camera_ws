@@ -21,7 +21,7 @@ def run_simulation():
     print("==================================================")
     
     # 1. Instantiate v1.2 Mock Robot
-    robot = get_mock_robot(model_name="a")
+    robot = get_mock_robot(model_name="m", robot_version="1.2")
     
     # 2. Instantiate calibrators
     marker_cal = MarkerCalibrator(None, robot)

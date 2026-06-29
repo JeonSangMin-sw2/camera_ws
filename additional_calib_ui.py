@@ -895,6 +895,7 @@ class FullAutoWorker(QThread):
                     
                     self.joint_calibrator.joint_offsets["wrist_pitch"] = joint_res_pitch["recommended_joint_offset"]
                     self.marker_calibrator.joint_offsets["wrist_pitch"] = joint_res_pitch["recommended_joint_offset"]
+                    self.joint_offsets_store[arm_side]["joint5"] = joint_res_pitch["recommended_joint_offset"]
                     
                     self.joint_finished_signal.emit(joint_res_pitch)
                     time.sleep(0.5)
@@ -919,6 +920,7 @@ class FullAutoWorker(QThread):
                     
                     self.joint_calibrator.joint_offsets["elbow"] = joint_res_elbow["recommended_joint_offset"]
                     self.marker_calibrator.joint_offsets["elbow"] = joint_res_elbow["recommended_joint_offset"]
+                    self.joint_offsets_store[arm_side]["joint3"] = joint_res_elbow["recommended_joint_offset"]
                     
                     self.joint_finished_signal.emit(joint_res_elbow)
                     time.sleep(0.5)
@@ -2037,6 +2039,8 @@ class UnifiedCalibrationApp(QWidget):
                 
                 # Cache the version classification on the app instance
                 self.robot_version = detected_version
+                if self.robot and hasattr(self.robot, "robot_version"):
+                    self.robot.robot_version = detected_version
 
                 # Configure calibrators version
                 self.marker_calibrator.robot_version = detected_version

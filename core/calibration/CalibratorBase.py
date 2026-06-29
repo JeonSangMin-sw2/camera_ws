@@ -302,6 +302,11 @@ class BaseCalibrator:
 
     @staticmethod
     def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
+        # Force pure mock FK implementation for virtual/offline SDK robots to ensure version compatibility
+        is_mock_robot = getattr(robot, "is_pure_mock", False) or type(robot).__name__ in ("PureMockRobot", "OfflineRobot")
+        if is_mock_robot:
+            from core.calibration.mock_robot import pure_mock_compute_fk_impl
+            return pure_mock_compute_fk_impl(robot, dyn_model, q, ee_link, base_link)
         model = robot.model()
         state = dyn_model.make_state([base_link, ee_link], model.robot_joint_names)
         state.set_q(q)
@@ -509,8 +514,9 @@ class BaseCalibrator:
                 for i, val in enumerate(torso):
                     q_end[torso_idx[i]] = val
                     
+            # Scale down duration in mock to speed up simulation/tests
+            duration = min(minimum_time, 0.1) if minimum_time > 0 else 0.05
             t_start = time.time()
-            duration = minimum_time if minimum_time > 0 else 0.1
             
             while True:
                 t_elapsed = time.time() - t_start
@@ -518,7 +524,7 @@ class BaseCalibrator:
                 state.position = q_start + ratio * (q_end - q_start)
                 if ratio >= 1.0:
                     break
-                time.sleep(0.05)
+                time.sleep(0.001)
                 
             return True
             
@@ -533,19 +539,19 @@ class BaseCalibrator:
             if right_arm is not None:
                 right_arm = list(right_arm)
                 if is_v13:
-                    right_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
-                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                    right_arm[6] -= np.radians(self.joint_offsets.get("wrist_roll", 0.0))
+                    right_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 else:
-                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
-                right_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
+                    right_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                right_arm[3] -= np.radians(self.joint_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
                 if is_v13:
-                    left_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
-                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                    left_arm[6] -= np.radians(self.joint_offsets.get("wrist_roll", 0.0))
+                    left_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 else:
-                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
-                left_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
+                    left_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                left_arm[3] -= np.radians(self.joint_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
         
@@ -588,10 +594,12 @@ class BaseCalibrator:
         try:
             rv = robot.send_command(cmd, priority).get()
             if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                print(f"[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: {rv.finish_code}", flush=True)
                 logging.error(f"Failed to conduct movej. Finish code: {rv.finish_code}")
                 return False
             return True
         except Exception as e:
+            print(f"[DEBUG MOVEJ EXCEPTION] movej exception: {e}", flush=True)
             logging.error(f"movej exception: {e}")
             return False
 

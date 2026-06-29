@@ -55,11 +55,12 @@ class PureMockDynamics:
 
 
 class PureMockRobot:
-    def __init__(self, arm_side="right", model_name="m"):
+    def __init__(self, arm_side="right", model_name="m", robot_version=None):
         self._model = PureMockModel()
         self._dynamics = PureMockDynamics(arm_side)
         self.is_pure_mock = True
         self.model_name = model_name
+        self.robot_version = robot_version if robot_version is not None else ("1.3" if model_name == "m" else "1.2")
         self._state = MockRobotState(20)
     
     def model(self):
@@ -95,75 +96,70 @@ class PureMockRobot:
         class RobotInfo:
             def __init__(self, version):
                 self.robot_model_version = version
-        version = "1.3" if self.model_name == "m" else "1.2"
-        return RobotInfo(version)
+        return RobotInfo(self.robot_version)
 
 def pure_mock_compute_fk_impl(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
     T = np.eye(4)
     model_name = getattr(robot, "model_name", "a")
     
-    if model_name == "m":
-        # v1.3 Kinematics: Y (q3) -> Z (q4) -> Y (q5) -> X (q6)
-        if "ee" in ee_link:
-            q3, q4, q5, q6 = q[3], q[4], q[5], q[6]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            R4 = R_scipy.from_euler('Z', q4).as_matrix()
-            R5 = R_scipy.from_euler('Y', q5).as_matrix()
-            R6 = R_scipy.from_euler('X', q6).as_matrix()
-            T[:3, :3] = R3 @ R4 @ R5 @ R6
-            p_j5_rel_j3 = R3 @ R4 @ np.array([0.0, 0.0, 0.3])
-            p_ee_rel_j5 = R3 @ R4 @ R5 @ np.array([0.0, 0.0, 0.3])
-            T[:3, 3] = p_j5_rel_j3 + p_ee_rel_j5
-        elif "arm_5" in ee_link:
-            q3, q4, q5 = q[3], q[4], q[5]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            R4 = R_scipy.from_euler('Z', q4).as_matrix()
-            R5 = R_scipy.from_euler('Y', q5).as_matrix()
-            T[:3, :3] = R3 @ R4 @ R5
-            p_j5_rel_j3 = R3 @ R4 @ np.array([0.0, 0.0, 0.3])
-            T[:3, 3] = p_j5_rel_j3
-        elif "arm_4" in ee_link:
-            q3, q4 = q[3], q[4]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            R4 = R_scipy.from_euler('Z', q4).as_matrix()
-            T[:3, :3] = R3 @ R4
-            T[:3, 3] = R3 @ np.array([0.0, 0.0, 0.3])
-        elif "arm_3" in ee_link:
-            q3 = q[3]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            T[:3, :3] = R3
-            T[:3, 3] = [0.0, 0.0, 0.0]
+    # Arm indices: q[0] is arm_0, ..., q[6] is arm_6
+    q0, q1, q2, q3, q4, q5, q6 = q[0], q[1], q[2], q[3], q[4], q[5], q[6]
+    
+    R0 = R_scipy.from_euler('Z', q0).as_matrix()
+    R1 = R_scipy.from_euler('Y', q1).as_matrix()
+    R2 = R_scipy.from_euler('Z', q2).as_matrix()
+    R3 = R_scipy.from_euler('Y', q3).as_matrix()
+    R4 = R_scipy.from_euler('Z', q4).as_matrix()
+    R5 = R_scipy.from_euler('Y', q5).as_matrix()
+    
+    # Determine joint 6 axis (yaw or roll) based on robot version (1.2 vs 1.3)
+    robot_version = "1.3"
+    if hasattr(robot, "robot_version"):
+        robot_version = robot.robot_version
+    elif hasattr(robot, "get_robot_info"):
+        try:
+            robot_version = robot.get_robot_info().robot_model_version
+        except Exception:
+            pass
+
+    if "1.3" in robot_version:
+        R6 = R_scipy.from_euler('X', q6).as_matrix()
     else:
-        # v1.2 Kinematics: Y (q3) -> Z (q4) -> Y (q5) -> Z (q6)
-        if "ee" in ee_link:
-            q3, q4, q5, q6 = q[3], q[4], q[5], q[6]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            R4 = R_scipy.from_euler('Z', q4).as_matrix()
-            R5 = R_scipy.from_euler('Y', q5).as_matrix()
-            R6 = R_scipy.from_euler('Z', q6).as_matrix()
-            T[:3, :3] = R3 @ R4 @ R5 @ R6
-            p_j5_rel_j3 = R3 @ R4 @ np.array([0.0, 0.0, 0.3])
-            p_ee_rel_j5 = R3 @ R4 @ R5 @ np.array([0.0, 0.0, 0.3])
-            T[:3, 3] = p_j5_rel_j3 + p_ee_rel_j5
-        elif "arm_5" in ee_link:
-            q3, q4, q5 = q[3], q[4], q[5]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            R4 = R_scipy.from_euler('Z', q4).as_matrix()
-            R5 = R_scipy.from_euler('Y', q5).as_matrix()
-            T[:3, :3] = R3 @ R4 @ R5
-            p_j5_rel_j3 = R3 @ R4 @ np.array([0.0, 0.0, 0.3])
-            T[:3, 3] = p_j5_rel_j3
-        elif "arm_4" in ee_link:
-            q3, q4 = q[3], q[4]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            R4 = R_scipy.from_euler('Z', q4).as_matrix()
-            T[:3, :3] = R3 @ R4
-            T[:3, 3] = R3 @ np.array([0.0, 0.0, 0.3])
-        elif "arm_3" in ee_link:
-            q3 = q[3]
-            R3 = R_scipy.from_euler('Y', q3).as_matrix()
-            T[:3, :3] = R3
-            T[:3, 3] = [0.0, 0.0, 0.0]
+        R6 = R_scipy.from_euler('Z', q6).as_matrix()
+        
+    R_0_2 = R0 @ R1 @ R2
+    
+    p_j3_rel_j2 = np.array([0.0, 0.0, 0.3])
+    p_j5_rel_j3 = np.array([0.0, 0.0, 0.3])
+    p_ee_rel_j5 = np.array([0.0, 0.0, 0.3])
+    
+    if "ee" in ee_link:
+        T[:3, :3] = R_0_2 @ R3 @ R4 @ R5 @ R6
+        p_j3 = R_0_2 @ p_j3_rel_j2
+        p_j5 = p_j3 + R_0_2 @ R3 @ R4 @ p_j5_rel_j3
+        p_ee = p_j5 + R_0_2 @ R3 @ R4 @ R5 @ p_ee_rel_j5
+        T[:3, 3] = p_ee
+    elif "arm_5" in ee_link:
+        T[:3, :3] = R_0_2 @ R3 @ R4 @ R5
+        p_j3 = R_0_2 @ p_j3_rel_j2
+        p_j5 = p_j3 + R_0_2 @ R3 @ R4 @ p_j5_rel_j3
+        T[:3, 3] = p_j5
+    elif "arm_4" in ee_link:
+        T[:3, :3] = R_0_2 @ R3 @ R4
+        p_j3 = R_0_2 @ p_j3_rel_j2
+        T[:3, 3] = p_j3
+    elif "arm_3" in ee_link:
+        T[:3, :3] = R_0_2 @ R3
+        T[:3, 3] = np.zeros(3)
+    elif "arm_2" in ee_link:
+        T[:3, :3] = R_0_2
+        T[:3, 3] = np.zeros(3)
+    elif "arm_1" in ee_link:
+        T[:3, :3] = R0 @ R1
+        T[:3, 3] = np.zeros(3)
+    elif "arm_0" in ee_link:
+        T[:3, :3] = R0
+        T[:3, 3] = np.zeros(3)
     return T
 
 # ==============================================================================
@@ -171,11 +167,12 @@ def pure_mock_compute_fk_impl(robot, dyn_model, q, ee_link, base_link="link_tors
 # ==============================================================================
 
 class OfflineRobot:
-    def __init__(self, dyn_robot, model_name="m"):
+    def __init__(self, dyn_robot, model_name="m", robot_version=None):
         self.dyn_robot = dyn_robot
         self._model = self._create_model_meta()
         self.is_pure_mock = False
         self.model_name = model_name
+        self.robot_version = robot_version if robot_version is not None else ("1.3" if model_name == "m" else "1.2")
         self._state = MockRobotState(self.dyn_robot.get_dof())
         
     def model(self):
@@ -211,8 +208,7 @@ class OfflineRobot:
         class RobotInfo:
             def __init__(self, version):
                 self.robot_model_version = version
-        version = "1.3" if self.model_name == "m" else "1.2"
-        return RobotInfo(version)
+        return RobotInfo(self.robot_version)
         
     def _create_model_meta(self):
         class ModelMeta:
@@ -245,7 +241,7 @@ class OfflineRobot:
 # 3. Main Factory Function
 # ==============================================================================
 
-def get_mock_robot(address="127.0.0.1", model_name="m", arm_side="right"):
+def get_mock_robot(address="127.0.0.1", model_name="m", arm_side="right", robot_version=None):
     """
     Attempts simulator connection, falls back to offline URDF loading,
     and finally falls back to pure mathematical MockRobot.
@@ -259,6 +255,7 @@ def get_mock_robot(address="127.0.0.1", model_name="m", arm_side="right"):
             print(f"[mock_robot] Successfully connected to simulated robot at {address}!")
             robot.is_pure_mock = False
             robot.model_name = model_name
+            robot.robot_version = robot_version if robot_version is not None else ("1.3" if model_name == "m" else "1.2")
             return robot
         else:
             print("[mock_robot] Simulator connection failed. Trying offline URDF loading...")
@@ -284,7 +281,7 @@ def get_mock_robot(address="127.0.0.1", model_name="m", arm_side="right"):
             print(f"[mock_robot] Loading offline URDF from {urdf_path}...")
             robot_config = rd.load_robot_from_urdf(urdf_path, "base")
             dyn_robot = rd.Robot(robot_config)
-            return OfflineRobot(dyn_robot, model_name)
+            return OfflineRobot(dyn_robot, model_name, robot_version)
         except Exception as e:
             print(f"[mock_robot] Failed to load offline URDF: {e}")
     else:
@@ -292,4 +289,4 @@ def get_mock_robot(address="127.0.0.1", model_name="m", arm_side="right"):
 
     # 3rd Step: Mathematical Fallback
     print("[mock_robot] Falling back to pure mathematical MockRobot.")
-    return PureMockRobot(arm_side, model_name)
+    return PureMockRobot(arm_side, model_name, robot_version)

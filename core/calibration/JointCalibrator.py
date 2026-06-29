@@ -659,7 +659,7 @@ class JointCalibrator(BaseCalibrator):
         active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
-        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
+        q_cand[cand_joint] = nominal_joint_pos - np.radians(current_offset_deg)
 
         # Determine sweep ranges
         range_A = 20.0
@@ -685,7 +685,10 @@ class JointCalibrator(BaseCalibrator):
             if log_callback: log_callback("[ERROR] Failed to move to Joint A start pose or stop was requested.")
             return None
             
-        time.sleep(1.0)
+        if is_camera_mock:
+            time.sleep(0.01)
+        else:
+            time.sleep(1.0)
 
         # Launch motion thread to move from -20 to +20 deg
         q_end_A = list(q_cand)
@@ -728,7 +731,7 @@ class JointCalibrator(BaseCalibrator):
                     dataset_A.append((q_full_captured, pose))
                     
             if is_camera_mock:
-                time.sleep(0.3)
+                time.sleep(0.002)
             else:
                 time.sleep(0.01)
             
@@ -741,7 +744,10 @@ class JointCalibrator(BaseCalibrator):
         if getattr(self, 'stop_requested', False):
             return None
             
-        time.sleep(0.5)
+        if is_camera_mock:
+            time.sleep(0.01)
+        else:
+            time.sleep(0.5)
 
         # 2. PHYSICAL SWEEP JOINT B
         if log_callback: log_callback(f"\n--- [2/2] Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
@@ -761,7 +767,10 @@ class JointCalibrator(BaseCalibrator):
             if log_callback: log_callback("[ERROR] Failed to move to Joint B start pose or stop was requested.")
             return None
             
-        time.sleep(1.0)
+        if is_camera_mock:
+            time.sleep(0.01)
+        else:
+            time.sleep(1.0)
 
         # Launch motion thread to move from -20 to +20 deg (or -10 to +10 deg)
         q_end_B = list(q_cand)
@@ -799,7 +808,7 @@ class JointCalibrator(BaseCalibrator):
                     dataset_B.append((q_full_captured, pose))
                     
             if is_camera_mock:
-                time.sleep(0.3)
+                time.sleep(0.002)
             else:
                 time.sleep(0.01)
                 
@@ -897,7 +906,7 @@ class JointCalibrator(BaseCalibrator):
         active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
-        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
+        q_cand[cand_joint] = nominal_joint_pos - np.radians(current_offset_deg)
 
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
@@ -1021,7 +1030,7 @@ class JointCalibrator(BaseCalibrator):
                 # ── (B) J6 nominal design angle in J6 plane ───────────────────
                 # Determine J6 nominal ready pose (J5=0, J6=0 nominal)
                 q_ready = np.array(dataset_A[0][0])
-                q_ready[arm_idx[cand_joint]] = nominal_joint_pos + np.radians(current_offset_deg)
+                q_ready[arm_idx[cand_joint]] = nominal_joint_pos - np.radians(current_offset_deg)
                 
                 angle_design_zero = 0.0
                 try:
@@ -1496,7 +1505,7 @@ class JointCalibrator(BaseCalibrator):
         self.last_diff_angle = diff_angle
 
         # Match the physical motor driver rotations (negative feedback loop)
-        sign = - estimated_J_sign if diff_angle > 0.0 else estimated_J_sign
+        sign = -estimated_J_sign if diff_angle > 0.0 else estimated_J_sign
         
         if log_callback:
             log_callback(f"  [DEBUG] Physically aligned n_A: {np.round(n_A, 4)}")
