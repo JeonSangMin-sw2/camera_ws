@@ -16,10 +16,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 class BaseCalibrator:
     JOINT_CONFIGS = {
-        "wrist_roll_v13": {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5},
-        "wrist_pitch_v13":  {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3},
-        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6},
-        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4}
+        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-10.0, 10.0)},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-10.0, 10.0)},
+        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-10.0, 10.0)},
+        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0)},
     }
     def __init__(self, marker_st=None, robot=None):
         self.marker_st = marker_st
@@ -363,6 +363,10 @@ class BaseCalibrator:
         dof = len(self.robot.get_state().position) if hasattr(self.robot, "get_state") else 20
         dyn_model = self.robot.get_dynamics()
         
+        cand_joint = sweep_joint
+        if is_joint_calibration and mode in self.JOINT_CONFIGS:
+            cand_joint = self.JOINT_CONFIGS[mode]["cand_joint"]
+
         for angle_deg in sweep_angles_deg:
             q_captured = np.zeros(dof)
             q_actual = np.zeros(dof)
@@ -372,7 +376,13 @@ class BaseCalibrator:
                 q_actual[arm_idx[i]] = val + np.radians(injected_joint_offsets_deg[i])
                 
             q_captured[arm_idx[sweep_joint]] = base_ready_pose[sweep_joint] + np.radians(angle_deg)
-            q_actual[arm_idx[sweep_joint]] = base_ready_pose[sweep_joint] + np.radians(angle_deg + injected_joint_offsets_deg[sweep_joint] - current_offset_deg)
+            q_actual[arm_idx[sweep_joint]] = base_ready_pose[sweep_joint] + np.radians(angle_deg + injected_joint_offsets_deg[sweep_joint])
+            
+            # Apply baseline shift (offset) to the active candidate joint encoder reading
+            q_captured[arm_idx[cand_joint]] += np.radians(current_offset_deg)
+            
+            # Apply baseline shift (offset) to the active candidate joint physical position
+            q_actual[arm_idx[cand_joint]] -= np.radians(current_offset_deg)
             
             T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
             T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
@@ -386,7 +396,7 @@ class BaseCalibrator:
             
         return dataset
 
-    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0):
+    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None):
         is_v13 = self.is_v13()
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
@@ -415,6 +425,12 @@ class BaseCalibrator:
         
         for i in range(7):
             q_actual[arm_idx[i]] += np.radians(injected_joint_offsets_deg[i])
+            
+        if cand_joint is None and sweep_joint is not None:
+            cand_joint = sweep_joint
+            
+        if cand_joint is not None:
+            q_actual[arm_idx[cand_joint]] -= np.radians(current_offset_deg)
             
 
         dyn_model = self.robot.get_dynamics()

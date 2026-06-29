@@ -89,45 +89,24 @@ class JointCalibrator(BaseCalibrator):
                         log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
                         log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
             
-            # Direct correction
-            # When looking at angle error (use_angle_based_fitting is True), we deactivate the 0.05 deg step correction.
-            # Otherwise (when use_angle_based_fitting is False), if circle center distance is close (<= 1.0 mm),
-            # we apply a 0.05 deg step correction instead of the raw angle_error.
             # Use the pre-calculated damped optimal offset correction to ensure convergence
             step_correction = res.get('optimal_offset', 0.0)
-            # [SAFETY] 1회 Iteration 당 최대 변화량 제한 — 축 반전 등으로 인한 발산 폭주 방지
-            MAX_STEP_DEG = 5.0
-            step_correction = np.clip(step_correction, -MAX_STEP_DEG, MAX_STEP_DEG)
             staged_offset += step_correction
             final_res = res
-            # Elbow Safety Check: Elbow offset must unconditionally be negative.
-            if mode == "elbow":
-                if i == 1:
-                    if log_callback:
-                        log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Forcing first staged offset {staged_offset:.4f}° to {-abs(staged_offset):.4f}° for safety!")
-                    staged_offset = -abs(staged_offset)
-                else:
-                    if staged_offset > 0.0:
-                        if log_callback:
-                            log_callback(f"  [SAFETY CONTROL] Elbow joint offset must unconditionally be negative. Clipping positive staged offset {staged_offset:.4f}° to 0.0° for safety!")
-                        staged_offset = 0.0
-                    staged_offset = min(staged_offset, 0.0)
-            
-            # General range safety limits (0 to -3.0 degrees for elbow)
-            if mode == "elbow":
-                min_val, max_val = -3.0, 0.0
-                if staged_offset < min_val or staged_offset > max_val:
-                    if log_callback:
-                        log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{min_val}°, {max_val}°]!")
-                        log_callback(f"                   Possible fitting failure, loose bracket, or joint twist. Clamping to boundary.")
-                    staged_offset = np.clip(staged_offset, min_val, max_val)
+
+            # Safety: clamp staged_offset to the joint's configured offset range
+            jcfg = self.JOINT_CONFIGS.get(mode, {})
+            off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
+            if staged_offset < off_min or staged_offset > off_max:
+                if log_callback:
+                    log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+                staged_offset = float(np.clip(staged_offset, off_min, off_max))
                 
             if log_callback:
                 log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                 
             # Convergence check:
-            # - For v1.3: step correction < 0.05° or angle deviation <= 0.5° or perp_dist_after <= 0.1 mm
-            # - For others: step correction < 0.05° or angle error <= 0.1° or center_dist <= 0.1 mm
+            # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
             converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
 
             if converged_criteria:
@@ -142,14 +121,13 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                 break
 
-        # General range safety limits on final recommended offset
-        if mode == "elbow":
-            min_val, max_val = -3.0, 0.0
-            if staged_offset < min_val or staged_offset > max_val:
-                if log_callback:
-                    log_callback(f"  [SAFETY WARNING] Recommended final offset {staged_offset:.4f}° exceeds safe bounds [{min_val}°, {max_val}°]!")
-                    log_callback(f"                   Clamping recommended offset to safe boundary.")
-                staged_offset = np.clip(staged_offset, min_val, max_val)
+        # Final range safety: clamp to configured offset_range
+        jcfg = self.JOINT_CONFIGS.get(mode, {})
+        off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
+        if staged_offset < off_min or staged_offset > off_max:
+            if log_callback:
+                log_callback(f"  [SAFETY WARNING] Recommended final offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+            staged_offset = float(np.clip(staged_offset, off_min, off_max))
 
         if getattr(self, 'stop_requested', False):
             if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
@@ -607,34 +585,17 @@ class JointCalibrator(BaseCalibrator):
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
         initial_joint_pos = list(state.position[arm_idx])
 
-        # Define joint parameters based on mode
-        if mode == "wrist_roll_v13":
-            cand_joint = 6
-            sweep_joint_A = 6
-            sweep_joint_B = 5
-        elif mode == "wrist_pitch_v13":
-            cand_joint = 5
-            sweep_joint_A = 5
-            sweep_joint_B = 3
-        elif mode == "wrist_pitch":
-            cand_joint = 5
-            sweep_joint_A = 4
-            sweep_joint_B = 6
-        else: # elbow mode
-            cand_joint = 3
-            sweep_joint_A = 2
-            sweep_joint_B = 4
+        # Define joint parameters from JOINT_CONFIGS
+        jcfg = self.JOINT_CONFIGS[mode]
+        cand_joint = jcfg["cand_joint"]
+        sweep_joint_A = jcfg["sweep_joint_A"]
+        sweep_joint_B = jcfg["sweep_joint_B"]
 
         dyn_model = self.robot.get_dynamics()
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        if mode == "wrist_roll_v13":
-            offset_key = "wrist_roll"
-        elif mode == "wrist_pitch_v13":
-            offset_key = "wrist_pitch"
-        else:
-            offset_key = mode
+        offset_key = jcfg.get("offset_key", mode)
         active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
@@ -694,7 +655,7 @@ class JointCalibrator(BaseCalibrator):
                 return None
                 
             if is_camera_mock:
-                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint_A, current_offset_deg=current_offset_deg)
+                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint_A, current_offset_deg=current_offset_deg, cand_joint=cand_joint)
                 res = [pose.tolist()]
             else:
                 res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
@@ -765,7 +726,7 @@ class JointCalibrator(BaseCalibrator):
                 return None
                 
             if is_camera_mock:
-                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint_B, current_offset_deg=current_offset_deg)
+                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint_B, current_offset_deg=current_offset_deg, cand_joint=cand_joint)
                 res = [pose.tolist()]
             else:
                 res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
@@ -862,34 +823,17 @@ class JointCalibrator(BaseCalibrator):
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
 
-        # Define joint parameters based on mode
-        if mode == "wrist_roll_v13":
-            cand_joint = 6
-            sweep_joint_A = 6
-            sweep_joint_B = 5
-        elif mode == "wrist_pitch_v13":
-            cand_joint = 5
-            sweep_joint_A = 5
-            sweep_joint_B = 3
-        elif mode == "wrist_pitch":
-            cand_joint = 5
-            sweep_joint_A = 4
-            sweep_joint_B = 6
-        else: # elbow mode
-            cand_joint = 3
-            sweep_joint_A = 2
-            sweep_joint_B = 4
+        # Define joint parameters from JOINT_CONFIGS
+        jcfg = self.JOINT_CONFIGS[mode]
+        cand_joint = jcfg["cand_joint"]
+        sweep_joint_A = jcfg["sweep_joint_A"]
+        sweep_joint_B = jcfg["sweep_joint_B"]
 
         dyn_model = self.robot.get_dynamics()
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        if mode == "wrist_roll_v13":
-            offset_key = "wrist_roll"
-        elif mode == "wrist_pitch_v13":
-            offset_key = "wrist_pitch"
-        else:
-            offset_key = mode
+        offset_key = jcfg.get("offset_key", mode)
         active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
@@ -1019,7 +963,7 @@ class JointCalibrator(BaseCalibrator):
                 # ── (B) J6 nominal design angle in J6 plane ───────────────────
                 # Determine J6 nominal ready pose (J5=0, J6=0 nominal)
                 q_ready = np.array(dataset_A[0][0])
-                q_ready[arm_idx[cand_joint]] = nominal_joint_pos
+                q_ready[arm_idx[cand_joint]] = nominal_joint_pos + np.radians(current_offset_deg)
                 
                 angle_design_zero = 0.0
                 try:
