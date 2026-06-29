@@ -8,6 +8,7 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.optimize import least_squares, minimize_scalar
 from scipy.spatial.transform import Rotation as R_scipy
+from .CalibratorBase import BaseCalibrator
 class DebugLogger:
     def __init__(self, original_log_callback, file_path):
         self.original_log_callback = original_log_callback
