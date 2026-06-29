@@ -1,188 +1,133 @@
-[INFO] Starting Joint Sweep: WRIST_PITCH_V13
+[INFO] Starting Joint Sweep: WRIST_ROLL_V13
 
 ============================================================
    STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
-   Target Arm: RIGHT | Joint Target: WRIST_PITCH_V13
+   Target Arm: RIGHT | Joint Target: WRIST_ROLL_V13
 ============================================================
 
 
 [ITERATION 1/8] Sweeping with staged offset 0.0000°...
 
 ==================================================
-   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 91 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
-    -> Swept 72 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 88 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-[DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_A_axis_5.txt
-[DEBUG] Saved Axis 3 debug points to sweep_points_right_joint_B_axis_3.txt
-Swept 68 dense raw coordinate frames during Joint A motion... downsampled to 68 for optimization.
-Swept 72 dense raw coordinate frames during Joint B motion... downsampled to 72 for optimization.
+[DEBUG] Saved Axis 6 debug points to sweep_points_right_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_B_axis_5.txt
+Swept 91 dense raw coordinate frames during Joint A motion... downsampled to 91 for optimization.
+Swept 88 dense raw coordinate frames during Joint B motion... downsampled to 88 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 5 Calibration — 삼각형 법칙]
-    L_J5M (r_A, J5→Marker 거리)      : 161.815 mm
-    r_J3M (r_B, J3→Marker 거리)      : 443.114 mm
-    L_J3J5 (URDF FK, pitch 평면)     : 311.048 mm  [FK OK]
-    cos(φ_actual)                    : -0.729306  ← 유효
-    φ_actual (코사인 법칙)            : 136.8282°
-    φ_nominal (FK J5=0 예측)         : 137.8365°  [OK]
-    ★ J5 오프셋 (삼각형 법칙)         : -1.0083°  [PRIMARY]
-    J5 오프셋 (벡터 비교 cross-check): -2.3494°  [cross-check]
-    최종 사용 방법                    : triangle_law
-  [삼각형 일관성 검증]
-    r_J3M 실측                       : 443.114 mm
-    r_J3M 예측 (δ5=0)                : 444.467 mm  → 잔차 1.353 mm
-    r_J3M 예측 (δ5=-1.01°)        : 445.790 mm  → 잔차 2.675 mm  ⚠ 개선 없음
-  [Marker Design Values (Sweep A 기반)]
-    r_A sweep (= L_J5M)              : 161.815 mm
-    r_A direct (|cam-perp|)          : 161.816 mm
-    axial offset along J5 axis       : 0.020 mm  (sweep B: 15.109 mm)
-  * Angle Error (Deviation from 90°) : 88.0430°
-  * Perpendicular Distance (After)   : 2.6753 mm
-  * Perpendicular Distance (Before)  : 1.3527 mm
-  * Updated Absolute Offset     : -1.0083°
+  [v1.3 Joint 6 Calibration — Direct Geometric Method]
+    J6 encoder->plane slope     : 1.0010 (Ideal: 1.0)
+    J6 encoder=0° Ref Angle     : -37.7726°
+    J6 Design Nominal Angle      : -45.3716°
+    ★ J6 Calibration Angle       : -7.5991°
+    Uncertainty (±1σ)            : ±0.0152°
+  [Reference: Old perp_dist Method]
+    perp_dist(c_B to J6 axis)   : 4.7043 mm (Reference Only)
+  [Bracket Design Verification]
+    r_A (Joint6 sweep radius, lateral offset from axis) = 132.242 mm
+    r_B (Joint5 sweep radius, total marker-J5 distance) = 161.586 mm
+    axial offset (c_B along Joint6 axis)                 = -92.561 mm
+  [Marker Design Values (Back-calculated)]
+    Geometric Assumptions: J6 roll axis = ee_right X, J5 pitch axis = ee_right Y
+    z_marker (= r_A, J6 axis perp. dist) : 132.242 mm
+    x_marker (= sqrt(r_B²-r_A²))         : 92.855 mm  * Excludes URDF J6->ee offset
+    |axial_offset| (c_A->c_B axial)      : 92.561 mm
+  [Geometric Consistency Verification]
+    r_B Predicted (sqrt(r_A²+axial²))    : 161.417 mm
+    r_B Measured                         : 161.586 mm
+    Error                                : 0.169 mm (0.1%)  ✓ OK
+  * Angle Error (Deviation from 90°) : 0.7691°
+  * Perpendicular Distance (After)   : 0.0000 mm
+  * Perpendicular Distance (Before)  : 4.7043 mm
+  * Updated Absolute Offset     : -5.0000°
 
-[ITERATION 2/8] Sweeping with staged offset -1.0083°...
+[SUCCESS] Calibration CONVERGED successfully:
+  * Circle Normals Angle Error: 0.7691° <= 0.1°
+  * Center Distance Error: 0.0000 mm <= 0.1 mm
+  * Recommended Absolute Offset: -5.0000°
+
+[VALIDATION SWEEP] Running final validation sweep with recommended offset -5.0000°...
 
 ==================================================
-   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -1.0083°]
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -5.0000°]
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 70 dense raw coordinate frames during Joint A motion.
+--- [1/2] Commencing Continuous Sweep on Joint A (Index 6, duration=15.0s) ---
+    -> Swept 87 dense raw coordinate frames during Joint A motion.
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
-    -> Swept 70 dense raw coordinate frames during Joint B motion.
+--- [2/2] Commencing Continuous Sweep on Joint B (Index 5, duration=15.0s) ---
+    -> Swept 88 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 70 dense raw coordinate frames during Joint A motion... downsampled to 70 for optimization.
-Swept 70 dense raw coordinate frames during Joint B motion... downsampled to 70 for optimization.
+Swept 87 dense raw coordinate frames during Joint A motion... downsampled to 87 for optimization.
+Swept 88 dense raw coordinate frames during Joint B motion... downsampled to 88 for optimization.
 
 --- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 5 Calibration — 삼각형 법칙]
-    L_J5M (r_A, J5→Marker 거리)      : 161.610 mm
-    r_J3M (r_B, J3→Marker 거리)      : 442.656 mm
-    L_J3J5 (URDF FK, pitch 평면)     : 311.049 mm  [FK OK]
-    cos(φ_actual)                    : -0.726855  ← 유효
-    φ_actual (코사인 법칙)            : 136.6234°
-    φ_nominal (FK J5=0 예측)         : 137.8372°  [OK]
-    ★ J5 오프셋 (삼각형 법칙)         : -1.2139°  [PRIMARY]
-    J5 오프셋 (벡터 비교 cross-check): -2.2969°  [cross-check]
-    최종 사용 방법                    : triangle_law
-  [삼각형 일관성 검증]
-    r_J3M 실측                       : 442.656 mm
-    r_J3M 예측 (δ5=0)                : 444.287 mm  → 잔차 1.631 mm
-    r_J3M 예측 (δ5=-1.21°)        : 445.874 mm  → 잔차 3.218 mm  ⚠ 개선 없음
-  [Marker Design Values (Sweep A 기반)]
-    r_A sweep (= L_J5M)              : 161.610 mm
-    r_A direct (|cam-perp|)          : 161.621 mm
-    axial offset along J5 axis       : 0.050 mm  (sweep B: 14.256 mm)
-  * Angle Error (Deviation from 90°) : 88.1487°
-  * Perpendicular Distance (After)   : 3.2180 mm
-  * Perpendicular Distance (Before)  : 1.6307 mm
-  * Updated Absolute Offset     : -2.2222°
+  [v1.3 Joint 6 Calibration — Direct Geometric Method]
+    J6 encoder->plane slope     : 1.0008 (Ideal: 1.0)
+    J6 encoder=0° Ref Angle     : -37.7374°
+    J6 Design Nominal Angle      : -45.2786°
+    ★ J6 Calibration Angle       : -7.5412°
+    Uncertainty (±1σ)            : ±0.0146°
+  [Reference: Old perp_dist Method]
+    perp_dist(c_B to J6 axis)   : 16.2992 mm (Reference Only)
+  [Bracket Design Verification]
+    r_A (Joint6 sweep radius, lateral offset from axis) = 132.431 mm
+    r_B (Joint5 sweep radius, total marker-J5 distance) = 161.680 mm
+    axial offset (c_B along Joint6 axis)                 = -94.340 mm
+  [Marker Design Values (Back-calculated)]
+    Geometric Assumptions: J6 roll axis = ee_right X, J5 pitch axis = ee_right Y
+    z_marker (= r_A, J6 axis perp. dist) : 132.431 mm
+    x_marker (= sqrt(r_B²-r_A²))         : 92.750 mm  * Excludes URDF J6->ee offset
+    |axial_offset| (c_A->c_B axial)      : 94.340 mm
+  [Geometric Consistency Verification]
+    r_B Predicted (sqrt(r_A²+axial²))    : 162.598 mm
+    r_B Measured                         : 161.680 mm
+    Error                                : 0.917 mm (0.6%)  ✓ OK
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_right_wrist_roll_v13_joint_calib.png
+------------------------------
+  [1] Calibration Target: wrist_roll_v13
+      Estimated Optimal Offset: -5.000 deg
+------------------------------
 
-[ITERATION 3/8] Sweeping with staged offset -2.2222°...
+[CALIBRATION COMPLETE]
 
-==================================================
-   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -2.2222°]
-==================================================
-
---- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 71 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 71 dense raw coordinate frames during Joint A motion... downsampled to 71 for optimization.
-Swept 68 dense raw coordinate frames during Joint B motion... downsampled to 68 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 5 Calibration — 삼각형 법칙]
-    L_J5M (r_A, J5→Marker 거리)      : 161.694 mm
-    r_J3M (r_B, J3→Marker 거리)      : 439.625 mm
-    L_J3J5 (URDF FK, pitch 평면)     : 311.048 mm  [FK OK]
-    cos(φ_actual)                    : -0.699626  ← 유효
-    φ_actual (코사인 법칙)            : 134.3970°
-    φ_nominal (FK J5=0 예측)         : 137.8377°  [OK]
-    ★ J5 오프셋 (삼각형 법칙)         : -3.4407°  [PRIMARY]
-    J5 오프셋 (벡터 비교 cross-check): -2.3086°  [cross-check]
-    최종 사용 방법                    : triangle_law
-  [삼각형 일관성 검증]
-    r_J3M 실측                       : 439.625 mm
-    r_J3M 예측 (δ5=0)                : 444.361 mm  → 잔차 4.736 mm
-    r_J3M 예측 (δ5=-3.44°)        : 448.748 mm  → 잔차 9.123 mm  ⚠ 개선 없음
-  [Marker Design Values (Sweep A 기반)]
-    r_A sweep (= L_J5M)              : 161.694 mm
-    r_A direct (|cam-perp|)          : 161.728 mm
-    axial offset along J5 axis       : 0.069 mm  (sweep B: -9.469 mm)
-  * Angle Error (Deviation from 90°) : 88.7434°
-  * Perpendicular Distance (After)   : 9.1227 mm
-  * Perpendicular Distance (Before)  : 4.7360 mm
-  * Updated Absolute Offset     : -5.6629°
-
-[ITERATION 4/8] Sweeping with staged offset -5.6629°...
 
 ==================================================
-   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -5.6629°]
+   [SUCCESS] 3-STEP POLARITY CALIBRATION CONVERGED SUCCESSFULLY!
+   * Recommended Absolute Offset : -5.0000°
+   * Current Active Offset       : 0.0000° (REVERTED)
+   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 68 dense raw coordinate frames during Joint A motion.
-
---- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
-    -> Swept 70 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 68 dense raw coordinate frames during Joint A motion... downsampled to 68 for optimization.
-Swept 70 dense raw coordinate frames during Joint B motion... downsampled to 70 for optimization.
-
---- [3] Starting Offline Direct Angle Calculation (Fitted Circle Normal Orthogonality - Camera Frame) ---
-  [v1.3 Joint 5 Calibration — 삼각형 법칙]
-    L_J5M (r_A, J5→Marker 거리)      : 161.501 mm
-    r_J3M (r_B, J3→Marker 거리)      : 434.389 mm
-    L_J3J5 (URDF FK, pitch 평면)     : 311.047 mm  [FK OK]
-    cos(φ_actual)                    : -0.655529  ← 유효
-    φ_actual (코사인 법칙)            : 130.9598°
-    φ_nominal (FK J5=0 예측)         : 137.8376°  [OK]
-    ★ J5 오프셋 (삼각형 법칙)         : -6.8778°  [PRIMARY]
-    J5 오프셋 (벡터 비교 cross-check): -2.1761°  [cross-check]
-    최종 사용 방법                    : triangle_law
-  [삼각형 일관성 검증]
-    r_J3M 실측                       : 434.389 mm
-    r_J3M 예측 (δ5=0)                : 444.191 mm  → 잔차 9.802 mm
-    r_J3M 예측 (δ5=-6.88°)        : 452.598 mm  → 잔차 18.210 mm  ⚠ 개선 없음
-  [Marker Design Values (Sweep A 기반)]
-    r_A sweep (= L_J5M)              : 161.501 mm
-    r_A direct (|cam-perp|)          : 161.692 mm
-    axial offset along J5 axis       : 0.185 mm  (sweep B: -22.533 mm)
-  * Angle Error (Deviation from 90°) : 87.0150°
-  * Perpendicular Distance (After)   : 18.2098 mm
-  * Perpendicular Distance (Before)  : 9.8020 mm
-  * Updated Absolute Offset     : -10.6629°
-
-[ITERATION 5/8] Sweeping with staged offset -10.6629°...
 
 ==================================================
-   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -10.6629°]
+       JOINT CALIBRATION ESTIMATED RESULTS
 ==================================================
 
---- [1/2] Commencing Continuous Sweep on Joint A (Index 5, duration=15.0s) ---
-    -> Swept 71 dense raw coordinate frames during Joint A motion.
+[1] Calibration Target: wrist_roll_v13
+    - Target Swept Joint       : Joint 6 (Wrist Roll)
+    - Estimated Optimal Offset : -5.0000 deg
 
---- [2/2] Commencing Continuous Sweep on Joint B (Index 3, duration=15.0s) ---
-[STOP] Stop requested by user.
-[STOP] Sending cancel_control to robot!
-[ERROR] Joint B sweep motion failed or was cancelled.
-[ERROR] Iteration 5 sweep failed. Aborting calibration.
+[2] Suggested Joint Home Offset update:
+  Add offset: -5.0000 deg to calibration config.
+
+[3] Bracket Design Verification (Based on Joint 6 Axis)
+    - c_B ~ Joint 6 axis perp. dist (before) : 4.7043 mm
+    - c_B ~ Joint 6 axis perp. dist (after)  : 0.0000 mm
+    - Sweep A fitting radius (r_A, lateral marker offset) : 132.242 mm
+    - Axial marker offset (c_B along Joint 6 axis)  : -92.561 mm
+    - Lateral marker offset (c_B perp Joint 6 axis)  : 4.704 mm
+    * Design Reference Offset Axis: X-axis
+==================================================
