@@ -329,7 +329,7 @@ class MarkerCalibrator(BaseCalibrator):
         # Solve Circle Fitting
         axis_str = str(axis_mode).lower()
         if "6" in axis_str:
-            n_nom = [1.0, 0.0, 0.0]
+            n_nom = [1.0, 0.0, 0.0] if self.is_v13() else [0.0, 0.0, 1.0]
         elif "4" in axis_str:
             n_nom = [0.0, 0.0, 1.0]
         else:
@@ -403,7 +403,8 @@ class MarkerCalibrator(BaseCalibrator):
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
-            nominal_rpy = [90.0, 0.0, -90.0]
+            ver_key = "1.3" if self.is_v13() else "1.2"
+            nominal_rpy = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side][3:6]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
         # Helper to extract rotation axis
@@ -457,11 +458,14 @@ class MarkerCalibrator(BaseCalibrator):
             try:
                 mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
                 T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
-                R_t5_to_cam = T_t5_to_cam_fixed[:3, :3]
                 dyn_model = self.robot.get_dynamics()
                 ee_name = f"ee_{arm_side}"
                 q_full_6 = marker_data_6.get('captured_q_full', [])
                 for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+                    R_t5_to_cam = T_t5_to_cam[:3, :3]
+                    
                     T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
                     R_ee_to_t5 = T_t5_to_ee[:3, :3].T
                     R_cam_to_marker = T_cam_to_marker[:3, :3]
@@ -666,7 +670,8 @@ class MarkerCalibrator(BaseCalibrator):
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
-            nominal_rpy = [90.0, 0.0, -90.0]
+            ver_key = "1.3" if self.is_v13() else "1.2"
+            nominal_rpy = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side][3:6]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
         # Helper to extract rotation axis
@@ -939,10 +944,8 @@ class MarkerCalibrator(BaseCalibrator):
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
-            if arm_side == "left":
-                nominal_rpy = [90.0, 0.0, 0.0]
-            else:
-                nominal_rpy = [90.0, 0.0, 180.0]
+            ver_key = "1.3" if self.is_v13() else "1.2"
+            nominal_rpy = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side][3:6]
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
         
@@ -975,15 +978,13 @@ class MarkerCalibrator(BaseCalibrator):
         
         poses_5 = marker_data_5.get('captured_poses', [])
         n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
-
+ 
         # Try direct kinematic averaging first, as it is mathematically far more accurate and does not require Joint 4 sweep!
         kinematic_success = False
         if self.robot and self.robot != "mock_robot":
             try:
                 mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
                 T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
-                R_t5_to_cam = T_t5_to_cam_fixed[:3, :3]
-                
                 dyn_model = self.robot.get_dynamics()
                 ee_name = f"ee_{arm_side}"
                 
@@ -992,6 +993,10 @@ class MarkerCalibrator(BaseCalibrator):
                 poses_6 = marker_data_6.get('captured_poses', [])
                 q_full_6 = marker_data_6.get('captured_q_full', [])
                 for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+                    R_t5_to_cam = T_t5_to_cam[:3, :3]
+                    
                     T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
                     R_ee_to_t5 = T_t5_to_ee[:3, :3].T
                     R_cam_to_marker = T_cam_to_marker[:3, :3]
@@ -1002,6 +1007,10 @@ class MarkerCalibrator(BaseCalibrator):
                 poses_5 = marker_data_5.get('captured_poses', [])
                 q_full_5 = marker_data_5.get('captured_q_full', [])
                 for q_full, T_cam_to_marker in zip(q_full_5, poses_5):
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+                    R_t5_to_cam = T_t5_to_cam[:3, :3]
+                    
                     T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
                     R_ee_to_t5 = T_t5_to_ee[:3, :3].T
                     R_cam_to_marker = T_cam_to_marker[:3, :3]
@@ -1013,12 +1022,16 @@ class MarkerCalibrator(BaseCalibrator):
                     poses_4 = marker_data_4.get('captured_poses', [])
                     q_full_4 = marker_data_4.get('captured_q_full', [])
                     for q_full, T_cam_to_marker in zip(q_full_4, poses_4):
+                        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                        T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+                        R_t5_to_cam = T_t5_to_cam[:3, :3]
+                        
                         T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
                         R_ee_to_t5 = T_t5_to_ee[:3, :3].T
                         R_cam_to_marker = T_cam_to_marker[:3, :3]
                         R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
                         R_list.append(R_ee_to_marker)
-
+                        
                 if len(R_list) > 0:
                     M = np.mean(R_list, axis=0)
                     U, S, Vt = np.linalg.svd(M)
@@ -1031,7 +1044,7 @@ class MarkerCalibrator(BaseCalibrator):
                     raise ValueError("No pose data available for kinematic averaging")
             except Exception as e:
                 logging.warning(f"Kinematic averaging failed ({e}). Falling back to axis fitting.")
-
+ 
         if not kinematic_success:
 
             # Joint 6 angle correction for Joint 5 sweep
@@ -1136,9 +1149,11 @@ class MarkerCalibrator(BaseCalibrator):
             tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
             tf_vec = self.camera_config.get(tf_key)
             
-        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else 0.0
-        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else (77.5 if arm_side == "left" else -77.5)
-        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else -66.77
+        ver_key = "1.3" if self.is_v13() else "1.2"
+        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+        x_nom = tf_vec[0] * 1000.0 if tf_vec is not None else nominal_vec[0] * 1000.0
+        y_nom = tf_vec[1] * 1000.0 if tf_vec is not None else nominal_vec[1] * 1000.0
+        z_nom = tf_vec[2] * 1000.0 if tf_vec is not None else nominal_vec[2] * 1000.0
         
         # In v1.2, we assume J5/J6 joint offsets are already zero/corrected
         opt_delta_5_rad = 0.0
@@ -1147,17 +1162,16 @@ class MarkerCalibrator(BaseCalibrator):
         from scipy.optimize import least_squares
         def residuals_trans(params):
             xe, ye, ze = params
-            r6_pred = np.sqrt(ye**2 + ze**2)
-            Z_prime = ye * np.sin(opt_delta_6_rad) + ze * np.cos(opt_delta_6_rad) + L_5_ee
+            # v1.2: Joint 6 rotates about local Z, Joint 5 rotates about local Y.
+            r6_pred = np.sqrt(xe**2 + ye**2)
+            Z_prime = ze + L_5_ee
             r5_pred = np.sqrt(xe**2 + Z_prime**2)
             res = [
                 r6_pred - radius_6,
                 r5_pred - radius_5
             ]
             if marker_data_4 is not None:
-                Y_prime = ye * np.cos(opt_delta_6_rad) - ze * np.sin(opt_delta_6_rad)
-                r4_pred = np.sqrt((xe * np.cos(opt_delta_5_rad) + Z_prime * np.sin(opt_delta_5_rad))**2 + Y_prime**2)
-                res.append(r4_pred - radius_4)
+                res.append(np.sqrt(xe**2 + ye**2) - radius_4)
                 
             reg_weight = 1e-7
             res.append(reg_weight * (xe - x_nom))

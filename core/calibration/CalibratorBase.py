@@ -21,6 +21,34 @@ class BaseCalibrator:
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-10.0, 10.0)},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0)},
     }
+    MOCK_GT_OFFSETS = {
+        "right": {
+            "joint6": 3.2,
+            "joint5_v13": -2.1,
+            "joint5_v12": 1.5,
+            "joint3": 0.5,
+            "bracket_pos": [0.003, -0.001, 0.004],  # meters
+            "bracket_rpy": [1.0, -1.2, 0.8]        # degrees
+        },
+        "left": {
+            "joint6": -2.5,
+            "joint5_v13": 3.6,
+            "joint5_v12": -1.8,
+            "joint3": 0.7,
+            "bracket_pos": [-0.002, 0.001, -0.003], # meters
+            "bracket_rpy": [-0.8, 1.5, -1.2]        # degrees
+        }
+    }
+    NOMINAL_BRACKET_TEMPLATES = {
+        "1.3": {
+            "left":  [0.097, 0.0, -0.005, 90.0, 0.0, -90.0],
+            "right": [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
+        },
+        "1.2": {
+            "left":  [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0],
+            "right": [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0]
+        }
+    }
     def __init__(self, marker_st=None, robot=None):
         self.marker_st = marker_st
         self.robot = robot
@@ -313,39 +341,28 @@ class BaseCalibrator:
         if base_ready_pose is None:
             base_ready_pose = [0.0] * 7
             
-        if arm_side == "right":
-            j6_gt = 3.2
-            j5_gt = -2.1 if is_v13 else 1.5
-            j3_gt = -1.2
-            bracket_pos_gt = [0.003, -0.001, 0.004]
-            bracket_rpy_gt = [1.0, -1.2, 0.8]
-        else:
-            j6_gt = -2.5
-            j5_gt = 3.6 if is_v13 else -1.8
-            j3_gt = -1.8
-            bracket_pos_gt = [-0.002, 0.001, -0.003]
-            bracket_rpy_gt = [-0.8, 1.5, -1.2]
+        mock_gt = self.MOCK_GT_OFFSETS[arm_side]
+        j6_gt = mock_gt["joint6"]
+        j5_gt = mock_gt["joint5_v13"] if is_v13 else mock_gt["joint5_v12"]
+        j3_gt = mock_gt["joint3"]
+        bracket_pos_gt = mock_gt["bracket_pos"]
+        bracket_rpy_gt = mock_gt["bracket_rpy"]
             
         injected_joint_offsets_deg = [0.0] * 7
         injected_joint_offsets_deg[3] = j3_gt
         injected_joint_offsets_deg[5] = j5_gt
         injected_joint_offsets_deg[6] = j6_gt
         
-        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+        # Always use the version-specific nominal design values as the baseline for simulation data generation
+        version_suffix = "_v13" if is_v13 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
-            version_suffix = "_v13" if is_v13 else "_v12"
-            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            tf_vec = self.camera_config.get(tf_key)
+            ver_key = "1.3" if is_v13 else "1.2"
+            tf_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
             
-        if tf_vec is not None and len(tf_vec) >= 6:
-            nominal_pos = tf_vec[:3]
-            nominal_rpy = tf_vec[3:6]
-        else:
-            nominal_pos = [0.095, 0.0, -0.005]
-            if arm_side == "left":
-                nominal_rpy = [90.0, 0.0, 0.0] if not is_v13 else [90.0, 0.0, -90.0]
-            else:
-                nominal_rpy = [90.0, 0.0, 180.0] if not is_v13 else [90.0, 0.0, 180.0]
+        nominal_pos = tf_vec[:3]
+        nominal_rpy = tf_vec[3:6]
                 
         marker_pos_gt = np.array(nominal_pos) + np.array(bracket_pos_gt)
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
@@ -402,18 +419,12 @@ class BaseCalibrator:
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
         ee_name = f"ee_{arm_side}"
         
-        if arm_side == "right":
-            j6_gt = 3.2
-            j5_gt = -2.1 if is_v13 else 1.5
-            j3_gt = 0.8
-            bracket_pos_gt = [0.003, -0.001, 0.004]
-            bracket_rpy_gt = [1.0, -1.2, 0.8]
-        else:
-            j6_gt = -2.5
-            j5_gt = 3.6 if is_v13 else -1.8
-            j3_gt = 0.8
-            bracket_pos_gt = [-0.002, 0.001, -0.003]
-            bracket_rpy_gt = [-0.8, 1.5, -1.2]
+        mock_gt = self.MOCK_GT_OFFSETS[arm_side]
+        j6_gt = mock_gt["joint6"]
+        j5_gt = mock_gt["joint5_v13"] if is_v13 else mock_gt["joint5_v12"]
+        j3_gt = mock_gt["joint3"]
+        bracket_pos_gt = mock_gt["bracket_pos"]
+        bracket_rpy_gt = mock_gt["bracket_rpy"]
             
         injected_joint_offsets_deg = [0.0] * 7
         injected_joint_offsets_deg[3] = j3_gt
@@ -436,21 +447,16 @@ class BaseCalibrator:
         dyn_model = self.robot.get_dynamics()
         T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
         
-        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+        # Always use the version-specific nominal design values as the baseline for simulation data generation
+        version_suffix = "_v13" if is_v13 else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
-            version_suffix = "_v13" if is_v13 else "_v12"
-            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            tf_vec = self.camera_config.get(tf_key)
+            ver_key = "1.3" if is_v13 else "1.2"
+            tf_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
             
-        if tf_vec is not None and len(tf_vec) >= 6:
-            nominal_pos = tf_vec[:3]
-            nominal_rpy = tf_vec[3:6]
-        else:
-            nominal_pos = [0.095, 0.0, -0.005]
-            if arm_side == "left":
-                nominal_rpy = [90.0, 0.0, 0.0] if not is_v13 else [90.0, 0.0, -90.0]
-            else:
-                nominal_rpy = [90.0, 0.0, 180.0] if not is_v13 else [90.0, 0.0, 180.0]
+        nominal_pos = tf_vec[:3]
+        nominal_rpy = tf_vec[3:6]
                 
         marker_pos_gt = np.array(nominal_pos) + np.array(bracket_pos_gt)
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()

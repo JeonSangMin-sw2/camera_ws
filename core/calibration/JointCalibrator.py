@@ -59,6 +59,8 @@ class JointCalibrator(BaseCalibrator):
         log_callback = logger.log
 
         try:
+            self.last_staged_offset = None
+            self.last_diff_angle = None
             if original_log:
                 log_callback("\n" + "="*60)
                 log_callback("   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE")
@@ -86,16 +88,32 @@ class JointCalibrator(BaseCalibrator):
                 if getattr(self, 'stop_requested', False):
                     if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
                     return None
-                if log_callback:
-                    log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping with staged offset {staged_offset:.4f}°...")
                     
-                res = run_single_sweep(staged_offset)
-                if not res:
-                    if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
-                    return None
-                    
-                if first_res is None:
+                if i == 1:
+                    if log_callback:
+                        log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
+                    res = run_single_sweep(staged_offset)
+                    if not res:
+                        if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
+                        return None
                     first_res = res
+                else:
+                    if log_callback:
+                        log_callback(f"\n[ITERATION {i}/{max_iterations}] Computing offline with staged offset {staged_offset:.4f}°...")
+                    res = self.compute_calibration_results(
+                        arm_side=arm_side,
+                        mode=mode,
+                        dataset_A=first_res['_dataset_A'],
+                        dataset_B=first_res['_dataset_B'],
+                        initial_joint_pos=first_res['_initial_joint_pos'],
+                        current_offset_deg=staged_offset,
+                        use_angle_based_fitting=use_angle_based_fitting,
+                        save_debug=False,
+                        log_callback=log_callback
+                    )
+                    if not res:
+                        if log_callback: log_callback(f"[ERROR] Iteration {i} offline computation failed. Aborting calibration.")
+                        return None
         
                 angle_error = res.get('angle_between_normals', 0.0)
                 sign = res.get('sign', 1.0)
@@ -893,10 +911,8 @@ class JointCalibrator(BaseCalibrator):
                 tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
                 tf_vec = self.camera_config.get(tf_key)
             if tf_vec is None:
-                if arm_side == "left":
-                    tf_vec = [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0]
-                else:
-                    tf_vec = [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0]
+                ver_key = "1.3" if self.is_v13() else "1.2"
+                tf_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
             T_ee_to_marker = self.make_transform(tf_vec)            # Fit circles to measured points in torso frame
             poses_a_t5 = []
             for q_full, pose in dataset_A:
@@ -1303,7 +1319,11 @@ class JointCalibrator(BaseCalibrator):
             return {
                 'mode': mode,
                 'optimal_offset': optimal_offset_deg,
+                'recommended_joint_offset': optimal_offset_deg,
                 'converged': converged_wp if mode == "wrist_pitch_v13" else False,
+                '_dataset_A': dataset_A,
+                '_dataset_B': dataset_B,
+                '_initial_joint_pos': initial_joint_pos,
                 'angle_between_normals': angle_between_normals,
                 'sign': sign,
                 'perp_dist_before': perp_before,
@@ -1330,10 +1350,10 @@ class JointCalibrator(BaseCalibrator):
         poses_B = [pose for q_full, pose in dataset_B]
         angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, pose in dataset_B]
         
-        # Calculate nominal axes in camera frame at nominal ready pose (without current_offset_deg)
+        # Calculate nominal axes in camera frame at nominal ready pose (with current_offset_deg)
         q_ready = np.array(dataset_A[0][0])
         active_offset = self.joint_offsets.get(mode, 0.0)
-        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
+        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset) - np.radians(current_offset_deg)
         
         # Define fixed camera-to-robot rotation relationship (ZYX Euler: [-90.0, 0.0, -90.0])
         # R_rob_to_cam represents the rotation from robot torso (base) to camera frame
@@ -1494,17 +1514,10 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            if use_angle_based_fitting:
-                optimal_offset_deg = sign * abs(np.degrees(diff_angle)) * 0.95
-                if log_callback:
-                    log_callback(f"  [ANGLE CONTROL] Using angle-based calibration error: {np.degrees(diff_angle):.4f}°. Applying damped correction step: {optimal_offset_deg:.4f}°")
-            elif center_dist <= 1.0:
-                optimal_offset_deg = sign * 0.5
-                if log_callback:
-                    log_callback(f"  [STEP CONTROL] Center distance {center_dist:.4f} mm is close (<= 1.0 mm). Applying 0.05° step correction.")
-            else:
-                error_metric = max(size_error, center_dist)
-                optimal_offset_deg = sign * error_metric * 0.5
+            damping = 0.6 if mode == "elbow" else 0.95
+            optimal_offset_deg = sign * abs(np.degrees(diff_angle)) * damping
+            if log_callback:
+                log_callback(f"  [ANGLE CONTROL] Using angle-based calibration error: {np.degrees(diff_angle):.4f}°. Applying damped correction step: {optimal_offset_deg:.4f}°")
                 
             # Maximum step size clamp to prevent excessive joint movements
             max_step_deg = 20.0
@@ -1539,7 +1552,11 @@ class JointCalibrator(BaseCalibrator):
         return {
             'mode': mode,
             'optimal_offset': optimal_offset_deg,
+            'recommended_joint_offset': optimal_offset_deg,
             'converged': False,
+            '_dataset_A': dataset_A,
+            '_dataset_B': dataset_B,
+            '_initial_joint_pos': initial_joint_pos,
             'angle_between_normals': angle_between_normals,
             'sign': sign,
             'center_dist': center_dist,

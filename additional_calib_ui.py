@@ -572,7 +572,7 @@ class MarkerCalibrationWorker(QThread):
             # Compute unified bracket calibration
             self.log_signal.emit("\n[PROCESSING] Computing unified bracket calibration parameters...")
             unified_res = self.calibrator.compute_unified_bracket_calibration(
-                res_5, res_6, self.arm_side, tolerance=self.tolerance, marker_data_4=res_4
+                res_5, res_6, self.arm_side, tolerance=self.tolerance, marker_data_4=res_4, calib_roll_deg=0.0, calib_pitch_deg=0.0
             )
             
             unified_res['res_5'] = res_5
@@ -703,14 +703,20 @@ class FullAutoWorker(QThread):
         try:
             self.log_msg.emit("Starting FULL AUTO sequential calibration...")
             is_mock_run = self.ui_only and (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot" or getattr(self.joint_calibrator.robot, "is_pure_mock", False) or hasattr(self.joint_calibrator.robot, "is_pure_mock") or type(self.joint_calibrator.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            version_num = self.get_robot_version()
+            is_v13 = (version_num == "1.3")
             
             for arm_side in ["right", "left"]:
+                # Initialize calibrators' active joint offsets with current arm's staged values to prevent cross-arm leakage
+                for calibrator in [self.joint_calibrator, self.marker_calibrator]:
+                    calibrator.joint_offsets["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
+                    calibrator.joint_offsets["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
+                    calibrator.joint_offsets["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
+
                 self.log_msg.emit("\n" + "="*50)
                 self.log_msg.emit(f"   STARTING SEQUENTIAL CALIBRATION FOR {arm_side.upper()} ARM")
                 self.log_msg.emit("="*50 + "\n")
                 
-                version_num = self.get_robot_version()
-                is_v13 = (version_num == "1.3")
                 self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
                 
                 # --- Step 1: Marker Bracket Calibration ---
@@ -743,10 +749,10 @@ class FullAutoWorker(QThread):
                         first_starting_pose = list(state.position[arm_idx])
                         if arm_side == "right":
                             self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                            self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=[0, 0], minimum_time=5.0)
+                            self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
                         else:
                             self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                            self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=[0, 0], minimum_time=5.0)
+                            self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
                     else:
                         self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
                         time.sleep(1.0)
@@ -812,7 +818,7 @@ class FullAutoWorker(QThread):
                     # 2. Marker Bracket Calibration (with J6 offset locked to opt_roll)
                     self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration (J6 locked)...")
                     unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
-                        res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll
+                        res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll, calib_pitch_deg=0.0
                     )
                     
                     unified_res['res_5'] = res_5
@@ -977,6 +983,61 @@ class FullAutoWorker(QThread):
             self.log_msg.emit("\n" + "="*50)
             self.log_msg.emit("   FULL AUTO SEQUENTIAL CALIBRATION COMPLETE!")
             self.log_msg.emit("="*50 + "\n")
+            
+            # Print Final Calibrated Results Report in the same style as simulated ground truth
+            self.log_msg.emit("[CALIB REPORT] Final Calibrated Offsets (Relative to Nominal Design):")
+            for arm in ["right", "left"]:
+                j_store = self.joint_offsets_store.get(arm, {})
+                j6_cal = j_store.get("joint6", 0.0)
+                j5_cal = j_store.get("joint5", 0.0)
+                j3_cal = j_store.get("joint3", 0.0)
+                
+                tf_vec = self.marker_calibrator.camera_config.get(f"Tf_to_marker_{arm}")
+                if tf_vec is not None and len(tf_vec) == 6:
+                    x_cal = tf_vec[0] * 1000.0
+                    y_cal = tf_vec[1] * 1000.0
+                    z_cal = tf_vec[2] * 1000.0
+                    r_cal = tf_vec[3]
+                    p_cal = tf_vec[4]
+                    y_cal_deg = tf_vec[5]
+                else:
+                    ver_key = "1.3" if is_v13 else "1.2"
+                    nominal_vec = self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][arm]
+                    x_cal = nominal_vec[0] * 1000.0
+                    y_cal = nominal_vec[1] * 1000.0
+                    z_cal = nominal_vec[2] * 1000.0
+                    r_cal = nominal_vec[3]
+                    p_cal = nominal_vec[4]
+                    y_cal_deg = nominal_vec[5]
+
+                ver_key = "1.3" if is_v13 else "1.2"
+                nominal_vec = self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][arm]
+                x_nom = nominal_vec[0] * 1000.0
+                y_nom = nominal_vec[1] * 1000.0
+                z_nom = nominal_vec[2] * 1000.0
+                r_nom = nominal_vec[3]
+                p_nom = nominal_vec[4]
+                y_nom_deg = nominal_vec[5]
+                
+                dx = x_cal - x_nom
+                dy = y_cal - y_nom
+                dz = z_cal - z_nom
+                
+                from scipy.spatial.transform import Rotation as R_scipy
+                R_ideal = R_scipy.from_euler('ZYX', [y_nom_deg, p_nom, r_nom], degrees=True)
+                R_actual = R_scipy.from_euler('ZYX', [y_cal_deg, p_cal, r_cal], degrees=True)
+                R_offset = R_actual * R_ideal.inv()
+                yaw_off, pitch_off, roll_off = R_offset.as_euler('ZYX', degrees=True)
+                
+                roll_off = (roll_off + 180) % 360 - 180
+                pitch_off = (pitch_off + 180) % 360 - 180
+                yaw_off = (yaw_off + 180) % 360 - 180
+                
+                self.log_msg.emit(f"  --- {arm.upper()} ARM ---")
+                self.log_msg.emit(f"  * Bracket Pos: X: {dx:+.1f}, Y: {dy:+.1f}, Z: {dz:+.1f} mm")
+                self.log_msg.emit(f"  * Bracket Rot: R: {roll_off:+.2f}, P: {pitch_off:+.2f}, Y: {yaw_off:+.2f} deg")
+                self.log_msg.emit(f"  * Joint Offsets: Joint 6: {j6_cal:+.2f}°, Joint 5: {j5_cal:+.2f}°, Joint 3: {j3_cal:+.2f}°")
+            self.log_msg.emit("==================================================\n")
         except Exception as e:
             self.log_msg.emit(f"[ERROR] Full Auto sequential calibration failed: {e}")
             import traceback
@@ -1221,60 +1282,14 @@ class UnifiedCalibrationApp(QWidget):
         self.active_worker = None
 
     def load_offsets_from_yaml(self):
-        config_path = CONFIG_PATHS["setting_yaml"]
-        try:
-            if not os.path.exists(config_path):
-                self.joint_offsets_store = {
-                    "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
-                    "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
-                }
-                self.save_offsets_to_yaml()
-            else:
-                with open(config_path, "r") as f:
-                    data = yaml.safe_load(f)
-                if data and isinstance(data, dict) and "joint_offset" in data:
-                    self.joint_offsets_store = data["joint_offset"]
-                    for arm in ["left", "right"]:
-                        if arm not in self.joint_offsets_store:
-                            self.joint_offsets_store[arm] = {}
-                        if "joint3" not in self.joint_offsets_store[arm]:
-                            self.joint_offsets_store[arm]["joint3"] = 0.0
-                        if "joint5" not in self.joint_offsets_store[arm]:
-                            self.joint_offsets_store[arm]["joint5"] = 0.0
-                        if "joint6" not in self.joint_offsets_store[arm]:
-                            self.joint_offsets_store[arm]["joint6"] = 0.0
-                else:
-                    self.joint_offsets_store = {
-                        "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
-                        "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
-                    }
-                    self.save_offsets_to_yaml()
-                    self.log_msg(f"[WARNING] Added default joint_offset to setting.yaml.")
-            
-            # Sync current offsets with active arm_side from YAML
-            is_v13 = self.get_robot_version() == "1.3"
-            if is_v13:
-                self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
-                self.joint_offsets["wrist_roll"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint6", 0.0)
-            else:
-                self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
-                self.joint_offsets["wrist_roll"] = 0.0
-            self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
-            self.marker_calibrator.joint_offsets = self.joint_offsets
-            self.joint_calibrator.joint_offsets = self.joint_offsets
-            
-        except Exception as e:
-            self.log_msg(f"[ERROR] Failed to load/create setting.yaml: {e}")
-            # Fallback default values
-            self.joint_offsets_store = {
-                "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
-                "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
-            }
-            self.joint_offsets["wrist_pitch"] = 0.0
-            self.joint_offsets["wrist_roll"] = 0.0
-            self.joint_offsets["elbow"] = 0.0
-            self.marker_calibrator.joint_offsets = self.joint_offsets
-            self.joint_calibrator.joint_offsets = self.joint_offsets
+        self.joint_offsets_store = {
+            "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
+            "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
+        }
+        self.joint_offsets = {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+        self.marker_calibrator.joint_offsets = self.joint_offsets
+        self.joint_calibrator.joint_offsets = self.joint_offsets
+        self.log_msg("[INFO] Unconditionally initialized all joint offsets to 0.0° to ignore initial legacy values.")
 
     def save_offsets_to_yaml(self):
         config_path = CONFIG_PATHS["setting_yaml"]
@@ -2031,6 +2046,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.update_joint_modes()
                 self.load_offsets_from_yaml()
                 self.update_applied_offset_label()
+                self.load_bracket_design_values()
 
                 # Setup SimulatedMarkerTransform if simulator is connected in UI Mode
                 if self.ui_only and not self.is_mock:
@@ -2260,28 +2276,42 @@ class UnifiedCalibrationApp(QWidget):
             if os.path.exists(config_path):
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f)
-                if data and "camera" in data:
+                    is_v13 = self.get_robot_version() == "1.3"
                     # Load Left Arm values
                     val_left = data["camera"].get("Tf_to_marker_left", None)
                     if val_left and len(val_left) == 6:
+                        if is_v13 and abs(val_left[0]) < 0.05:
+                            val_left = data["camera"].get("Tf_to_marker_left_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["left"])
+                        elif not is_v13 and abs(val_left[0]) > 0.05:
+                            val_left = data["camera"].get("Tf_to_marker_left_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["left"])
                         self.txt_bracket_l_x.setText(f"{val_left[0]:.4f}")
                         self.txt_bracket_l_y.setText(f"{val_left[1]:.4f}")
                         self.txt_bracket_l_z.setText(f"{val_left[2]:.4f}")
                         self.txt_bracket_l_roll.setText(f"{val_left[3]:.2f}")
                         self.txt_bracket_l_pitch.setText(f"{val_left[4]:.2f}")
                         self.txt_bracket_l_yaw.setText(f"{val_left[5]:.2f}")
+                        # Sync back to memory configs
+                        self.marker_calibrator.camera_config["Tf_to_marker_left"] = val_left
+                        self.joint_calibrator.camera_config["Tf_to_marker_left"] = val_left
                     
                     # Load Right Arm values
                     val_right = data["camera"].get("Tf_to_marker_right", None)
                     if val_right and len(val_right) == 6:
+                        if is_v13 and abs(val_right[0]) < 0.05:
+                            val_right = data["camera"].get("Tf_to_marker_right_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["right"])
+                        elif not is_v13 and abs(val_right[0]) > 0.05:
+                            val_right = data["camera"].get("Tf_to_marker_right_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["right"])
                         self.txt_bracket_r_x.setText(f"{val_right[0]:.4f}")
                         self.txt_bracket_r_y.setText(f"{val_right[1]:.4f}")
                         self.txt_bracket_r_z.setText(f"{val_right[2]:.4f}")
                         self.txt_bracket_r_roll.setText(f"{val_right[3]:.2f}")
                         self.txt_bracket_r_pitch.setText(f"{val_right[4]:.2f}")
                         self.txt_bracket_r_yaw.setText(f"{val_right[5]:.2f}")
+                        # Sync back to memory configs
+                        self.marker_calibrator.camera_config["Tf_to_marker_right"] = val_right
+                        self.joint_calibrator.camera_config["Tf_to_marker_right"] = val_right
                     
-                    self.log_msg(f"[INFO] Loaded Tf_to_marker values for both arms from setting.yaml")
+                    self.log_msg(f"[INFO] Loaded Tf_to_marker values for both arms and synced to calibrator memory")
                     return
             self.log_msg("[WARNING] Could not load bracket design values from setting.yaml.")
         except Exception as e:
@@ -2565,18 +2595,12 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[MOCK GT] Simulated Ground-Truth Offsets:")
             is_v13 = self.get_robot_version() == "1.3"
             for arm in ["right", "left"]:
-                if arm == "right":
-                    j6_gt = 3.2
-                    j5_gt = -2.1 if is_v13 else 1.5
-                    j3_gt = 0.8
-                    pos_gt = [3.0, -1.0, 4.0] # mm
-                    rpy_gt = [1.0, -1.2, 0.8] # deg
-                else:
-                    j6_gt = -2.5
-                    j5_gt = 3.6 if is_v13 else -1.8
-                    j3_gt = 0.8
-                    pos_gt = [-2.0, 1.0, -3.0] # mm
-                    rpy_gt = [-0.8, 1.5, -1.2] # deg
+                mock_gt = self.joint_calibrator.MOCK_GT_OFFSETS[arm]
+                j6_gt = mock_gt["joint6"]
+                j5_gt = mock_gt["joint5_v13"] if is_v13 else mock_gt["joint5_v12"]
+                j3_gt = mock_gt["joint3"]
+                pos_gt = [x * 1000.0 for x in mock_gt["bracket_pos"]] # convert from m to mm
+                rpy_gt = mock_gt["bracket_rpy"]
                 self.log_msg(f"  --- {arm.upper()} ARM ---")
                 self.log_msg(f"  * Bracket Pos: X: {pos_gt[0]:+.1f}, Y: {pos_gt[1]:+.1f}, Z: {pos_gt[2]:+.1f} mm")
                 self.log_msg(f"  * Bracket Rot: R: {rpy_gt[0]:+.2f}, P: {rpy_gt[1]:+.2f}, Y: {rpy_gt[2]:+.2f} deg")
@@ -2737,11 +2761,14 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Joint Sweep: {mode.upper()}")
         if self.ui_only:
+            mock_gt = self.joint_calibrator.MOCK_GT_OFFSETS[self.arm_side]
             is_v13 = self.get_robot_version() == "1.3"
-            if self.arm_side == "right":
-                j_gt = {"wrist_roll_v13": 3.2, "wrist_pitch_v13": -2.1, "wrist_pitch": 1.5, "elbow": 0.8}
-            else:
-                j_gt = {"wrist_roll_v13": -2.5, "wrist_pitch_v13": 3.6, "wrist_pitch": -1.8, "elbow": 0.8}
+            j_gt = {
+                "wrist_roll_v13": mock_gt["joint6"],
+                "wrist_pitch_v13": mock_gt["joint5_v13"],
+                "wrist_pitch": mock_gt["joint5_v12"],
+                "elbow": mock_gt["joint3"]
+            }
             gt_val = j_gt.get(mode, 0.0)
             self.log_msg(f"[MOCK GT] Simulated Target Joint Offset: {gt_val:+.2f}°")
         
@@ -2925,12 +2952,9 @@ class UnifiedCalibrationApp(QWidget):
         self.log_text.clear()
         self.log_msg(f"[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: {use_head})")
         if self.ui_only:
-            if self.arm_side == "right":
-                pos_gt = [3.0, -1.0, 4.0] # mm
-                rpy_gt = [1.0, -1.2, 0.8] # deg
-            else:
-                pos_gt = [-2.0, 1.0, -3.0] # mm
-                rpy_gt = [-0.8, 1.5, -1.2] # deg
+            mock_gt = self.joint_calibrator.MOCK_GT_OFFSETS[self.arm_side]
+            pos_gt = [x * 1000.0 for x in mock_gt["bracket_pos"]] # convert from m to mm
+            rpy_gt = mock_gt["bracket_rpy"]
             self.log_msg(f"[MOCK GT] Simulated Bracket Offset (Tf_to_marker):")
             self.log_msg(f"  * Pos: X: {pos_gt[0]:+.1f}, Y: {pos_gt[1]:+.1f}, Z: {pos_gt[2]:+.1f} mm")
             self.log_msg(f"  * Rot: R: {rpy_gt[0]:+.2f}, P: {rpy_gt[1]:+.2f}, Y: {rpy_gt[2]:+.2f} deg")
@@ -3032,7 +3056,7 @@ class UnifiedCalibrationApp(QWidget):
                 tolerance = 0.5
             marker_data_4_val = getattr(self, 'marker_data_4', None)
             res = self.marker_calibrator.compute_unified_bracket_calibration(
-                self.marker_data_5, self.marker_data_6, self.arm_side, tolerance=tolerance, marker_data_4=marker_data_4_val
+                self.marker_data_5, self.marker_data_6, self.arm_side, tolerance=tolerance, marker_data_4=marker_data_4_val, calib_roll_deg=0.0, calib_pitch_deg=0.0
             )
             
             self.log_msg("\n[1] Cartesian Offset (EE Link Frame)")
