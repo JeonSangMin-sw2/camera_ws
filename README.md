@@ -1,225 +1,274 @@
-[INFO] Starting Joint Sweep: WRIST_PITCH
+[INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...
+Starting FULL AUTO sequential calibration...
+
+==================================================
+   STARTING SEQUENTIAL CALIBRATION FOR RIGHT ARM
+==================================================
+
+[INFO] Detected Robot Version: 1.2 (is_v1.3: False)
+[FULL AUTO 1/2] Starting Marker Bracket Calibration for right arm...
+[FULL AUTO] Moving right arm to ready pose...
+[INFO] Moving right arm to marker Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+[FULL AUTO] Sweeping Axis 6...
+
+==================================================
+   STARTING 6 CONTINUOUS MARKER SWEEP
+==================================================
+[INFO] Moving Marker Axis 6 to start sweep position...
+[INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
+    -> Swept 151 dense raw coordinate frames during Marker Axis 6 motion.
+
+[INFO] Sweep complete. Returning to initial ready pose...
+[FULL AUTO] Sweeping Axis 5...
+
+==================================================
+   STARTING 5 CONTINUOUS MARKER SWEEP
+==================================================
+[INFO] Moving Marker Axis 5 to start sweep position...
+[INFO] Commencing continuous sweep on Marker Axis 5 (duration=15.0s)...
+    -> Swept 150 dense raw coordinate frames during Marker Axis 5 motion.
+
+[INFO] Sweep complete. Returning to initial ready pose...
+[FULL AUTO] Computing unified marker bracket calibration...
+[INFO] Full Auto: Finished bracket calibration for RIGHT arm. Values staged in UI (click APPLY BRACKETS to save).
+[FULL AUTO 2/2] Starting Joint Calibration for right arm...
+[FULL AUTO] Sweeping Wrist Pitch (Joint 5)...
+[INFO] Moving to right Pitch/Head Ready Pose (Mode: wrist_pitch)...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
    STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
 
-[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+[ITERATION 1/10] Sweeping physically with staged offset 0.0000°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 151 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 198 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 149 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 198 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 151 dense raw coordinate frames during Joint A motion... downsampled to 151 for optimization.
-Swept 149 dense raw coordinate frames during Joint B motion... downsampled to 149 for optimization.
+Swept 198 dense raw coordinate frames during Joint A motion... downsampled to 198 for optimization.
+Swept 198 dense raw coordinate frames during Joint B motion... downsampled to 198 for optimization.
 
-[ITERATION 2/6] Sweeping physically with staged offset -1.8387°...
+[ITERATION 2/10] Sweeping physically with staged offset -1.9908°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 147 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 194 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 150 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 199 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 147 dense raw coordinate frames during Joint A motion... downsampled to 147 for optimization.
-Swept 150 dense raw coordinate frames during Joint B motion... downsampled to 150 for optimization.
+Swept 194 dense raw coordinate frames during Joint A motion... downsampled to 194 for optimization.
+Swept 199 dense raw coordinate frames during Joint B motion... downsampled to 199 for optimization.
 
-[ITERATION 3/6] Sweeping physically with staged offset -2.5492°...
+[ITERATION 3/10] Sweeping physically with staged offset -3.7003°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 145 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 197 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 146 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 196 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 145 dense raw coordinate frames during Joint A motion... downsampled to 145 for optimization.
-Swept 146 dense raw coordinate frames during Joint B motion... downsampled to 146 for optimization.
+Swept 197 dense raw coordinate frames during Joint A motion... downsampled to 197 for optimization.
+Swept 196 dense raw coordinate frames during Joint B motion... downsampled to 196 for optimization.
 
-[ITERATION 4/6] Sweeping physically with staged offset -4.0301°...
+[ITERATION 4/10] Sweeping physically with staged offset -5.1400°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 149 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 197 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 150 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 197 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 149 dense raw coordinate frames during Joint A motion... downsampled to 149 for optimization.
-Swept 150 dense raw coordinate frames during Joint B motion... downsampled to 150 for optimization.
+Swept 197 dense raw coordinate frames during Joint A motion... downsampled to 197 for optimization.
+Swept 197 dense raw coordinate frames during Joint B motion... downsampled to 197 for optimization.
 
-[ITERATION 5/6] Sweeping physically with staged offset -6.5402°...
+[ITERATION 5/10] Sweeping physically with staged offset -5.9950°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 148 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 197 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 152 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 191 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 148 dense raw coordinate frames during Joint A motion... downsampled to 148 for optimization.
-Swept 152 dense raw coordinate frames during Joint B motion... downsampled to 152 for optimization.
+Swept 197 dense raw coordinate frames during Joint A motion... downsampled to 197 for optimization.
+Swept 191 dense raw coordinate frames during Joint B motion... downsampled to 191 for optimization.
 
-[ITERATION 6/6] Sweeping physically with staged offset -6.9453°...
+[ITERATION 6/10] Sweeping physically with staged offset -7.4879°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 145 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 198 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 152 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 198 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 145 dense raw coordinate frames during Joint A motion... downsampled to 145 for optimization.
-Swept 152 dense raw coordinate frames during Joint B motion... downsampled to 152 for optimization.
+Swept 198 dense raw coordinate frames during Joint A motion... downsampled to 198 for optimization.
+Swept 198 dense raw coordinate frames during Joint B motion... downsampled to 198 for optimization.
+
+[ITERATION 7/10] Sweeping physically with staged offset -7.3498°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 198 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 199 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 198 dense raw coordinate frames during Joint A motion... downsampled to 198 for optimization.
+Swept 199 dense raw coordinate frames during Joint B motion... downsampled to 199 for optimization.
+
+[ITERATION 8/10] Sweeping physically with staged offset -7.4937°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 196 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 193 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 196 dense raw coordinate frames during Joint A motion... downsampled to 196 for optimization.
+Swept 193 dense raw coordinate frames during Joint B motion... downsampled to 193 for optimization.
+
+[ITERATION 9/10] Sweeping physically with staged offset -7.2167°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 194 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 196 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 194 dense raw coordinate frames during Joint A motion... downsampled to 194 for optimization.
+Swept 196 dense raw coordinate frames during Joint B motion... downsampled to 196 for optimization.
+
+[ITERATION 10/10] Sweeping physically with staged offset -7.6232°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 199 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 195 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 199 dense raw coordinate frames during Joint A motion... downsampled to 199 for optimization.
+Swept 195 dense raw coordinate frames during Joint B motion... downsampled to 195 for optimization.
 [SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_right_wrist_pitch_joint_calib.png
-------------------------------
-  [1] Calibration Target: wrist_pitch
-      Estimated Optimal Offset: -8.189 deg
-------------------------------
-
-[CALIBRATION COMPLETE]
-
-
-==================================================
-   [INFO] 3-STEP CALIBRATION COMPLETED
-   * Recommended Absolute Offset : -8.1889°
-   * Current Active Offset       : 0.0000° (REVERTED)
-   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.
-==================================================
-
-
-==================================================
-       JOINT CALIBRATION ESTIMATED RESULTS
-==================================================
-
-[1] Calibration Target: wrist_pitch
-    - Target Swept Joint       : Joint 5 (Wrist Pitch)
-    - Estimated Optimal Offset : -8.1889 deg
-
-[2] Suggested Joint Home Offset update:
-  Add offset: -8.1889 deg to calibration config.
-==================================================
-
-
-left
-
-
-
-[INFO] Starting Joint Sweep: WRIST_PITCH
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_pitch. Staged: -7.8926° (click APPLY OFFSET to save).
+[FULL AUTO] Sweeping Elbow (Joint 3)...
+[INFO] Moving to right Pitch/Head Ready Pose (Mode: elbow)...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
    STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
 
-[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+[ITERATION 1/10] Sweeping physically with staged offset 0.0000°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 150 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 2, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 109 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 150 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 150 dense raw coordinate frames during Joint A motion... downsampled to 150 for optimization.
-Swept 150 dense raw coordinate frames during Joint B motion... downsampled to 150 for optimization.
-
-[ITERATION 2/6] Sweeping physically with staged offset 5.7507°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
-
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 152 dense raw coordinate frames during Joint A motion.
-
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 149 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 4, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 107 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 152 dense raw coordinate frames during Joint A motion... downsampled to 152 for optimization.
-Swept 149 dense raw coordinate frames during Joint B motion... downsampled to 149 for optimization.
+Swept 109 dense raw coordinate frames during Joint A motion... downsampled to 109 for optimization.
+Swept 107 dense raw coordinate frames during Joint B motion... downsampled to 107 for optimization.
+  [SAFETY WARNING] Staged offset 1.8338° exceeds safe bounds [-3.0°, 0.0°]. Clamping.
 
-[ITERATION 3/6] Sweeping physically with staged offset 7.7837°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+[ITERATION 2/10] Sweeping physically with staged offset 0.0000°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 149 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 2, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 107 dense raw coordinate frames during Joint A motion.
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 152 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 149 dense raw coordinate frames during Joint A motion... downsampled to 149 for optimization.
-Swept 152 dense raw coordinate frames during Joint B motion... downsampled to 152 for optimization.
-
-[ITERATION 4/6] Sweeping physically with staged offset 8.9850°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
-
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 150 dense raw coordinate frames during Joint A motion.
-
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 148 dense raw coordinate frames during Joint B motion.
+--- Commencing Continuous Sweep on Joint B (Index 4, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 99 dense raw coordinate frames during Joint B motion.
 
 [INFO] Sweep finished. Returning arm to initial pose...
-Swept 150 dense raw coordinate frames during Joint A motion... downsampled to 150 for optimization.
-Swept 148 dense raw coordinate frames during Joint B motion... downsampled to 148 for optimization.
+Swept 107 dense raw coordinate frames during Joint A motion... downsampled to 107 for optimization.
+Swept 99 dense raw coordinate frames during Joint B motion... downsampled to 99 for optimization.
+  [SAFETY WARNING] Staged offset 1.8424° exceeds safe bounds [-3.0°, 0.0°]. Clamping.
 
-[ITERATION 5/6] Sweeping physically with staged offset 9.4430°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+[ITERATION 3/10] Sweeping physically with staged offset 0.0000°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
 
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 148 dense raw coordinate frames during Joint A motion.
+--- Commencing Continuous Sweep on Joint A (Index 2, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+[STOP] Stop requested by user.
+[STOP] Sending cancel_control to robot!
+[ERROR] Iteration 3 sweep failed. Aborting calibration.
+[ERROR] Full Auto sequential calibration failed: Elbow joint calibration failed on right arm
+Traceback (most recent call last):
+  File "/home/nvidia/camera_ws/additional_calib_ui.py", line 916, in run
+    raise RuntimeError(f"Elbow joint calibration failed on {arm_side} arm")
+RuntimeError: Elbow joint calibration failed on right arm
 
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 149 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 148 dense raw coordinate frames during Joint A motion... downsampled to 148 for optimization.
-Swept 149 dense raw coordinate frames during Joint B motion... downsampled to 149 for optimization.
-
-[ITERATION 6/6] Sweeping physically with staged offset 9.6666°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
-
---- Commencing Continuous Sweep on Joint A (Index 4, duration=15.0s) ---
-    -> Swept 138 dense raw coordinate frames during Joint A motion.
-
---- Commencing Continuous Sweep on Joint B (Index 6, duration=15.0s) ---
-    -> Swept 145 dense raw coordinate frames during Joint B motion.
-
-[INFO] Sweep finished. Returning arm to initial pose...
-Swept 138 dense raw coordinate frames during Joint A motion... downsampled to 138 for optimization.
-Swept 145 dense raw coordinate frames during Joint B motion... downsampled to 145 for optimization.
-
-[SUCCESS] Calibration CONVERGED successfully:
-  * Recommended Absolute Offset: 9.6666°
-[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_left_wrist_pitch_joint_calib.png
-------------------------------
-  [1] Calibration Target: wrist_pitch
-      Estimated Optimal Offset: 9.667 deg
-------------------------------
-
-[CALIBRATION COMPLETE]
-
-
-==================================================
-   [SUCCESS] 3-STEP POLARITY CALIBRATION CONVERGED SUCCESSFULLY!
-   * Recommended Absolute Offset : 9.6666°
-   * Current Active Offset       : 0.0000° (REVERTED)
-   --> Click 'APPLY OFFSET' on the UI panel to apply this new calibration.
-==================================================
-
-
-==================================================
-       JOINT CALIBRATION ESTIMATED RESULTS
-==================================================
-
-[1] Calibration Target: wrist_pitch
-    - Target Swept Joint       : Joint 5 (Wrist Pitch)
-    - Estimated Optimal Offset : 9.6666 deg
-
-[2] Suggested Joint Home Offset update:
-  Add offset: 9.6666 deg to calibration config.
-==================================================
+[INFO] Full Auto sequential calibration ended.
