@@ -46,6 +46,14 @@ def run_simulation():
         "left": {"joint6": 0.0, "joint5": 0.0, "joint3": 0.0}
     }
     
+    # Initialize joint offsets in calibrators
+    joint_offsets = {
+        "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0},
+        "left": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+    }
+    joint_cal.joint_offsets = joint_offsets
+    marker_cal.joint_offsets = joint_offsets
+    
     # 5. Create stop event
     import threading
     stop_event = threading.Event()

@@ -84,6 +84,11 @@ class JointCalibrator(BaseCalibrator):
             first_res = None
             converged = False
             
+            # Sign-reversal tracking state
+            prev_error = None
+            prev_step_correction = 0.0
+            direction_multiplier = 1.0
+            
             for i in range(1, max_iterations + 1):
                 if getattr(self, 'stop_requested', False):
                     if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
@@ -138,7 +143,8 @@ class JointCalibrator(BaseCalibrator):
                             log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
-                step_correction = res.get('optimal_offset', 0.0)
+                raw_optimal_offset = res.get('optimal_offset', 0.0)
+                step_correction = direction_multiplier * raw_optimal_offset
                 
                 # Convergence check:
                 # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
@@ -156,8 +162,32 @@ class JointCalibrator(BaseCalibrator):
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
                 
-                # If not converged, update staged_offset by the step correction for the next physical iteration
-                staged_offset += step_correction
+                # Sign-reversal fail-safe check:
+                # If error increased compared to previous iteration, backtrack and flip sign
+                current_error_metric = angle_dev
+                if prev_error is not None and current_error_metric > prev_error + 0.05:
+                    if log_callback:
+                        log_callback(f"  [SAFETY WARNING] Error increased from {prev_error:.4f}° to {current_error_metric:.4f}°!")
+                        log_callback(f"                   Reversing calibration direction and reverting offset from {staged_offset:.4f}°...")
+                    
+                    # Backtrack (revert previous step correction)
+                    staged_offset -= prev_step_correction
+                    
+                    # Flip direction multiplier
+                    direction_multiplier *= -1.0
+                    
+                    # Recalculate step correction with new direction
+                    step_correction = direction_multiplier * raw_optimal_offset
+                    prev_step_correction = step_correction
+                    staged_offset += step_correction
+                    
+                    if log_callback:
+                        log_callback(f"                   New staged offset: {staged_offset:.4f}° (direction_multiplier={direction_multiplier})")
+                else:
+                    # Normal update: save current error for future comparison, apply correction
+                    prev_error = current_error_metric
+                    prev_step_correction = step_correction
+                    staged_offset += step_correction
                 
                 # Safety: clamp staged_offset to the joint's configured offset range
                 jcfg = self.JOINT_CONFIGS.get(mode, {})
@@ -710,23 +740,19 @@ class JointCalibrator(BaseCalibrator):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
-        # Define nominal axes in torso frame for each mode
-        if mode == "wrist_roll_v13": # 얘는 5,6축으로 보정함. 보정해야할 조인트와 움직여야 할 조인트가 다름
-            a_cand_t5 = np.array([1.0, 0.0, 0.0])
-            a_A_t5 = np.array([1.0, 0.0, 0.0])
-            a_B_t5 = np.array([0.0, 1.0, 0.0])
-        elif mode == "wrist_pitch_v13": # 얘는 3,5축으로 보정함. 보정해야할 조인트와 움직여야 할 조인트가 같음
-            a_cand_t5 = np.array([0.0, 1.0, 0.0])
-            a_A_t5 = np.array([0.0, 1.0, 0.0])
-            a_B_t5 = np.array([0.0, 1.0, 0.0])
-        elif mode == "wrist_pitch":
-            a_cand_t5 = np.array([0.0, 1.0, 0.0])
-            a_A_t5 = np.array([0.0, 0.0, 1.0])
-            a_B_t5 = np.array([0.0, 0.0, 1.0])
-        elif mode == "elbow":
-            a_cand_t5 = np.array([0.0, 1.0, 0.0])
-            a_A_t5 = np.array([0.0, 0.0, 1.0])
-            a_B_t5 = np.array([0.0, 0.0, 1.0])
+        # Define nominal axes in parent link frame for each mode
+        if mode == "wrist_roll_v13":
+            a_cand_local = np.array([1.0, 0.0, 0.0])
+            a_A_local = np.array([1.0, 0.0, 0.0])
+            a_B_local = np.array([0.0, 1.0, 0.0])
+        elif mode == "wrist_pitch_v13":
+            a_cand_local = np.array([0.0, 1.0, 0.0])
+            a_A_local = np.array([0.0, 1.0, 0.0])
+            a_B_local = np.array([0.0, 1.0, 0.0])
+        elif mode in ("wrist_pitch", "elbow"):
+            a_cand_local = np.array([0.0, 1.0, 0.0])
+            a_A_local = np.array([0.0, 0.0, 1.0])
+            a_B_local = np.array([0.0, 0.0, 1.0])
         else:
             raise ValueError(f"Unknown mode: {mode}")
 
@@ -741,6 +767,43 @@ class JointCalibrator(BaseCalibrator):
         arm_idx = (model.left_arm_idx if arm_side == "left" else model.right_arm_idx) if model else list(range(7))
         dyn_model = self.robot.get_dynamics() if self.robot else None
         ee_name = f"ee_{arm_side}"
+
+        # Compute dynamic nominal axes using forward kinematics (FK) at the ready pose
+        is_pure_mock = getattr(self.robot, "is_pure_mock", False) if self.robot else True
+        if self.robot and not is_pure_mock:
+            try:
+                # Construct full q array at ready pose
+                q_ready_full = np.array(state.position)
+                for idx, val in zip(arm_idx, initial_joint_pos):
+                    q_ready_full[idx] = val
+
+                def get_link_name(j_idx):
+                    return f"link_{arm_side}_arm_{j_idx}" if j_idx >= 0 else "link_torso_5"
+
+                T_cand = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(cand_joint - 1))
+                T_A = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_A - 1))
+                T_B = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_B - 1))
+
+                a_cand_t5 = T_cand[:3, :3] @ a_cand_local
+                a_A_t5 = T_A[:3, :3] @ a_A_local
+                a_B_t5 = T_B[:3, :3] @ a_B_local
+                
+                if log_callback:
+                    log_callback(f"[INFO] Dynamically calculated nominal axes from FK (Arm: {arm_side}, Mode: {mode}):")
+                    log_callback(f"       a_cand_t5 = {a_cand_t5.tolist()}")
+                    log_callback(f"       a_A_t5    = {a_A_t5.tolist()}")
+                    log_callback(f"       a_B_t5    = {a_B_t5.tolist()}")
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"[WARN] Failed to compute dynamic nominal axes from FK, falling back to constant defaults: {e}")
+                a_cand_t5 = a_cand_local
+                a_A_t5 = a_A_local
+                a_B_t5 = a_B_local
+        else:
+            # Fallback for mock simulation mode
+            a_cand_t5 = a_cand_local
+            a_A_t5 = a_A_local
+            a_B_t5 = a_B_local
 
         # 1. Use nominal fixed camera rotation relative to torso (ZYX [-90, 0, -90])
         # to avoid using uncalibrated mount_to_cam values or head kinematics.
