@@ -414,18 +414,7 @@ class QPCalibrationOptimizer:
             # q_upper[12] =  0.1 * D2R# lep
 
             if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
-                jo = self.joint_offsets_to_apply
-                
-                # Check version
-                is_v13 = False
-                if self.robot and self.robot != "mock_robot":
-                    try:
-                        info = self.robot.get_robot_info()
-                        if "1.3" in info.robot_model_version:
-                            is_v13 = True
-                    except:
-                        pass
-                
+                jo = self.joint_offsets_to_apply  
                 r_j3 = jo.get("right", {}).get("joint3", 0.0)
                 l_j3 = jo.get("left", {}).get("joint3", 0.0)
 
@@ -438,35 +427,19 @@ class QPCalibrationOptimizer:
                 v2_l3 = (-l_j3 + 0.001) * D2R
                 q_lower[10] = min(v1_l3, v2_l3)
                 q_upper[10] = max(v1_l3, v2_l3)
-
-                if is_v13:
-                    # In 1.3, Joint 6 is calibrated instead of Joint 5
-                    r_j6 = jo.get("right", {}).get("joint6", jo.get("right", {}).get("joint5", 0.0))
-                    l_j6 = jo.get("left", {}).get("joint6", jo.get("left", {}).get("joint5", 0.0))
+                # In 1.2, Joint 5 is calibrated
+                r_j5 = jo.get("right", {}).get("joint5", 0.0)
+                l_j5 = jo.get("left", {}).get("joint5", 0.0)
                     
-                    v1_r6 = (-r_j6 - 0.001) * D2R
-                    v2_r6 = (-r_j6 + 0.001) * D2R
-                    q_lower[6] = min(v1_r6, v2_r6)
-                    q_upper[6] = max(v1_r6, v2_r6)
+                v1_r5 = (-r_j5 - 0.001) * D2R
+                v2_r5 = (-r_j5 + 0.001) * D2R
+                q_lower[5] = min(v1_r5, v2_r5)
+                q_upper[5] = max(v1_r5, v2_r5)
 
-                    v1_l6 = (-l_j6 - 0.001) * D2R
-                    v2_l6 = (-l_j6 + 0.001) * D2R
-                    q_lower[13] = min(v1_l6, v2_l6)
-                    q_upper[13] = max(v1_l6, v2_l6)
-                else:
-                    # In 1.2, Joint 5 is calibrated
-                    r_j5 = jo.get("right", {}).get("joint5", 0.0)
-                    l_j5 = jo.get("left", {}).get("joint5", 0.0)
-                    
-                    v1_r5 = (-r_j5 - 0.001) * D2R
-                    v2_r5 = (-r_j5 + 0.001) * D2R
-                    q_lower[5] = min(v1_r5, v2_r5)
-                    q_upper[5] = max(v1_r5, v2_r5)
-
-                    v1_l5 = (-l_j5 - 0.001) * D2R
-                    v2_l5 = (-l_j5 + 0.001) * D2R
-                    q_lower[12] = min(v1_l5, v2_l5)
-                    q_upper[12] = max(v1_l5, v2_l5)
+                v1_l5 = (-l_j5 - 0.001) * D2R
+                v2_l5 = (-l_j5 + 0.001) * D2R
+                q_lower[12] = min(v1_l5, v2_l5)
+                q_upper[12] = max(v1_l5, v2_l5)
 
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)
@@ -1326,96 +1299,3 @@ class CalibrationOptimizer:
         mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_cam)
         head_base_to_cam_new = self.get_calibrated_head_base_to_cam(xi_cam)
         return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new
-
-
-def optimize_with_divergence_check(optimizer, q_arm_list, q_head_list, T_meas_list):
-    """
-    Runs the optimization loop on an optimizer instance (either QPCalibrationOptimizer or CalibrationOptimizer)
-    with divergence detection and safe state recovery.
-    """
-    if optimizer.use_head_kinematics and q_head_list is None:
-        raise RuntimeError(
-            "Head kinematics are enabled for this ndof, but q_head_list is missing."
-        )
-
-    q_arm_offset = np.zeros(len(optimizer.arm_idx))
-    q_head_offset = np.zeros(len(optimizer.head_idx)) if optimizer.optimize_head else None
-    xi_cam = np.zeros(6)
-
-    best_err = float('inf')
-    best_q_arm_offset = q_arm_offset.copy()
-    best_q_head_offset = q_head_offset.copy() if q_head_offset is not None else None
-    best_xi_cam = xi_cam.copy()
-    consecutive_increases = 0
-
-    for it in range(optimizer.max_iter):
-        try:
-            dx, total_err = optimizer.compute_step(
-                q_arm_list,
-                q_head_list,
-                T_meas_list,
-                q_arm_offset,
-                q_head_offset,
-                xi_cam,
-            )
-        except Exception as e:
-            print(f"[WARNING] Optimization step failed with exception: {e} at iteration {it}! Reverting to best parameters and halting.")
-            q_arm_offset = best_q_arm_offset.copy()
-            if q_head_offset is not None:
-                q_head_offset = best_q_head_offset.copy()
-            xi_cam = best_xi_cam.copy()
-            break
-
-        
-        # Check for divergence before updating state
-        if np.isnan(total_err) or np.isinf(total_err):
-            print(f"[WARNING] Optimization error is numerical invalid ({total_err}) at iteration {it}! Reverting to best parameters and halting.")
-            q_arm_offset = best_q_arm_offset.copy()
-            if q_head_offset is not None:
-                q_head_offset = best_q_head_offset.copy()
-            xi_cam = best_xi_cam.copy()
-            break
-
-        if total_err < best_err:
-            best_err = total_err
-            best_q_arm_offset = q_arm_offset.copy()
-            if q_head_offset is not None:
-                best_q_head_offset = q_head_offset.copy()
-            best_xi_cam = xi_cam.copy()
-            consecutive_increases = 0
-        else:
-            consecutive_increases += 1
-
-        if total_err > best_err * 2.0:
-            print(f"[WARNING] Optimization error exploded ({total_err:.3e} > 2.0 * best_error {best_err:.3e}) at iteration {it}! Reverting to best parameters and halting.")
-            q_arm_offset = best_q_arm_offset.copy()
-            if q_head_offset is not None:
-                q_head_offset = best_q_head_offset.copy()
-            xi_cam = best_xi_cam.copy()
-            break
-
-        if consecutive_increases >= 5:
-            print(f"[WARNING] Optimization error has been increasing consecutively for {consecutive_increases} iterations (current error: {total_err:.3e}, best error: {best_err:.3e}) at iteration {it}! Reverting to best parameters and halting.")
-            q_arm_offset = best_q_arm_offset.copy()
-            if q_head_offset is not None:
-                q_head_offset = best_q_head_offset.copy()
-            xi_cam = best_xi_cam.copy()
-            break
-
-        q_arm_offset, q_head_offset, xi_cam = optimizer.apply_update(
-            q_arm_offset,
-            q_head_offset,
-            xi_cam,
-            dx,
-        )
-
-        print(f"[{it:02d}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
-
-        if np.linalg.norm(dx) < optimizer.eps:
-            print("Converged.")
-            break
-
-    mount_to_cam_new = optimizer.get_calibrated_mount_to_cam(xi_cam)
-    head_base_to_cam_new = optimizer.get_calibrated_head_base_to_cam(xi_cam)
-    return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new
-
