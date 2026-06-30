@@ -805,8 +805,8 @@ class FullAutoWorker(QThread):
                     opt_roll = joint_res_roll["recommended_joint_offset"]
                     self.log_msg.emit(f"[FULL AUTO] Staging J6 (Wrist Roll) offset: {opt_roll:.4f}°")
                     self.joint_offsets_store[arm_side]["joint6"] = opt_roll
-                    self.joint_calibrator.joint_offsets["wrist_roll"] = opt_roll
-                    self.marker_calibrator.joint_offsets["wrist_roll"] = opt_roll
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
                     
                     # Emitting the J6 calibration result to the UI plot
                     joint_res_roll['arm_side'] = arm_side
@@ -840,8 +840,8 @@ class FullAutoWorker(QThread):
                     # Update J5 offset from marker calibration as a first step
                     staged_pitch = unified_res.get('opt_delta_5', 0.0)
                     self.joint_offsets_store[arm_side]["joint5"] = staged_pitch
-                    self.joint_calibrator.joint_offsets["wrist_pitch"] = staged_pitch
-                    self.marker_calibrator.joint_offsets["wrist_pitch"] = staged_pitch
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
                     
                     self.bracket_finished_signal.emit(unified_res)
                     time.sleep(0.5)
@@ -892,8 +892,8 @@ class FullAutoWorker(QThread):
                     joint_res_pitch['arm_side'] = arm_side
                     joint_res_pitch['mode'] = "wrist_pitch"
                     
-                    self.joint_calibrator.joint_offsets["wrist_pitch"] = joint_res_pitch["recommended_joint_offset"]
-                    self.marker_calibrator.joint_offsets["wrist_pitch"] = joint_res_pitch["recommended_joint_offset"]
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = joint_res_pitch["recommended_joint_offset"]
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = joint_res_pitch["recommended_joint_offset"]
                     self.joint_offsets_store[arm_side]["joint5"] = joint_res_pitch["recommended_joint_offset"]
                     
                     self.joint_finished_signal.emit(joint_res_pitch)
@@ -917,8 +917,8 @@ class FullAutoWorker(QThread):
                     joint_res_elbow['arm_side'] = arm_side
                     joint_res_elbow['mode'] = "elbow"
                     
-                    self.joint_calibrator.joint_offsets["elbow"] = joint_res_elbow["recommended_joint_offset"]
-                    self.marker_calibrator.joint_offsets["elbow"] = joint_res_elbow["recommended_joint_offset"]
+                    self.joint_calibrator.joint_offsets[arm_side]["elbow"] = joint_res_elbow["recommended_joint_offset"]
+                    self.marker_calibrator.joint_offsets[arm_side]["elbow"] = joint_res_elbow["recommended_joint_offset"]
                     self.joint_offsets_store[arm_side]["joint3"] = joint_res_elbow["recommended_joint_offset"]
                     
                     self.joint_finished_signal.emit(joint_res_elbow)
@@ -944,8 +944,8 @@ class FullAutoWorker(QThread):
                     joint_res_pitch['mode'] = "wrist_pitch_v13"
                     
                     opt_pitch = joint_res_pitch["recommended_joint_offset"]
-                    self.joint_calibrator.joint_offsets["wrist_pitch"] = opt_pitch
-                    self.marker_calibrator.joint_offsets["wrist_pitch"] = opt_pitch
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
                     self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
                     
                     self.joint_finished_signal.emit(joint_res_pitch)
@@ -970,8 +970,8 @@ class FullAutoWorker(QThread):
                     joint_res_elbow['mode'] = "elbow"
                     
                     opt_elbow = joint_res_elbow["recommended_joint_offset"]
-                    self.joint_calibrator.joint_offsets["elbow"] = opt_elbow
-                    self.marker_calibrator.joint_offsets["elbow"] = opt_elbow
+                    self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
+                    self.marker_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
                     self.joint_offsets_store[arm_side]["joint3"] = opt_elbow
                     
                     self.joint_finished_signal.emit(joint_res_elbow)
