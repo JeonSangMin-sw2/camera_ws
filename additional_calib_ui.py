@@ -2242,8 +2242,9 @@ class UnifiedCalibrationApp(QWidget):
                     item.setTextAlignment(Qt.AlignCenter)
                     self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
         
-        # Keeps the apply button permanently visible on the Right Panel dashboard
-
+    def apply_joint_offset(self):
+        is_v13 = self.get_robot_version() == "1.3"
+        
         for arm in ["left", "right"]:
             if is_v13:
                 self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
@@ -2261,13 +2262,14 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"\n" + "="*50)
         self.log_msg(f"[APPLY] Applied current staged offsets for {self.arm_side.upper()} Arm to active parameters:")
         if is_v13:
-            self.log_msg(f"  - Joint 6 (wrist_roll) : {self.joint_offsets['wrist_roll']:.4f}°")
-            self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
+            self.log_msg(f"  - Joint 6 (wrist_roll) : {self.joint_offsets[self.arm_side]['wrist_roll']:.4f}°")
+            self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets[self.arm_side]['wrist_pitch']:.4f}°")
         else:
-            self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets['wrist_pitch']:.4f}°")
-        self.log_msg(f"  - Joint 3 (elbow)      : {self.joint_offsets['elbow']:.4f}°")
+            self.log_msg(f"  - Joint 5 (wrist_pitch): {self.joint_offsets[self.arm_side]['wrist_pitch']:.4f}°")
+        self.log_msg(f"  - Joint 3 (elbow)      : {self.joint_offsets[self.arm_side]['elbow']:.4f}°")
         self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!")
         self.log_msg("="*50 + "\n")
+
 
     def stop_motion(self):
         self.log_msg("[STOP] Stop requested by user.")
