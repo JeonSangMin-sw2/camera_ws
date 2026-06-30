@@ -707,11 +707,10 @@ class FullAutoWorker(QThread):
             is_v13 = (version_num == "1.3")
             
             for arm_side in ["right", "left"]:
-                # Initialize calibrators' active joint offsets with current arm's staged values to prevent cross-arm leakage
                 for calibrator in [self.joint_calibrator, self.marker_calibrator]:
-                    calibrator.joint_offsets["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
-                    calibrator.joint_offsets["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
-                    calibrator.joint_offsets["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
+                    calibrator.joint_offsets[arm_side]["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
+                    calibrator.joint_offsets[arm_side]["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
+                    calibrator.joint_offsets[arm_side]["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
 
                 self.log_msg.emit("\n" + "="*50)
                 self.log_msg.emit(f"   STARTING SEQUENTIAL CALIBRATION FOR {arm_side.upper()} ARM")
@@ -1253,7 +1252,10 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_sweep_data = None
         
         # Cumulative Joint Offsets for iterative sweeps
-        self.joint_offsets = {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+        self.joint_offsets = {
+            "left": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0},
+            "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+        }
         self.wrist_roll_calibrated = {"right": False, "left": False}
         self.load_offsets_from_yaml()
         
@@ -1312,12 +1314,19 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[WARNING] Failed to load joint offsets from setting.yaml: {e}. Using 0.0° defaults.")
 
-        # Sync active joint_offsets for the current arm side
+        # Sync active joint_offsets for both arms
         is_v13 = self.get_robot_version() == "1.3"
         self.joint_offsets = {
-            "wrist_pitch": self.joint_offsets_store[self.arm_side]["joint5"],
-            "wrist_roll": self.joint_offsets_store[self.arm_side]["joint6"] if is_v13 else 0.0,
-            "elbow": self.joint_offsets_store[self.arm_side]["joint3"]
+            "left": {
+                "wrist_pitch": self.joint_offsets_store["left"]["joint5"],
+                "wrist_roll": self.joint_offsets_store["left"]["joint6"] if is_v13 else 0.0,
+                "elbow": self.joint_offsets_store["left"]["joint3"]
+            },
+            "right": {
+                "wrist_pitch": self.joint_offsets_store["right"]["joint5"],
+                "wrist_roll": self.joint_offsets_store["right"]["joint6"] if is_v13 else 0.0,
+                "elbow": self.joint_offsets_store["right"]["joint3"]
+            }
         }
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -2108,12 +2117,10 @@ class UnifiedCalibrationApp(QWidget):
             
             # Sync current offsets with active arm_side from memory store (do not reload from yaml disk)
             is_v13 = self.get_robot_version() == "1.3"
-            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint5", 0.0)
-            if is_v13:
-                self.joint_offsets["wrist_roll"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint6", 0.0)
-            else:
-                self.joint_offsets["wrist_roll"] = 0.0
-            self.joint_offsets["elbow"] = self.joint_offsets_store.get(self.arm_side, {}).get("joint3", 0.0)
+            for arm in ["left", "right"]:
+                self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store.get(arm, {}).get("joint5", 0.0)
+                self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store.get(arm, {}).get("joint6", 0.0) if is_v13 else 0.0
+                self.joint_offsets[arm]["elbow"] = self.joint_offsets_store.get(arm, {}).get("joint3", 0.0)
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
             self.update_applied_offset_label()
@@ -2237,16 +2244,14 @@ class UnifiedCalibrationApp(QWidget):
         
         # Keeps the apply button permanently visible on the Right Panel dashboard
 
-    def apply_joint_offset(self):
-        is_v13 = self.get_robot_version() == "1.3"
-        
-        if is_v13:
-            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
-            self.joint_offsets["wrist_roll"] = self.joint_offsets_store[self.arm_side]["joint6"]
-        else:
-            self.joint_offsets["wrist_pitch"] = self.joint_offsets_store[self.arm_side]["joint5"]
-            self.joint_offsets["wrist_roll"] = 0.0
-        self.joint_offsets["elbow"] = self.joint_offsets_store[self.arm_side]["joint3"]
+        for arm in ["left", "right"]:
+            if is_v13:
+                self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
+                self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store[arm]["joint6"]
+            else:
+                self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
+                self.joint_offsets[arm]["wrist_roll"] = 0.0
+            self.joint_offsets[arm]["elbow"] = self.joint_offsets_store[arm]["joint3"]
         self.joint_calibrator.joint_offsets = self.joint_offsets
         self.marker_calibrator.joint_offsets = self.joint_offsets
         
@@ -2292,9 +2297,9 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_offsets_store[self.arm_side]["joint6"] = 0.0
             self.joint_offsets_store[self.arm_side]["joint3"] = 0.0
             
-            self.joint_offsets["wrist_pitch"] = 0.0
-            self.joint_offsets["wrist_roll"] = 0.0
-            self.joint_offsets["elbow"] = 0.0
+            self.joint_offsets[self.arm_side]["wrist_pitch"] = 0.0
+            self.joint_offsets[self.arm_side]["wrist_roll"] = 0.0
+            self.joint_offsets[self.arm_side]["elbow"] = 0.0
             self.joint_calibrator.joint_offsets = self.joint_offsets
             self.marker_calibrator.joint_offsets = self.joint_offsets
             
@@ -2784,7 +2789,7 @@ class UnifiedCalibrationApp(QWidget):
                 return
 
         offset_key = self.get_offset_key_for_mode(mode)
-        self.original_joint_offset = self.joint_offsets.get(offset_key, 0.0)
+        self.original_joint_offset = self.joint_offsets[self.arm_side].get(offset_key, 0.0)
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
@@ -2805,7 +2810,7 @@ class UnifiedCalibrationApp(QWidget):
             gt_val = j_gt.get(mode, 0.0)
             self.log_msg(f"[MOCK GT] Simulated Target Joint Offset: {gt_val:+.2f}°")
         
-        curr_offset = self.joint_offsets.get(offset_key, 0.0)
+        curr_offset = self.joint_offsets[self.arm_side].get(offset_key, 0.0)
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
@@ -2853,9 +2858,9 @@ class UnifiedCalibrationApp(QWidget):
 
         # Revert active offsets to nominal original values in model (until user clicks APPLY)
         offset_key = self.get_offset_key_for_mode(mode)
-        self.joint_offsets[offset_key] = self.original_joint_offset
-        self.joint_calibrator.joint_offsets[offset_key] = self.original_joint_offset
-        self.marker_calibrator.joint_offsets[offset_key] = self.original_joint_offset
+        self.joint_offsets[self.arm_side][offset_key] = self.original_joint_offset
+        self.joint_calibrator.joint_offsets[self.arm_side][offset_key] = self.original_joint_offset
+        self.marker_calibrator.joint_offsets[self.arm_side][offset_key] = self.original_joint_offset
         self.update_applied_offset_label()
 
         self.log_msg(f"\n" + "="*50)

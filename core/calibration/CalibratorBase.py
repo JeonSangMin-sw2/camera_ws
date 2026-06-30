@@ -531,22 +531,31 @@ class BaseCalibrator:
             # For v1.2:
             # - Joint 5 (index 5) is wrist pitch
             is_v13 = self.is_v13()
+            
+            # Support both flat and nested left/right dictionary structures
+            if "left" in self.joint_offsets and "right" in self.joint_offsets:
+                left_offsets = self.joint_offsets["left"]
+                right_offsets = self.joint_offsets["right"]
+            else:
+                left_offsets = self.joint_offsets
+                right_offsets = self.joint_offsets
+                
             if right_arm is not None:
                 right_arm = list(right_arm)
                 if is_v13:
-                    right_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
-                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                    right_arm[6] += np.radians(right_offsets.get("wrist_roll", 0.0))
+                    right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
                 else:
-                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
-                right_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
+                    right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
+                right_arm[3] += np.radians(right_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
                 if is_v13:
-                    left_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
-                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                    left_arm[6] += np.radians(left_offsets.get("wrist_roll", 0.0))
+                    left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
                 else:
-                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
-                left_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
+                    left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
+                left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
         

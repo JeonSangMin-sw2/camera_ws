@@ -78,7 +78,7 @@ class JointCalibrator(BaseCalibrator):
                     use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
                 )
                 
-            max_iterations = 4
+            max_iterations = 6
             staged_offset = current_offset_deg
             final_res = None
             first_res = None
@@ -634,7 +634,10 @@ class JointCalibrator(BaseCalibrator):
 
         # Arm cand baseline pose (shifted by current offset)
         offset_key = jcfg.get("offset_key", mode)
-        active_offset = self.joint_offsets.get(offset_key, 0.0)
+        if arm_side in self.joint_offsets:
+            active_offset = self.joint_offsets[arm_side].get(offset_key, 0.0)
+        else:
+            active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
         q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
@@ -881,7 +884,10 @@ class JointCalibrator(BaseCalibrator):
 
         # Arm cand baseline pose (shifted by current offset)
         offset_key = jcfg.get("offset_key", mode)
-        active_offset = self.joint_offsets.get(offset_key, 0.0)
+        if arm_side in self.joint_offsets:
+            active_offset = self.joint_offsets[arm_side].get(offset_key, 0.0)
+        else:
+            active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
         q_cand[cand_joint] = nominal_joint_pos
@@ -1339,16 +1345,19 @@ class JointCalibrator(BaseCalibrator):
         
         # Calculate nominal axes in camera frame at nominal ready pose (with current_offset_deg)
         q_ready = np.array(dataset_A[0][0])
-        active_offset = self.joint_offsets.get(mode, 0.0)
+        if arm_side in self.joint_offsets:
+            active_offset = self.joint_offsets[arm_side].get(mode, 0.0)
+        else:
+            active_offset = self.joint_offsets.get(mode, 0.0)
         q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
         
-        # Define fixed camera-to-robot rotation relationship (ZYX Euler: [-90.0, 0.0, -90.0])
-        # R_rob_to_cam represents the rotation from robot torso (base) to camera frame
-        R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
-
         # Calculate nominal axes dynamically using robot kinematics (Dynamics model FK)
         # to account for intermediate joint rotations in the ready pose.
         try:
+            # Load mount_to_cam (transform from head mount "link_head_2" to camera)
+            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+            T_mount_to_cam = self.make_transform(mount_to_cam)
+
             if self.robot and self.robot != "mock_robot":
                 # Determine parent links for candidate and sweep joints in URDF structure
                 parent_cand = f"link_torso_5" if cand_joint == 0 else f"link_{arm_side}_arm_{cand_joint - 1}"
@@ -1368,16 +1377,24 @@ class JointCalibrator(BaseCalibrator):
                 a_cand_t5 = R_t5_to_parent_cand @ np.array([0.0, 1.0, 0.0])
                 a_A_t5 = R_t5_to_parent_A @ np.array([0.0, 0.0, 1.0])
                 a_B_t5 = R_t5_to_parent_B @ np.array([0.0, 0.0, 1.0])
+                
+                # Compute dynamic camera rotation relative to torso (link_torso_5) using head FK
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                R_rob_to_cam = T_t5_to_cam[:3, :3]
             else:
                 a_cand_t5 = np.array([0.0, 1.0, 0.0])
                 a_A_t5 = np.array([0.0, 0.0, 1.0])
                 a_B_t5 = np.array([0.0, 0.0, 1.0])
+                R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
         except Exception as e:
             if log_callback:
                 log_callback(f"[WARN] Failed to compute nominal axes via FK: {e}. Falling back to hardcoded torso axes.")
             a_cand_t5 = np.array([0.0, 1.0, 0.0])
             a_A_t5 = np.array([0.0, 0.0, 1.0])
             a_B_t5 = np.array([0.0, 0.0, 1.0])
+            R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
+
 
         # Define nominal axes in the camera frame using transpose of R_rob_to_cam (since R_rob_to_cam is R_cam_to_torso)
         a_cand_cam = R_rob_to_cam.T @ a_cand_t5
@@ -1463,6 +1480,11 @@ class JointCalibrator(BaseCalibrator):
         diff_angle = actual_angle - nominal_angle
         # Wrap diff_angle to [-pi, pi]
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
+        
+        # Mirroring correction: Under left-arm reflection, the cross product flips sign relative to the candidate axis.
+        # Flip diff_angle sign for left arm to match the right-side feedback loop sign.
+        if arm_side == "left":
+            diff_angle = -diff_angle
         
         # Initialize/reset adaptive controller variables on iteration 1
         if current_offset_deg == 0.0:
