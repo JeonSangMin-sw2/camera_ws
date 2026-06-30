@@ -78,7 +78,7 @@ class JointCalibrator(BaseCalibrator):
                     use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
                 )
                 
-            max_iterations = 6
+            max_iterations = 10
             staged_offset = current_offset_deg
             final_res = None
             first_res = None
