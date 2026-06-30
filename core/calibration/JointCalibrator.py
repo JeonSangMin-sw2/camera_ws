@@ -893,11 +893,11 @@ class JointCalibrator(BaseCalibrator):
         diff_angle = actual_angle - nominal_angle
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
         
-        if arm_side == "left":
-            diff_angle = -diff_angle
+        # if arm_side == "left":
+        #     diff_angle = -diff_angle
 
         # Match the physical motor driver rotations (negative feedback loop)
-        sign = -1.0 if diff_angle > 0.0 else 1.0
+        sign = 1.0 if diff_angle > 0.0 else -1.0
 
         size_error = abs(r_A - r_B)
         if center_dist > 100.0 or size_error > 100.0:
@@ -905,8 +905,8 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            damping = 0.95
-            optimal_offset_deg = sign * abs(np.degrees(diff_angle)) * damping
+            # damping = 0.95
+            optimal_offset_deg = sign * abs(np.degrees(diff_angle)) # * damping
 
         if log_callback:
             log_callback("\n" + "="*50)
