@@ -901,7 +901,7 @@ class MarkerCalibrator(BaseCalibrator):
             ye, ze = params
             xe = 0.0  # v1.2 설계값 구속 (x = 0)
             r6_pred = np.sqrt(xe**2 + ye**2)
-            Z_prime = ze + L_5_ee
+            Z_prime = ze - L_5_ee
             r5_pred = np.sqrt(xe**2 + Z_prime**2)
             res = [
                 r6_pred - radius_6,
