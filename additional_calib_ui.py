@@ -1288,10 +1288,39 @@ class UnifiedCalibrationApp(QWidget):
             "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
             "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
         }
-        self.joint_offsets = {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+        config_path = CONFIG_PATHS["setting_yaml"]
+        try:
+            if os.path.exists(config_path):
+                with open(config_path, "r", encoding="utf-8") as f:
+                    data = yaml.safe_load(f) or {}
+                jo = data.get("joint_offset", {})
+                for arm in ["left", "right"]:
+                    arm_data = jo.get(arm, {})
+                    if isinstance(arm_data, dict):
+                        self.joint_offsets_store[arm]["joint3"] = float(arm_data.get("joint3", 0.0))
+                        self.joint_offsets_store[arm]["joint5"] = float(arm_data.get("joint5", 0.0))
+                        self.joint_offsets_store[arm]["joint6"] = float(arm_data.get("joint6", 0.0))
+                self.log_msg(f"[INFO] Loaded joint offsets from setting.yaml: "
+                             f"R[J3={self.joint_offsets_store['right']['joint3']:.4f}°, "
+                             f"J5={self.joint_offsets_store['right']['joint5']:.4f}°, "
+                             f"J6={self.joint_offsets_store['right']['joint6']:.4f}°] "
+                             f"L[J3={self.joint_offsets_store['left']['joint3']:.4f}°, "
+                             f"J5={self.joint_offsets_store['left']['joint5']:.4f}°, "
+                             f"J6={self.joint_offsets_store['left']['joint6']:.4f}°]")
+            else:
+                self.log_msg("[INFO] setting.yaml not found. Initialized all joint offsets to 0.0°.")
+        except Exception as e:
+            self.log_msg(f"[WARNING] Failed to load joint offsets from setting.yaml: {e}. Using 0.0° defaults.")
+
+        # Sync active joint_offsets for the current arm side
+        is_v13 = self.get_robot_version() == "1.3"
+        self.joint_offsets = {
+            "wrist_pitch": self.joint_offsets_store[self.arm_side]["joint5"],
+            "wrist_roll": self.joint_offsets_store[self.arm_side]["joint6"] if is_v13 else 0.0,
+            "elbow": self.joint_offsets_store[self.arm_side]["joint3"]
+        }
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
-        self.log_msg("[INFO] Unconditionally initialized all joint offsets to 0.0° to ignore initial legacy values.")
 
     def save_offsets_to_yaml(self):
         config_path = CONFIG_PATHS["setting_yaml"]

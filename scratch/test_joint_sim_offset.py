@@ -14,14 +14,15 @@ def main():
     
     # Initialize mock robot and calibrator
     robot = get_mock_robot(model_name="m")
+    robot.robot_version = "1.2"
     BaseCalibrator.compute_fk = staticmethod(pure_mock_compute_fk_impl)
     
     cal = JointCalibrator(marker_st=None, robot=robot)
-    cal.robot_version = "1.3"
+    cal.robot_version = "1.2"
     
     # Call perform_joint_calibration with log printout
     res = cal.perform_joint_calibration(
-        "right", "wrist_roll_v13",
+        "right", "elbow",
         log_callback=print,
         sweep_duration=15.0
     )

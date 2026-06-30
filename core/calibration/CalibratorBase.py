@@ -27,7 +27,7 @@ class BaseCalibrator:
             "joint5_v13": -2.1,
             "joint5_v12": 1.5,
             "joint3": 0.5,
-            "bracket_pos": [0.003, -0.001, 0.004],  # meters
+            "bracket_pos": [0.003, -0.00, 0.004],  # meters
             "bracket_rpy": [1.0, -1.2, 0.8]        # degrees
         },
         "left": {
@@ -35,7 +35,7 @@ class BaseCalibrator:
             "joint5_v13": 3.6,
             "joint5_v12": -1.8,
             "joint3": 0.7,
-            "bracket_pos": [-0.002, 0.001, -0.003], # meters
+            "bracket_pos": [-0.002, 0.00, -0.003], # meters
             "bracket_rpy": [-0.8, 1.5, -1.2]        # degrees
         }
     }
@@ -302,8 +302,9 @@ class BaseCalibrator:
 
     @staticmethod
     def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
-        # Force pure mock FK implementation for virtual/offline SDK robots to ensure version compatibility
-        is_mock_robot = getattr(robot, "is_pure_mock", False) or type(robot).__name__ in ("PureMockRobot", "OfflineRobot")
+        # Force pure mock FK implementation for PureMockRobot (no real dynamics available)
+        # OfflineRobot has real URDF dynamics, so it uses the standard SDK FK path below.
+        is_mock_robot = getattr(robot, "is_pure_mock", False) or type(robot).__name__ == "PureMockRobot"
         if is_mock_robot:
             from core.calibration.mock_robot import pure_mock_compute_fk_impl
             return pure_mock_compute_fk_impl(robot, dyn_model, q, ee_link, base_link)
@@ -404,7 +405,7 @@ class BaseCalibrator:
             q_captured[arm_idx[cand_joint]] += np.radians(current_offset_deg)
             
             # Apply baseline shift (offset) to the active candidate joint physical position
-            q_actual[arm_idx[cand_joint]] -= np.radians(current_offset_deg)
+            q_actual[arm_idx[cand_joint]] += np.radians(current_offset_deg)
             
             T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
             T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
@@ -441,12 +442,6 @@ class BaseCalibrator:
         
         for i in range(7):
             q_actual[arm_idx[i]] += np.radians(injected_joint_offsets_deg[i])
-            
-        if cand_joint is None and sweep_joint is not None:
-            cand_joint = sweep_joint
-            
-        if cand_joint is not None:
-            q_actual[arm_idx[cand_joint]] -= np.radians(current_offset_deg)
             
 
         dyn_model = self.robot.get_dynamics()
@@ -539,19 +534,19 @@ class BaseCalibrator:
             if right_arm is not None:
                 right_arm = list(right_arm)
                 if is_v13:
-                    right_arm[6] -= np.radians(self.joint_offsets.get("wrist_roll", 0.0))
-                    right_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                    right_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
+                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 else:
-                    right_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
-                right_arm[3] -= np.radians(self.joint_offsets.get("elbow", 0.0))
+                    right_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                right_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
                 if is_v13:
-                    left_arm[6] -= np.radians(self.joint_offsets.get("wrist_roll", 0.0))
-                    left_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                    left_arm[6] += np.radians(self.joint_offsets.get("wrist_roll", 0.0))
+                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
                 else:
-                    left_arm[5] -= np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
-                left_arm[3] -= np.radians(self.joint_offsets.get("elbow", 0.0))
+                    left_arm[5] += np.radians(self.joint_offsets.get("wrist_pitch", 0.0))
+                left_arm[3] += np.radians(self.joint_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
         

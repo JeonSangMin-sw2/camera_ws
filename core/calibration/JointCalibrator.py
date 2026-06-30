@@ -78,7 +78,7 @@ class JointCalibrator(BaseCalibrator):
                     use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
                 )
                 
-            max_iterations = 6
+            max_iterations = 4
             staged_offset = current_offset_deg
             final_res = None
             first_res = None
@@ -89,42 +89,32 @@ class JointCalibrator(BaseCalibrator):
                     if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
                     return None
                     
+                if log_callback:
+                    log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
+                
+                # Perform physical sweep (or simulated sweep in mock mode) at the current staged offset
+                res = run_single_sweep(staged_offset)
+                if not res:
+                    if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
+                    return None
+                
                 if i == 1:
-                    if log_callback:
-                        log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
-                    res = run_single_sweep(staged_offset)
-                    if not res:
-                        if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
-                        return None
                     first_res = res
-                else:
-                    if log_callback:
-                        log_callback(f"\n[ITERATION {i}/{max_iterations}] Computing offline with staged offset {staged_offset:.4f}°...")
-                    res = self.compute_calibration_results(
-                        arm_side=arm_side,
-                        mode=mode,
-                        dataset_A=first_res['_dataset_A'],
-                        dataset_B=first_res['_dataset_B'],
-                        initial_joint_pos=first_res['_initial_joint_pos'],
-                        current_offset_deg=staged_offset,
-                        use_angle_based_fitting=use_angle_based_fitting,
-                        save_debug=False,
-                        log_callback=log_callback
-                    )
-                    if not res:
-                        if log_callback: log_callback(f"[ERROR] Iteration {i} offline computation failed. Aborting calibration.")
-                        return None
+                final_res = res
         
                 angle_error = res.get('angle_between_normals', 0.0)
                 sign = res.get('sign', 1.0)
                 
-                is_v13_mode = mode in ("wrist_roll_v13", "wrist_pitch_v13")
-                if is_v13_mode:
-                    center_dist = res.get('perp_dist_after', 999.0)
+                # wrist_roll_v13 has perpendicular axes (target 90 deg), other modes have parallel axes (target 0 deg)
+                if mode == "wrist_roll_v13":
                     angle_dev = abs(angle_error - 90.0)
-                else:
-                    center_dist = res.get('center_dist', 999.0)
+                    center_dist = res.get('perp_dist_after', 999.0)
+                elif mode == "wrist_pitch_v13":
                     angle_dev = angle_error
+                    center_dist = res.get('perp_dist_after', 999.0)
+                else:
+                    angle_dev = angle_error
+                    center_dist = res.get('center_dist', 999.0)
                     
                 r_A = res.get('r_A', 0.0)
                 r_B = res.get('r_B', 0.0)
@@ -133,8 +123,8 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Print iteration summary
                 if log_callback:
-                    if is_v13_mode:
-                        log_callback(f"  * Angle Error (Deviation from 90°) : {angle_dev:.4f}°")
+                    if mode in ("wrist_roll_v13", "wrist_pitch_v13"):
+                        log_callback(f"  * Angle Error (Deviation)          : {angle_dev:.4f}°")
                         log_callback(f"  * Perpendicular Distance (After)   : {center_dist:.4f} mm")
                         log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
                     else:
@@ -149,24 +139,11 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 step_correction = res.get('optimal_offset', 0.0)
-                staged_offset += step_correction
-                final_res = res
-        
-                # Safety: clamp staged_offset to the joint's configured offset range
-                jcfg = self.JOINT_CONFIGS.get(mode, {})
-                off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
-                if staged_offset < off_min or staged_offset > off_max:
-                    if log_callback:
-                        log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
-                    staged_offset = float(np.clip(staged_offset, off_min, off_max))
-                    
-                if log_callback:
-                    log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
-                    
+                
                 # Convergence check:
                 # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
                 converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
-        
+                
                 if converged_criteria:
                     converged = True
                     if log_callback:
@@ -178,7 +155,21 @@ class JointCalibrator(BaseCalibrator):
                             log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
-        
+                
+                # If not converged, update staged_offset by the step correction for the next physical iteration
+                staged_offset += step_correction
+                
+                # Safety: clamp staged_offset to the joint's configured offset range
+                jcfg = self.JOINT_CONFIGS.get(mode, {})
+                off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
+                if staged_offset < off_min or staged_offset > off_max:
+                    if log_callback:
+                        log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+                    staged_offset = float(np.clip(staged_offset, off_min, off_max))
+                    
+                if log_callback:
+                    log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
+                    
             # Final range safety: clamp to configured offset_range
             jcfg = self.JOINT_CONFIGS.get(mode, {})
             off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
@@ -188,11 +179,10 @@ class JointCalibrator(BaseCalibrator):
                 staged_offset = float(np.clip(staged_offset, off_min, off_max))
         
             if getattr(self, 'stop_requested', False):
-                if log_callback: log_callback("[INFO] Joint calibration aborted before validation sweep.")
+                if log_callback: log_callback("[INFO] Joint calibration aborted before final report.")
                 return None
         
             # Build clean final output dict — UI only needs these fields
-            # _plot_data is internal-only; strip it before returning to the UI
             final_output = {
                 'mode': mode,
                 'recommended_joint_offset': staged_offset,
@@ -206,25 +196,13 @@ class JointCalibrator(BaseCalibrator):
                 'r_B': final_res.get('r_B', float('nan')) if final_res else float('nan'),
             }
         
-            # Run one final validation sweep with the recommended joint offset
-            if log_callback:
-                log_callback(f"\n[VALIDATION SWEEP] Running final validation sweep with recommended offset {staged_offset:.4f}°...")
-            validation_res = run_single_sweep(staged_offset)
-        
-            if validation_res:
-                if first_res:
-                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
-                    final_output['plot_path_combined'] = plot_path
-            else:
-                if getattr(self, 'stop_requested', False):
-                    if log_callback: log_callback("[INFO] Joint calibration aborted during validation sweep.")
-                    return None
-                if log_callback:
-                    log_callback("[WARN] Validation sweep failed. Returning last calibration result.")
-                if final_res and first_res:
-                    plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, final_res, log_callback=log_callback)
-                    final_output['plot_path_combined'] = plot_path
-        
+            # Since the final iteration ran physically at (or very close to) the final offset,
+            # we reuse final_res as the validation sweep to avoid a redundant extra sweep.
+            validation_res = final_res
+            if validation_res and first_res:
+                plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
+                final_output['plot_path_combined'] = plot_path
+            
             return final_output
         finally:
             logger.save()
@@ -659,7 +637,7 @@ class JointCalibrator(BaseCalibrator):
         active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
-        q_cand[cand_joint] = nominal_joint_pos - np.radians(current_offset_deg)
+        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
 
         # Determine sweep ranges
         range_A = 20.0
@@ -906,7 +884,7 @@ class JointCalibrator(BaseCalibrator):
         active_offset = self.joint_offsets.get(offset_key, 0.0)
         nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
         q_cand = list(initial_joint_pos)
-        q_cand[cand_joint] = nominal_joint_pos - np.radians(current_offset_deg)
+        q_cand[cand_joint] = nominal_joint_pos
 
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
@@ -1030,7 +1008,7 @@ class JointCalibrator(BaseCalibrator):
                 # ── (B) J6 nominal design angle in J6 plane ───────────────────
                 # Determine J6 nominal ready pose (J5=0, J6=0 nominal)
                 q_ready = np.array(dataset_A[0][0])
-                q_ready[arm_idx[cand_joint]] = nominal_joint_pos - np.radians(current_offset_deg)
+                q_ready[arm_idx[cand_joint]] = nominal_joint_pos
                 
                 angle_design_zero = 0.0
                 try:
@@ -1362,7 +1340,7 @@ class JointCalibrator(BaseCalibrator):
         # Calculate nominal axes in camera frame at nominal ready pose (with current_offset_deg)
         q_ready = np.array(dataset_A[0][0])
         active_offset = self.joint_offsets.get(mode, 0.0)
-        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset) - np.radians(current_offset_deg)
+        q_ready[arm_idx[cand_joint]] = initial_joint_pos[cand_joint] - np.radians(active_offset)
         
         # Define fixed camera-to-robot rotation relationship (ZYX Euler: [-90.0, 0.0, -90.0])
         # R_rob_to_cam represents the rotation from robot torso (base) to camera frame
@@ -1523,7 +1501,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            damping = 0.6 if mode == "elbow" else 0.95
+            damping = 0.95
             optimal_offset_deg = sign * abs(np.degrees(diff_angle)) * damping
             if log_callback:
                 log_callback(f"  [ANGLE CONTROL] Using angle-based calibration error: {np.degrees(diff_angle):.4f}°. Applying damped correction step: {optimal_offset_deg:.4f}°")
