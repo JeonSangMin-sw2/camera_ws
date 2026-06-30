@@ -1380,30 +1380,31 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Compute dynamic camera rotation relative to torso (link_torso_5) using head FK
                 T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_ready, "link_head_2", "link_torso_5")
-                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                R_rob_to_cam = T_t5_to_cam[:3, :3]
+                T_t5_to_cam_fk = T_t5_to_head @ T_mount_to_cam
+                R_rob_to_cam = T_t5_to_cam_fk[:3, :3]
             else:
                 a_cand_t5 = np.array([0.0, 1.0, 0.0])
                 a_A_t5 = np.array([0.0, 0.0, 1.0])
                 a_B_t5 = np.array([0.0, 0.0, 1.0])
-                R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
+                R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix().T
         except Exception as e:
             if log_callback:
                 log_callback(f"[WARN] Failed to compute nominal axes via FK: {e}. Falling back to hardcoded torso axes.")
             a_cand_t5 = np.array([0.0, 1.0, 0.0])
             a_A_t5 = np.array([0.0, 0.0, 1.0])
             a_B_t5 = np.array([0.0, 0.0, 1.0])
-            R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
+            R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix().T
 
 
-        # Define nominal axes in the camera frame using transpose of R_rob_to_cam (since R_rob_to_cam is R_cam_to_torso)
-        a_cand_cam = R_rob_to_cam.T @ a_cand_t5
-        a_A_cam = R_rob_to_cam.T @ a_A_t5
-        a_B_cam_nom = R_rob_to_cam.T @ a_B_t5
+        # Define nominal axes in the camera frame using R_rob_to_cam
+        a_cand_cam = R_rob_to_cam @ a_cand_t5
+        a_A_cam = R_rob_to_cam @ a_A_t5
+        a_B_cam_nom = R_rob_to_cam @ a_B_t5
 
         # Define T_t5_to_cam using fixed rotation and zero translation (strictly camera fixed, no FK)
         T_t5_to_cam = np.eye(4)
         T_t5_to_cam[:3, :3] = R_rob_to_cam
+
         
         a_cand_cam /= np.linalg.norm(a_cand_cam)
         a_A_cam /= np.linalg.norm(a_A_cam)

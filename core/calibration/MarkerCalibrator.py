@@ -27,7 +27,7 @@ class MarkerCalibrator(BaseCalibrator):
         
         # Get rotation only from mount_to_cam
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        R_rob_to_cam = R_scipy.from_euler('ZYX', [mount_to_cam[5], mount_to_cam[4], mount_to_cam[3]], degrees=True).as_matrix()
+        R_cam_to_rob = R_scipy.from_euler('ZYX', [mount_to_cam[5], mount_to_cam[4], mount_to_cam[3]], degrees=True).as_matrix()
         p_target_cam = np.array([0.0, 0.0, target_dist / 1000.0])
 
         for attempt in range(max_attempts):
@@ -55,23 +55,23 @@ class MarkerCalibrator(BaseCalibrator):
             rot_err_mat = cam_rot.T
             rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
             err_norm = np.linalg.norm([pos_err_mm, rot_err_deg])
-
+ 
             if log_callback:
                 log_callback(f"  Current: X={cam_pos[0]*1000:.1f}, Y={cam_pos[1]*1000:.1f}, Z={cam_pos[2]*1000:.1f} mm")
                 log_callback(f"  Error Norm: {err_norm:.2f} (Pos:{pos_err_mm:.1f}mm, Ang:{rot_err_deg:.1f}deg)")
-
+ 
             if err_norm <= 0.5:
                 if log_callback: log_callback(f"  [SUCCESS] Reached center aligned pose! (Norm: {err_norm:.2f})")
                 break
-
+ 
             if log_callback: log_callback("  Calculating joint command and moving...")
             
             dp_cam = p_target_cam - cam_pos
             dR_cam = cam_rot.T  # relative rotation error to identity
             
-            # Rotate errors to robot frame (using only rotation R_rob_to_cam)
-            dp_rob = R_rob_to_cam @ dp_cam
-            dR_rob = R_rob_to_cam @ dR_cam @ R_rob_to_cam.T
+            # Rotate errors to robot frame (using only rotation R_cam_to_rob)
+            dp_rob = R_cam_to_rob @ dp_cam
+            dR_rob = R_cam_to_rob @ dR_cam @ R_cam_to_rob.T
             
             ee_name = f"ee_{arm_side}"
             T_rob_to_ee = self.compute_fk(self.robot, self.robot.get_dynamics(), self.robot.get_state().position, ee_name, "link_torso_5")
