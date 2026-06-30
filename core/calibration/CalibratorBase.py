@@ -16,10 +16,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 class BaseCalibrator:
     JOINT_CONFIGS = {
-        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0)},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0)},
-        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0)},
-        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0)},
+        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 10.0},
+        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
+        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
     }
     MOCK_GT_OFFSETS = {
         "right": {
@@ -28,7 +28,7 @@ class BaseCalibrator:
             "joint5_v12": 1.5,
             "joint3": 0.5,
             "bracket_pos": [0.003, -0.00, 0.004],  # meters
-            "bracket_rpy": [1.0, -1.2, 0.8]        # degrees
+            "bracket_rpy": [1.0, -1.2, 0.0]        # degrees
         },
         "left": {
             "joint6": -2.5,
@@ -36,7 +36,7 @@ class BaseCalibrator:
             "joint5_v12": -1.8,
             "joint3": 0.7,
             "bracket_pos": [-0.002, 0.00, -0.003], # meters
-            "bracket_rpy": [-0.8, 1.5, -1.2]        # degrees
+            "bracket_rpy": [-0.8, 1.5, 0.0]        # degrees
         }
     }
     NOMINAL_BRACKET_TEMPLATES = {
@@ -45,8 +45,8 @@ class BaseCalibrator:
             "right": [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
         },
         "1.2": {
-            "left":  [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0],
-            "right": [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0]
+            "left":  [0.0, 0.054, -0.048, 90.0, 0.0, 0.0],
+            "right": [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
         }
     }
     def __init__(self, marker_st=None, robot=None):
@@ -125,6 +125,9 @@ class BaseCalibrator:
 
     def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None):
         try:
+            if T_mount_to_cam is None:
+                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                T_mount_to_cam = self.make_transform(mount_to_cam)
             config_dir = os.path.abspath(os.path.dirname(__file__))
             if not self.robot or self.robot == "mock_robot":
                 arm_idx = [0]*20
