@@ -718,72 +718,9 @@ class MarkerCalibrator(BaseCalibrator):
         poses_5 = marker_data_5.get('captured_poses', [])
         n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
  
-        # Try direct kinematic averaging first, as it is mathematically far more accurate and does not require Joint 4 sweep!
+        # [BYPASS] Bypassed permanently to calculate using ONLY the marker and rotation axis trajectory.
         kinematic_success = False
-        if self.robot and self.robot != "mock_robot":
-            try:
-                mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
-                T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
-                dyn_model = self.robot.get_dynamics()
-                ee_name = f"ee_{arm_side}"
-                
-                R_list = []
-                # Process Stage 6 (Roll)
-                poses_6 = marker_data_6.get('captured_poses', [])
-                q_full_6 = marker_data_6.get('captured_q_full', [])
-                for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-                    R_t5_to_cam = T_t5_to_cam[:3, :3]
-                    
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
-                    R_ee_to_t5 = T_t5_to_ee[:3, :3].T
-                    R_cam_to_marker = T_cam_to_marker[:3, :3]
-                    R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
-                    R_list.append(R_ee_to_marker)
-                    
-                # Process Stage 5 (Pitch)
-                poses_5 = marker_data_5.get('captured_poses', [])
-                q_full_5 = marker_data_5.get('captured_q_full', [])
-                for q_full, T_cam_to_marker in zip(q_full_5, poses_5):
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-                    R_t5_to_cam = T_t5_to_cam[:3, :3]
-                    
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
-                    R_ee_to_t5 = T_t5_to_ee[:3, :3].T
-                    R_cam_to_marker = T_cam_to_marker[:3, :3]
-                    R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
-                    R_list.append(R_ee_to_marker)
-                    
-                if marker_data_4 is not None:
-                    # Process Stage 4 (Yaw) if available
-                    poses_4 = marker_data_4.get('captured_poses', [])
-                    q_full_4 = marker_data_4.get('captured_q_full', [])
-                    for q_full, T_cam_to_marker in zip(q_full_4, poses_4):
-                        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                        T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-                        R_t5_to_cam = T_t5_to_cam[:3, :3]
-                        
-                        T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
-                        R_ee_to_t5 = T_t5_to_ee[:3, :3].T
-                        R_cam_to_marker = T_cam_to_marker[:3, :3]
-                        R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
-                        R_list.append(R_ee_to_marker)
-                        
-                if len(R_list) > 0:
-                    M = np.mean(R_list, axis=0)
-                    U, S, Vt = np.linalg.svd(M)
-                    R_ee_m_actual = U @ Vt
-                    if np.linalg.det(R_ee_m_actual) < 0:
-                        U[:, 2] *= -1
-                        R_ee_m_actual = U @ Vt
-                    kinematic_success = True
-                else:
-                    raise ValueError("No pose data available for kinematic averaging")
-            except Exception as e:
-                logging.warning(f"Kinematic averaging failed ({e}). Falling back to axis fitting.")
- 
+
         if not kinematic_success:
 
             # Joint 6 angle correction for Joint 5 sweep
