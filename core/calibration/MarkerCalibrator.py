@@ -106,27 +106,6 @@ class MarkerCalibrator(BaseCalibrator):
     def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False):
         if getattr(self, 'stop_requested', False):
             return None
-        import threading
-        
-        class MoveThread(threading.Thread):
-            def __init__(self, calibrator, robot, torso, right_arm, left_arm, head, minimum_time):
-                super().__init__()
-                self.calibrator = calibrator
-                self.robot = robot
-                self.torso = torso
-                self.right_arm = right_arm
-                self.left_arm = left_arm
-                self.head = head
-                self.minimum_time = minimum_time
-                self.success = False
-
-            def run(self):
-                self.success = self.calibrator.movej(
-                    self.robot, torso=self.torso, 
-                    right_arm=self.right_arm, left_arm=self.left_arm, 
-                    head=self.head, minimum_time=self.minimum_time,
-                    apply_offsets=False
-                )
 
         if log_callback:
             log_callback("\n" + "="*50)
@@ -154,165 +133,39 @@ class MarkerCalibrator(BaseCalibrator):
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
         initial_joint_pos = list(state.position[arm_idx])
 
-        # Sweep configuration
+        # Sweep configuration from MARKER_CONFIGS
         axis_str = str(axis_mode).lower()
-        if "6" in axis_str:
-            start_deg = -20.0
-            end_deg = 20.0
-            joint_i = 6
-        elif "4" in axis_str:
-            start_deg = -10.0
-            end_deg = 10.0
-            joint_i = 4
-        else:
-            start_deg = -10.0
-            end_deg = 10.0
-            joint_i = 5
+        mcfg = None
+        for key in self.MARKER_CONFIGS:
+            if key in axis_str or key.split("_")[-1] in axis_str:
+                mcfg = self.MARKER_CONFIGS[key]
+                break
+        if mcfg is None:
+            raise ValueError(f"Unknown marker sweep axis mode: {axis_mode}")
+        
+        start_deg = mcfg["start_deg"]
+        end_deg = mcfg["end_deg"]
+        joint_i = mcfg["joint_i"]
 
         # Head index and active head tracking setup
         head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
         q_head_0 = state.position[head_idx].copy() if head_idx is not None else None
         dyn_model = self.robot.get_dynamics()
         
-        # Retrieve joint limits for the global joint index of the active joint
-        try:
-            state_lim = dyn_model.make_state([f"ee_{arm_side}"], model.robot_joint_names)
-            q_lower_all = np.array(dyn_model.get_limit_q_lower(state_lim))
-            q_upper_all = np.array(dyn_model.get_limit_q_upper(state_lim))
-            global_joint_idx = arm_idx[joint_i]
-            q_min = q_lower_all[global_joint_idx]
-            q_max = q_upper_all[global_joint_idx]
-        except Exception as e:
-            if log_callback:
-                log_callback(f"[WARN] Failed to retrieve joint limits: {e}")
-            q_min = -np.inf
-            q_max = np.inf
-
-        # Compute start and end arm poses with joint limit safety clamping (0.5 degree margin)
-        safety_margin = np.radians(0.5)
-        q_start_val = initial_joint_pos[joint_i] + np.radians(start_deg)
-        q_end_val = initial_joint_pos[joint_i] + np.radians(end_deg)
-
-        if q_start_val < q_min + safety_margin:
-            q_start_val_new = q_min + safety_margin
-            if log_callback:
-                log_callback(f"[WARN] Start angle ({np.degrees(q_start_val):.2f}°) exceeds/overlaps min limit ({np.degrees(q_min):.2f}°). Clamping to {np.degrees(q_start_val_new):.2f}° with 0.5° safety margin.")
-            q_start_val = q_start_val_new
-            start_deg = np.degrees(q_start_val - initial_joint_pos[joint_i])
-
-        if q_end_val > q_max - safety_margin:
-            q_end_val_new = q_max - safety_margin
-            if log_callback:
-                log_callback(f"[WARN] End angle ({np.degrees(q_end_val):.2f}°) exceeds/overlaps max limit ({np.degrees(q_max):.2f}°). Clamping to {np.degrees(q_end_val_new):.2f}° with 0.5° safety margin.")
-            q_end_val = q_end_val_new
-            end_deg = np.degrees(q_end_val - initial_joint_pos[joint_i])
-        
-        q_start_arm = list(initial_joint_pos)
-        q_start_arm[joint_i] = q_start_val
-        q_end_arm = list(initial_joint_pos)
-        q_end_arm[joint_i] = q_end_val
-        
-        q_full_start = np.array(state.position)
-        q_full_end = np.array(state.position)
-        if arm_side == "left":
-            q_full_start[model.left_arm_idx] = q_start_arm
-            q_full_end[model.left_arm_idx] = q_end_arm
-        else:
-            q_full_start[model.right_arm_idx] = q_start_arm
-            q_full_end[model.right_arm_idx] = q_end_arm
-
-        ee_name = f"ee_{arm_side}"
         q_head_start = None
-        q_head_end = None
-        
         if use_head_tracking and head_idx is not None and q_head_0 is not None:
             q_head_start = q_head_0
-            q_head_end = q_head_0
-        else:
-            q_head_start = None
-            q_head_end = None
 
-        # 1. Move to start position (-20 or -10 deg)
-        if log_callback: log_callback(f"[INFO] Moving to start sweep position...")
-        if arm_side == "left":
-            ok = self.movej(self.robot, left_arm=q_start_arm, head=q_head_start, minimum_time=2.5, apply_offsets=False)
-        else:
-            ok = self.movej(self.robot, right_arm=q_start_arm, head=q_head_start, minimum_time=2.5, apply_offsets=False)
-            
-        if not ok or getattr(self, 'stop_requested', False):
-            if log_callback: log_callback("[ERROR] Failed to move to start sweep position or stop was requested.")
-            return None
-            
-        if is_camera_mock:
-            time.sleep(0.01)
-        else:
-            time.sleep(1.0)
-
-        # 2. Continuous sweep from start to end position (15s duration)
-        if log_callback: log_callback(f"[INFO] Commencing Continuous Sweep on Marker Axis {axis_mode} (duration=15s)...")
-        
-        if getattr(self, 'stop_requested', False):
-            return None
-            
-        move_thread = MoveThread(
-            self, self.robot, torso=None,
-            right_arm=q_end_arm if arm_side == "right" else None,
-            left_arm=q_end_arm if arm_side == "left" else None,
-            head=q_head_end, minimum_time=15.0
+        dataset = self.perform_single_joint_sweep(
+            arm_side, joint_i, initial_joint_pos, start_deg, end_deg, 15.0,
+            q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback
         )
-        
-        captured_poses = []
-        captured_angles = []
-        captured_q_full = []
-        
-        if self.robot and self.robot != "mock_robot":
-            initial_full_pose = np.array(self.robot.get_state().position)
-        else:
-            initial_full_pose = np.zeros(20)
-
-        t_start = time.time()
-        move_thread.start()
-        
-        # High speed data collection
-        while move_thread.is_alive():
-            if getattr(self, 'stop_requested', False):
-                if self.robot and self.robot != "mock_robot":
-                    self.robot.cancel_control()
-                move_thread.join()
-                return None
-                
-            if is_camera_mock:
-                pose = self.get_simulated_marker_pose(arm_side, sweep_joint=joint_i)
-                lpf_results = [pose.tolist()]
-            else:
-                lpf_results = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
-                
-            if lpf_results:
-                pose = np.array(lpf_results[0]).reshape(4, 4) if isinstance(lpf_results, list) else np.array(list(lpf_results.values())[0]).reshape(4, 4)
-                
-                q_full_captured = np.array(self.robot.get_state().position)
-                global_joint_idx = arm_idx[joint_i]
-                q_captured = q_full_captured[global_joint_idx]
-                
-                if np.linalg.norm(pose[:3, 3]) > 0.01:
-                    captured_poses.append(pose)
-                    captured_angles.append(np.degrees(q_captured - initial_joint_pos[joint_i]))
-                    captured_q_full.append(q_full_captured)
-                    
-            if is_camera_mock:
-                time.sleep(0.002)
-            else:
-                time.sleep(0.01)
-
-        move_thread.join()
-        if not move_thread.success:
-            if log_callback: log_callback("[ERROR] Marker sweep motion failed or was cancelled.")
+        if dataset is None:
             return None
-            
-        if getattr(self, 'stop_requested', False):
-            return None
-                
-        if log_callback: log_callback(f"    -> Swept {len(captured_poses)} dense raw coordinate frames.")
+
+        captured_poses = [pose for _, pose in dataset]
+        captured_angles = [np.degrees(q_full[arm_idx[joint_i]] - initial_joint_pos[joint_i]) for q_full, _ in dataset]
+        captured_q_full = [q_full for q_full, _ in dataset]
 
         # Return arm and head to original ready pose
         if log_callback: log_callback("\n[INFO] Sweep complete. Returning to initial ready pose...")
@@ -330,13 +183,7 @@ class MarkerCalibrator(BaseCalibrator):
             return None
 
         # Solve Circle Fitting
-        axis_str = str(axis_mode).lower()
-        if "6" in axis_str:
-            n_nom = [1.0, 0.0, 0.0] if self.is_v13() else [0.0, 0.0, 1.0]
-        elif "4" in axis_str:
-            n_nom = [0.0, 0.0, 1.0]
-        else:
-            n_nom = [0.0, 1.0, 0.0]
+        n_nom = mcfg["n_nom_v13"] if self.is_v13() else mcfg["n_nom_v12"]
         res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom)
         
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
@@ -391,8 +238,8 @@ class MarkerCalibrator(BaseCalibrator):
             T = dyn_model.compute_transformation(state, 0, 1)
             return np.linalg.norm(T[:3, 3]) * 1000.0 # m to mm
         except Exception as e:
-            logging.warning(f"Failed to get link kinematics: {e}")
-            return 300.0
+            logging.error(f"Failed to get link kinematics: {e}")
+            raise e
 
     def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None):
         L_5_ee = self.get_link_length(arm_side)

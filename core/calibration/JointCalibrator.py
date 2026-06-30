@@ -573,28 +573,6 @@ class JointCalibrator(BaseCalibrator):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
-        import threading
-        
-        class MoveThread(threading.Thread):
-            def __init__(self, calibrator, robot, torso, right_arm, left_arm, head, minimum_time):
-                super().__init__()
-                self.calibrator = calibrator
-                self.robot = robot
-                self.torso = torso
-                self.right_arm = right_arm
-                self.left_arm = left_arm
-                self.head = head
-                self.minimum_time = minimum_time
-                self.success = False
-
-            def run(self):
-                self.success = self.calibrator.movej(
-                    self.robot, torso=self.torso, 
-                    right_arm=self.right_arm, left_arm=self.left_arm, 
-                    head=self.head, minimum_time=self.minimum_time,
-                    apply_offsets=False
-                )
-
         if log_callback:
             log_callback("\n" + "="*50)
             log_callback(f"   STARTING {mode.upper()} CONTINUOUS OFFSET CALIBRATION SWEEP")
@@ -646,81 +624,13 @@ class JointCalibrator(BaseCalibrator):
         range_A = jcfg.get("sweep_range_A", 20.0)
         range_B = jcfg.get("sweep_range_B", 20.0)
 
-        # Helper function to execute a single joint sweep
-        def run_sweep(label, sweep_joint, sweep_range):
-            if log_callback: log_callback(f"\n--- Commencing Continuous Sweep on {label} (Index {sweep_joint}, duration={sweep_duration}s) ---")
-            
-            if getattr(self, 'stop_requested', False):
-                return None
-
-            # Move to start position
-            q_start = list(q_cand)
-            q_start[sweep_joint] = q_cand[sweep_joint] + np.radians(-sweep_range)
-            if arm_side == "left":
-                ok = self.movej(self.robot, left_arm=q_start, head=None, minimum_time=2.0, apply_offsets=False)
-            else:
-                ok = self.movej(self.robot, right_arm=q_start, head=None, minimum_time=2.0, apply_offsets=False)
-                
-            if not ok or getattr(self, 'stop_requested', False):
-                if log_callback: log_callback(f"[ERROR] Failed to move to {label} start pose or stop was requested.")
-                return None
-                
-            if is_camera_mock:
-                time.sleep(0.01)
-            else:
-                time.sleep(1.0)
-
-            # Launch motion thread to move to end position
-            q_end = list(q_cand)
-            q_end[sweep_joint] = q_cand[sweep_joint] + np.radians(sweep_range)
-            
-            move_thread = MoveThread(
-                self, self.robot, torso=None,
-                right_arm=q_end if arm_side == "right" else None,
-                left_arm=q_end if arm_side == "left" else None,
-                head=None, minimum_time=sweep_duration
-            )
-            
-            dataset = []
-            move_thread.start()
-            
-            while move_thread.is_alive():
-                if getattr(self, 'stop_requested', False):
-                    if self.robot and self.robot != "mock_robot":
-                        self.robot.cancel_control()
-                    move_thread.join()
-                    return None
-                    
-                if is_camera_mock:
-                    pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint, current_offset_deg=current_offset_deg, cand_joint=cand_joint)
-                    res = [pose.tolist()]
-                else:
-                    res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
-                    
-                if res:
-                    pose = np.array(res[0]).reshape(4, 4) if isinstance(res, list) else np.array(list(res.values())[0]).reshape(4, 4)
-                    q_full_captured = np.array(self.robot.get_state().position)
-                    
-                    if np.linalg.norm(pose[:3, 3]) > 0.01:
-                        dataset.append((q_full_captured, pose))
-                        
-                if is_camera_mock:
-                    time.sleep(0.002)
-                else:
-                    time.sleep(0.01)
-                
-            move_thread.join()
-            if not move_thread.success:
-                if log_callback: log_callback(f"[ERROR] {label} sweep motion failed or was cancelled.")
-                return None
-            if len(dataset) < 10:
-                if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label}. Calibration failed.")
-                return None
-            if log_callback: log_callback(f"    -> Swept {len(dataset)} dense raw coordinate frames during {label} motion.")
-            return dataset
-
         # 1. PHYSICAL SWEEP JOINT A
-        dataset_A = run_sweep("Joint A", sweep_joint_A, range_A)
+        if log_callback: log_callback(f"\n--- Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
+        dataset_A = self.perform_single_joint_sweep(
+            arm_side, sweep_joint_A, q_cand, -range_A, range_A, sweep_duration,
+            q_head=None, label="Joint A", log_callback=log_callback,
+            current_offset_deg=current_offset_deg, cand_joint=cand_joint
+        )
         if dataset_A is None:
             return None
 
@@ -733,7 +643,12 @@ class JointCalibrator(BaseCalibrator):
             time.sleep(0.5)
 
         # 2. PHYSICAL SWEEP JOINT B
-        dataset_B = run_sweep("Joint B", sweep_joint_B, range_B)
+        if log_callback: log_callback(f"\n--- Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
+        dataset_B = self.perform_single_joint_sweep(
+            arm_side, sweep_joint_B, q_cand, -range_B, range_B, sweep_duration,
+            q_head=None, label="Joint B", log_callback=log_callback,
+            current_offset_deg=current_offset_deg, cand_joint=cand_joint
+        )
         if dataset_B is None:
             return None
 
@@ -785,10 +700,13 @@ class JointCalibrator(BaseCalibrator):
             current_offset_deg=current_offset_deg,
             use_angle_based_fitting=use_angle_based_fitting,
             save_debug=save_debug,
-            log_callback=log_callback
+            log_callback=log_callback,
+            cand_joint=cand_joint,
+            sweep_joint_A=sweep_joint_A,
+            sweep_joint_B=sweep_joint_B
         )
 
-    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None):
+    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None, cand_joint=None, sweep_joint_A=None, sweep_joint_B=None):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
