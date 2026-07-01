@@ -256,7 +256,9 @@ class MarkerCalibrator(BaseCalibrator):
             return 1.0
 
 
-    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None):
+    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
+        if calib_roll_or_yaw_deg is not None:
+            calib_roll_deg = calib_roll_or_yaw_deg
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
@@ -408,28 +410,34 @@ class MarkerCalibrator(BaseCalibrator):
         x_state = np.array([0.0, 0.0, 0.0, d5_init, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
         x_target = np.array([0.0, 0.0, 0.0, d5_init, d6_init, x_nom_m, y_nom_m, z_init_m, L_nom_m], dtype=float)
         # Regularization weights:
-        # - y_e: strongly pulled to y_nom (physical bracket should have small y offset ≤1 mm)
-        # - L_5_ee: strongly pulled to robot model value (unlikely to deviate >40 mm)
-        # - x_e, z_e: moderate (allow larger position freedom)
-        w_reg = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-3, 1e-2, 1e-3, 2e-2])
+        # - v1.2: Minimize regularization weights to 1e-6 to allow complete freedom for exact parameters.
+        # - v1.3: Keep original weights.
+        if not self.is_v13():
+            w_reg = np.array([1e-6] * 9)
+        else:
+            w_reg = np.array([1e-4, 1e-4, 1e-4, 1e-4, 1e-4, 1e-3, 1e-2, 1e-3, 2e-2])
 
-        # Bounds: z_e uses absolute physical range (v1.3 bracket extends up to ~200 mm in -Z)
+        # Bounds: z_e uses absolute physical range
         # L_5_ee bounded tightly around robot-model value (±80 mm)
-        # v1.3 설계치 구속 (y_e = 0.0)을 위해 ye 범위를 [-1e-9, 1e-9] 수준으로 묶어 고정합니다.
-        # v1.2의 경우 ye 범위를 nominal 대비 ±30 mm 범위로 허용합니다.
-        y_min_val = y_nom_m - 1e-9 if self.is_v13() else y_nom_m - 0.030
-        y_max_val = y_nom_m + 1e-9 if self.is_v13() else y_nom_m + 0.030
+        # y_e and x_e bounds are extended to ±50 mm for v1.2.
+        # roll_off constraint is released to ±30 degrees for v1.2, kept at 0.0 for v1.3.
+        yaw_limit = 1e-5 if lock_bracket else np.radians(30.0)
+        pitch_limit = 1e-5 if lock_bracket else np.radians(30.0)
+        roll_limit = 1e-5 if lock_bracket else (np.radians(30.0) if not self.is_v13() else 0.0)
+        
+        y_min_val = y_nom_m - 1e-9 if self.is_v13() else y_nom_m - 0.050
+        y_max_val = y_nom_m + 1e-9 if self.is_v13() else y_nom_m + 0.050
 
         x_min = np.array([
-            -np.radians(30.0), -np.radians(30.0), 0.0,
+            -yaw_limit, -pitch_limit, -roll_limit,
             d5_init - d5_half, d6_init - d6_half,
-            x_nom_m - 0.030, y_min_val, -0.250,
+            x_nom_m - 0.050, y_min_val, -0.250,
             L_nom_m - 0.080
         ])
         x_max = np.array([
-            np.radians(30.0), np.radians(30.0), 0.0,
+            yaw_limit, pitch_limit, roll_limit,
             d5_init + d5_half, d6_init + d6_half,
-            x_nom_m + 0.030, y_max_val, 0.010,
+            x_nom_m + 0.050, y_max_val, 0.010,
             L_nom_m + 0.080
         ])
 
@@ -561,9 +569,15 @@ class MarkerCalibrator(BaseCalibrator):
             'min_radius': radius_4
         }
 
-    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None):
-        if self.is_v13():
-            return self.compute_unified_bracket_calibration_v1_3(marker_data_5, marker_data_6, arm_side, tolerance=tolerance, marker_data_4=marker_data_4, calib_roll_deg=calib_roll_deg, calib_pitch_deg=calib_pitch_deg)
+    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
+        # Always use the multi-variable solver (compute_unified_bracket_calibration_v1_3)
+        # to enable Joint 6 offset optimization for v1.2 as well.
+        return self.compute_unified_bracket_calibration_v1_3(
+            marker_data_5, marker_data_6, arm_side, tolerance=tolerance,
+            marker_data_4=marker_data_4, calib_roll_deg=calib_roll_deg,
+            calib_pitch_deg=calib_pitch_deg, calib_roll_or_yaw_deg=calib_roll_or_yaw_deg,
+            lock_bracket=lock_bracket
+        )
 
         L_5_ee = self.get_link_length(arm_side)
 
@@ -732,6 +746,8 @@ class MarkerCalibrator(BaseCalibrator):
         ver_key = "1.3" if self.is_v13() else "1.2"
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         # yaw_e = nominal_vec[5]
+        if not self.is_v13() and calib_roll_deg is not None:
+            yaw_e = yaw_e + calib_roll_deg
         
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0

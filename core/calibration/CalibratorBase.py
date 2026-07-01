@@ -19,7 +19,7 @@ class BaseCalibrator:
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 10.0},
-        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
+        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
     }
@@ -210,9 +210,12 @@ class BaseCalibrator:
             actual_model = robot_info.robot_model_name.lower()
             expected_model = model.lower()
             if actual_model != expected_model:
-                logging.error(f"Model mismatch! UI selected model: {model}, but actual robot model is: {robot_info.robot_model_name}")
+                logging.warning(f"Model mismatch! UI selected model: {model}, but actual robot model is: {robot_info.robot_model_name}. Auto-reconnecting with actual model...")
                 robot.disconnect()
-                return None
+                robot = rby.create_robot(address, robot_info.robot_model_name)
+                if not robot.connect():
+                    logging.error(f"Failed to connect robot {address} with actual model {robot_info.robot_model_name}")
+                    return None
         except Exception as e:
             logging.error(f"Failed to verify robot model: {e}")
             robot.disconnect()
@@ -467,12 +470,14 @@ class BaseCalibrator:
                 
             if right_arm is not None:
                 right_arm = list(right_arm)
-                right_arm[6] += np.radians(right_offsets.get("wrist_roll", 0.0))
+                r_j6_offset = right_offsets.get("wrist_roll", 0.0) if is_v13 else right_offsets.get("wrist_yaw2", 0.0)
+                right_arm[6] += np.radians(r_j6_offset)
                 right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
                 right_arm[3] += np.radians(right_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
-                left_arm[6] += np.radians(left_offsets.get("wrist_roll", 0.0))
+                l_j6_offset = left_offsets.get("wrist_roll", 0.0) if is_v13 else left_offsets.get("wrist_yaw2", 0.0)
+                left_arm[6] += np.radians(l_j6_offset)
                 left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
                 left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
 

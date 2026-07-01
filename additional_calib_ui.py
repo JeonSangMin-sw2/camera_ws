@@ -688,20 +688,68 @@ class SimulatedMarkerTransform:
         self.camera = DummyCamera()
 
     def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
-        is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
-        if is_mock:
-            T = np.eye(4)
-            T[2, 3] = 0.3
-            return [T.tolist()]
+        is_pure_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
         try:
             q = self.robot.get_state().position
-            dyn_model = self.robot.get_dynamics()
+            dyn_model = self.robot.get_dynamics() if hasattr(self.robot, 'get_dynamics') else None
             
             ee_name = f"ee_{side}"
             
-            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q, ee_name, "link_torso_5")
-            
-            T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head_2", "link_torso_5")
+            if is_pure_mock:
+                from core.calibration.mock_robot import pure_mock_compute_fk_impl
+                T_t5_to_head = pure_mock_compute_fk_impl(self.robot, None, q, "link_head_2", "link_torso_5")
+                
+                # Apply simulated joint offsets to simulate actual robot kinematics
+                q_actual = np.array(q)
+                model = self.robot.model()
+                arm_idx = model.left_arm_idx if side == "left" else model.right_arm_idx
+                
+                version = str(getattr(self.robot, "robot_version", "1.2"))
+                if "1.3" in version:
+                    if side == "right":
+                        q_actual[arm_idx[6]] += np.radians(3.20)
+                        q_actual[arm_idx[5]] += np.radians(-2.10)
+                        q_actual[arm_idx[3]] += np.radians(0.50)
+                    else:
+                        q_actual[arm_idx[6]] += np.radians(-2.50)
+                        q_actual[arm_idx[5]] += np.radians(3.60)
+                        q_actual[arm_idx[3]] += np.radians(0.70)
+                else:
+                    if side == "right":
+                        q_actual[arm_idx[6]] += np.radians(3.20)
+                        q_actual[arm_idx[5]] += np.radians(1.50)
+                        q_actual[arm_idx[3]] += np.radians(0.50)
+                    else:
+                        q_actual[arm_idx[6]] += np.radians(-2.50)
+                        q_actual[arm_idx[5]] += np.radians(-1.80)
+                        q_actual[arm_idx[3]] += np.radians(0.70)
+                        
+                T_t5_to_ee = pure_mock_compute_fk_impl(self.robot, None, q_actual, ee_name, "link_torso_5")
+                
+                # Apply simulated bracket offset to simulate bracket misalignment
+                if side == "right":
+                    bracket_offset_vec = [0.003, -0.0, 0.004, 1.0, -1.2, 0.0]
+                else:
+                    bracket_offset_vec = [-0.002, 0.0, -0.003, -0.8, 1.5, 0.0]
+                T_bracket_offset = BaseCalibrator.make_transform(bracket_offset_vec)
+            else:
+                try:
+                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q, ee_name, "link_torso_5")
+                except Exception:
+                    from core.calibration.mock_robot import pure_mock_compute_fk_impl
+                    T_t5_to_ee = pure_mock_compute_fk_impl(self.robot, None, q, ee_name, "link_torso_5")
+                
+                try:
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head_2", "link_torso_5")
+                except Exception:
+                    try:
+                        # Try alternative link name for v1.2 head camera mount
+                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head", "link_torso_5")
+                    except Exception:
+                        T_t5_to_head = np.eye(4)
+                
+                T_bracket_offset = np.eye(4)
+                
             mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
             T_head_to_cam = BaseCalibrator.make_transform(mount_to_cam)
             T_t5_to_cam = T_t5_to_head @ T_head_to_cam
@@ -713,13 +761,14 @@ class SimulatedMarkerTransform:
             T_ee_to_marker = BaseCalibrator.make_transform(tf_vec)
             
             T_cam_to_t5 = np.linalg.inv(T_t5_to_cam)
-            T_cam_to_marker = T_cam_to_t5 @ T_t5_to_ee @ T_ee_to_marker
+            T_cam_to_marker = T_cam_to_t5 @ T_t5_to_ee @ T_bracket_offset @ T_ee_to_marker
             
             noise_t = np.random.normal(0, 0.0001, 3)
             T_cam_to_marker[:3, 3] += noise_t
             
             return [T_cam_to_marker.tolist()]
         except Exception as e:
+            print(f"[SimulatedMarkerTransform] Pure mock FK failed: {e}")
             T = np.eye(4)
             T[2, 3] = 0.3
             return [T.tolist()]
@@ -1048,8 +1097,8 @@ class FullAutoWorker(QThread):
                     opt_roll = joint_res_roll["recommended_joint_offset"]
                     self.log_msg.emit(f"[FULL AUTO] Staging J6 (Wrist Yaw 2) offset: {opt_roll:.4f}°")
                     self.joint_offsets_store[arm_side]["joint6"] = opt_roll
-                    self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
-                    self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
                     
                     # Emitting the J6 calibration result to the UI plot
                     joint_res_roll['arm_side'] = arm_side
@@ -1418,8 +1467,8 @@ class UnifiedCalibrationApp(QWidget):
         
         # Cumulative Joint Offsets for iterative sweeps
         self.joint_offsets = {
-            "left": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0},
-            "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+            "left": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0},
+            "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0}
         }
         self.wrist_roll_calibrated = {"right": False, "left": False}
         self.load_offsets_from_yaml()
@@ -1479,15 +1528,18 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[WARNING] Failed to load joint offsets from setting.yaml: {e}. Using 0.0° defaults.")
 
+        is_v13 = self.get_robot_version() == "1.3"
         self.joint_offsets = {
             "left": {
                 "wrist_pitch": self.joint_offsets_store["left"]["joint5"],
-                "wrist_roll": self.joint_offsets_store["left"]["joint6"],
+                "wrist_roll": self.joint_offsets_store["left"]["joint6"] if is_v13 else 0.0,
+                "wrist_yaw2": self.joint_offsets_store["left"]["joint6"] if not is_v13 else 0.0,
                 "elbow": self.joint_offsets_store["left"]["joint3"]
             },
             "right": {
                 "wrist_pitch": self.joint_offsets_store["right"]["joint5"],
-                "wrist_roll": self.joint_offsets_store["right"]["joint6"],
+                "wrist_roll": self.joint_offsets_store["right"]["joint6"] if is_v13 else 0.0,
+                "wrist_yaw2": self.joint_offsets_store["right"]["joint6"] if not is_v13 else 0.0,
                 "elbow": self.joint_offsets_store["right"]["joint3"]
             }
         }
@@ -1597,8 +1649,10 @@ class UnifiedCalibrationApp(QWidget):
     def get_offset_key_for_mode(self, mode):
         if mode == "wrist_pitch_v13":
             return "wrist_pitch"
-        elif mode in ("wrist_roll_v13", "wrist_yaw2"):
+        elif mode == "wrist_roll_v13":
             return "wrist_roll"
+        elif mode == "wrist_yaw2":
+            return "wrist_yaw2"
         else:
             return mode
 
@@ -2218,6 +2272,23 @@ class UnifiedCalibrationApp(QWidget):
                 if not self.is_mock:
                     try:
                         robot_info = self.robot.get_robot_info()
+                        actual_model_name = robot_info.robot_model_name
+                        if actual_model_name.lower() != model.lower():
+                            self.log_msg(f"[INFO] Auto-updating UI model selection to match robot model: '{actual_model_name}'")
+                            found = False
+                            for i in range(self.model_input.count()):
+                                if self.model_input.itemText(i).lower() == actual_model_name.lower():
+                                    self.model_input.blockSignals(True)
+                                    self.model_input.setCurrentIndex(i)
+                                    self.model_input.blockSignals(False)
+                                    found = True
+                                    break
+                            if not found:
+                                self.model_input.blockSignals(True)
+                                self.model_input.addItem(actual_model_name)
+                                self.model_input.setCurrentIndex(self.model_input.count() - 1)
+                                self.model_input.blockSignals(False)
+                        
                         raw_version = robot_info.robot_model_version
                         self.log_msg(f"[INFO] Connected robot model version string: '{raw_version}'")
                         print(f"[INFO] Connected robot model version string: '{raw_version}'")
@@ -2262,6 +2333,8 @@ class UnifiedCalibrationApp(QWidget):
             else:
                 self.log_msg("[ERROR] Robot initialization failed. Check IP.")
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             self.log_msg(f"[ERROR] Connection failure: {e}")
 
     def on_arm_side_changed(self, text):
@@ -2278,7 +2351,12 @@ class UnifiedCalibrationApp(QWidget):
             is_v13 = self.get_robot_version() == "1.3"
             for arm in ["left", "right"]:
                 self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store.get(arm, {}).get("joint5", 0.0)
-                self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store.get(arm, {}).get("joint6", 0.0) if is_v13 else 0.0
+                if is_v13:
+                    self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store.get(arm, {}).get("joint6", 0.0)
+                    self.joint_offsets[arm]["wrist_yaw2"] = 0.0
+                else:
+                    self.joint_offsets[arm]["wrist_roll"] = 0.0
+                    self.joint_offsets[arm]["wrist_yaw2"] = self.joint_offsets_store.get(arm, {}).get("joint6", 0.0)
                 self.joint_offsets[arm]["elbow"] = self.joint_offsets_store.get(arm, {}).get("joint3", 0.0)
             self.marker_calibrator.joint_offsets = self.joint_offsets
             self.joint_calibrator.joint_offsets = self.joint_offsets
@@ -2400,7 +2478,12 @@ class UnifiedCalibrationApp(QWidget):
         
         for arm in ["left", "right"]:
             self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
-            self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store[arm]["joint6"]
+            if is_v13:
+                self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store[arm]["joint6"]
+                self.joint_offsets[arm]["wrist_yaw2"] = 0.0
+            else:
+                self.joint_offsets[arm]["wrist_roll"] = 0.0
+                self.joint_offsets[arm]["wrist_yaw2"] = self.joint_offsets_store[arm]["joint6"]
             self.joint_offsets[arm]["elbow"] = self.joint_offsets_store[arm]["joint3"]
         self.joint_calibrator.joint_offsets = self.joint_offsets
         self.marker_calibrator.joint_offsets = self.joint_offsets
@@ -2415,7 +2498,7 @@ class UnifiedCalibrationApp(QWidget):
             if is_v13:
                 self.log_msg(f"    * Joint 6 (Wrist Roll) : {self.joint_offsets[arm]['wrist_roll']:.4f}°")
             else:
-                self.log_msg(f"    * Joint 6 (Wrist Yaw 2): {self.joint_offsets[arm]['wrist_roll']:.4f}°")
+                self.log_msg(f"    * Joint 6 (Wrist Yaw 2): {self.joint_offsets[arm]['wrist_yaw2']:.4f}°")
             self.log_msg(f"    * Joint 5 (Wrist Pitch): {self.joint_offsets[arm]['wrist_pitch']:.4f}°")
             self.log_msg(f"    * Joint 3 (Elbow)      : {self.joint_offsets[arm]['elbow']:.4f}°")
         self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!")
@@ -2452,6 +2535,7 @@ class UnifiedCalibrationApp(QWidget):
             
             self.joint_offsets[self.arm_side]["wrist_pitch"] = 0.0
             self.joint_offsets[self.arm_side]["wrist_roll"] = 0.0
+            self.joint_offsets[self.arm_side]["wrist_yaw2"] = 0.0
             self.joint_offsets[self.arm_side]["elbow"] = 0.0
             self.joint_calibrator.joint_offsets = self.joint_offsets
             self.marker_calibrator.joint_offsets = self.joint_offsets
@@ -3024,13 +3108,11 @@ class UnifiedCalibrationApp(QWidget):
             else:
                 self.log_msg(f"[INFO] Staged calibrated nominal marker values in UI for {arm} arm: X={x_val:.5f}, Y={y_val:.5f}, Z={z_val:.5f}")
 
-        if mode == "wrist_roll_v13":
+        if mode in ("wrist_roll_v13", "wrist_yaw2"):
             joint_key = "joint6"
             if converged:
                 self.wrist_roll_calibrated[self.arm_side] = True
-        elif mode == "wrist_pitch_v13":
-            joint_key = "joint5"
-        elif mode == "wrist_pitch":
+        elif mode in ("wrist_pitch_v13", "wrist_pitch"):
             joint_key = "joint5"
         else:
             joint_key = "joint3"

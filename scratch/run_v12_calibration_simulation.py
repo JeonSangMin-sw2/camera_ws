@@ -48,8 +48,8 @@ def run_simulation():
     
     # Initialize joint offsets in calibrators
     joint_offsets = {
-        "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0},
-        "left": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "elbow": 0.0}
+        "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0},
+        "left": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0}
     }
     joint_cal.joint_offsets = joint_offsets
     marker_cal.joint_offsets = joint_offsets
