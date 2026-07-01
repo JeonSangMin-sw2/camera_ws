@@ -1,415 +1,260 @@
-[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: False)
+[INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...
+Starting FULL AUTO sequential calibration...
 
 ==================================================
-   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...
+   STARTING SEQUENTIAL CALIBRATION FOR RIGHT ARM
 ==================================================
 
+[INFO] Detected Robot Version: 1.2 (is_v1.3: False)
+[FULL AUTO 1/2] Starting Marker Bracket Calibration for right arm...
+
+[FULL AUTO 1/3] Calibrating Joint 5 (Wrist Pitch) first...
+[INFO] Moving to right Pitch/Head Ready Pose (Mode: wrist_pitch)...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/10] Sweeping physically with staged offset 0.0000°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 204 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 203 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 204 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+
+[ITERATION 2/10] Sweeping physically with staged offset 3.1828°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 202 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 202 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 202 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 202 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.3391° to 6.4559°!
+
+[ITERATION 3/10] Sweeping physically with staged offset -6.1496°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 206 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 206 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 203 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+
+[ITERATION 4/10] Sweeping physically with staged offset -9.1627°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 202 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 198 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 202 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 198 dense raw coordinate frames during Joint B motion... downsampled to 198 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 6.4044°!
+
+[ITERATION 5/10] Sweeping physically with staged offset -0.0450°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 205 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 202 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 205 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 202 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 3.3413°!
+
+[ITERATION 6/10] Sweeping physically with staged offset -9.3212°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 204 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 203 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 204 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 6.5830°!
+
+[ITERATION 7/10] Sweeping physically with staged offset -12.4322°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 205 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 203 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 205 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 9.7817°!
+
+[ITERATION 8/10] Sweeping physically with staged offset 3.1849°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 203 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 203 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 6.3120°!
+
+[ITERATION 9/10] Sweeping physically with staged offset -0.1563°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 205 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 203 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 205 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 3.2386°!
+
+[ITERATION 10/10] Sweeping physically with staged offset -9.2359°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+--- Commencing Continuous Sweep on Joint A (Index 4, duration=20.0s) ---
+[INFO] Moving Joint A to start sweep position...
+[INFO] Commencing continuous sweep on Joint A (duration=20.0s)...
+    -> Swept 203 dense raw coordinate frames during Joint A motion.
+
+--- Commencing Continuous Sweep on Joint B (Index 6, duration=20.0s) ---
+[INFO] Moving Joint B to start sweep position...
+[INFO] Commencing continuous sweep on Joint B (duration=20.0s)...
+    -> Swept 204 dense raw coordinate frames during Joint B motion.
+
+[INFO] Sweep finished. Returning arm to initial pose...
+Swept 203 dense raw coordinate frames during Joint A motion... downsampled to 200 for optimization.
+Swept 204 dense raw coordinate frames during Joint B motion... downsampled to 200 for optimization.
+[INFO] Dynamically calculated nominal axes from FK (Arm: right, Mode: wrist_pitch):
+  [SAFETY WARNING] Error increased from 3.1792° to 6.4193°!
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/core/calibration/result_img/circle_fit_right_wrist_pitch_joint_calib.png
+[FULL AUTO] Staging Joint 5 (Wrist Pitch) offset: -12.2759°
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_pitch. Staged: -12.2759° (click APPLY OFFSET to save).
+
+[FULL AUTO 2/3] Starting Marker Bracket Calibration (J5 offset applied)...
+[FULL AUTO] Moving right arm to ready pose...
+[INFO] Moving right arm to marker Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+[FULL AUTO] Sweeping Axis 4...
 
 ==================================================
    STARTING 4 CONTINUOUS MARKER SWEEP
 ==================================================
 [INFO] Moving Marker Axis 4 to start sweep position...
 [INFO] Commencing continuous sweep on Marker Axis 4 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 4 motion.
+    -> Swept 91 dense raw coordinate frames during Marker Axis 4 motion.
 
 [INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
-
-==================================================
-   [Stage 2/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 2/3] Sweeping Axis 6 (Roll)...
-==================================================
-
+[FULL AUTO] Returning to Initial Starting Pose...
+[FULL AUTO] Sweeping Axis 6...
 
 ==================================================
    STARTING 6 CONTINUOUS MARKER SWEEP
 ==================================================
 [INFO] Moving Marker Axis 6 to start sweep position...
 [INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
-    -> Swept 152 dense raw coordinate frames during Marker Axis 6 motion.
+    -> Swept 91 dense raw coordinate frames during Marker Axis 6 motion.
 
 [INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
-
-==================================================
-   [Stage 3/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 3/3] Sweeping Axis 5 (Pitch)...
-==================================================
-
+[FULL AUTO] Returning to Initial Starting Pose...
+[FULL AUTO] Sweeping Axis 5...
 
 ==================================================
    STARTING 5 CONTINUOUS MARKER SWEEP
 ==================================================
 [INFO] Moving Marker Axis 5 to start sweep position...
 [INFO] Commencing continuous sweep on Marker Axis 5 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 5 motion.
+    -> Swept 95 dense raw coordinate frames during Marker Axis 5 motion.
 
 [INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
-
-[PROCESSING] Computing unified bracket calibration parameters...
-
-==================================================
-       UNIFIED BRACKET CALIBRATION RESULTS
-==================================================
-
-[1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 0.00 mm
-    - Y-Offset: -54.04 mm
-    - Z-Offset: -47.40 mm
-       * (L_5_ee: 126.1 mm, R6: 54.29 mm, R5: 174.27 mm, R4: 180.90 mm)
-
-[2] Angular Misalignment (EE Link Frame)
-    - Roll : 88.70 deg
-    - Pitch: 0.04 deg
-    - Yaw  : 178.83 deg
-
-[3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.0000, -0.0540, -0.0474, 88.70, 0.04, 178.83]
-
-[4] Confidence Metrics:
-    - Orthogonality Error  : 2.959 deg
-==================================================
-
-
-
-try 2
-
-
-
-[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: False)
-
-==================================================
-   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...
-==================================================
-
-
-==================================================
-   STARTING 4 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 4 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 4 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 4 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
-
-==================================================
-   [Stage 2/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 2/3] Sweeping Axis 6 (Roll)...
-==================================================
-
-
-==================================================
-   STARTING 6 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 6 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 6 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
-
-==================================================
-   [Stage 3/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 3/3] Sweeping Axis 5 (Pitch)...
-==================================================
-
-
-==================================================
-   STARTING 5 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 5 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 5 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 5 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
-
-[PROCESSING] Computing unified bracket calibration parameters...
-
-==================================================
-       UNIFIED BRACKET CALIBRATION RESULTS
-==================================================
-
-[1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 0.00 mm
-    - Y-Offset: -54.13 mm
-    - Z-Offset: -47.39 mm
-       * (L_5_ee: 126.1 mm, R6: 54.42 mm, R5: 174.44 mm, R4: 178.77 mm)
-
-[2] Angular Misalignment (EE Link Frame)
-    - Roll : 89.97 deg
-    - Pitch: 0.15 deg
-    - Yaw  : 179.96 deg
-
-[3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.0000, -0.0541, -0.0474, 89.97, 0.15, 179.96]
-
-[4] Confidence Metrics:
-    - Orthogonality Error  : 3.786 deg
-==================================================
-
-
-[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: False)
-
-==================================================
-   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...
-==================================================
-
-
-==================================================
-   STARTING 4 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 4 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 4 (duration=15.0s)...
-    -> Swept 149 dense raw coordinate frames during Marker Axis 4 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
-
-==================================================
-   [Stage 2/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 2/3] Sweeping Axis 6 (Roll)...
-==================================================
-
-
-==================================================
-   STARTING 6 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 6 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 6 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
-
-==================================================
-   [Stage 3/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 3/3] Sweeping Axis 5 (Pitch)...
-==================================================
-
-
-==================================================
-   STARTING 5 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 5 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 5 (duration=15.0s)...
-    -> Swept 152 dense raw coordinate frames during Marker Axis 5 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
-
-[PROCESSING] Computing unified bracket calibration parameters...
-
-==================================================
-       UNIFIED BRACKET CALIBRATION RESULTS
-==================================================
-
-[1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 0.00 mm
-    - Y-Offset: -54.13 mm
-    - Z-Offset: -47.50 mm
-       * (L_5_ee: 126.1 mm, R6: 54.43 mm, R5: 174.55 mm, R4: 173.91 mm)
-
-[2] Angular Misalignment (EE Link Frame)
-    - Roll : 91.00 deg
-    - Pitch: 0.08 deg
-    - Yaw  : 180.09 deg
-
-[3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.0000, -0.0541, -0.0475, 91.00, 0.08, 180.09]
-
-[4] Confidence Metrics:
-    - Orthogonality Error  : 0.206 deg
-==================================================
-
-
-
-[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: False)
-
-==================================================
-   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...
-==================================================
-
-
-==================================================
-   STARTING 4 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 4 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 4 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 4 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
-
-==================================================
-   [Stage 2/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 2/3] Sweeping Axis 6 (Roll)...
-==================================================
-
-
-==================================================
-   STARTING 6 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 6 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 6 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
-
-==================================================
-   [Stage 3/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 3/3] Sweeping Axis 5 (Pitch)...
-==================================================
-
-
-==================================================
-   STARTING 5 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 5 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 5 (duration=15.0s)...
-    -> Swept 126 dense raw coordinate frames during Marker Axis 5 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
-
-[PROCESSING] Computing unified bracket calibration parameters...
-
-==================================================
-       UNIFIED BRACKET CALIBRATION RESULTS
-==================================================
-
-[1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 0.00 mm
-    - Y-Offset: -54.21 mm
-    - Z-Offset: -47.33 mm
-       * (L_5_ee: 126.1 mm, R6: 54.51 mm, R5: 174.38 mm, R4: 167.11 mm)
-
-[2] Angular Misalignment (EE Link Frame)
-    - Roll : 90.73 deg
-    - Pitch: 0.05 deg
-    - Yaw  : 180.30 deg
-
-[3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.0000, -0.0542, -0.0473, 90.73, 0.05, 180.30]
-
-[4] Confidence Metrics:
-    - Orthogonality Error  : 1.034 deg
-==================================================
-
-
-
-[INFO] Starting Unified Marker Sweep (Axis 6 & 5) (Head Tracking: False)
-
-==================================================
-   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...
-==================================================
-
-
-==================================================
-   STARTING 4 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 4 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 4 (duration=15.0s)...
-    -> Swept 156 dense raw coordinate frames during Marker Axis 4 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
-
-==================================================
-   [Stage 2/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 2/3] Sweeping Axis 6 (Roll)...
-==================================================
-
-
-==================================================
-   STARTING 6 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 6 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 6 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
-
-==================================================
-   [Stage 3/3] Returning to Initial Starting Pose...
-==================================================
-
-
-==================================================
-   [Stage 3/3] Sweeping Axis 5 (Pitch)...
-==================================================
-
-
-==================================================
-   STARTING 5 CONTINUOUS MARKER SWEEP
-==================================================
-[INFO] Moving Marker Axis 5 to start sweep position...
-[INFO] Commencing continuous sweep on Marker Axis 5 (duration=15.0s)...
-    -> Swept 150 dense raw coordinate frames during Marker Axis 5 motion.
-
-[INFO] Sweep complete. Returning to initial ready pose...
-[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
-
-[PROCESSING] Computing unified bracket calibration parameters...
-
-==================================================
-       UNIFIED BRACKET CALIBRATION RESULTS
-==================================================
-
-[1] Cartesian Offset (EE Link Frame)
-    - X-Offset: 0.00 mm
-    - Y-Offset: -54.06 mm
-    - Z-Offset: -47.46 mm
-       * (L_5_ee: 126.1 mm, R6: 54.33 mm, R5: 174.41 mm, R4: 180.89 mm)
-
-[2] Angular Misalignment (EE Link Frame)
-    - Roll : 89.78 deg
-    - Pitch: 0.08 deg
-    - Yaw  : 179.17 deg
-
-[3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.0000, -0.0541, -0.0475, 89.78, 0.08, 179.17]
-
-[4] Confidence Metrics:
-    - Orthogonality Error  : 2.249 deg
-==================================================
+[FULL AUTO] Computing unified marker bracket calibration...
+[INFO] Full Auto: Finished bracket calibration for RIGHT arm. Values staged in UI (click APPLY BRACKETS to save).
+
+[FULL AUTO 3/3] Sweeping Elbow (Joint 3)...
+[INFO] Moving to right Pitch/Head Ready Pose (Mode: elbow)...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[ERROR] Full Auto sequential calibration failed: Failed to move to ready pose for elbow on right arm
+Traceback (most recent call last):
+  File "/home/nvidia/camera_ws/additional_calib_ui.py", line 1091, in run
+    raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
+RuntimeError: Failed to move to ready pose for elbow on right arm
+
+[INFO] Full Auto sequential calibration ended.
