@@ -15,7 +15,7 @@ class MarkerCalibrator(BaseCalibrator):
         sin_t = np.sin(theta_rad)
         return vector * cos_t + np.cross(axis, vector) * sin_t + axis * np.dot(axis, vector) * (1 - cos_t)
 
-    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0, max_attempts=5):
+    def perform_move_to_center(self, arm_side, log_callback=None, stop_event=None, target_dist=300.0, max_attempts=3):
         if not self.marker_st:
             if log_callback: log_callback("[ERROR] Camera system not initialized.")
             return False
@@ -223,9 +223,6 @@ class MarkerCalibrator(BaseCalibrator):
         return res
 
     def get_link_length(self, arm_side):
-        is_mock = not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ in ("PureMockRobot", "OfflineRobot")
-        if is_mock:
-            return 300.0
         try:
             dyn_model = self.robot.get_dynamics()
             names = self.robot.model().robot_joint_names
@@ -560,10 +557,26 @@ class MarkerCalibrator(BaseCalibrator):
 
         # 2. 정밀 회전축 벡터 산출 (신뢰도 평가 및 Fallback 용)
         poses_6 = marker_data_6.get('captured_poses', [])
-        n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+        mid_idx_6 = len(poses_6) // 2
+        R_ref_6 = poses_6[mid_idx_6][:3, :3] if len(poses_6) > 0 else np.eye(3)
+        n6_cam = marker_data_6.get('axis_opt')
+        if n6_cam is not None:
+            n6_marker_actual = R_ref_6.T @ n6_cam
+            if np.dot(n6_marker_actual, z_ee_m_ideal) < 0:
+                n6_marker_actual = -n6_marker_actual
+        else:
+            n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
         
         poses_5 = marker_data_5.get('captured_poses', [])
-        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+        mid_idx_5 = len(poses_5) // 2
+        R_ref_5 = poses_5[mid_idx_5][:3, :3] if len(poses_5) > 0 else np.eye(3)
+        n5_cam = marker_data_5.get('axis_opt')
+        if n5_cam is not None:
+            n5_marker_actual = R_ref_5.T @ n5_cam
+            if np.dot(n5_marker_actual, y_ee_m_ideal) < 0:
+                n5_marker_actual = -n5_marker_actual
+        else:
+            n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
  
         # [BYPASS] Bypassed permanently to calculate using ONLY the marker and rotation axis trajectory.
         kinematic_success = False
@@ -589,7 +602,15 @@ class MarkerCalibrator(BaseCalibrator):
             if marker_data_4 is not None:
                 # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
                 poses_4 = marker_data_4.get('captured_poses', [])
-                n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
+                mid_idx_4 = len(poses_4) // 2
+                R_ref_4 = poses_4[mid_idx_4][:3, :3] if len(poses_4) > 0 else np.eye(3)
+                n4_cam = marker_data_4.get('axis_opt')
+                if n4_cam is not None:
+                    n4_marker_actual = R_ref_4.T @ n4_cam
+                    if np.dot(n4_marker_actual, x_ee_m_ideal) < 0:
+                        n4_marker_actual = -n4_marker_actual
+                else:
+                    n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
 
                 # Joint 6 angle correction for Joint 4 sweep
                 theta_6_4 = marker_data_4.get('theta_6', None)
@@ -660,7 +681,7 @@ class MarkerCalibrator(BaseCalibrator):
         # v1.2: Z축 회전 방향 비틀림(Torsion) 오차 배제 - 명목 설계값 yaw으로 고정
         ver_key = "1.3" if self.is_v13() else "1.2"
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-        yaw_e = nominal_vec[5]
+        # yaw_e = nominal_vec[5]
         
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
@@ -681,40 +702,88 @@ class MarkerCalibrator(BaseCalibrator):
         opt_delta_6_rad = 0.0
         
         from scipy.optimize import least_squares
-        def residuals_trans(params):
-            ye, ze = params
-            xe = 0.0  # v1.2 설계값 구속 (x = 0)
-            r6_pred = np.sqrt(xe**2 + ye**2)
-            Z_prime = ze - L_5_ee
-            r5_pred = np.sqrt(xe**2 + Z_prime**2)
-            res = [
-                r6_pred - radius_6,
-                r5_pred - radius_5
-            ]
-            if marker_data_4 is not None:
-                res.append(np.sqrt(xe**2 + ye**2) - radius_4)
-                
-            reg_weight = 1e-7
-            res.append(reg_weight * (ye - y_nom))
-            res.append(reg_weight * (ze - z_nom))
-            return res
-            
-        initial_guess = [y_nom, z_nom]
-        lower_bounds = [y_nom - 30.0, -250.0]  # Z축 음수 한계 범위 강제
-        upper_bounds = [y_nom + 30.0, 10.0]
-        opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
-        y_e, z_e = opt_res.x
-        x_e = 0.0
-        
+        if marker_data_4 is not None:
+            def residuals_trans(params):
+                xe, ye, ze = params
+                r6_pred = np.sqrt(xe**2 + ye**2)
+                Z_prime = ze + L_5_ee
+                r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                # J4 axis is Z of link 4. J5 ready pose is at 90 deg, which aligns J4 rotation to EE X-axis.
+                # In link 4 frame, X_marker = L_5_ee + ze, Y_marker = ye
+                # Thus J4 sweep radius is sqrt((L_5_ee + ze)^2 + ye^2)
+                r4_pred = np.sqrt((L_5_ee + ze)**2 + ye**2)
+                res = [
+                    r6_pred - radius_6,
+                    r5_pred - radius_5,
+                    r4_pred - radius_4
+                ]
+                reg_weight = 1e-7
+                res.append(reg_weight * (xe - x_nom))
+                res.append(reg_weight * (ye - y_nom))
+                res.append(reg_weight * (ze - z_nom))
+                return res
+
+            initial_guess = [x_nom, y_nom, z_nom]
+            lower_bounds = [x_nom - 30.0, y_nom - 30.0, -250.0]
+            upper_bounds = [x_nom + 30.0, y_nom + 30.0, 10.0]
+            opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
+            x_e, y_e, z_e = opt_res.x
+        else:
+            def residuals_trans(params):
+                ye, ze = params
+                xe = 0.0
+                r6_pred = np.sqrt(xe**2 + ye**2)
+                Z_prime = ze + L_5_ee
+                r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                res = [
+                    r6_pred - radius_6,
+                    r5_pred - radius_5
+                ]
+                reg_weight = 1e-7
+                res.append(reg_weight * (ye - y_nom))
+                res.append(reg_weight * (ze - z_nom))
+                return res
+
+            initial_guess = [y_nom, z_nom]
+            lower_bounds = [y_nom - 30.0, -250.0]
+            upper_bounds = [y_nom + 30.0, 10.0]
+            opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
+            y_e, z_e = opt_res.x
+            x_e = 0.0
+
         print(f"DEBUG SOLVER v1.2: arm_side={arm_side}", flush=True)
         print(f"  L_5_ee = {L_5_ee:.4f}", flush=True)
-        print(f"  radius_6 = {radius_6:.4f}, radius_5 = {radius_5:.4f}", flush=True)
-        print(f"  y_nom = {y_nom:.4f}, z_nom = {z_nom:.4f}", flush=True)
-        print(f"  y_e = {y_e:.4f}, z_e = {z_e:.4f}", flush=True)
+        print(f"  radius_6 = {radius_6:.4f}, radius_5 = {radius_5:.4f}, radius_4 = {radius_4:.4f}", flush=True)
+        print(f"  x_nom = {x_nom:.4f}, y_nom = {y_nom:.4f}, z_nom = {z_nom:.4f}", flush=True)
+        print(f"  x_e = {x_e:.4f}, y_e = {y_e:.4f}, z_e = {z_e:.4f}", flush=True)
         print(f"  Initial guess: {initial_guess}", flush=True)
         print(f"  Lower bounds: {lower_bounds}", flush=True)
         print(f"  Upper bounds: {upper_bounds}", flush=True)
         print(f"  Optimal residuals: {residuals_trans(opt_res.x)}", flush=True)
+
+        # Circle fitting validation checks
+        r6_err = abs(radius_6 - np.sqrt(x_e**2 + y_e**2))
+        r5_err = abs(radius_5 - np.sqrt(x_e**2 + (z_e + L_5_ee)**2))
+        if marker_data_4 is not None:
+            r4_err = abs(radius_4 - np.sqrt((L_5_ee + z_e)**2 + y_e**2))
+            print(f"[VALIDATION] {arm_side.upper()} ARM BRACKET SWEEP CIRCLE RESIDUALS:", flush=True)
+            print(f"  * J6 Sweep Radius Err: {r6_err:.4f} mm", flush=True)
+            print(f"  * J5 Sweep Radius Err: {r5_err:.4f} mm", flush=True)
+            print(f"  * J4 Sweep Radius Err: {r4_err:.4f} mm", flush=True)
+            max_err = max(r6_err, r5_err, r4_err)
+            if max_err < 1.0:
+                print(f"  [SUCCESS] Circle reconstruction PASSED (Max Residual: {max_err:.4f} mm < 1.0 mm)", flush=True)
+            else:
+                print(f"  [WARNING] Circle reconstruction shows deviation (Max Residual: {max_err:.4f} mm)", flush=True)
+        else:
+            print(f"[VALIDATION] {arm_side.upper()} ARM BRACKET SWEEP CIRCLE RESIDUALS (No J4 data):", flush=True)
+            print(f"  * J6 Sweep Radius Err: {r6_err:.4f} mm", flush=True)
+            print(f"  * J5 Sweep Radius Err: {r5_err:.4f} mm", flush=True)
+            max_err = max(r6_err, r5_err)
+            if max_err < 1.0:
+                print(f"  [SUCCESS] Circle reconstruction PASSED (Max Residual: {max_err:.4f} mm < 1.0 mm)", flush=True)
+            else:
+                print(f"  [WARNING] Circle reconstruction shows deviation (Max Residual: {max_err:.4f} mm)", flush=True)
 
         # 6. 알고리즘 신뢰도 평가 점수
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)
@@ -767,7 +836,7 @@ class MarkerCalibrator(BaseCalibrator):
             ax.legend()
 
         # Plot results
-        if is_v13 and res_4 is not None:
+        if res_4 is not None:
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 6))
             plot_single_axis(ax1, res_6, 6, 'blue')
             plot_single_axis(ax2, res_5, 5, 'green')
