@@ -273,7 +273,7 @@ class HomeOffsetResetWorker(QThread):
 
     def run(self):
         try:
-            is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or hasattr(self.robot, "is_pure_mock") or type(self.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
             if is_mock:
                 self.log_signal.emit("[MOCK] Home offset baseline save simulated.")
                 time.sleep(1.0)
@@ -318,7 +318,7 @@ class MoveHomeOffsetWorker(QThread):
 
     def run(self):
         try:
-            is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or hasattr(self.robot, "is_pure_mock") or type(self.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
             if is_mock:
                 self.log_signal.emit(f"\n[MOCK] ===== HOME OFFSET PREVIEW: {self.label} =====")
                 self.log_signal.emit(f"[MOCK] JSON: {self.json_path}")
@@ -366,7 +366,7 @@ class ApplyCurrentPoseWorker(QThread):
 
     def run(self):
         try:
-            is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or hasattr(self.robot, "is_pure_mock") or type(self.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
             if is_mock:
                 self.log_signal.emit("[MOCK] Starting Home Offset Reset from current pose...")
                 time.sleep(1.0)
@@ -404,7 +404,7 @@ class FullAutoReadyWorker(QThread):
             is_v13 = self.marker_calibrator.is_v13()
             self.log_signal.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
 
-            is_mock_run = self.ui_only or (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot" or getattr(self.joint_calibrator.robot, "is_pure_mock", False) or hasattr(self.joint_calibrator.robot, "is_pure_mock") or type(self.joint_calibrator.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            is_mock_run = (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot" or getattr(self.joint_calibrator.robot, "is_pure_mock", False) or type(self.joint_calibrator.robot).__name__ == "PureMockRobot")
             
             for arm_side in ["right", "left"]:
                 self.log_signal.emit(f"Preparing {arm_side.upper()} arm...")
@@ -444,7 +444,7 @@ class MarkerCalibrationWorker(QThread):
             version_num = self.calibrator.get_robot_version()
             is_v13 = self.calibrator.is_v13()
             
-            is_mock_run = (not self.calibrator.robot or self.calibrator.robot == "mock_robot" or getattr(self.calibrator.robot, "is_pure_mock", False) or hasattr(self.calibrator.robot, "is_pure_mock") or type(self.calibrator.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            is_mock_run = (not self.calibrator.robot or self.calibrator.robot == "mock_robot" or getattr(self.calibrator.robot, "is_pure_mock", False) or type(self.calibrator.robot).__name__ == "PureMockRobot")
             if not is_mock_run:
                 # Automatically move to ready pose first to guarantee calibration starting pose consistency
                 self.log_signal.emit("[INFO] Automatically moving active arm to marker ready pose...")
@@ -688,7 +688,7 @@ class SimulatedMarkerTransform:
         self.camera = DummyCamera()
 
     def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
-        is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or hasattr(self.robot, "is_pure_mock") or type(self.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+        is_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
         if is_mock:
             T = np.eye(4)
             T[2, 3] = 0.3
@@ -746,7 +746,7 @@ class FullAutoWorker(QThread):
     def run(self):
         try:
             self.log_msg.emit("Starting FULL AUTO sequential calibration...")
-            is_mock_run = self.ui_only and (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot" or getattr(self.joint_calibrator.robot, "is_pure_mock", False) or hasattr(self.joint_calibrator.robot, "is_pure_mock") or type(self.joint_calibrator.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
+            is_mock_run = (not self.joint_calibrator.robot or self.joint_calibrator.robot == "mock_robot" or getattr(self.joint_calibrator.robot, "is_pure_mock", False) or type(self.joint_calibrator.robot).__name__ == "PureMockRobot")
             version_num = self.get_robot_version()
             is_v13 = (version_num == "1.3")
             

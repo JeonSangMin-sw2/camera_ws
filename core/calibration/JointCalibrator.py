@@ -109,37 +109,45 @@ class JointCalibrator(BaseCalibrator):
         
                 angle_error = res.get('angle_between_normals', 0.0)
                 
-                # wrist_roll_v13 has perpendicular axes (target 90 deg), other modes have parallel axes (target 0 deg)
+                # Define angle deviation and center distance metric based on the mode
                 if mode == "wrist_roll_v13":
                     angle_dev = abs(angle_error - 90.0)
                     center_dist = res.get('perp_dist_after', 999.0)
+                    current_error = center_dist
                 elif mode == "wrist_pitch_v13":
                     angle_dev = angle_error
-                    center_dist = res.get('perp_dist_after', 999.0)
-                else:
+                    # For wrist_pitch_v13, center_dist is perp_dist_after (approx forearm length)
+                    perp_dist_val = res.get('perp_dist_after', 999.0)
+                    nominal_dist_35 = res.get('nominal_dist_35', 235.0)
+                    center_dist = abs(perp_dist_val - nominal_dist_35)
+                    r_A = res.get('r_A', 0.0)
+                    r_B = res.get('r_B', 0.0)
+                    size_error = abs(r_A - r_B)
+                    current_error = max(size_error, center_dist)
+                else: # wrist_pitch (v1.2) or elbow
                     angle_dev = angle_error
                     center_dist = res.get('center_dist', 999.0)
-                    
-                r_A = res.get('r_A', 0.0)
-                r_B = res.get('r_B', 0.0)
-                size_error = abs(r_A - r_B)
-                current_error = max(size_error, center_dist)
+                    r_A = res.get('r_A', 0.0)
+                    r_B = res.get('r_B', 0.0)
+                    size_error = abs(r_A - r_B)
+                    current_error = max(size_error, center_dist)
                 
                 # Print iteration summary
                 if log_callback:
-                    if mode in ("wrist_roll_v13", "wrist_pitch_v13"):
+                    if mode == "wrist_roll_v13":
                         log_callback(f"  * Angle Error (Deviation)          : {angle_dev:.4f}°")
                         log_callback(f"  * Perpendicular Distance (After)   : {center_dist:.4f} mm")
                         log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
+                    elif mode == "wrist_pitch_v13":
+                        log_callback(f"  * Angle Error (Deviation)          : {angle_dev:.4f}°")
+                        log_callback(f"  * Forearm Length (Center Dist)     : {perp_dist_val:.4f} mm (Error: {center_dist:.4f} mm)")
+                        log_callback(f"  * Radii Difference (r3 - r5)       : {size_error:.4f} mm")
+                        log_callback(f"  * Max Fitting Error Metric         : {current_error:.4f} mm")
                     else:
-                        log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
-                        if mode == "wrist_pitch_v13":
-                            log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
-                            log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
-                        else:
-                            log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
-                            log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
-                            log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
+                        log_callback(f"  * Angle Error (Deviation)     : {angle_dev:.4f}°")
+                        log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
+                        log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
+                        log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
@@ -175,8 +183,8 @@ class JointCalibrator(BaseCalibrator):
                     # Flip direction multiplier
                     direction_multiplier *= -1.0
                     
-                    # Recalculate step correction with new direction
-                    step_correction = direction_multiplier * raw_optimal_offset
+                    # Apply the opposite of the previous step correction to search in the other direction safely
+                    step_correction = -prev_step_correction
                     prev_step_correction = step_correction
                     staged_offset += step_correction
                     
@@ -434,6 +442,17 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
 
+    def compute_shortest_distance_between_lines(self, cA, nA, cB, nB):
+        nA_norm = nA / np.linalg.norm(nA)
+        nB_norm = nB / np.linalg.norm(nB)
+        cross = np.cross(nA_norm, nB_norm)
+        cross_norm = np.linalg.norm(cross)
+        diff = cB - cA
+        if cross_norm > 1e-4:
+            return abs(np.dot(diff, cross)) / cross_norm
+        else:
+            return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
+
     def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None):
         try:
             import os
@@ -520,17 +539,6 @@ class JointCalibrator(BaseCalibrator):
                 ax_side.grid(True)
                 ax_side.legend(loc='upper right')
 
-            def compute_shortest_distance_between_lines(cA, nA, cB, nB):
-                nA_norm = nA / np.linalg.norm(nA)
-                nB_norm = nB / np.linalg.norm(nB)
-                cross = np.cross(nA_norm, nB_norm)
-                cross_norm = np.linalg.norm(cross)
-                diff = cB - cA
-                if cross_norm > 1e-4:
-                    return abs(np.dot(diff, cross)) / cross_norm
-                else:
-                    return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
-
             nominal_dist_35 = None
             if mode == "wrist_pitch_v13" and self.robot:
                 try:
@@ -556,12 +564,12 @@ class JointCalibrator(BaseCalibrator):
                 first_pd = first_res.get('_plot_data', {})
                 final_pd = final_res.get('_plot_data', {})
                 if all(k in first_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
-                    dist_before = compute_shortest_distance_between_lines(
+                    dist_before = self.compute_shortest_distance_between_lines(
                         first_pd['c_A'], first_pd['n_A'], first_pd['c_B'], first_pd['n_B']
                     )
                     before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
                 if all(k in final_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
-                    dist_after = compute_shortest_distance_between_lines(
+                    dist_after = self.compute_shortest_distance_between_lines(
                         final_pd['c_A'], final_pd['n_A'], final_pd['c_B'], final_pd['n_B']
                     )
                     after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
@@ -736,6 +744,7 @@ class JointCalibrator(BaseCalibrator):
         )
 
     def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None, cand_joint=None, sweep_joint_A=None, sweep_joint_B=None):
+        from scipy.spatial.transform import Rotation as R_scipy
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -879,15 +888,41 @@ class JointCalibrator(BaseCalibrator):
         diff_angle = actual_angle - nominal_angle
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
 
+        # Compute 3D shortest distance between axes
+        perp_dist = self.compute_shortest_distance_between_lines(c_A_c, n_A, c_B_c, n_B)
+
+        nominal_dist_35 = 235.0
+        if mode == "wrist_pitch_v13" and self.robot:
+            try:
+                dyn_model = self.robot.get_dynamics()
+                names = self.robot.model().robot_joint_names
+                state_3_5 = dyn_model.make_state(
+                    [f"link_{arm_side}_arm_3", f"link_{arm_side}_arm_5"],
+                    names
+                )
+                state_3_5.set_q(np.zeros(len(names)))
+                dyn_model.compute_forward_kinematics(state_3_5)
+                T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
+                nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
+            except Exception:
+                pass
+
         size_error = abs(r_A - r_B)
-        if center_dist > 100.0 or size_error > 100.0:
+        # For wrist_pitch_v13, center_dist (perpendicular distance between J3 and J5) is around forearm length (~235mm), not 0.
+        is_large_error = (center_dist > 350.0 or size_error > 100.0) if mode == "wrist_pitch_v13" else (center_dist > 100.0 or size_error > 100.0)
+        
+        if is_large_error:
             if log_callback:
-                log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
+                log_callback(f"[ERROR] Circle fitting failed or error is too large (center_dist={center_dist:.2f} mm, size_error={size_error:.2f} mm). Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
             damping = 0.95
-            # Dynamically determine the joint calibration polarity based on the ready pose kinematic configuration
-            cross_nominal = np.cross(a_A_proj, a_B_proj)
+            R_epsilon = R_scipy.from_rotvec(np.radians(1.0) * a_cand_cam).as_matrix()
+            a_B_cam_eps = R_epsilon @ a_B_cam_nom
+            a_B_proj_eps = a_B_cam_eps - np.dot(a_B_cam_eps, a_cand_cam) * a_cand_cam
+            if np.linalg.norm(a_B_proj_eps) > 1e-6:
+                a_B_proj_eps /= np.linalg.norm(a_B_proj_eps)
+            cross_nominal = np.cross(a_A_proj, a_B_proj_eps)
             chirality_sign = np.sign(np.dot(cross_nominal, a_cand_cam))
             if chirality_sign == 0.0:
                 chirality_sign = 1.0
@@ -899,7 +934,10 @@ class JointCalibrator(BaseCalibrator):
             log_callback("="*50)
             log_callback(f"  * Camera Circle Normals Angle (Reference): {angle_between_normals:.4f} deg")
             log_callback(f"  * Circle Size Error (abs: r_A - r_B)     : {size_error:.4f} mm")
-            log_callback(f"  * Estimated Circle Center Distance       : {center_dist:.4f} mm")
+            if mode == "wrist_pitch_v13":
+                log_callback(f"  * Forearm Length (Shortest 3D Dist)      : {perp_dist:.4f} mm (Nom: {nominal_dist_35:.2f} mm)")
+            else:
+                log_callback(f"  * Estimated Circle Center Distance       : {center_dist:.4f} mm")
             log_callback(f"  * Calculated Offset Correction           : {optimal_offset_deg:.6f} deg")
             log_callback("="*50)
 
@@ -926,6 +964,9 @@ class JointCalibrator(BaseCalibrator):
             '_initial_joint_pos': initial_joint_pos,
             'angle_between_normals': angle_between_normals,
             'center_dist': center_dist,
+            'perp_dist_before': perp_dist,
+            'perp_dist_after': perp_dist,
+            'nominal_dist_35': nominal_dist_35,
             'r_A': r_A,
             'r_B': r_B,
             '_plot_data': {
@@ -939,5 +980,7 @@ class JointCalibrator(BaseCalibrator):
                 'r_B': r_B,
                 'angle_between_normals': angle_between_normals,
                 'center_dist': center_dist,
+                'perp_dist_before': perp_dist,
+                'perp_dist_after': perp_dist,
             },
         }
