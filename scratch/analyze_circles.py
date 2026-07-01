@@ -22,8 +22,8 @@ def load_data(path):
     return np.array(angles), np.array(poses), np.array(cam_pts)
 
 def main():
-    path_A = "/home/rainbow/camera_ws/sweep_points_right_joint_A_axis_4 (1).txt"
-    path_B = "/home/rainbow/camera_ws/sweep_points_right_joint_B_axis_6 (1).txt"
+    path_A = "/home/rainbow/camera_ws/sweep_points_right_joint_A_axis_4 (2).txt"
+    path_B = "/home/rainbow/camera_ws/sweep_points_right_joint_B_axis_6 (2).txt"
 
     angles_A, poses_A, cam_pts_A = load_data(path_A)
     angles_B, poses_B, cam_pts_B = load_data(path_B)

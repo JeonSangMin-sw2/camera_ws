@@ -108,7 +108,6 @@ class JointCalibrator(BaseCalibrator):
                 final_res = res
         
                 angle_error = res.get('angle_between_normals', 0.0)
-                sign = res.get('sign', 1.0)
                 
                 # wrist_roll_v13 has perpendicular axes (target 90 deg), other modes have parallel axes (target 0 deg)
                 if mode == "wrist_roll_v13":
@@ -830,9 +829,6 @@ class JointCalibrator(BaseCalibrator):
 
         n_A = res_A['axis_opt']
         n_B = res_B['axis_opt']
-        if np.dot(n_A, n_B) < 0:
-            n_B = -n_B
-
         r_A = res_A['radius']
         r_B = res_B['radius']
         rmse_A = res_A['rmse']
@@ -846,11 +842,20 @@ class JointCalibrator(BaseCalibrator):
         # Compute center distance in camera frame
         diff_centers = c_B_c - c_A_c
         center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A) * n_A)
-        angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
+        
+        # Enforce n_A and n_B direction using the time-series trajectory direction (start -> end sweep)
+        # to ensure that the fitted normal vector aligns with the positive joint rotation direction.
+        v_A = pts_a_cam - c_A_c
+        u_A = pts_a_cam[1:] - pts_a_cam[:-1]
+        mean_cross_A = np.mean(np.cross(v_A[:-1], u_A), axis=0)
+        n_A = n_A if np.dot(n_A, mean_cross_A) > 0 else -n_A
 
-        # Enforce that normal vectors point in the direction of the physical kinematic axes
-        n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
-        n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
+        v_B = pts_b_cam - c_B_c
+        u_B = pts_b_cam[1:] - pts_b_cam[:-1]
+        mean_cross_B = np.mean(np.cross(v_B[:-1], u_B), axis=0)
+        n_B = n_B if np.dot(n_B, mean_cross_B) > 0 else -n_B
+
+        angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
 
         # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
         a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
@@ -873,12 +878,6 @@ class JointCalibrator(BaseCalibrator):
         
         diff_angle = actual_angle - nominal_angle
         diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
-        
-        # if arm_side == "left":
-        #     diff_angle = -diff_angle
-
-        # Match the physical motor driver rotations (negative feedback loop)
-        sign = 1.0 if diff_angle > 0.0 else -1.0
 
         size_error = abs(r_A - r_B)
         if center_dist > 100.0 or size_error > 100.0:
@@ -886,8 +885,13 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            # damping = 0.95
-            optimal_offset_deg = sign * abs(np.degrees(diff_angle)) # * damping
+            damping = 0.95
+            # Dynamically determine the joint calibration polarity based on the ready pose kinematic configuration
+            cross_nominal = np.cross(a_A_proj, a_B_proj)
+            chirality_sign = np.sign(np.dot(cross_nominal, a_cand_cam))
+            if chirality_sign == 0.0:
+                chirality_sign = 1.0
+            optimal_offset_deg = chirality_sign * np.degrees(diff_angle) * damping
 
         if log_callback:
             log_callback("\n" + "="*50)
@@ -921,7 +925,6 @@ class JointCalibrator(BaseCalibrator):
             '_dataset_B': dataset_B,
             '_initial_joint_pos': initial_joint_pos,
             'angle_between_normals': angle_between_normals,
-            'sign': sign,
             'center_dist': center_dist,
             'r_A': r_A,
             'r_B': r_B,

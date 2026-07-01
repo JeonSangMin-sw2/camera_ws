@@ -51,8 +51,8 @@ def main():
     calib_r = JointCalibrator(marker_st=None, robot=robot_r)
     arm_idx_r = robot_r.model().right_arm_idx
     
-    path_A = "/home/rainbow/camera_ws/sweep_points_right_joint_A_axis_4 (1).txt"
-    path_B = "/home/rainbow/camera_ws/sweep_points_right_joint_B_axis_6 (1).txt"
+    path_A = "/home/rainbow/camera_ws/sweep_points_right_joint_A_axis_4 (2).txt"
+    path_B = "/home/rainbow/camera_ws/sweep_points_right_joint_B_axis_6 (2).txt"
     
     dataset_A_r = load_dataset_and_mirror(path_A, arm_idx_r, 4, mirror=False)
     dataset_B_r = load_dataset_and_mirror(path_B, arm_idx_r, 6, mirror=False)
