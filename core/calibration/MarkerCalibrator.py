@@ -239,6 +239,23 @@ class MarkerCalibrator(BaseCalibrator):
             logging.error(f"Failed to get link kinematics: {e}")
             raise e
 
+    def get_z_sign(self, arm_side):
+        try:
+            dyn_model = self.robot.get_dynamics()
+            names = self.robot.model().robot_joint_names
+            state = dyn_model.make_state(
+                [f"link_{arm_side}_arm_5", f"ee_{arm_side}"],
+                names
+            )
+            state.set_q(self.robot.get_state().position)
+            dyn_model.compute_forward_kinematics(state)
+            T = dyn_model.compute_transformation(state, 0, 1)
+            # If Z translation is negative, the EE Z-axis points inward (toward J5), so z_sign = -1.0
+            return -1.0 if T[2, 3] < 0.0 else 1.0
+        except Exception:
+            return 1.0
+
+
     def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None):
         L_5_ee = self.get_link_length(arm_side)
 
@@ -282,16 +299,25 @@ class MarkerCalibrator(BaseCalibrator):
         z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
 
         poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
-        n6_marker_actual = extract_axis_from_rotations(poses_6, x_ee_m_ideal)
-
         poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
-        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
-
-        if marker_data_4 is not None:
-            poses_4 = marker_data_4.get('captured_poses', [])
-            n4_marker_actual = extract_axis_from_rotations(poses_4, z_ee_m_ideal)
+        
+        if self.is_v13():
+            n6_marker_actual = extract_axis_from_rotations(poses_6, x_ee_m_ideal)
+            n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+            if marker_data_4 is not None:
+                poses_4 = marker_data_4.get('captured_poses', [])
+                n4_marker_actual = extract_axis_from_rotations(poses_4, z_ee_m_ideal)
+            else:
+                n4_marker_actual = None
         else:
-            n4_marker_actual = None
+            # v1.2: J6 is Z-axis, J5 is Y-axis, J4 (at J5=90) is X-axis
+            n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+            n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+            if marker_data_4 is not None:
+                poses_4 = marker_data_4.get('captured_poses', [])
+                n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
+            else:
+                n4_marker_actual = None
 
         radius_6 = marker_data_6.get('radius', 0.0) if marker_data_6 else 0.0
         radius_5 = marker_data_5.get('radius', 0.0) if marker_data_5 else 0.0
@@ -303,7 +329,7 @@ class MarkerCalibrator(BaseCalibrator):
         ver_key = "1.3" if self.is_v13() else "1.2"
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         x_nom = nominal_vec[0] * 1000.0
-        y_nom = 0.0  # v1.3 설계값 구속 (y = 0)
+        y_nom = 0.0 if self.is_v13() else nominal_vec[1] * 1000.0
         z_nom = nominal_vec[2] * 1000.0
 
         # Stage 1: Solve for Joint 6 offset and marker roll misalignment using 6-axis sweep data
@@ -390,44 +416,67 @@ class MarkerCalibrator(BaseCalibrator):
         # Bounds: z_e uses absolute physical range (v1.3 bracket extends up to ~200 mm in -Z)
         # L_5_ee bounded tightly around robot-model value (±80 mm)
         # v1.3 설계치 구속 (y_e = 0.0)을 위해 ye 범위를 [-1e-9, 1e-9] 수준으로 묶어 고정합니다.
+        # v1.2의 경우 ye 범위를 nominal 대비 ±30 mm 범위로 허용합니다.
+        y_min_val = y_nom_m - 1e-9 if self.is_v13() else y_nom_m - 0.030
+        y_max_val = y_nom_m + 1e-9 if self.is_v13() else y_nom_m + 0.030
+
         x_min = np.array([
             -np.radians(30.0), -np.radians(30.0), 0.0,
             d5_init - d5_half, d6_init - d6_half,
-            x_nom_m - 0.030, y_nom_m - 1e-9, -0.250,
+            x_nom_m - 0.030, y_min_val, -0.250,
             L_nom_m - 0.080
         ])
         x_max = np.array([
             np.radians(30.0), np.radians(30.0), 0.0,
             d5_init + d5_half, d6_init + d6_half,
-            x_nom_m + 0.030, y_nom_m + 1e-9, 0.010,
+            x_nom_m + 0.030, y_max_val, 0.010,
             L_nom_m + 0.080
         ])
+
+        # Z-axis direction is dynamically determined based on the robot kinematics model
+        z_sign = self.get_z_sign(arm_side)
 
         def eval_residuals(x):
             y_off, p_off, r_off, d5_val, d6_val, xe, ye, ze, L_m = x
             R_off = R_scipy.from_euler('ZYX', [y_off, p_off, r_off]).as_matrix()
             R_em = R_off @ R_ee_m_ideal
             
-            n6_p = R_em.T @ np.array([1.0, 0.0, 0.0])
-            n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
-            
-            r6_p = np.sqrt(ye**2 + ze**2)
-            Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) - L_m
-            r5_p = np.sqrt(xe**2 + Z_p**2)
+            if self.is_v13():
+                n6_p = R_em.T @ np.array([1.0, 0.0, 0.0])
+                n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
+                
+                r6_p = np.sqrt(ye**2 + ze**2)
+                Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) - L_m
+                r5_p = np.sqrt(xe**2 + Z_p**2)
+            else:
+                n6_p = R_em.T @ np.array([0.0, 0.0, 1.0])
+                n5_p = R_em.T @ R_scipy.from_euler('Z', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
+                
+                r6_p = np.sqrt(xe**2 + ye**2)
+                X_p = xe * np.cos(d6_val) - ye * np.sin(d6_val)
+                Z_p = ze + z_sign * L_m
+                r5_p = np.sqrt(X_p**2 + Z_p**2)
             
             res = []
             res.extend(n6_marker_actual - n6_p)
             res.extend(n5_marker_actual - n5_p)
             
             if n4_marker_actual is not None:
-                n4_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ R_scipy.from_euler('Y', -d5_val).as_matrix() @ np.array([0.0, 0.0, 1.0])
+                if self.is_v13():
+                    n4_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ R_scipy.from_euler('Y', -d5_val).as_matrix() @ np.array([0.0, 0.0, 1.0])
+                else:
+                    n4_p = R_em.T @ R_scipy.from_euler('Z', -d6_val).as_matrix() @ R_scipy.from_euler('Y', -d5_val).as_matrix() @ np.array([1.0, 0.0, 0.0])
                 res.extend(n4_marker_actual - n4_p)
                 
             res.append(radius_6_m - r6_p)
             res.append(radius_5_m - r5_p)
             if marker_data_4 is not None:
-                Y_p = ye * np.cos(d6_val) - ze * np.sin(d6_val)
-                r4_p = np.sqrt((xe * np.cos(d5_val) + Z_p * np.sin(d5_val))**2 + Y_p**2)
+                if self.is_v13():
+                    Y_p = ye * np.cos(d6_val) - ze * np.sin(d6_val)
+                    r4_p = np.sqrt((xe * np.cos(d5_val) + Z_p * np.sin(d5_val))**2 + Y_p**2)
+                else:
+                    Y_p = xe * np.sin(d6_val) + ye * np.cos(d6_val)
+                    r4_p = np.sqrt((ze + z_sign * L_m)**2 + Y_p**2)
                 res.append(radius_4_m - r4_p)
                 
             for idx in range(len(x)):
@@ -702,17 +751,20 @@ class MarkerCalibrator(BaseCalibrator):
         opt_delta_5_rad = 0.0
         opt_delta_6_rad = 0.0
         
+        # Z-axis direction is dynamically determined based on the robot kinematics model
+        z_sign = self.get_z_sign(arm_side)
+
         from scipy.optimize import least_squares
         if marker_data_4 is not None:
             def residuals_trans(params):
                 xe, ye, ze = params
                 r6_pred = np.sqrt(xe**2 + ye**2)
-                Z_prime = ze + L_5_ee
+                Z_prime = ze + z_sign * L_5_ee
                 r5_pred = np.sqrt(xe**2 + Z_prime**2)
                 # J4 axis is Z of link 4. J5 ready pose is at 90 deg, which aligns J4 rotation to EE X-axis.
                 # In link 4 frame, X_marker = L_5_ee + ze, Y_marker = ye
-                # Thus J4 sweep radius is sqrt((L_5_ee + ze)^2 + ye^2)
-                r4_pred = np.sqrt((L_5_ee + ze)**2 + ye**2)
+                # Thus J4 sweep radius is sqrt((ze + z_sign * L_5_ee)**2 + ye**2)
+                r4_pred = np.sqrt((ze + z_sign * L_5_ee)**2 + ye**2)
                 res = [
                     r6_pred - radius_6,
                     r5_pred - radius_5,
@@ -734,7 +786,7 @@ class MarkerCalibrator(BaseCalibrator):
                 ye, ze = params
                 xe = 0.0
                 r6_pred = np.sqrt(xe**2 + ye**2)
-                Z_prime = ze + L_5_ee
+                Z_prime = ze + z_sign * L_5_ee
                 r5_pred = np.sqrt(xe**2 + Z_prime**2)
                 res = [
                     r6_pred - radius_6,
