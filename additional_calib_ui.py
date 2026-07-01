@@ -446,6 +446,13 @@ class MarkerCalibrationWorker(QThread):
             
             is_mock_run = (not self.calibrator.robot or self.calibrator.robot == "mock_robot" or getattr(self.calibrator.robot, "is_pure_mock", False) or hasattr(self.calibrator.robot, "is_pure_mock") or type(self.calibrator.robot).__name__ in ("PureMockRobot", "OfflineRobot"))
             if not is_mock_run:
+                # Automatically move to ready pose first to guarantee calibration starting pose consistency
+                self.log_signal.emit("[INFO] Automatically moving active arm to marker ready pose...")
+                success = self.calibrator.perform_move_to_ready_pose(self.arm_side, mode="marker", log_callback=self.log_signal.emit)
+                if not success:
+                    self.log_signal.emit("[ERROR] Failed to move to marker ready pose at startup. Aborting.")
+                    self.finished_signal.emit(None)
+                    return
                 state = self.calibrator.robot.get_state()
                 model = self.calibrator.robot.model()
                 arm_idx = model.left_arm_idx if self.arm_side == "left" else model.right_arm_idx
@@ -504,7 +511,8 @@ class MarkerCalibrationWorker(QThread):
                         right_arm=first_starting_pose if self.arm_side == "right" else None,
                         left_arm=first_starting_pose if self.arm_side == "left" else None,
                         head=[0, 0],
-                        minimum_time=5.0
+                        minimum_time=5.0,
+                        apply_offsets=False
                     )
                     if not success:
                         self.log_signal.emit("[ERROR] Failed to return to initial starting pose. Aborting.")
@@ -568,7 +576,8 @@ class MarkerCalibrationWorker(QThread):
                     right_arm=first_starting_pose if self.arm_side == "right" else None,
                     left_arm=first_starting_pose if self.arm_side == "left" else None,
                     head=[0, 0],
-                    minimum_time=5.0
+                    minimum_time=5.0,
+                    apply_offsets=False
                 )
                 if not success:
                     self.log_signal.emit("[ERROR] Failed to return to initial starting pose. Aborting.")
