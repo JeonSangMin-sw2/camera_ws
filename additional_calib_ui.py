@@ -47,7 +47,7 @@ UI_DROPDOWNS = {
     "arm_sides": ["Right Arm", "Left Arm"],
     "marker_axes": ["Axis 6 (Yaw Sweep, ±20°)", "Axis 5 (Pitch Sweep, ±10°)"],
     "joint_modes_v13": ["wrist_roll_v13 (6-Axis Sweep)", "wrist_pitch_v13 (5-Axis Sweep)", "elbow (3-Axis Sweep)"],
-    "joint_modes_v12": ["wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"]
+    "joint_modes_v12": ["wrist_yaw2 (6-Axis Sweep)", "wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"]
 }
 
 # --- Premium Dark CSS Stylesheet ---
@@ -930,12 +930,12 @@ class FullAutoWorker(QThread):
                     
                     # 5. Calibrate J3 Elbow
                     self.log_msg.emit("[FULL AUTO] Sweeping Elbow (Joint 3)...")
-                    if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow_v13", log_callback=self.log_msg.emit):
-                        raise RuntimeError(f"Failed to move to ready pose for elbow_v13 on {arm_side} arm")
+                    if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
+                        raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
                     if self.stop_event.is_set(): return
                     
                     joint_res_elbow = self.joint_calibrator.perform_joint_calibration(
-                        arm_side, "elbow_v13",
+                        arm_side, "elbow",
                         log_callback=self.log_msg.emit,
                         status_callback=self.status_signal.emit,
                         current_offset_deg=self.joint_offsets_store.get(arm_side, {}).get("joint3", 0.0)
@@ -943,7 +943,7 @@ class FullAutoWorker(QThread):
                     if not joint_res_elbow:
                         raise RuntimeError(f"Elbow joint calibration failed on {arm_side} arm")
                     joint_res_elbow['arm_side'] = arm_side
-                    joint_res_elbow['mode'] = "elbow_v13"
+                    joint_res_elbow['mode'] = "elbow"
                     
                     opt_elbow = joint_res_elbow["recommended_joint_offset"]
                     self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
@@ -952,38 +952,10 @@ class FullAutoWorker(QThread):
                     
                     self.joint_finished_signal.emit(joint_res_elbow)
                     time.sleep(0.5)
-
                 else:
                     # --- v1.2 Sequential Flow ---
-                    # 1. Calibrate Joint 5 (Wrist Pitch) first (so it's staged for marker sweeps pose accuracy)
-                    self.log_msg.emit("\n[FULL AUTO 1/3] Calibrating Joint 5 (Wrist Pitch) first...")
-                    if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch", log_callback=self.log_msg.emit):
-                        raise RuntimeError(f"Failed to move to ready pose for wrist_pitch on {arm_side} arm")
-                    if self.stop_event.is_set(): return
-                    
-                    joint_res_pitch = self.joint_calibrator.perform_joint_calibration(
-                        arm_side, "wrist_pitch",
-                        log_callback=self.log_msg.emit,
-                        status_callback=self.status_signal.emit,
-                        current_offset_deg=self.joint_offsets_store.get(arm_side, {}).get("joint5", 0.0)
-                    )
-                    if not joint_res_pitch:
-                        raise RuntimeError(f"Wrist pitch joint calibration failed on {arm_side} arm")
-                    joint_res_pitch['arm_side'] = arm_side
-                    joint_res_pitch['mode'] = "wrist_pitch"
-                    
-                    opt_pitch = joint_res_pitch["recommended_joint_offset"]
-                    self.log_msg.emit(f"[FULL AUTO] Staging Joint 5 (Wrist Pitch) offset: {opt_pitch:.4f}°")
-                    self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
-                    self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
-                    self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
-                    
-                    self.joint_finished_signal.emit(joint_res_pitch)
-                    time.sleep(0.5)
-                    if self.stop_event.is_set(): return
-
-                    # 2. Marker Bracket Calibration (with J5 offset locked to opt_pitch)
-                    self.log_msg.emit("\n[FULL AUTO 2/3] Starting Marker Bracket Calibration (J5 offset applied)...")
+                    # 1. Marker Bracket Sweeps (Axis 4, 6, 5)
+                    self.log_msg.emit(f"[FULL AUTO 1/2] Starting Marker Bracket Calibration for {arm_side} arm...")
                     self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
                     if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
                         raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
@@ -1046,7 +1018,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
                         time.sleep(1.0)
                     if self.stop_event.is_set(): return
-
+                    
                     self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
                     res_5 = self.marker_calibrator.perform_calibration_sweep(
                         arm_side, 5,
@@ -1059,9 +1031,37 @@ class FullAutoWorker(QThread):
                     res_5['axis'] = res_5['axis_opt']
                     if self.stop_event.is_set(): return
 
-                    self.log_msg.emit("[FULL AUTO] Computing unified marker bracket calibration...")
+                    # 2. Calibrate J6 Wrist Yaw 2
+                    self.log_msg.emit("\n[FULL AUTO] Calibrating J6 (Wrist Yaw 2) first...")
+                    dataset_A_6 = list(zip(res_6['captured_q_full'], res_6['captured_poses']))
+                    dataset_B_5 = list(zip(res_5['captured_q_full'], res_5['captured_poses']))
+                    model = self.joint_calibrator.robot.model()
+                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                    initial_joint_pos_roll = list(res_6['captured_q_full'][0][arm_idx])
+                    
+                    joint_res_roll = self.joint_calibrator.compute_calibration_results(
+                        arm_side, "wrist_yaw2", dataset_A_6, dataset_B_5, initial_joint_pos_roll,
+                        current_offset_deg=0.0, use_angle_based_fitting=True, log_callback=self.log_msg.emit
+                    )
+                    if not joint_res_roll:
+                        raise RuntimeError(f"J6 wrist yaw2 calibration failed on {arm_side} arm")
+                    opt_roll = joint_res_roll["recommended_joint_offset"]
+                    self.log_msg.emit(f"[FULL AUTO] Staging J6 (Wrist Yaw 2) offset: {opt_roll:.4f}°")
+                    self.joint_offsets_store[arm_side]["joint6"] = opt_roll
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                    
+                    # Emitting the J6 calibration result to the UI plot
+                    joint_res_roll['arm_side'] = arm_side
+                    joint_res_roll['mode'] = "wrist_yaw2"
+                    self.joint_finished_signal.emit(joint_res_roll)
+                    time.sleep(0.5)
+                    if self.stop_event.is_set(): return
+
+                    # 3. Compute Marker Bracket (with J6 locked)
+                    self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration (J6 locked)...")
                     unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
-                        res_5, res_6, arm_side, marker_data_4=res_4
+                        res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll, calib_pitch_deg=0.0
                     )
                     
                     unified_res['res_5'] = res_5
@@ -1081,12 +1081,44 @@ class FullAutoWorker(QThread):
                     self.marker_calibrator.camera_config[key] = new_vals
                     self.joint_calibrator.camera_config[key] = new_vals
                     
+                    # Update J5 offset from marker calibration as a first step
+                    staged_pitch = unified_res.get('opt_delta_5', 0.0)
+                    self.joint_offsets_store[arm_side]["joint5"] = staged_pitch
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
+                    
                     self.bracket_finished_signal.emit(unified_res)
                     time.sleep(0.5)
                     if self.stop_event.is_set(): return
+
+                    # 4. Calibrate J5 Wrist Pitch
+                    self.log_msg.emit("[FULL AUTO] Sweeping Wrist Pitch (Joint 5)...")
+                    if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch", log_callback=self.log_msg.emit):
+                        raise RuntimeError(f"Failed to move to ready pose for wrist_pitch on {arm_side} arm")
+                    if self.stop_event.is_set(): return
                     
-                    # 3. Elbow (Joint 3) Calibration
-                    self.log_msg.emit("\n[FULL AUTO 3/3] Sweeping Elbow (Joint 3)...")
+                    joint_res_pitch = self.joint_calibrator.perform_joint_calibration(
+                        arm_side, "wrist_pitch",
+                        log_callback=self.log_msg.emit,
+                        status_callback=self.status_signal.emit,
+                        current_offset_deg=self.joint_offsets_store.get(arm_side, {}).get("joint5", 0.0)
+                    )
+                    if not joint_res_pitch:
+                        raise RuntimeError(f"Wrist pitch joint calibration failed on {arm_side} arm")
+                    joint_res_pitch['arm_side'] = arm_side
+                    joint_res_pitch['mode'] = "wrist_pitch"
+                    
+                    opt_pitch = joint_res_pitch["recommended_joint_offset"]
+                    self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                    self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                    self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
+                    
+                    self.joint_finished_signal.emit(joint_res_pitch)
+                    time.sleep(0.5)
+                    if self.stop_event.is_set(): return
+                    
+                    # 5. Calibrate J3 Elbow
+                    self.log_msg.emit("[FULL AUTO] Sweeping Elbow (Joint 3)...")
                     if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
                         raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
                     if self.stop_event.is_set(): return
@@ -1447,17 +1479,15 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[WARNING] Failed to load joint offsets from setting.yaml: {e}. Using 0.0° defaults.")
 
-        # Sync active joint_offsets for both arms
-        is_v13 = self.get_robot_version() == "1.3"
         self.joint_offsets = {
             "left": {
                 "wrist_pitch": self.joint_offsets_store["left"]["joint5"],
-                "wrist_roll": self.joint_offsets_store["left"]["joint6"] if is_v13 else 0.0,
+                "wrist_roll": self.joint_offsets_store["left"]["joint6"],
                 "elbow": self.joint_offsets_store["left"]["joint3"]
             },
             "right": {
                 "wrist_pitch": self.joint_offsets_store["right"]["joint5"],
-                "wrist_roll": self.joint_offsets_store["right"]["joint6"] if is_v13 else 0.0,
+                "wrist_roll": self.joint_offsets_store["right"]["joint6"],
                 "elbow": self.joint_offsets_store["right"]["joint3"]
             }
         }
@@ -1513,24 +1543,15 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
-        is_v13 = self.get_robot_version() == "1.3"
-        if is_v13:
-            if col == 0:
-                joint_key = "joint6"
-                joint_label = "Joint 6"
-            elif col == 1:
-                joint_key = "joint5"
-                joint_label = "Joint 5"
-            else:
-                joint_key = "joint3"
-                joint_label = "Joint 3"
+        if col == 0:
+            joint_key = "joint6"
+            joint_label = "Joint 6"
+        elif col == 1:
+            joint_key = "joint5"
+            joint_label = "Joint 5"
         else:
-            if col == 0:
-                joint_key = "joint5"
-                joint_label = "Joint 5"
-            else:
-                joint_key = "joint3"
-                joint_label = "Joint 3"
+            joint_key = "joint3"
+            joint_label = "Joint 3"
             
         current_val = self.joint_offsets_store[arm][joint_key]
         new_val, ok = QInputDialog.getDouble(
@@ -1566,6 +1587,8 @@ class UnifiedCalibrationApp(QWidget):
             return "wrist_pitch_v13"
         elif "wrist_roll_v13" in mode_str:
             return "wrist_roll_v13"
+        elif "wrist_yaw2" in mode_str:
+            return "wrist_yaw2"
         elif "wrist_pitch" in mode_str:
             return "wrist_pitch"
         else:
@@ -1574,7 +1597,7 @@ class UnifiedCalibrationApp(QWidget):
     def get_offset_key_for_mode(self, mode):
         if mode == "wrist_pitch_v13":
             return "wrist_pitch"
-        elif mode == "wrist_roll_v13":
+        elif mode in ("wrist_roll_v13", "wrist_yaw2"):
             return "wrist_roll"
         else:
             return mode
@@ -1798,10 +1821,10 @@ class UnifiedCalibrationApp(QWidget):
         dash_layout.setContentsMargins(8, 4, 8, 4)
         
         # Monitoring Table
-        self.tbl_offset_monitor = QTableWidget(2, 2)
-        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
+        self.tbl_offset_monitor = QTableWidget(2, 3)
+        self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 6 (Roll/Yaw 2)", "Joint 5 (Wrist Pitch)", "Joint 3 (Elbow)"])
         self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
-        self.tbl_offset_monitor.setFixedHeight(100)
+        self.tbl_offset_monitor.setFixedHeight(110)
         self.tbl_offset_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
         self.tbl_offset_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.tbl_offset_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
@@ -2359,35 +2382,25 @@ class UnifiedCalibrationApp(QWidget):
             return
         
         is_v13 = self.get_robot_version() == "1.3"
+        self.tbl_offset_monitor.setColumnCount(3)
         if is_v13:
-            self.tbl_offset_monitor.setColumnCount(3)
             self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 6 (Roll)", "Joint 5 (Pitch)", "Joint 3 (Elbow)"])
-            for row_idx, arm in enumerate(["right", "left"]):
-                for col_idx, joint_key in enumerate(["joint6", "joint5", "joint3"]):
-                    val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
-                    item = QTableWidgetItem(f"{val:.4f}°")
-                    item.setTextAlignment(Qt.AlignCenter)
-                    self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
         else:
-            self.tbl_offset_monitor.setColumnCount(2)
-            self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 5 (Wrist)", "Joint 3 (Elbow)"])
-            for row_idx, arm in enumerate(["right", "left"]):
-                for col_idx, joint_key in enumerate(["joint5", "joint3"]):
-                    val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
-                    item = QTableWidgetItem(f"{val:.4f}°")
-                    item.setTextAlignment(Qt.AlignCenter)
-                    self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
+            self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 6 (Yaw 2)", "Joint 5 (Wrist Pitch)", "Joint 3 (Elbow)"])
+            
+        for row_idx, arm in enumerate(["right", "left"]):
+            for col_idx, joint_key in enumerate(["joint6", "joint5", "joint3"]):
+                val = self.joint_offsets_store.get(arm, {}).get(joint_key, 0.0)
+                item = QTableWidgetItem(f"{val:.4f}°")
+                item.setTextAlignment(Qt.AlignCenter)
+                self.tbl_offset_monitor.setItem(row_idx, col_idx, item)
         
     def apply_joint_offset(self):
         is_v13 = self.get_robot_version() == "1.3"
         
         for arm in ["left", "right"]:
-            if is_v13:
-                self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
-                self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store[arm]["joint6"]
-            else:
-                self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
-                self.joint_offsets[arm]["wrist_roll"] = 0.0
+            self.joint_offsets[arm]["wrist_pitch"] = self.joint_offsets_store[arm]["joint5"]
+            self.joint_offsets[arm]["wrist_roll"] = self.joint_offsets_store[arm]["joint6"]
             self.joint_offsets[arm]["elbow"] = self.joint_offsets_store[arm]["joint3"]
         self.joint_calibrator.joint_offsets = self.joint_offsets
         self.marker_calibrator.joint_offsets = self.joint_offsets
@@ -2401,9 +2414,9 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"  --- {arm.upper()} ARM ---")
             if is_v13:
                 self.log_msg(f"    * Joint 6 (Wrist Roll) : {self.joint_offsets[arm]['wrist_roll']:.4f}°")
-                self.log_msg(f"    * Joint 5 (Wrist Pitch): {self.joint_offsets[arm]['wrist_pitch']:.4f}°")
             else:
-                self.log_msg(f"    * Joint 5 (Wrist Pitch): {self.joint_offsets[arm]['wrist_pitch']:.4f}°")
+                self.log_msg(f"    * Joint 6 (Wrist Yaw 2): {self.joint_offsets[arm]['wrist_roll']:.4f}°")
+            self.log_msg(f"    * Joint 5 (Wrist Pitch): {self.joint_offsets[arm]['wrist_pitch']:.4f}°")
             self.log_msg(f"    * Joint 3 (Elbow)      : {self.joint_offsets[arm]['elbow']:.4f}°")
         self.log_msg("[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!")
         self.log_msg("="*50 + "\n")
@@ -2869,7 +2882,7 @@ class UnifiedCalibrationApp(QWidget):
         mode = joint_res.get('mode', 'elbow')
         
         recommended = joint_res['recommended_joint_offset']
-        if mode == "wrist_roll_v13":
+        if mode in ("wrist_roll_v13", "wrist_yaw2"):
             joint_key = "joint6"
         elif mode in ("wrist_pitch_v13", "wrist_pitch"):
             joint_key = "joint5"
@@ -2943,6 +2956,7 @@ class UnifiedCalibrationApp(QWidget):
             is_v13 = self.get_robot_version() == "1.3"
             j_gt = {
                 "wrist_roll_v13": mock_gt["joint6"],
+                "wrist_yaw2": mock_gt["joint6"],
                 "wrist_pitch_v13": mock_gt["joint5_v13"],
                 "wrist_pitch": mock_gt["joint5_v12"],
                 "elbow": mock_gt["joint3"]
@@ -2983,6 +2997,32 @@ class UnifiedCalibrationApp(QWidget):
             self.plot_label_combined.setPixmap(pix)
             
         self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
+
+        # Update UI bracket design text fields if new values are calibrated
+        if 'x_cal' in res and not np.isnan(res['x_cal']):
+            arm = self.arm_side
+            x_val, y_val, z_val = res['x_cal'], res['y_cal'], res['z_cal']
+            r_val, p_val, yaw_val = res.get('roll_cal', float('nan')), res.get('pitch_cal', float('nan')), res.get('yaw_cal', float('nan'))
+            if arm == "left":
+                self.txt_bracket_l_x.setText(f"{x_val:.5f}")
+                self.txt_bracket_l_y.setText(f"{y_val:.5f}")
+                self.txt_bracket_l_z.setText(f"{z_val:.5f}")
+                if not np.isnan(r_val):
+                    self.txt_bracket_l_roll.setText(f"{r_val:.2f}")
+                    self.txt_bracket_l_pitch.setText(f"{p_val:.2f}")
+                    self.txt_bracket_l_yaw.setText(f"{yaw_val:.2f}")
+            else:
+                self.txt_bracket_r_x.setText(f"{x_val:.5f}")
+                self.txt_bracket_r_y.setText(f"{y_val:.5f}")
+                self.txt_bracket_r_z.setText(f"{z_val:.5f}")
+                if not np.isnan(r_val):
+                    self.txt_bracket_r_roll.setText(f"{r_val:.2f}")
+                    self.txt_bracket_r_pitch.setText(f"{p_val:.2f}")
+                    self.txt_bracket_r_yaw.setText(f"{yaw_val:.2f}")
+            if not np.isnan(r_val):
+                self.log_msg(f"[INFO] Staged calibrated nominal marker values in UI for {arm} arm: X={x_val:.5f}, Y={y_val:.5f}, Z={z_val:.5f}, R={r_val:.2f}, P={p_val:.2f}, Y={yaw_val:.2f}")
+            else:
+                self.log_msg(f"[INFO] Staged calibrated nominal marker values in UI for {arm} arm: X={x_val:.5f}, Y={y_val:.5f}, Z={z_val:.5f}")
 
         if mode == "wrist_roll_v13":
             joint_key = "joint6"
@@ -3030,6 +3070,8 @@ class UnifiedCalibrationApp(QWidget):
         recommended = self.joint_sweep_data.get('recommended_joint_offset', self.joint_sweep_data['optimal_offset'])
         if mode == "wrist_roll_v13":
             joint_name = "Joint 6 (Wrist Roll)"
+        elif mode == "wrist_yaw2":
+            joint_name = "Joint 6 (Wrist Yaw 2)"
         elif mode == "wrist_pitch_v13":
             joint_name = "Joint 5 (Wrist Pitch)"
         elif mode == "wrist_pitch":
@@ -3042,10 +3084,10 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("\n[2] Suggested Joint Home Offset update:")
         self.log_msg(f"  Add offset: {recommended:.4f} deg to calibration config.")
 
-        # v1.3 only: display bracket design verification results
-        if mode in ("wrist_pitch_v13", "wrist_roll_v13"):
+        # display bracket design verification results
+        if mode in ("wrist_pitch_v13", "wrist_roll_v13", "wrist_yaw2"):
             d = self.joint_sweep_data
-            sweep_axis_label = "Joint 6" if mode == "wrist_roll_v13" else "Joint 5"
+            sweep_axis_label = "Joint 6" if mode in ("wrist_roll_v13", "wrist_yaw2") else "Joint 5"
             self.log_msg(f"\n[3] Bracket Design Verification (Based on {sweep_axis_label} Axis)")
             perp_b = d.get('perp_dist_before', float('nan'))
             perp_a = d.get('perp_dist_after',  float('nan'))
@@ -3057,7 +3099,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"    - Sweep A fitting radius (r_A, lateral marker offset) : {r_A:.3f} mm")
             self.log_msg(f"    - Axial marker offset (c_B along {sweep_axis_label} axis)  : {axial:.3f} mm")
             self.log_msg(f"    - Lateral marker offset (c_B perp {sweep_axis_label} axis)  : {lateral:.3f} mm")
-            axis_dir = "X" if mode == "wrist_roll_v13" else "Y"
+            axis_dir = "Z" if mode == "wrist_yaw2" else ("X" if mode == "wrist_roll_v13" else "Y")
             self.log_msg(f"    * Design Reference Offset Axis: {axis_dir}-axis")
 
         self.log_msg("="*50)

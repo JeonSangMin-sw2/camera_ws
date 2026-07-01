@@ -19,9 +19,9 @@ class BaseCalibrator:
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 10.0},
+        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
-        "elbow_v13":       {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
     }
     MARKER_CONFIGS = {
         "axis_4": {"joint_i": 4, "start_deg": -30.0, "end_deg": 30.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
@@ -341,7 +341,7 @@ class BaseCalibrator:
 
 
 
-    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None):
+    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None, q_actual=None):
         is_v13 = self.is_v13()
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
@@ -359,8 +359,11 @@ class BaseCalibrator:
         injected_joint_offsets_deg[5] = j5_gt
         injected_joint_offsets_deg[6] = j6_gt
         
-        state = self.robot.get_state()
-        q_actual = np.array(state.position)
+        if q_actual is None:
+            state = self.robot.get_state()
+            q_actual = np.array(state.position)
+        else:
+            q_actual = np.array(q_actual)
         
         for i in range(7):
             q_actual[arm_idx[i]] += np.radians(injected_joint_offsets_deg[i])
@@ -464,19 +467,13 @@ class BaseCalibrator:
                 
             if right_arm is not None:
                 right_arm = list(right_arm)
-                if is_v13:
-                    right_arm[6] += np.radians(right_offsets.get("wrist_roll", 0.0))
-                    right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
-                else:
-                    right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
+                right_arm[6] += np.radians(right_offsets.get("wrist_roll", 0.0))
+                right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
                 right_arm[3] += np.radians(right_offsets.get("elbow", 0.0))
             if left_arm is not None:
                 left_arm = list(left_arm)
-                if is_v13:
-                    left_arm[6] += np.radians(left_offsets.get("wrist_roll", 0.0))
-                    left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
-                else:
-                    left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
+                left_arm[6] += np.radians(left_offsets.get("wrist_roll", 0.0))
+                left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
                 left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
@@ -1014,7 +1011,14 @@ class BaseCalibrator:
             ready_mode = None
         else:
             type_key = "joint"
-            ready_mode = "elbow" if mode in ("elbow", "elbow_v13") else "wrist_pitch"
+            if mode == "elbow":
+                ready_mode = "elbow"
+            elif mode == "wrist_yaw2":
+                ready_mode = "wrist_yaw2"
+            elif mode == "wrist_roll_v13":
+                ready_mode = "wrist_roll_v13"
+            else:
+                ready_mode = "wrist_pitch"
             
         if arm_side == "right":
             right_arm = self.get_ready_pose(version_key, type_key, ready_mode, "right")
@@ -1285,16 +1289,22 @@ class BaseCalibrator:
                 move_thread.join()
                 return None
 
+            if self.robot and self.robot != "mock_robot":
+                q_full_captured = np.array(self.robot.get_state().position)
+            else:
+                q_full_captured = np.zeros(20)
+
             if is_camera_mock:
                 if hasattr(self, 'get_simulated_marker_pose'):
                     try:
                         pose = self.get_simulated_marker_pose(
                             arm_side, sweep_joint=sweep_joint, 
                             current_offset_deg=kwargs.get('current_offset_deg', 0.0), 
-                            cand_joint=kwargs.get('cand_joint', None)
+                            cand_joint=kwargs.get('cand_joint', None),
+                            q_actual=q_full_captured
                         )
                     except TypeError:
-                        pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint)
+                        pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint, q_actual=q_full_captured)
                 else:
                     pose = np.eye(4)
                 res = [pose.tolist()] if pose is not None else None
@@ -1304,10 +1314,6 @@ class BaseCalibrator:
             if res:
                 pose_flat = res[0] if isinstance(res, list) else list(res.values())[0]
                 pose_mat = np.array(pose_flat).reshape(4, 4)
-                if self.robot and self.robot != "mock_robot":
-                    q_full_captured = np.array(self.robot.get_state().position)
-                else:
-                    q_full_captured = np.zeros(20)
 
                 if np.linalg.norm(pose_mat[:3, 3]) > 0.01:
                     dataset.append((q_full_captured, pose_mat))
