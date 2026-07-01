@@ -192,6 +192,7 @@ class MarkerCalibrator(BaseCalibrator):
         mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
         T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
         
+        ee_name = f"ee_{arm_side}"
         pts_ee = []
         for q_full, pose_cam_to_marker in zip(captured_q_full, captured_poses):
             try:
