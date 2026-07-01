@@ -10,7 +10,7 @@
 ==================================================
 [INFO] Moving Marker Axis 4 to start sweep position...
 [INFO] Commencing continuous sweep on Marker Axis 4 (duration=15.0s)...
-    -> Swept 150 dense raw coordinate frames during Marker Axis 4 motion.
+    -> Swept 152 dense raw coordinate frames during Marker Axis 4 motion.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
@@ -30,10 +30,15 @@
 ==================================================
 [INFO] Moving Marker Axis 6 to start sweep position...
 [INFO] Commencing continuous sweep on Marker Axis 6 (duration=15.0s)...
-    -> Swept 151 dense raw coordinate frames during Marker Axis 6 motion.
+    -> Swept 152 dense raw coordinate frames during Marker Axis 6 motion.
 
 [INFO] Sweep complete. Returning to initial ready pose...
 [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+
+==================================================
+   [Stage 3/3] Returning to Initial Starting Pose...
+==================================================
+
 
 ==================================================
    [Stage 3/3] Sweeping Axis 5 (Pitch)...
@@ -60,16 +65,16 @@
     - X-Offset: 0.00 mm
     - Y-Offset: -54.68 mm
     - Z-Offset: 10.00 mm
-       * (L_5_ee: 126.1 mm, R6: 54.31 mm, R5: 174.45 mm, R4: 180.95 mm)
+       * (L_5_ee: 126.1 mm, R6: 54.31 mm, R5: 174.32 mm, R4: 180.72 mm)
 
 [2] Angular Misalignment (EE Link Frame)
-    - Roll : 89.73 deg
-    - Pitch: 0.07 deg
-    - Yaw  : 179.07 deg
+    - Roll : 89.86 deg
+    - Pitch: 0.10 deg
+    - Yaw  : 179.19 deg
 
 [3] setting.yaml Config Update values:
-  Tf_to_marker_right: [0.0000, -0.0547, 0.0100, 89.73, 0.07, 179.07]
+  Tf_to_marker_right: [0.0000, -0.0547, 0.0100, 89.86, 0.10, 179.19]
 
 [4] Confidence Metrics:
-    - Orthogonality Error  : 2.221 deg
+    - Orthogonality Error  : 1.963 deg
 ==================================================
