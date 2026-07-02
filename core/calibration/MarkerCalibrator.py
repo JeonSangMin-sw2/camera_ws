@@ -194,16 +194,28 @@ class MarkerCalibrator(BaseCalibrator):
         
         ee_name = f"ee_{arm_side}"
         pts_ee = []
+        is_v13 = self.is_v13()
         for q_full, pose_cam_to_marker in zip(captured_q_full, captured_poses):
             try:
+                # q_physical = q_full - joint_offset (apply joint offsets to reconstruct actual physical angle)
+                q_mod = np.array(q_full)
+                if hasattr(self, 'joint_offsets') and self.joint_offsets:
+                    offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+                    q_mod[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
+                    q_mod[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
+                    if is_v13:
+                        q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
+                    else:
+                        q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
+                
                 if self.robot and self.robot != "mock_robot":
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
                     T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
                 else:
                     T_t5_to_cam = T_t5_to_cam_fixed
                 
                 T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
-                T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_mod, ee_name, "link_torso_5")
                 p_ee = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker @ np.array([0, 0, 0, 1])
                 pts_ee.append(p_ee[:3] * 1000.0) # in mm
             except Exception as e:
@@ -343,12 +355,26 @@ class MarkerCalibrator(BaseCalibrator):
                 dyn_model = self.robot.get_dynamics()
                 ee_name = f"ee_{arm_side}"
                 q_full_6 = marker_data_6.get('captured_q_full', [])
+                is_v13 = self.is_v13()
+                model = self.robot.model()
+                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
                 for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    # q_physical = q_full - joint_offset (apply joint offsets to reconstruct actual physical angle)
+                    q_mod = np.array(q_full)
+                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
+                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+                        q_mod[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
+                        q_mod[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
+                        if is_v13:
+                            q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
+                        else:
+                            q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
+                    
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
                     T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
                     R_t5_to_cam = T_t5_to_cam[:3, :3]
                     
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_full, ee_name, "link_torso_5")
+                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_mod, ee_name, "link_torso_5")
                     R_ee_to_t5 = T_t5_to_ee[:3, :3].T
                     R_cam_to_marker = T_cam_to_marker[:3, :3]
                     R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
@@ -401,8 +427,9 @@ class MarkerCalibrator(BaseCalibrator):
         L_nom_m  = L_5_ee_m  # nominal link length from robot model
 
         # State vector: [yaw_off, pitch_off, roll_off, d5, d6, x_e, y_e, z_e, L_5_ee] in meters/radians
-        d5_init = np.radians(calib_pitch_deg) if calib_pitch_deg is not None else 0.0
-        d6_init = np.radians(calib_roll_deg) if calib_roll_deg is not None else d6_init
+        # Input calib_pitch_deg and calib_roll_deg are compensation offsets. Negated to set physical.
+        d5_init = np.radians(-calib_pitch_deg) if calib_pitch_deg is not None else 0.0
+        d6_init = np.radians(-calib_roll_deg) if calib_roll_deg is not None else d6_init
         
         d5_half = 1e-5 if calib_pitch_deg is not None else np.radians(15.0)
         d6_half = 1e-5 if calib_roll_deg is not None else np.radians(15.0)
@@ -440,6 +467,8 @@ class MarkerCalibrator(BaseCalibrator):
             x_nom_m + 0.050, y_max_val, 0.010,
             L_nom_m + 0.080
         ])
+        x_state = np.clip(x_state, x_min, x_max)
+        x_target = np.clip(x_target, x_min, x_max)
 
         # Z-axis direction is dynamically determined based on the robot kinematics model
         z_sign = self.get_z_sign(arm_side)
@@ -536,8 +565,9 @@ class MarkerCalibrator(BaseCalibrator):
         ze_opt = ze_opt * 1000.0
         L_5_ee = L_5_ee_solved * 1000.0  # update with optimized value
 
-        opt_delta_5 = float(np.degrees(d5_opt))
-        opt_delta_6 = float(np.degrees(d6_opt))
+        # Return compensation offsets (negative of physical offsets)
+        opt_delta_5 = -float(np.degrees(d5_opt))
+        opt_delta_6 = -float(np.degrees(d6_opt))
 
         R_off_opt = R_scipy.from_euler('ZYX', [yaw_off_opt, pitch_off_opt, roll_off_opt]).as_matrix()
         R_ee_m_actual = R_off_opt @ R_ee_m_ideal
@@ -570,14 +600,13 @@ class MarkerCalibrator(BaseCalibrator):
         }
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
-        # Always use the multi-variable solver (compute_unified_bracket_calibration_v1_3)
-        # to enable Joint 6 offset optimization for v1.2 as well.
-        return self.compute_unified_bracket_calibration_v1_3(
-            marker_data_5, marker_data_6, arm_side, tolerance=tolerance,
-            marker_data_4=marker_data_4, calib_roll_deg=calib_roll_deg,
-            calib_pitch_deg=calib_pitch_deg, calib_roll_or_yaw_deg=calib_roll_or_yaw_deg,
-            lock_bracket=lock_bracket
-        )
+        if self.is_v13():
+            return self.compute_unified_bracket_calibration_v1_3(
+                marker_data_5, marker_data_6, arm_side, tolerance=tolerance,
+                marker_data_4=marker_data_4, calib_roll_deg=calib_roll_deg,
+                calib_pitch_deg=calib_pitch_deg, calib_roll_or_yaw_deg=calib_roll_or_yaw_deg,
+                lock_bracket=lock_bracket
+            )
 
         L_5_ee = self.get_link_length(arm_side)
 

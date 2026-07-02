@@ -90,6 +90,15 @@ class JointCalibrator(BaseCalibrator):
             direction_multiplier = 1.0
             
             for i in range(1, max_iterations + 1):
+                # Update self.joint_offsets with staged_offset for proper FK offset subtraction in this iteration
+                jcfg = self.JOINT_CONFIGS.get(mode, {})
+                offset_key = jcfg.get("offset_key")
+                if offset_key:
+                    if arm_side in self.joint_offsets:
+                        self.joint_offsets[arm_side][offset_key] = staged_offset
+                    else:
+                        self.joint_offsets[offset_key] = staged_offset
+
                 if getattr(self, 'stop_requested', False):
                     if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
                     return None
@@ -144,11 +153,20 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
-                step_correction = direction_multiplier * raw_optimal_offset
+                if mode == "wrist_pitch_v13":
+                    damping = 0.1
+                elif mode in ("wrist_pitch", "elbow"):
+                    damping = 0.95
+                else:
+                    damping = 1.0
+                step_correction = direction_multiplier * raw_optimal_offset * damping
                 
                 # Convergence check:
                 # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
-                converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
+                if mode in ("wrist_roll_v13", "wrist_pitch_v13", "wrist_yaw2"):
+                    converged_criteria = (abs(step_correction) < 0.05)
+                else:
+                    converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
                 
                 if converged_criteria:
                     converged = True
@@ -162,32 +180,10 @@ class JointCalibrator(BaseCalibrator):
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
                 
-                # Sign-reversal fail-safe check:
-                # If error increased compared to previous iteration, backtrack and flip sign
-                current_error_metric = angle_dev
-                if prev_error is not None and current_error_metric > prev_error + 0.05:
-                    if log_callback:
-                        log_callback(f"  [SAFETY WARNING] Error increased from {prev_error:.4f}° to {current_error_metric:.4f}°!")
-                        log_callback(f"                   Reversing calibration direction and reverting offset from {staged_offset:.4f}°...")
-                    
-                    # Backtrack (revert previous step correction)
-                    staged_offset -= prev_step_correction
-                    
-                    # Flip direction multiplier
-                    direction_multiplier *= -1.0
-                    
-                    # Recalculate step correction with new direction
-                    step_correction = direction_multiplier * raw_optimal_offset
-                    prev_step_correction = step_correction
-                    staged_offset += step_correction
-                    
-                    if log_callback:
-                        log_callback(f"                   New staged offset: {staged_offset:.4f}° (direction_multiplier={direction_multiplier})")
-                else:
-                    # Normal update: save current error for future comparison, apply correction
-                    prev_error = current_error_metric
-                    prev_step_correction = step_correction
-                    staged_offset += step_correction
+                # Normal update: apply correction
+                prev_error = angle_dev
+                prev_step_correction = step_correction
+                staged_offset += step_correction
                 
                 # Safety: clamp staged_offset to the joint's configured offset range
                 jcfg = self.JOINT_CONFIGS.get(mode, {})
@@ -619,7 +615,7 @@ class JointCalibrator(BaseCalibrator):
         range_B = jcfg.get("sweep_range_B", 20.0)
 
         # 1. PHYSICAL SWEEP JOINT A
-        if log_callback: log_callback(f"\n--- Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
+        logging.info(f"\n--- Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
         dataset_A = self.perform_single_joint_sweep(
             arm_side, sweep_joint_A, q_cand, -range_A, range_A, sweep_duration,
             q_head=None, label="Joint A", log_callback=log_callback,
@@ -637,7 +633,7 @@ class JointCalibrator(BaseCalibrator):
             time.sleep(0.5)
 
         # 2. PHYSICAL SWEEP JOINT B
-        if log_callback: log_callback(f"\n--- Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
+        logging.info(f"\n--- Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
         dataset_B = self.perform_single_joint_sweep(
             arm_side, sweep_joint_B, q_cand, -range_B, range_B, sweep_duration,
             q_head=None, label="Joint B", log_callback=log_callback,
@@ -650,7 +646,7 @@ class JointCalibrator(BaseCalibrator):
             return None
 
         # Return arm to original ready pose (head=None)
-        if log_callback: log_callback("\n[INFO] Sweep finished. Returning arm to initial pose...")
+        logging.info("[INFO] Sweep finished. Returning arm to initial pose...")
         if arm_side == "left":
             ok = self.movej(self.robot, left_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
         else:
@@ -681,9 +677,8 @@ class JointCalibrator(BaseCalibrator):
             indices_B = np.round(np.linspace(0, len(dataset_B) - 1, max_pts)).astype(int)
             dataset_B = [dataset_B[idx] for idx in indices_B]
             
-        if log_callback:
-            log_callback(f"Swept {raw_len_A} dense raw coordinate frames during Joint A motion... downsampled to {len(dataset_A)} for optimization.")
-            log_callback(f"Swept {raw_len_B} dense raw coordinate frames during Joint B motion... downsampled to {len(dataset_B)} for optimization.")
+        logging.info(f"Swept {raw_len_A} dense raw coordinate frames during Joint A motion... downsampled to {len(dataset_A)} for optimization.")
+        logging.info(f"Swept {raw_len_B} dense raw coordinate frames during Joint B motion... downsampled to {len(dataset_B)} for optimization.")
 
         return self.compute_calibration_results(
             arm_side=arm_side,
@@ -738,7 +733,7 @@ class JointCalibrator(BaseCalibrator):
 
         # Compute dynamic nominal axes using forward kinematics (FK) at the ready pose
         is_pure_mock = getattr(self.robot, "is_pure_mock", False) if self.robot else True
-        if self.robot and not is_pure_mock:
+        if self.robot:
             try:
                 # Construct full q array at ready pose
                 q_ready_full = np.array(state.position)
@@ -821,14 +816,64 @@ class JointCalibrator(BaseCalibrator):
         n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
 
         # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
-        if mode in ("wrist_roll_v13", "wrist_yaw2"):
+        if mode == "wrist_pitch_v13":
+            try:
+                # Phase-based fitting for parallel axes (J5 vs J3)
+                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                T_mount_to_cam = self.make_transform(mount_to_cam)
+                
+                q_first, T_cam_to_marker_first = dataset_A[0]
+                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_first, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
+                
+                ver_key = "1.3" if self.is_v13() else "1.2"
+                nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+                T_ee_to_marker = self.make_transform(nominal_vec)
+                
+                arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
+                
+                angles = []
+                for q_full, T_cam_to_marker in dataset_A:
+                    q_nom = np.array(q_full)
+                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
+                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+                        q_nom[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
+                        q_nom[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
+                    
+                    T_torso_to_ee_nom = self.compute_fk(self.robot, dyn_model, q_nom, ee_name, "link_torso_5")
+                    T_cam_to_marker_nom = T_torso_to_cam @ T_torso_to_ee_nom @ T_ee_to_marker
+                    p_nom = T_cam_to_marker_nom[:3, 3]
+                    p_meas = T_cam_to_marker[:3, 3]
+                    
+                    v_nom = p_nom - c_A_c / 1000.0
+                    v_nom = v_nom - np.dot(v_nom, n_A) * n_A
+                    v_nom /= np.linalg.norm(v_nom)
+                    
+                    v_meas = p_meas - c_A_c / 1000.0
+                    v_meas = v_meas - np.dot(v_meas, n_A) * n_A
+                    v_meas /= np.linalg.norm(v_meas)
+                    
+                    ang = np.arctan2(np.dot(np.cross(v_nom, v_meas), n_A), np.dot(v_nom, v_meas))
+                    angles.append(ang)
+                    
+                # We return negative of the mean to represent the compensation offset
+                optimal_offset_deg = float(np.degrees(np.mean(angles)))
+            except Exception as e:
+                import traceback
+                if log_callback:
+                    log_callback(f"[WARN] Phase-based fitting failed: {e}\n{traceback.format_exc()}. Using 0.0.")
+                optimal_offset_deg = 0.0
+            
+            diff_angle = np.radians(optimal_offset_deg)
+        elif mode in ("wrist_roll_v13", "wrist_yaw2"):
             try:
                 from core.calibration.MarkerCalibrator import MarkerCalibrator
                 mc = MarkerCalibrator(self.marker_st, self.robot)
                 mc.camera_config = self.camera_config
                 mc.robot_version = self.robot_version
+                mc.joint_offsets = self.joint_offsets
                 
-                # Reconstruct res_5 and res_6 structures expected by compute_unified_bracket_calibration
                 res_5 = {
                     'captured_q_full': [q_full for q_full, _ in dataset_B],
                     'captured_poses': [pose for _, pose in dataset_B],
@@ -843,15 +888,27 @@ class JointCalibrator(BaseCalibrator):
                 }
                 
                 unified_res = mc.compute_unified_bracket_calibration(
-                    res_5, res_6, arm_side, marker_data_4=None, calib_roll_or_yaw_deg=None, calib_pitch_deg=0.0, lock_bracket=True
+                    res_5, res_6, arm_side, marker_data_4=None,
+                    calib_roll_or_yaw_deg=None, calib_pitch_deg=0.0,
+                    lock_bracket=True
                 )
-                optimal_offset_deg = unified_res.get('opt_delta_6', 0.0)
+                if mode == "wrist_roll_v13":
+                    optimal_offset_deg = unified_res.get('opt_delta_6', 0.0)
+                    diff_angle = np.radians(optimal_offset_deg)
+                else: # wrist_yaw2
+                    ver_key = "1.3" if self.is_v13() else "1.2"
+                    nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+                    nominal_rpy = nominal_vec[3:6]
+                    yaw_e = unified_res.get('yaw_e', nominal_rpy[2])
+                    diff_angle = np.radians(nominal_rpy[2] - yaw_e)
+                    diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
+                    optimal_offset_deg = np.degrees(diff_angle)
             except Exception as e:
+                import traceback
                 if log_callback:
-                    log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}. Using 0.0.")
+                    log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}\n{traceback.format_exc()}. Using 0.0.")
                 optimal_offset_deg = 0.0
-            
-            diff_angle = np.radians(optimal_offset_deg)
+                diff_angle = 0.0
         else:
             a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
             a_B_proj = a_B_cam_nom - np.dot(a_B_cam_nom, a_cand_cam) * a_cand_cam
@@ -880,7 +937,7 @@ class JointCalibrator(BaseCalibrator):
         # Match the physical motor driver rotations (negative feedback loop)
         sign = 1.0 if diff_angle > 0.0 else -1.0
         size_error = abs(r_A - r_B)
-        if center_dist > 100.0 or (mode not in ("wrist_roll_v13", "wrist_yaw2") and size_error > 100.0):
+        if mode not in ("wrist_roll_v13", "wrist_pitch_v13", "wrist_yaw2") and (center_dist > 100.0 or size_error > 100.0):
             if log_callback:
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0

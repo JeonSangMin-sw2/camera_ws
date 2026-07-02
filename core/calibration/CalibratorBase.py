@@ -30,17 +30,17 @@ class BaseCalibrator:
     }
     MOCK_GT_OFFSETS = {
         "right": {
-            "joint6": 3.2,
+            "joint6": 2.3,
             "joint5_v13": -2.1,
-            "joint5_v12": 1.5,
+            "joint5_v12": 5.4,
             "joint3": 0.5,
-            "bracket_pos": [0.003, -0.00, 0.004],  # meters
-            "bracket_rpy": [1.0, -1.2, 0.0]        # degrees
+            "bracket_pos": [0.0005, 0.002, 0.005],  # meters
+            "bracket_rpy": [-0.2, -1.2, 0.1]        # degrees
         },
         "left": {
-            "joint6": -2.5,
+            "joint6": 5.5,
             "joint5_v13": 3.6,
-            "joint5_v12": -1.8,
+            "joint5_v12": -3,
             "joint3": 0.7,
             "bracket_pos": [-0.002, 0.00, -0.003], # meters
             "bracket_rpy": [-0.8, 1.5, 0.0]        # degrees
@@ -357,10 +357,26 @@ class BaseCalibrator:
         bracket_pos_gt = mock_gt["bracket_pos"]
         bracket_rpy_gt = mock_gt["bracket_rpy"]
             
+        offsets = {}
+        if hasattr(self, "joint_offsets") and self.joint_offsets is not None:
+            if "left" in self.joint_offsets and "right" in self.joint_offsets:
+                offsets = self.joint_offsets.get(arm_side, {})
+            else:
+                offsets = self.joint_offsets
+        elif self.robot and hasattr(self.robot, "joint_offsets") and self.robot.joint_offsets is not None:
+            if "left" in self.robot.joint_offsets and "right" in self.robot.joint_offsets:
+                offsets = self.robot.joint_offsets.get(arm_side, {})
+            else:
+                offsets = self.robot.joint_offsets
+
+        j6_staged = offsets.get("wrist_roll", 0.0) if is_v13 else offsets.get("wrist_yaw2", 0.0)
+        j5_staged = offsets.get("wrist_pitch", 0.0)
+        j3_staged = offsets.get("elbow", 0.0)
+
         injected_joint_offsets_deg = [0.0] * 7
-        injected_joint_offsets_deg[3] = j3_gt
-        injected_joint_offsets_deg[5] = j5_gt
-        injected_joint_offsets_deg[6] = j6_gt
+        injected_joint_offsets_deg[3] = j3_gt + j3_staged
+        injected_joint_offsets_deg[5] = j5_gt + j5_staged
+        injected_joint_offsets_deg[6] = j6_gt + j6_staged
         
         if q_actual is None:
             state = self.robot.get_state()
@@ -413,6 +429,36 @@ class BaseCalibrator:
         if not robot:
             return False
             
+        if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:
+            # Offset mapping: Joint 3 (index 3) is elbow
+            # For v1.3:
+            # - Joint 5 (index 5) is wrist pitch
+            # - Joint 6 (index 6) is wrist roll
+            # For v1.2:
+            # - Joint 5 (index 5) is wrist pitch
+            is_v13 = self.is_v13()
+            
+            # Support both flat and nested left/right dictionary structures
+            if "left" in self.joint_offsets and "right" in self.joint_offsets:
+                left_offsets = self.joint_offsets["left"]
+                right_offsets = self.joint_offsets["right"]
+            else:
+                left_offsets = self.joint_offsets
+                right_offsets = self.joint_offsets
+                
+            if right_arm is not None:
+                right_arm = list(right_arm)
+                r_j6_offset = right_offsets.get("wrist_roll", 0.0) if is_v13 else right_offsets.get("wrist_yaw2", 0.0)
+                right_arm[6] += np.radians(r_j6_offset)
+                right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
+                right_arm[3] += np.radians(right_offsets.get("elbow", 0.0))
+            if left_arm is not None:
+                left_arm = list(left_arm)
+                l_j6_offset = left_offsets.get("wrist_roll", 0.0) if is_v13 else left_offsets.get("wrist_yaw2", 0.0)
+                left_arm[6] += np.radians(l_j6_offset)
+                left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
+                left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
+
         is_mock = (robot == "mock_robot" or getattr(robot, "is_pure_mock", False) or hasattr(robot, "is_pure_mock") or type(robot).__name__ in ("PureMockRobot", "OfflineRobot"))
         if is_mock:
             logging.info(f"[MOCK] movej executed: torso={torso}, right_arm={right_arm}, left_arm={left_arm}, head={head}")
@@ -450,36 +496,6 @@ class BaseCalibrator:
                 time.sleep(0.001)
                 
             return True
-            
-        if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:
-            # Offset mapping: Joint 3 (index 3) is elbow
-            # For v1.3:
-            # - Joint 5 (index 5) is wrist pitch
-            # - Joint 6 (index 6) is wrist roll
-            # For v1.2:
-            # - Joint 5 (index 5) is wrist pitch
-            is_v13 = self.is_v13()
-            
-            # Support both flat and nested left/right dictionary structures
-            if "left" in self.joint_offsets and "right" in self.joint_offsets:
-                left_offsets = self.joint_offsets["left"]
-                right_offsets = self.joint_offsets["right"]
-            else:
-                left_offsets = self.joint_offsets
-                right_offsets = self.joint_offsets
-                
-            if right_arm is not None:
-                right_arm = list(right_arm)
-                r_j6_offset = right_offsets.get("wrist_roll", 0.0) if is_v13 else right_offsets.get("wrist_yaw2", 0.0)
-                right_arm[6] += np.radians(r_j6_offset)
-                right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
-                right_arm[3] += np.radians(right_offsets.get("elbow", 0.0))
-            if left_arm is not None:
-                left_arm = list(left_arm)
-                l_j6_offset = left_offsets.get("wrist_roll", 0.0) if is_v13 else left_offsets.get("wrist_yaw2", 0.0)
-                left_arm[6] += np.radians(l_j6_offset)
-                left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
-                left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
         
@@ -1256,7 +1272,7 @@ class BaseCalibrator:
         q_end[sweep_joint] = q_end_val
 
         # 1. Move to start position
-        if log_callback: log_callback(f"[INFO] Moving {label} to start sweep position...")
+        logging.info(f"[INFO] Moving {label} to start sweep position...")
         if arm_side == "left":
             ok = self.movej(self.robot, left_arm=q_start, head=q_head, minimum_time=2.5, apply_offsets=False)
         else:
@@ -1272,7 +1288,7 @@ class BaseCalibrator:
             time.sleep(1.0)
 
         # 2. Continuous sweep from start to end position
-        if log_callback: log_callback(f"[INFO] Commencing continuous sweep on {label} (duration={sweep_duration}s)...")
+        logging.info(f"[INFO] Commencing continuous sweep on {label} (duration={sweep_duration}s)...")
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -1337,6 +1353,6 @@ class BaseCalibrator:
             if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label}. Calibration failed.")
             return None
 
-        if log_callback: log_callback(f"    -> Swept {len(dataset)} dense raw coordinate frames during {label} motion.")
+        logging.info(f"    -> Swept {len(dataset)} dense raw coordinate frames during {label} motion.")
         return dataset
 

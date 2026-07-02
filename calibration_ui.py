@@ -99,8 +99,10 @@ class CalibrationUI:
 
         self.val_r_j3 = tk.StringVar(value="0.0")
         self.val_r_j5 = tk.StringVar(value="0.0")
+        self.val_r_j6 = tk.StringVar(value="0.0")
         self.val_l_j3 = tk.StringVar(value="0.0")
         self.val_l_j5 = tk.StringVar(value="0.0")
+        self.val_l_j6 = tk.StringVar(value="0.0")
         self.apply_joint_offset_flag = False
         self.load_joint_offsets_to_ui()
 
@@ -111,7 +113,7 @@ class CalibrationUI:
     def load_joint_offsets_to_ui(self):
         import yaml
         config_path = BASE_DIR / "config" / "setting.yaml"
-        r_j3, r_j5, l_j3, l_j5 = 0.0, 0.0, 0.0, 0.0
+        r_j3, r_j5, r_j6, l_j3, l_j5, l_j6 = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0
         try:
             if config_path.exists():
                 with open(config_path, "r") as f:
@@ -120,15 +122,19 @@ class CalibrationUI:
                     jo = data["joint_offset"]
                     r_j3 = jo.get("right", {}).get("joint3", 0.0)
                     r_j5 = jo.get("right", {}).get("joint5", 0.0)
+                    r_j6 = jo.get("right", {}).get("joint6", 0.0)
                     l_j3 = jo.get("left", {}).get("joint3", 0.0)
                     l_j5 = jo.get("left", {}).get("joint5", 0.0)
+                    l_j6 = jo.get("left", {}).get("joint6", 0.0)
         except Exception as e:
             print(f"Failed to load joint offsets from setting.yaml: {e}")
         
         self.val_r_j3.set(str(r_j3))
         self.val_r_j5.set(str(r_j5))
+        self.val_r_j6.set(str(r_j6))
         self.val_l_j3.set(str(l_j3))
         self.val_l_j5.set(str(l_j5))
+        self.val_l_j6.set(str(l_j6))
 
     def toggle_apply_joint_offset(self):
         self.apply_joint_offset_flag = not self.apply_joint_offset_flag
@@ -299,6 +305,10 @@ class CalibrationUI:
         self.entry_r_j5 = ttk.Entry(jo_frame, textvariable=self.val_r_j5, width=7)
         self.entry_r_j5.grid(row=0, column=3, padx=2, pady=2, sticky="w")
 
+        ttk.Label(jo_frame, text="R Wrist (J6):").grid(row=0, column=4, padx=2, pady=2, sticky="e")
+        self.entry_r_j6 = ttk.Entry(jo_frame, textvariable=self.val_r_j6, width=7)
+        self.entry_r_j6.grid(row=0, column=5, padx=2, pady=2, sticky="w")
+
         ttk.Label(jo_frame, text="L Elbow (J3):").grid(row=1, column=0, padx=2, pady=2, sticky="e")
         self.entry_l_j3 = ttk.Entry(jo_frame, textvariable=self.val_l_j3, width=7)
         self.entry_l_j3.grid(row=1, column=1, padx=2, pady=2, sticky="w")
@@ -306,6 +316,10 @@ class CalibrationUI:
         ttk.Label(jo_frame, text="L Wrist (J5):").grid(row=1, column=2, padx=2, pady=2, sticky="e")
         self.entry_l_j5 = ttk.Entry(jo_frame, textvariable=self.val_l_j5, width=7)
         self.entry_l_j5.grid(row=1, column=3, padx=2, pady=2, sticky="w")
+
+        ttk.Label(jo_frame, text="L Wrist (J6):").grid(row=1, column=4, padx=2, pady=2, sticky="e")
+        self.entry_l_j6 = ttk.Entry(jo_frame, textvariable=self.val_l_j6, width=7)
+        self.entry_l_j6.grid(row=1, column=5, padx=2, pady=2, sticky="w")
 
         self.lbl_jo_status = tk.Label(jo_frame, text="Status: INACTIVE", fg="red", font=("Arial", 9, "bold"))
         self.lbl_jo_status.grid(row=2, column=0, columnspan=2, padx=5, pady=5, sticky="w")
@@ -325,10 +339,12 @@ class CalibrationUI:
         top_frm.columnconfigure(0, weight=1)
         top_frm.columnconfigure(1, weight=1)
         top_frm.columnconfigure(2, weight=1)
+        top_frm.columnconfigure(3, weight=1)
 
         ttk.Button(top_frm, text="Zero Pose Check", command=self.dev_zero_pose_check).grid(row=0, column=0, padx=2, pady=2, sticky="ew")
         ttk.Button(top_frm, text="Stop", command=self.dev_stop_auto_motion).grid(row=0, column=1, padx=2, pady=2, sticky="ew")
         ttk.Button(top_frm, text="Home Offset Reset", command=self.dev_home_offset_reset).grid(row=0, column=2, padx=2, pady=2, sticky="ew")
+        ttk.Button(top_frm, text="Camera Feed", command=self.show_camera_feed).grid(row=0, column=3, padx=2, pady=2, sticky="ew")
 
         # Remaining numbered buttons 1-7
         # Remaining numbered buttons 1-6
@@ -866,18 +882,20 @@ class CalibrationUI:
                     "right": {
                         "joint3": float(self.val_r_j3.get()),
                         "joint5": float(self.val_r_j5.get()),
+                        "joint6": float(self.val_r_j6.get()),
                     },
                     "left": {
                         "joint3": float(self.val_l_j3.get()),
                         "joint5": float(self.val_l_j5.get()),
+                        "joint6": float(self.val_l_j6.get()),
                     }
                 }
                 self.log(text_widget, f"[INFO] Applying joint offset bounds: {joint_offsets}")
             except ValueError:
                 self.log(text_widget, "[WARNING] Invalid joint offset entry values. Using 0.0.")
                 joint_offsets = {
-                    "right": {"joint3": 0.0, "joint5": 0.0},
-                    "left": {"joint3": 0.0, "joint5": 0.0}
+                    "right": {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0},
+                    "left": {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0}
                 }
 
         if solver_type == "QP Solver":
@@ -1967,9 +1985,89 @@ class CalibrationUI:
     # cleanup
     # ============================================================
 
+    def show_camera_feed(self):
+        # If camera feed window is already open, focus it
+        if hasattr(self, "feed_window") and self.feed_window is not None and self.feed_window.winfo_exists():
+            self.feed_window.lift()
+            return
+
+        import cv2
+        from PIL import Image, ImageTk
+
+        # Initialize marker transform if needed (unless in simulation mode)
+        if self.dev_mode.get() != "sim" and self.marker_transform is None:
+            try:
+                self.marker_transform = create_live_marker_transform()
+            except Exception as e:
+                print(f"Failed to create live marker transform: {e}")
+
+        # Create window
+        self.feed_window = tk.Toplevel(self.root)
+        self.feed_window.title("Camera Feed")
+        self.feed_window.geometry("660x520")
+        self.feed_window.resizable(False, False)
+
+        # Video Label
+        self.feed_label = ttk.Label(self.feed_window)
+        self.feed_label.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # Status Label
+        self.feed_status = ttk.Label(self.feed_window, text="Initializing Camera...", font=("Arial", 10))
+        self.feed_status.pack(pady=5)
+
+        self.feed_active = True
+
+        def update_loop():
+            if not self.feed_active or not self.feed_window.winfo_exists():
+                return
+
+            img = None
+            if self.marker_transform is not None and hasattr(self.marker_transform, "camera") and self.marker_transform.camera is not None:
+                try:
+                    self.marker_transform.camera.capture_image()
+                    img = self.marker_transform.camera.get_color_image()
+                    self.feed_status.config(text="Camera: Connected (RealSense)")
+                except Exception as e:
+                    self.feed_status.config(text=f"Camera Error: {e}")
+            
+            if img is None:
+                # Mock image
+                img = np.zeros((480, 640, 3), dtype=np.uint8)
+                cv2.putText(img, "NO REALSENSE CONNECTED", (80, 240), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (100, 100, 100), 2)
+                self.feed_status.config(text="Camera: Disconnected (Mock Mode)")
+
+            try:
+                # Convert OpenCV BGR to RGB
+                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                # Convert to PIL Image
+                pil_img = Image.fromarray(img_rgb)
+                
+                # Resize to fit window (640x480)
+                pil_img = pil_img.resize((640, 480), Image.Resampling.LANCZOS)
+                
+                img_tk = ImageTk.PhotoImage(image=pil_img)
+                
+                self.feed_label.img_tk = img_tk  # Keep reference
+                self.feed_label.config(image=img_tk)
+            except Exception as e:
+                print(f"Frame conversion error: {e}")
+
+            # Schedule next frame in 33ms (approx 30 FPS)
+            self.feed_window.after(33, update_loop)
+
+        def on_close():
+            self.feed_active = False
+            self.feed_window.destroy()
+            self.feed_window = None
+
+        self.feed_window.protocol("WM_DELETE_WINDOW", on_close)
+        update_loop()
+
     def on_close(self):
         try:
             self.stop_all_auto_motion_internal(cancel_robot=True)
+            if hasattr(self, "feed_active"):
+                self.feed_active = False
             if self.marker_transform is not None:
                 self.marker_transform.camera.monitoring(Flag=False)
         except Exception:
