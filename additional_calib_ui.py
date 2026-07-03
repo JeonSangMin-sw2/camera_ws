@@ -679,9 +679,10 @@ class JointCalibrationWorker(QThread):
 
 
 class SimulatedMarkerTransform:
-    def __init__(self, robot, camera_config):
+    def __init__(self, robot, camera_config, robot_version="1.2"):
         self.robot = robot
         self.camera_config = camera_config
+        self.robot_version = robot_version
         
         class DummyCamera:
             def stream_off(self): pass
@@ -689,6 +690,8 @@ class SimulatedMarkerTransform:
 
     def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
         is_pure_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
+        version = self.robot_version
+        is_v13 = (version == "1.3")
         try:
             q = self.robot.get_state().position
             dyn_model = self.robot.get_dynamics() if hasattr(self.robot, 'get_dynamics') else None
@@ -704,15 +707,14 @@ class SimulatedMarkerTransform:
                 model = self.robot.model()
                 arm_idx = model.left_arm_idx if side == "left" else model.right_arm_idx
                 
-                version = str(getattr(self.robot, "robot_version", "1.2"))
                 offsets = {}
                 if hasattr(self.robot, "joint_offsets") and self.robot.joint_offsets is not None:
                     offsets = self.robot.joint_offsets.get(side, {})
-                j6_staged = offsets.get("wrist_roll", 0.0) if "1.3" in version else offsets.get("wrist_yaw2", 0.0)
+                j6_staged = offsets.get("wrist_roll", 0.0) if is_v13 else offsets.get("wrist_yaw2", 0.0)
                 j5_staged = offsets.get("wrist_pitch", 0.0)
                 j3_staged = offsets.get("elbow", 0.0)
 
-                if "1.3" in version:
+                if is_v13:
                     if side == "right":
                         q_actual[arm_idx[6]] += np.radians(3.20 + j6_staged)
                         q_actual[arm_idx[5]] += np.radians(-2.10 + j5_staged)
@@ -761,10 +763,21 @@ class SimulatedMarkerTransform:
             T_head_to_cam = BaseCalibrator.make_transform(mount_to_cam)
             T_t5_to_cam = T_t5_to_head @ T_head_to_cam
             
-            if side == "left":
-                tf_vec = self.camera_config.get("Tf_to_marker_left", [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0])
+            if is_v13:
+                default_left = [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
+                default_right = [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
+                key_left = "Tf_to_marker_left_v13"
+                key_right = "Tf_to_marker_right_v13"
             else:
-                tf_vec = self.camera_config.get("Tf_to_marker_right", [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0])
+                default_left = [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0]
+                default_right = [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0]
+                key_left = "Tf_to_marker_left"
+                key_right = "Tf_to_marker_right"
+
+            if side == "left":
+                tf_vec = self.camera_config.get(key_left, default_left)
+            else:
+                tf_vec = self.camera_config.get(key_right, default_right)
             T_ee_to_marker = BaseCalibrator.make_transform(tf_vec)
             
             T_cam_to_t5 = np.linalg.inv(T_t5_to_cam)
@@ -1416,6 +1429,7 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_data_5 = None
         self.marker_data_6 = None
         self.joint_sweep_data = None
+        self.generated_plots = []
         
         # Cumulative Joint Offsets for iterative sweeps
         self.joint_offsets = {
@@ -1429,6 +1443,11 @@ class UnifiedCalibrationApp(QWidget):
         
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
+        if self.robot:
+            try:
+                self.robot.joint_offsets = self.joint_offsets
+            except AttributeError:
+                pass
         
         self.setWindowTitle("Unified Robot Calibration Suite")
         self.resize(1050, 550)
@@ -2016,19 +2035,30 @@ class UnifiedCalibrationApp(QWidget):
         log_layout.addWidget(self.log_text)
         log_tab.setLayout(log_layout)
         
-        # Tab 2: Interactive Plot Viewer (Plot & Img)
+        # Tab 2: Interactive Plot Viewer (Plot)
         self.plot_tab = QWidget()
         plot_layout = QVBoxLayout()
+        
+        # Navigation area for selecting plots
+        nav_layout = QHBoxLayout()
+        nav_label = QLabel("Select Plot:")
+        nav_label.setFont(QFont("Segoe UI", 9, QFont.Bold))
+        self.combo_plots = QComboBox()
+        self.combo_plots.setStyleSheet("background-color: #2d2d2d; color: #ffffff; border: 1px solid #3d3d3d; border-radius: 4px; padding: 2px;")
+        self.combo_plots.currentIndexChanged.connect(self.on_plot_selection_changed)
+        nav_layout.addWidget(nav_label)
+        nav_layout.addWidget(self.combo_plots, 1)
         
         self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations")
         self.plot_label_combined.setAlignment(Qt.AlignCenter)
         self.plot_label_combined.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
         
+        plot_layout.addLayout(nav_layout)
         plot_layout.addWidget(self.plot_label_combined)
         self.plot_tab.setLayout(plot_layout)
         
         self.right_tabs.addTab(log_tab, "System Log")
-        self.right_tabs.addTab(self.plot_tab, "Plot / Img")
+        self.right_tabs.addTab(self.plot_tab, "Plot")
 
         col3_layout.addWidget(status_box)
         col3_layout.addWidget(self.right_tabs, 1)
@@ -2261,6 +2291,11 @@ class UnifiedCalibrationApp(QWidget):
                 self.robot_version = detected_version
                 if self.robot and hasattr(self.robot, "robot_version"):
                     self.robot.robot_version = detected_version
+                if self.robot:
+                    try:
+                        self.robot.joint_offsets = self.joint_offsets
+                    except AttributeError:
+                        pass
 
                 # Configure calibrators version
                 self.marker_calibrator.robot_version = detected_version
@@ -2274,7 +2309,7 @@ class UnifiedCalibrationApp(QWidget):
 
                 # Setup SimulatedMarkerTransform if simulator is connected in UI Mode
                 if self.ui_only and not self.is_mock:
-                    self.marker_st = SimulatedMarkerTransform(self.robot, self.marker_calibrator.camera_config)
+                    self.marker_st = SimulatedMarkerTransform(self.robot, self.marker_calibrator.camera_config, self.robot_version)
                     self.marker_calibrator.marker_st = self.marker_st
                     self.joint_calibrator.marker_st = self.marker_st
                     self.log_msg("[INFO] Configured SimulatedMarkerTransform for simulation motion.")
@@ -2913,6 +2948,9 @@ class UnifiedCalibrationApp(QWidget):
             self.update_applied_offset_label()
             self.log_msg(f"[INFO] Full Auto: Staged joint offsets for {arm_side.upper()} Arm - Joint 5: {bracket_res['opt_delta_5']:.4f}°, Joint 6: {bracket_res['opt_delta_6']:.4f}°")
 
+        if 'plot_path_combined' in bracket_res:
+            self.add_and_show_plot(f"[{arm_side.upper()}] FullAuto - Marker Bracket", bracket_res['plot_path_combined'])
+
         self.log_msg(f"[INFO] Full Auto: Finished bracket calibration for {arm_side.upper()} arm. Values staged in UI (click APPLY BRACKETS to save).")
 
     def handle_full_auto_joint_finished(self, joint_res):
@@ -2936,6 +2974,9 @@ class UnifiedCalibrationApp(QWidget):
         
         self.log_msg(f"[INFO] Full Auto: Finished joint calibration for {arm_side.upper()} {mode}. Staged: {recommended:.4f}° (click APPLY OFFSET to save).")
         
+        if 'plot_path_combined' in joint_res:
+            self.add_and_show_plot(f"[{arm_side.upper()}] FullAuto Joint - {mode}", joint_res['plot_path_combined'])
+
         if hasattr(self, 'stop_event_mc'):
             self.stop_event_mc.clear()
         
@@ -3031,10 +3072,7 @@ class UnifiedCalibrationApp(QWidget):
 
         # Update Plot viewer if plots exist
         if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
-            pix = QPixmap(res['plot_path_combined']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            self.plot_label_combined.setPixmap(pix)
-            
-        self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
+            self.add_and_show_plot(f"[{self.arm_side.upper()}] Joint - {mode}", res['plot_path_combined'])
 
         # Update UI bracket design text fields if new values are calibrated
         if 'x_cal' in res and not np.isnan(res['x_cal']):
@@ -3245,11 +3283,33 @@ class UnifiedCalibrationApp(QWidget):
                 self.update_applied_offset_label()
                 self.log_msg(f"[INFO] Staged joint offsets for {self.arm_side.upper()} Arm - Joint 5: {res['opt_delta_5']:.4f}°, Joint 6: {res['opt_delta_6']:.4f}°")
 
+            # Update UI bracket design text fields
+            arm_side = self.arm_side
+            x_m, y_m, z_m = res['x_e']/1000.0, res['y_e']/1000.0, res['z_e']/1000.0
+            if arm_side == "left":
+                self.txt_bracket_l_x.setText(f"{x_m:.5f}")
+                self.txt_bracket_l_y.setText(f"{y_m:.5f}")
+                self.txt_bracket_l_z.setText(f"{z_m:.5f}")
+                self.txt_bracket_l_roll.setText(f"{res['roll_e']:.2f}")
+                self.txt_bracket_l_pitch.setText(f"{res['pitch_e']:.2f}")
+                self.txt_bracket_l_yaw.setText(f"{res['yaw_e']:.2f}")
+            else:
+                self.txt_bracket_r_x.setText(f"{x_m:.5f}")
+                self.txt_bracket_r_y.setText(f"{y_m:.5f}")
+                self.txt_bracket_r_z.setText(f"{z_m:.5f}")
+                self.txt_bracket_r_roll.setText(f"{res['roll_e']:.2f}")
+                self.txt_bracket_r_pitch.setText(f"{res['pitch_e']:.2f}")
+                self.txt_bracket_r_yaw.setText(f"{res['yaw_e']:.2f}")
+
+            # Sync to memory configs
+            new_vals = [x_m, y_m, z_m, res['roll_e'], res['pitch_e'], res['yaw_e']]
+            key = f"Tf_to_marker_{arm_side}"
+            self.marker_calibrator.camera_config[key] = new_vals
+            self.joint_calibrator.camera_config[key] = new_vals
+            self.log_msg(f"[INFO] Staged calibrated nominal marker values in UI for {arm_side} arm. (Click APPLY BRACKETS to save)")
+
             if 'plot_path_combined' in res and os.path.exists(res['plot_path_combined']):
-                pix = QPixmap(res['plot_path_combined']).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                self.plot_label_combined.setPixmap(pix)
-            
-            self.right_tabs.setCurrentIndex(1) # Auto swap to plot tab
+                self.add_and_show_plot(f"[{self.arm_side.upper()}] Marker Bracket", res['plot_path_combined'])
             self.show_unified_result_marker_direct(res)
         else:
             self.log_msg("[ERROR] Marker sweep failed.")
@@ -3339,6 +3399,30 @@ class UnifiedCalibrationApp(QWidget):
             else:
                 self.log_msg(f"  Tf_to_marker_right: [{x_m:.4f}, {y_m:.4f}, {z_m:.4f}, {res['roll_e']:.2f}, {res['pitch_e']:.2f}, {res['yaw_e']:.2f}]")
                 
+            # Update UI bracket design text fields
+            arm_side = self.arm_side
+            if arm_side == "left":
+                self.txt_bracket_l_x.setText(f"{x_m:.5f}")
+                self.txt_bracket_l_y.setText(f"{y_m:.5f}")
+                self.txt_bracket_l_z.setText(f"{z_m:.5f}")
+                self.txt_bracket_l_roll.setText(f"{res['roll_e']:.2f}")
+                self.txt_bracket_l_pitch.setText(f"{res['pitch_e']:.2f}")
+                self.txt_bracket_l_yaw.setText(f"{res['yaw_e']:.2f}")
+            else:
+                self.txt_bracket_r_x.setText(f"{x_m:.5f}")
+                self.txt_bracket_r_y.setText(f"{y_m:.5f}")
+                self.txt_bracket_r_z.setText(f"{z_m:.5f}")
+                self.txt_bracket_r_roll.setText(f"{res['roll_e']:.2f}")
+                self.txt_bracket_r_pitch.setText(f"{res['pitch_e']:.2f}")
+                self.txt_bracket_r_yaw.setText(f"{res['yaw_e']:.2f}")
+
+            # Sync to memory configs
+            new_vals = [x_m, y_m, z_m, res['roll_e'], res['pitch_e'], res['yaw_e']]
+            key = f"Tf_to_marker_{arm_side}"
+            self.marker_calibrator.camera_config[key] = new_vals
+            self.joint_calibrator.camera_config[key] = new_vals
+            self.log_msg(f"[INFO] Staged calibrated nominal marker values in UI for {arm_side} arm. (Click APPLY BRACKETS to save)")
+
             self.log_msg(f"\n[4] Confidence Metrics:")
             self.log_msg(f"    - Orthogonality Error  : {res['ortho_err']:.3f} deg")
             
@@ -3352,6 +3436,41 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[ERROR] Failed to calculate bracket calibration: {e}")
             
         self.log_msg("="*50)
+
+    def add_and_show_plot(self, friendly_name, file_path):
+        if not file_path or not os.path.exists(file_path):
+            return
+        
+        t_str = time.strftime("%H:%M:%S")
+        display_name = f"[{t_str}] {friendly_name}"
+        
+        # Check if file_path already in list
+        existing_idx = -1
+        for idx, (_, path) in enumerate(self.generated_plots):
+            if path == file_path:
+                existing_idx = idx
+                break
+                
+        if existing_idx == -1:
+            self.generated_plots.append((display_name, file_path))
+            self.combo_plots.addItem(display_name)
+            selected_idx = len(self.generated_plots) - 1
+        else:
+            selected_idx = existing_idx
+            
+        self.combo_plots.setCurrentIndex(selected_idx)
+        self.display_plot_image(file_path)
+        self.right_tabs.setCurrentIndex(1) # Switch to Plot tab
+
+    def on_plot_selection_changed(self, index):
+        if 0 <= index < len(self.generated_plots):
+            _, file_path = self.generated_plots[index]
+            self.display_plot_image(file_path)
+
+    def display_plot_image(self, file_path):
+        if os.path.exists(file_path):
+            pix = QPixmap(file_path).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.plot_label_combined.setPixmap(pix)
 
     # --- Head Control and Manual Operations ---
     def move_head_manually(self):
@@ -3508,12 +3627,10 @@ class UnifiedCalibrationApp(QWidget):
         # Delegate image generation to IntrinsicsCalibrator
         self.intrinsics_calibrator.generate_verification_image(test_img, save_path)
         
-        # Load inside Plot & Img tab
-        pix = QPixmap(save_path).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.plot_label_combined.setPixmap(pix)
-        self.right_tabs.setCurrentIndex(1) # Switch to Plot / Img tab
+        # Load inside Plot tab
+        self.add_and_show_plot("[INTRINSICS] Verification Image", save_path)
         
-        self.log_msg(f"[INTRINSICS] Verification image loaded to Plot / Img tab and saved to: {save_path}")
+        self.log_msg(f"[INTRINSICS] Verification image loaded to Plot tab and saved to: {save_path}")
 
     def closeEvent(self, event):
         if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:

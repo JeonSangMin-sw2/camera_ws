@@ -274,11 +274,11 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. Nominal marker orientation in EE frame
-        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+        version_suffix = "_v13" if self.is_v13() else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
-            version_suffix = "_v13" if self.is_v13() else "_v12"
-            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            tf_vec = self.camera_config.get(tf_key)
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
@@ -308,9 +308,9 @@ class MarkerCalibrator(BaseCalibrator):
             return ideal_axis
 
         # Ideal axes in marker frame (for sign resolution)
-        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
-        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
-        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
+        x_ee_m_ideal = R_ee_m_ideal @ np.array([1.0, 0.0, 0.0])
+        y_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 1.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 0.0, 1.0])
 
         poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
         poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
@@ -483,7 +483,9 @@ class MarkerCalibrator(BaseCalibrator):
                 n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
                 
                 r6_p = np.sqrt(ye**2 + ze**2)
-                Z_p = ye * np.sin(d6_val) + ze * np.cos(d6_val) - L_m
+                ze_shifted = ze + z_sign * L_m
+                Z_p = ye * np.sin(d6_val) + ze_shifted * np.cos(d6_val)
+                Y_p = ye * np.cos(d6_val) - ze_shifted * np.sin(d6_val)
                 r5_p = np.sqrt(xe**2 + Z_p**2)
             else:
                 n6_p = R_em.T @ np.array([0.0, 0.0, 1.0])
@@ -509,7 +511,6 @@ class MarkerCalibrator(BaseCalibrator):
             res.append(radius_5_m - r5_p)
             if marker_data_4 is not None:
                 if self.is_v13():
-                    Y_p = ye * np.cos(d6_val) - ze * np.sin(d6_val)
                     r4_p = np.sqrt((xe * np.cos(d5_val) + Z_p * np.sin(d5_val))**2 + Y_p**2)
                 else:
                     Y_p = xe * np.sin(d6_val) + ye * np.cos(d6_val)
@@ -611,11 +612,11 @@ class MarkerCalibrator(BaseCalibrator):
         L_5_ee = self.get_link_length(arm_side)
 
         # 1. 이상적인 마커 오일러 각도 (ZYX 기준)
-        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+        version_suffix = "_v13" if self.is_v13() else "_v12"
+        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+        tf_vec = self.camera_config.get(tf_key)
         if tf_vec is None:
-            version_suffix = "_v13" if self.is_v13() else "_v12"
-            tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            tf_vec = self.camera_config.get(tf_key)
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
             
         if tf_vec is not None and len(tf_vec) >= 6:
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
@@ -625,9 +626,9 @@ class MarkerCalibrator(BaseCalibrator):
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
         
-        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
-        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
-        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 0.0, 1.0])
+        y_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 1.0, 0.0])
+        x_ee_m_ideal = R_ee_m_ideal @ np.array([1.0, 0.0, 0.0])
 
         def extract_axis_from_rotations(poses, ideal_axis):
             if len(poses) < 2: return ideal_axis
@@ -774,9 +775,8 @@ class MarkerCalibrator(BaseCalibrator):
         # v1.2: Z축 회전 방향 비틀림(Torsion) 오차 배제 - 명목 설계값 yaw으로 고정
         ver_key = "1.3" if self.is_v13() else "1.2"
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-        # yaw_e = nominal_vec[5]
-        if not self.is_v13() and calib_roll_deg is not None:
-            yaw_e = yaw_e + calib_roll_deg
+        if not self.is_v13():
+            yaw_e = nominal_vec[5]
         
         if arm_side == "right" and yaw_e < 0:
             yaw_e += 360.0
@@ -901,7 +901,10 @@ class MarkerCalibrator(BaseCalibrator):
             'rmse_5': marker_data_5.get('rmse', 0.0),
             'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 is not None else 0.0,
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
-            'warn_large_angle': rot_err_deg > 15.0
+            'warn_large_angle': rot_err_deg > 15.0,
+            'n6_marker_actual': n6_marker_actual,
+            'n5_marker_actual': n5_marker_actual,
+            'y_ee_m_ideal': y_ee_m_ideal
         }
 
     def generate_marker_plot(self, res_5, res_6, res_4, unified_res, arm_side, is_v13, save_path):

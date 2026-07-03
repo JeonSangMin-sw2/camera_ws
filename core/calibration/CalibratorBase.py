@@ -35,15 +35,15 @@ class BaseCalibrator:
             "joint5_v12": 5.4,
             "joint3": 0.5,
             "bracket_pos": [0.0005, 0.002, 0.005],  # meters
-            "bracket_rpy": [-0.2, -1.2, 0.1]        # degrees
+            "bracket_rpy": [-0.4, 0.8, 0.1]        # degrees
         },
         "left": {
-            "joint6": 5.5,
+            "joint6": 3.5,
             "joint5_v13": 3.6,
             "joint5_v12": -3,
             "joint3": 0.7,
             "bracket_pos": [-0.002, 0.00, -0.003], # meters
-            "bracket_rpy": [-0.8, 1.5, 0.0]        # degrees
+            "bracket_rpy": [-0.3, 1.5, 0.0]        # degrees
         }
     }
     NOMINAL_BRACKET_TEMPLATES = {
@@ -369,9 +369,14 @@ class BaseCalibrator:
             else:
                 offsets = self.robot.joint_offsets
 
-        j6_staged = offsets.get("wrist_roll", 0.0) if is_v13 else offsets.get("wrist_yaw2", 0.0)
-        j5_staged = offsets.get("wrist_pitch", 0.0)
-        j3_staged = offsets.get("elbow", 0.0)
+        is_pure_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
+        j6_staged = 0.0
+        j5_staged = 0.0
+        j3_staged = 0.0
+        if is_pure_mock:
+            j6_staged = offsets.get("wrist_roll", 0.0) if is_v13 else offsets.get("wrist_yaw2", 0.0)
+            j5_staged = offsets.get("wrist_pitch", 0.0)
+            j3_staged = offsets.get("elbow", 0.0)
 
         injected_joint_offsets_deg = [0.0] * 7
         injected_joint_offsets_deg[3] = j3_gt + j3_staged

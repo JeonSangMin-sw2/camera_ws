@@ -183,7 +183,14 @@ class JointCalibrator(BaseCalibrator):
                 # Normal update: apply correction
                 prev_error = angle_dev
                 prev_step_correction = step_correction
-                staged_offset += step_correction
+                if mode in ("wrist_roll_v13", "wrist_yaw2"):
+                    # J6 modes return absolute recommended offset, not relative steps.
+                    # Convert step_correction to relative for convergence check and update staged_offset directly.
+                    step_correction_delta = step_correction - staged_offset
+                    staged_offset = step_correction
+                    step_correction = step_correction_delta
+                else:
+                    staged_offset += step_correction
                 
                 # Safety: clamp staged_offset to the joint's configured offset range
                 jcfg = self.JOINT_CONFIGS.get(mode, {})
@@ -896,12 +903,23 @@ class JointCalibrator(BaseCalibrator):
                     optimal_offset_deg = unified_res.get('opt_delta_6', 0.0)
                     diff_angle = np.radians(optimal_offset_deg)
                 else: # wrist_yaw2
-                    ver_key = "1.3" if self.is_v13() else "1.2"
-                    nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-                    nominal_rpy = nominal_vec[3:6]
-                    yaw_e = unified_res.get('yaw_e', nominal_rpy[2])
-                    diff_angle = np.radians(nominal_rpy[2] - yaw_e)
-                    diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
+                    # Coordinate-free vector projection method (ultimate solution)
+                    # n6_marker_actual is J6 axis (normal to the plane of J6 rotation)
+                    # n5_marker_actual is J5 axis (vector that rotates around J6 axis)
+                    # y_ee_m_ideal is the nominal J5 axis in the marker frame
+                    z_axis = unified_res['n6_marker_actual']
+                    n5_act = unified_res['n5_marker_actual']
+                    ref_y = unified_res['y_ee_m_ideal']
+                    
+                    # Project J5 axis onto the plane perpendicular to J6 axis
+                    n5_proj = n5_act - np.dot(n5_act, z_axis) * z_axis
+                    n5_proj /= np.linalg.norm(n5_proj)
+                    
+                    ref_x = np.cross(z_axis, ref_y)
+                    ref_x /= np.linalg.norm(ref_x)
+                    
+                    # Calculate angle around z_axis from ref_y to n5_proj
+                    diff_angle = np.arctan2(np.dot(n5_proj, ref_x), np.dot(n5_proj, ref_y))
                     optimal_offset_deg = np.degrees(diff_angle)
             except Exception as e:
                 import traceback
