@@ -11,7 +11,7 @@ app = QApplication.instance()
 if app is None:
     app = QApplication([])
 
-from core.calibration.mock_robot import get_mock_robot, pure_mock_compute_fk_impl
+from core.calibration.mock_robot import get_mock_robot
 from core.calibration.CalibratorBase import BaseCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
 from core.calibration.MarkerCalibrator import MarkerCalibrator
@@ -25,8 +25,6 @@ def test_full_auto_version(version_num):
     # 1. Initialize mock robot
     model_name = "m" if version_num == "1.3" else "a"
     robot = get_mock_robot(model_name=model_name, robot_version=version_num)
-    robot.is_pure_mock = True
-    BaseCalibrator.compute_fk = staticmethod(pure_mock_compute_fk_impl)
     
     # Set default camera_config
     ver_key = "1.3" if version_num == "1.3" else "1.2"

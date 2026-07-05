@@ -208,11 +208,8 @@ class MarkerCalibrator(BaseCalibrator):
                     else:
                         q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
                 
-                if self.robot and self.robot != "mock_robot":
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-                else:
-                    T_t5_to_cam = T_t5_to_cam_fixed
+                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
+                T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
                 
                 T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
                 T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_mod, ee_name, "link_torso_5")
@@ -308,9 +305,9 @@ class MarkerCalibrator(BaseCalibrator):
             return ideal_axis
 
         # Ideal axes in marker frame (for sign resolution)
-        x_ee_m_ideal = R_ee_m_ideal @ np.array([1.0, 0.0, 0.0])
-        y_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 1.0, 0.0])
-        z_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 0.0, 1.0])
+        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
+        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
 
         poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
         poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
@@ -348,54 +345,48 @@ class MarkerCalibrator(BaseCalibrator):
 
         # Stage 1: Solve for Joint 6 offset and marker roll misalignment using 6-axis sweep data
         R_list_6 = []
-        if self.robot and self.robot != "mock_robot":
-            try:
-                mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
-                T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
-                dyn_model = self.robot.get_dynamics()
-                ee_name = f"ee_{arm_side}"
-                q_full_6 = marker_data_6.get('captured_q_full', [])
-                is_v13 = self.is_v13()
-                model = self.robot.model()
-                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
-                    # q_physical = q_full - joint_offset (apply joint offsets to reconstruct actual physical angle)
-                    q_mod = np.array(q_full)
-                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                        q_mod[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
-                        q_mod[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
-                        if is_v13:
-                            q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
-                        else:
-                            q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
-                    
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
-                    R_t5_to_cam = T_t5_to_cam[:3, :3]
-                    
-                    T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_mod, ee_name, "link_torso_5")
-                    R_ee_to_t5 = T_t5_to_ee[:3, :3].T
-                    R_cam_to_marker = T_cam_to_marker[:3, :3]
-                    R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
-                    R_list_6.append(R_ee_to_marker)
-            except Exception as e:
-                logging.warning(f"Kinematic calculation failed in stage 1: {e}")
+        if not self.robot:
+            raise RuntimeError("Robot instance is not initialized")
 
-        if len(R_list_6) > 0:
-            M = np.mean(R_list_6, axis=0)
-            U, S, Vt = np.linalg.svd(M)
+        mount_to_cam_rot_only = [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+        T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+        dyn_model = self.robot.get_dynamics()
+        ee_name = f"ee_{arm_side}"
+        q_full_6 = marker_data_6.get('captured_q_full', [])
+        is_v13 = self.is_v13()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
+            # q_physical = q_full - joint_offset (apply joint offsets to reconstruct actual physical angle)
+            q_mod = np.array(q_full)
+            if hasattr(self, 'joint_offsets') and self.joint_offsets:
+                offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+                q_mod[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
+                q_mod[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
+                if is_v13:
+                    q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
+                else:
+                    q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
+            
+            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+            R_t5_to_cam = T_t5_to_cam[:3, :3]
+            
+            T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_mod, ee_name, "link_torso_5")
+            R_ee_to_t5 = T_t5_to_ee[:3, :3].T
+            R_cam_to_marker = T_cam_to_marker[:3, :3]
+            R_ee_to_marker = R_ee_to_t5 @ R_t5_to_cam @ R_cam_to_marker
+            R_list_6.append(R_ee_to_marker)
+
+        if len(R_list_6) == 0:
+            raise RuntimeError("No valid kinematic frames available for Stage 1 optimization")
+
+        M = np.mean(R_list_6, axis=0)
+        U, S, Vt = np.linalg.svd(M)
+        R_ee_m_measured = U @ Vt
+        if np.linalg.det(R_ee_m_measured) < 0:
+            U[:, 2] *= -1
             R_ee_m_measured = U @ Vt
-            if np.linalg.det(R_ee_m_measured) < 0:
-                U[:, 2] *= -1
-                R_ee_m_measured = U @ Vt
-        else:
-            # Fallback to Gram-Schmidt if no robot kinematics available
-            x_col = n6_marker_actual
-            y_col = n5_marker_actual - np.dot(n5_marker_actual, x_col) * x_col
-            y_col /= np.linalg.norm(y_col)
-            z_col = np.cross(x_col, y_col)
-            R_ee_m_measured = np.column_stack((x_col, y_col, z_col)).T
 
         # Decompose R_ee_m_measured into ZYX Euler angles
         # Calculate rotation difference in the EE frame: R_diff = R_ee_m_measured @ R_ee_m_ideal.T
@@ -597,7 +588,10 @@ class MarkerCalibrator(BaseCalibrator):
             'warn_large_angle': rot_err_deg > 15.0,
             'opt_delta_5': opt_delta_5,
             'opt_delta_6': opt_delta_6,
-            'min_radius': radius_4
+            'min_radius': radius_4,
+            'n6_marker_actual': n6_marker_actual,
+            'n5_marker_actual': n5_marker_actual,
+            'y_ee_m_ideal': y_ee_m_ideal
         }
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
@@ -626,9 +620,9 @@ class MarkerCalibrator(BaseCalibrator):
             
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
         
-        z_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 0.0, 1.0])
-        y_ee_m_ideal = R_ee_m_ideal @ np.array([0.0, 1.0, 0.0])
-        x_ee_m_ideal = R_ee_m_ideal @ np.array([1.0, 0.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
+        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
 
         def extract_axis_from_rotations(poses, ideal_axis):
             if len(poses) < 2: return ideal_axis
@@ -681,15 +675,13 @@ class MarkerCalibrator(BaseCalibrator):
             theta_6 = marker_data_5.get('theta_6', None)
             if theta_6 is None:
                 q_full_5 = marker_data_5.get('captured_q_full', [])
-                if len(q_full_5) > 0 and self.robot and self.robot != "mock_robot":
-                    try:
-                        model = self.robot.model()
-                        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                        q_idx = arm_idx[6]
-                        theta_6 = np.mean([q[q_idx] for q in q_full_5])
-                    except Exception as e:
-                        logging.warning(f"Failed to extract joint 6 angle for correction: {e}")
-                        theta_6 = 0.0
+                if len(q_full_5) > 0:
+                    if not self.robot:
+                        raise RuntimeError("Robot instance is not initialized")
+                    model = self.robot.model()
+                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                    q_idx = arm_idx[6]
+                    theta_6 = np.mean([q[q_idx] for q in q_full_5])
                 else:
                     theta_6 = 0.0
 
@@ -710,15 +702,13 @@ class MarkerCalibrator(BaseCalibrator):
                 theta_6_4 = marker_data_4.get('theta_6', None)
                 if theta_6_4 is None:
                     q_full_4 = marker_data_4.get('captured_q_full', [])
-                    if len(q_full_4) > 0 and self.robot and self.robot != "mock_robot":
-                        try:
-                            model = self.robot.model()
-                            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                            q_idx = arm_idx[6]
-                            theta_6_4 = np.mean([q[q_idx] for q in q_full_4])
-                        except Exception as e:
-                            logging.warning(f"Failed to extract joint 6 angle for joint 4 correction: {e}")
-                            theta_6_4 = 0.0
+                    if len(q_full_4) > 0:
+                        if not self.robot:
+                            raise RuntimeError("Robot instance is not initialized")
+                        model = self.robot.model()
+                        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                        q_idx = arm_idx[6]
+                        theta_6_4 = np.mean([q[q_idx] for q in q_full_4])
                     else:
                         theta_6_4 = 0.0
 
@@ -861,9 +851,9 @@ class MarkerCalibrator(BaseCalibrator):
 
         # Circle fitting validation checks
         r6_err = abs(radius_6 - np.sqrt(x_e**2 + y_e**2))
-        r5_err = abs(radius_5 - np.sqrt(x_e**2 + (z_e + L_5_ee)**2))
+        r5_err = abs(radius_5 - np.sqrt(x_e**2 + (z_e + z_sign * L_5_ee)**2))
         if marker_data_4 is not None:
-            r4_err = abs(radius_4 - np.sqrt((L_5_ee + z_e)**2 + y_e**2))
+            r4_err = abs(radius_4 - np.sqrt((z_sign * L_5_ee + z_e)**2 + y_e**2))
             print(f"[VALIDATION] {arm_side.upper()} ARM BRACKET SWEEP CIRCLE RESIDUALS:", flush=True)
             print(f"  * J6 Sweep Radius Err: {r6_err:.4f} mm", flush=True)
             print(f"  * J5 Sweep Radius Err: {r5_err:.4f} mm", flush=True)

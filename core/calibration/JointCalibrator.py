@@ -38,6 +38,8 @@ class DebugLogger:
                 
     def save(self):
         try:
+            if os.path.exists(self.file_path):
+                return
             with open(self.file_path, "w", encoding="utf-8") as f:
                 f.write("\n".join(self.buffer) + "\n")
         except Exception:
@@ -48,12 +50,14 @@ class JointCalibrator(BaseCalibrator):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
-    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
+    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
         config_dir = os.path.abspath(os.path.dirname(__file__))
-        debug_file_path = os.path.join(config_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
+        result_txt_dir = os.path.join(config_dir, "result_txt")
+        os.makedirs(result_txt_dir, exist_ok=True)
+        debug_file_path = os.path.join(result_txt_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
         logger = DebugLogger(log_callback, debug_file_path)
         original_log = log_callback
         log_callback = logger.log
@@ -78,7 +82,7 @@ class JointCalibrator(BaseCalibrator):
                     use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
                 )
                 
-            max_iterations = 10
+            max_iterations = 6
             staged_offset = current_offset_deg
             final_res = None
             first_res = None
@@ -154,7 +158,7 @@ class JointCalibrator(BaseCalibrator):
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
                 if mode == "wrist_pitch_v13":
-                    damping = 0.1
+                    damping = 0.9
                 elif mode in ("wrist_pitch", "elbow"):
                     damping = 0.95
                 else:
@@ -229,11 +233,27 @@ class JointCalibrator(BaseCalibrator):
                 'r_B': final_res.get('r_B', float('nan')) if final_res else float('nan'),
             }
         
-            # Since the final iteration ran physically at (or very close to) the final offset,
-            # we reuse final_res as the validation sweep to avoid a redundant extra sweep.
+            # Save first_res and final_res inside final_output so that the caller (FullAutoWorker) can retrieve them
+            final_output['first_res'] = first_res
+            final_output['final_res'] = final_res
+
+            # Plot generation logic
             validation_res = final_res
-            if validation_res and first_res:
-                plot_path = self.save_calibration_comparison_plot(arm_side, mode, first_res, validation_res, log_callback=log_callback)
+            if validation_res and (first_res or pass1_res):
+                if pass_idx == 2 and pass1_res is not None:
+                    # True cross-pass BEFORE (Pass 1 start) vs AFTER (Pass 2 validation) comparison plot
+                    first_res_for_plot = pass1_res.get('first_res', first_res)
+                    plot_path = self.save_calibration_comparison_plot(
+                        arm_side, mode, first_res_for_plot, validation_res, 
+                        log_callback=log_callback, force_overwrite=True
+                    )
+                else:
+                    # In Pass 1 or manual mode, save a comparison plot of the current pass.
+                    # In Pass 1, this will be overwritten later when Pass 2 completes.
+                    plot_path = self.save_calibration_comparison_plot(
+                        arm_side, mode, first_res, validation_res, 
+                        log_callback=log_callback, force_overwrite=False
+                    )
                 final_output['plot_path_combined'] = plot_path
             
             return final_output
@@ -402,7 +422,7 @@ class JointCalibrator(BaseCalibrator):
             if log_callback:
                 log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
 
-    def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None):
+    def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None, force_overwrite=False):
         try:
             import os
             import numpy as np
@@ -549,11 +569,15 @@ class JointCalibrator(BaseCalibrator):
             result_dir = os.path.join(os.path.dirname(__file__), "result_img")
             os.makedirs(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
-            plt.savefig(plot_save_path, dpi=150)
-            plt.close()
-
-            if log_callback:
-                log_callback(f"[SUCCESS] Saved combined calibration comparison plot to: {plot_save_path}")
+            if not force_overwrite and os.path.exists(plot_save_path):
+                plt.close()
+                if log_callback:
+                    log_callback(f"[INFO] Comparison plot already exists at: {plot_save_path}, skipping overwrite.")
+            else:
+                plt.savefig(plot_save_path, dpi=150)
+                plt.close()
+                if log_callback:
+                    log_callback(f"[SUCCESS] Saved combined calibration comparison plot to: {plot_save_path}")
             return plot_save_path
         except Exception as e:
             if log_callback:
@@ -731,49 +755,47 @@ class JointCalibrator(BaseCalibrator):
         cand_joint = jcfg["cand_joint"]
         sweep_joint_A = jcfg["sweep_joint_A"]
         sweep_joint_B = jcfg["sweep_joint_B"]
-        
-        state = self.robot.get_state() if self.robot else None
-        model = self.robot.model() if self.robot else None
-        arm_idx = (model.left_arm_idx if arm_side == "left" else model.right_arm_idx) if model else list(range(7))
-        dyn_model = self.robot.get_dynamics() if self.robot else None
+
+        if not self.robot:
+            raise RuntimeError("Robot instance is not initialized")
+            
+        state = self.robot.get_state()
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        dyn_model = self.robot.get_dynamics()
         ee_name = f"ee_{arm_side}"
 
         # Compute dynamic nominal axes using forward kinematics (FK) at the ready pose
-        is_pure_mock = getattr(self.robot, "is_pure_mock", False) if self.robot else True
-        if self.robot:
-            try:
-                # Construct full q array at ready pose
-                q_ready_full = np.array(state.position)
-                for idx, val in zip(arm_idx, initial_joint_pos):
-                    q_ready_full[idx] = val
+        # Construct full q array at ready pose
+        q_ready_full = np.array(state.position)
+        for idx, val in zip(arm_idx, initial_joint_pos):
+            q_ready_full[idx] = val
 
-                def get_link_name(j_idx):
-                    return f"link_{arm_side}_arm_{j_idx}"
+        # Subtract joint offsets to get nominal angles
+        if hasattr(self, 'joint_offsets') and self.joint_offsets:
+            offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+            is_v13 = self.is_v13()
+            j6_key = "wrist_roll" if is_v13 else "wrist_yaw2"
+            q_ready_full[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
+            q_ready_full[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
+            q_ready_full[arm_idx[6]] -= np.radians(offsets.get(j6_key, 0.0))
 
-                T_cand = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(cand_joint - 1))
-                T_A = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_A - 1))
-                T_B = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_B - 1))
+        def get_link_name(j_idx):
+            return f"link_{arm_side}_arm_{j_idx}"
 
-                a_cand_t5 = T_cand[:3, :3] @ a_cand_local
-                a_A_t5 = T_A[:3, :3] @ a_A_local
-                a_B_t5 = T_B[:3, :3] @ a_B_local
-                
-                if log_callback:
-                    log_callback(f"[INFO] Dynamically calculated nominal axes from FK (Arm: {arm_side}, Mode: {mode}):")
-                    log_callback(f"       a_cand_t5 = {a_cand_t5.tolist()}")
-                    log_callback(f"       a_A_t5    = {a_A_t5.tolist()}")
-                    log_callback(f"       a_B_t5    = {a_B_t5.tolist()}")
-            except Exception as e:
-                if log_callback:
-                    log_callback(f"[WARN] Failed to compute dynamic nominal axes from FK, falling back to constant defaults: {e}")
-                a_cand_t5 = a_cand_local
-                a_A_t5 = a_A_local
-                a_B_t5 = a_B_local
-        else:
-            # Fallback for mock simulation mode
-            a_cand_t5 = a_cand_local
-            a_A_t5 = a_A_local
-            a_B_t5 = a_B_local
+        T_cand = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(cand_joint - 1))
+        T_A = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_A - 1))
+        T_B = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_B - 1))
+
+        a_cand_t5 = T_cand[:3, :3] @ a_cand_local
+        a_A_t5 = T_A[:3, :3] @ a_A_local
+        a_B_t5 = T_B[:3, :3] @ a_B_local
+        
+        if log_callback:
+            log_callback(f"[INFO] Dynamically calculated nominal axes from FK (Arm: {arm_side}, Mode: {mode}):")
+            log_callback(f"       a_cand_t5 = {a_cand_t5.tolist()}")
+            log_callback(f"       a_A_t5    = {a_A_t5.tolist()}")
+            log_callback(f"       a_B_t5    = {a_B_t5.tolist()}")
 
         # Use nominal fixed camera rotation relative to torso (ZYX [-90, 0, -90])
         # to avoid using uncalibrated mount_to_cam values or head kinematics.
@@ -846,6 +868,7 @@ class JointCalibrator(BaseCalibrator):
                     if hasattr(self, 'joint_offsets') and self.joint_offsets:
                         offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
                         q_nom[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
+                        q_nom[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
                         q_nom[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
                     
                     T_torso_to_ee_nom = self.compute_fk(self.robot, dyn_model, q_nom, ee_name, "link_torso_5")
@@ -899,10 +922,7 @@ class JointCalibrator(BaseCalibrator):
                     calib_roll_or_yaw_deg=None, calib_pitch_deg=0.0,
                     lock_bracket=True
                 )
-                if mode == "wrist_roll_v13":
-                    optimal_offset_deg = unified_res.get('opt_delta_6', 0.0)
-                    diff_angle = np.radians(optimal_offset_deg)
-                else: # wrist_yaw2
+                if mode in ("wrist_roll_v13", "wrist_yaw2"):
                     # Coordinate-free vector projection method (ultimate solution)
                     # n6_marker_actual is J6 axis (normal to the plane of J6 rotation)
                     # n5_marker_actual is J5 axis (vector that rotates around J6 axis)

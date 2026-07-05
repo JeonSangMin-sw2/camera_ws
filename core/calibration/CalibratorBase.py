@@ -136,14 +136,13 @@ class BaseCalibrator:
                 mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
                 T_mount_to_cam = self.make_transform(mount_to_cam)
             config_dir = os.path.abspath(os.path.dirname(__file__))
-            if not self.robot or self.robot == "mock_robot":
-                arm_idx = [0]*20
-                for i in range(20):
-                    arm_idx[i] = i
-            else:
-                arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
+            result_txt_dir = os.path.join(config_dir, "result_txt")
+            os.makedirs(result_txt_dir, exist_ok=True)
+            if not self.robot:
+                raise RuntimeError("Robot instance is not initialized")
+            arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
             
-            filename = os.path.join(config_dir, f"sweep_points_{arm_side}_{type_key}_axis_{axis_num}.txt")
+            filename = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{type_key}_axis_{axis_num}.txt")
             
             # Determine prefix for header
             if type_key == "joint_A":
@@ -152,32 +151,27 @@ class BaseCalibrator:
                 angle_header_name = "Joint_B"
             else:
                 angle_header_name = f"Joint_{axis_num}"
-                
+            if os.path.exists(filename):
+                if log_callback:
+                    log_callback(f"[INFO] Sweep points file already exists at {filename}, skipping overwrite.")
+                return
+
             with open(filename, "w") as f:
                 f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
                         "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
                 for q_full, pose in dataset:
-                    if not self.robot or self.robot == "mock_robot":
-                        q_val = q_full[7 + axis_num] if arm_side == "left" else q_full[axis_num]
-                    else:
-                        q_val = q_full[arm_idx[axis_num]]
+                    q_val = q_full[arm_idx[axis_num]]
                     s_deg = np.degrees(q_val - initial_joint_pos[axis_num])
                     p_cam = pose[:3, 3]
                     
                     T_cam_to_marker = pose
-                    if not self.robot or self.robot == "mock_robot":
-                        p_meas_t5 = p_cam
-                        p_ee = p_cam
-                        T_t5_to_marker = T_cam_to_marker
-                        T_ee_to_marker = T_cam_to_marker
-                    else:
-                        T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
-                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                        p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                        p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
-                        T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
-                        T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
+                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
+                    p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
+                    T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
+                    T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
                     
                     T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
                     T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
@@ -315,12 +309,6 @@ class BaseCalibrator:
 
     @staticmethod
     def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
-        # Force pure mock FK implementation for PureMockRobot (no real dynamics available)
-        # OfflineRobot has real URDF dynamics, so it uses the standard SDK FK path below.
-        is_mock_robot = getattr(robot, "is_pure_mock", False) or type(robot).__name__ == "PureMockRobot"
-        if is_mock_robot:
-            from core.calibration.mock_robot import pure_mock_compute_fk_impl
-            return pure_mock_compute_fk_impl(robot, dyn_model, q, ee_link, base_link)
         model = robot.model()
         state = dyn_model.make_state([base_link, ee_link], model.robot_joint_names)
         state.set_q(q)
@@ -357,31 +345,11 @@ class BaseCalibrator:
         bracket_pos_gt = mock_gt["bracket_pos"]
         bracket_rpy_gt = mock_gt["bracket_rpy"]
             
-        offsets = {}
-        if hasattr(self, "joint_offsets") and self.joint_offsets is not None:
-            if "left" in self.joint_offsets and "right" in self.joint_offsets:
-                offsets = self.joint_offsets.get(arm_side, {})
-            else:
-                offsets = self.joint_offsets
-        elif self.robot and hasattr(self.robot, "joint_offsets") and self.robot.joint_offsets is not None:
-            if "left" in self.robot.joint_offsets and "right" in self.robot.joint_offsets:
-                offsets = self.robot.joint_offsets.get(arm_side, {})
-            else:
-                offsets = self.robot.joint_offsets
-
-        is_pure_mock = (not self.robot or self.robot == "mock_robot" or getattr(self.robot, "is_pure_mock", False) or type(self.robot).__name__ == "PureMockRobot")
-        j6_staged = 0.0
-        j5_staged = 0.0
-        j3_staged = 0.0
-        if is_pure_mock:
-            j6_staged = offsets.get("wrist_roll", 0.0) if is_v13 else offsets.get("wrist_yaw2", 0.0)
-            j5_staged = offsets.get("wrist_pitch", 0.0)
-            j3_staged = offsets.get("elbow", 0.0)
-
         injected_joint_offsets_deg = [0.0] * 7
-        injected_joint_offsets_deg[3] = j3_gt + j3_staged
-        injected_joint_offsets_deg[5] = j5_gt + j5_staged
-        injected_joint_offsets_deg[6] = j6_gt + j6_staged
+        injected_joint_offsets_deg[3] = j3_gt
+        injected_joint_offsets_deg[5] = j5_gt
+        injected_joint_offsets_deg[6] = j6_gt
+
         
         if q_actual is None:
             state = self.robot.get_state()
@@ -463,44 +431,6 @@ class BaseCalibrator:
                 left_arm[6] += np.radians(l_j6_offset)
                 left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
                 left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
-
-        is_mock = (robot == "mock_robot" or getattr(robot, "is_pure_mock", False) or hasattr(robot, "is_pure_mock") or type(robot).__name__ in ("PureMockRobot", "OfflineRobot"))
-        if is_mock:
-            logging.info(f"[MOCK] movej executed: torso={torso}, right_arm={right_arm}, left_arm={left_arm}, head={head}")
-            state = robot.get_state()
-            model = robot.model()
-            
-            q_start = state.position.copy()
-            q_end = state.position.copy()
-            
-            if right_arm is not None:
-                for i, val in enumerate(right_arm):
-                    q_end[model.right_arm_idx[i]] = val
-            if left_arm is not None:
-                for i, val in enumerate(left_arm):
-                    q_end[model.left_arm_idx[i]] = val
-            if head is not None:
-                head_idx = getattr(model, "head_idx", [18, 19])
-                for i, val in enumerate(head):
-                    q_end[head_idx[i]] = val
-            if torso is not None:
-                torso_idx = getattr(model, "torso_idx", list(range(6)))
-                for i, val in enumerate(torso):
-                    q_end[torso_idx[i]] = val
-                    
-            # Scale down duration in mock to speed up simulation/tests
-            duration = min(minimum_time, 0.1) if minimum_time > 0 else 0.05
-            t_start = time.time()
-            
-            while True:
-                t_elapsed = time.time() - t_start
-                ratio = min(1.0, t_elapsed / duration)
-                state.position = q_start + ratio * (q_end - q_start)
-                if ratio >= 1.0:
-                    break
-                time.sleep(0.001)
-                
-            return True
 
         comp_cmd = rby.ComponentBasedCommandBuilder()
         
@@ -1241,7 +1171,7 @@ class BaseCalibrator:
         arm_idx = (model.left_arm_idx if arm_side == "left" else model.right_arm_idx) if model else list(range(7))
 
         # Retrieve joint limits with safety clamping
-        dyn_model = self.robot.get_dynamics() if (self.robot and self.robot != "mock_robot") else None
+        dyn_model = self.robot.get_dynamics() if self.robot else None
         q_min = -np.inf
         q_max = np.inf
         if dyn_model and model:
@@ -1310,12 +1240,12 @@ class BaseCalibrator:
         # Capture poses and joint positions at high frequency
         while move_thread.is_alive():
             if getattr(self, 'stop_requested', False):
-                if self.robot and self.robot != "mock_robot":
+                if self.robot:
                     self.robot.cancel_control()
                 move_thread.join()
                 return None
 
-            if self.robot and self.robot != "mock_robot":
+            if self.robot:
                 q_full_captured = np.array(self.robot.get_state().position)
             else:
                 q_full_captured = np.zeros(20)

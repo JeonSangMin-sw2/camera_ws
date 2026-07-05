@@ -6,7 +6,7 @@ import numpy as np
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.calibration.mock_robot import get_mock_robot
+import rby1_sdk
 from core.calibration.MarkerCalibrator import MarkerCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
 from additional_calib_ui import SimulatedMarkerTransform, FullAutoWorker
@@ -20,8 +20,10 @@ def run_simulation():
     print("   RUNNING V1.3 CALIBRATION SIMULATION")
     print("==================================================")
     
-    # 1. Instantiate v1.3 Mock Robot
-    robot = get_mock_robot(model_name="m", robot_version="1.3")
+    # 1. Instantiate simulated robot
+    robot = rby1_sdk.create_robot("127.0.0.1", "m")
+    if not robot.connect():
+        raise ConnectionError("Failed to connect to simulated robot at 127.0.0.1")
     
     # 2. Instantiate calibrators
     marker_cal = MarkerCalibrator(None, robot)

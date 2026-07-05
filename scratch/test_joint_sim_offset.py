@@ -5,7 +5,7 @@ import numpy as np
 # Ensure workspace paths are in sys.path
 sys.path.append("/home/rainbow/camera_ws")
 
-from core.calibration.mock_robot import get_mock_robot, pure_mock_compute_fk_impl
+from core.calibration.mock_robot import get_mock_robot
 from core.calibration.CalibratorBase import BaseCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
 
@@ -15,7 +15,6 @@ def main():
     # Initialize mock robot and calibrator
     robot = get_mock_robot(model_name="m")
     robot.robot_version = "1.2"
-    BaseCalibrator.compute_fk = staticmethod(pure_mock_compute_fk_impl)
     
     cal = JointCalibrator(marker_st=None, robot=robot)
     cal.robot_version = "1.2"
