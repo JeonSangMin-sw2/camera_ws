@@ -157,42 +157,34 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
-                if mode == "wrist_pitch_v13":
-                    damping = 0.9
-                elif mode in ("wrist_pitch", "elbow"):
-                    damping = 0.95
-                else:
-                    damping = 1.0
+                damping = 0.95
                 step_correction = direction_multiplier * raw_optimal_offset * damping
                 
-                # Convergence check:
-                # step correction < 0.05° or angle deviation <= 0.1° or center_dist <= 0.1 mm
-                if mode in ("wrist_roll_v13", "wrist_pitch_v13", "wrist_yaw2"):
-                    converged_criteria = (abs(step_correction) < 0.05)
+                # Calculate relative step delta for convergence check
+                if mode in ("wrist_roll_v13", "wrist_yaw2"):
+                    step_correction_delta = step_correction - staged_offset
                 else:
-                    converged_criteria = (abs(step_correction) < 0.05 or angle_dev <= 0.1 or center_dist <= 0.1)
+                    step_correction_delta = step_correction
+
+                # Convergence check:
+                # step correction delta < 0.05°
+                converged_criteria = (abs(step_correction_delta) < 0.05)
                 
                 if converged_criteria:
                     converged = True
                     if log_callback:
                         log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                        if abs(step_correction) < 0.05:
-                            log_callback(f"  * Step Correction: {step_correction:.4f}° < 0.05° (reached resolution limit)")
-                        else:
-                            log_callback(f"  * Circle Normals Angle Error: {angle_dev:.4f}° <= 0.1°")
-                            log_callback(f"  * Center Distance Error: {center_dist:.4f} mm <= 0.1 mm")
+                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.05° (reached resolution limit)")
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
                 
                 # Normal update: apply correction
                 prev_error = angle_dev
-                prev_step_correction = step_correction
+                prev_step_correction = step_correction_delta
                 if mode in ("wrist_roll_v13", "wrist_yaw2"):
                     # J6 modes return absolute recommended offset, not relative steps.
-                    # Convert step_correction to relative for convergence check and update staged_offset directly.
-                    step_correction_delta = step_correction - staged_offset
+                    # Update staged_offset directly with the absolute value.
                     staged_offset = step_correction
-                    step_correction = step_correction_delta
                 else:
                     staged_offset += step_correction
                 
@@ -252,7 +244,7 @@ class JointCalibrator(BaseCalibrator):
                     # In Pass 1, this will be overwritten later when Pass 2 completes.
                     plot_path = self.save_calibration_comparison_plot(
                         arm_side, mode, first_res, validation_res, 
-                        log_callback=log_callback, force_overwrite=False
+                        log_callback=log_callback, force_overwrite=True
                     )
                 final_output['plot_path_combined'] = plot_path
             
@@ -658,10 +650,10 @@ class JointCalibrator(BaseCalibrator):
         if getattr(self, 'stop_requested', False):
             return None
             
-        if is_camera_mock:
-            time.sleep(0.01)
+        if self.robot:
+            time.sleep(1.0)
         else:
-            time.sleep(0.5)
+            time.sleep(0.01)
 
         # 2. PHYSICAL SWEEP JOINT B
         logging.info(f"\n--- Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
@@ -857,8 +849,12 @@ class JointCalibrator(BaseCalibrator):
                 T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
                 
                 ver_key = "1.3" if self.is_v13() else "1.2"
-                nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-                T_ee_to_marker = self.make_transform(nominal_vec)
+                key = f"Tf_to_marker_{arm_side}"
+                if self.camera_config and key in self.camera_config:
+                    bracket_vec = self.camera_config[key]
+                else:
+                    bracket_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+                T_ee_to_marker = self.make_transform(bracket_vec)
                 
                 arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
                 

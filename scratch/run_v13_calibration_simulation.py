@@ -21,7 +21,7 @@ def run_simulation():
     print("==================================================")
     
     # 1. Instantiate simulated robot
-    robot = rby1_sdk.create_robot("127.0.0.1", "m")
+    robot = rby1_sdk.create_robot("127.0.0.1:50051", "m")
     if not robot.connect():
         raise ConnectionError("Failed to connect to simulated robot at 127.0.0.1")
     

@@ -473,8 +473,8 @@ class MarkerCalibrator(BaseCalibrator):
                 n6_p = R_em.T @ np.array([1.0, 0.0, 0.0])
                 n5_p = R_em.T @ R_scipy.from_euler('X', -d6_val).as_matrix() @ np.array([0.0, 1.0, 0.0])
                 
-                r6_p = np.sqrt(ye**2 + ze**2)
                 ze_shifted = ze + z_sign * L_m
+                r6_p = np.sqrt(ye**2 + ze_shifted**2)
                 Z_p = ye * np.sin(d6_val) + ze_shifted * np.cos(d6_val)
                 Y_p = ye * np.cos(d6_val) - ze_shifted * np.sin(d6_val)
                 r5_p = np.sqrt(xe**2 + Z_p**2)

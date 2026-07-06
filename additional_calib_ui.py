@@ -196,25 +196,6 @@ class CameraFeedDialog(QDialog):
         super().closeEvent(event)
 
 # --- Common Worker Threads ---
-class MoveCenterWorker(QThread):
-    log_signal = Signal(str)
-    finished_signal = Signal()
-
-    def __init__(self, calibrator, arm_side, stop_event, target_dist=300.0):
-        super().__init__()
-        self.calibrator = calibrator
-        self.arm_side = arm_side
-        self.stop_event = stop_event
-        self.target_dist = target_dist
-
-    def run(self):
-        self.calibrator.perform_move_to_center(
-            self.arm_side, 
-            log_callback=self.log_signal.emit, 
-            stop_event=self.stop_event,
-            target_dist=self.target_dist
-        )
-        self.finished_signal.emit()
 
 class MoveToReadyWorker(QThread):
     log_signal = Signal(str)
@@ -677,7 +658,6 @@ class JointCalibrationWorker(QThread):
             self.finished_signal.emit(None)
 
 
-
 class SimulatedMarkerTransform:
     def __init__(self, robot, camera_config, robot_version="1.2"):
         self.robot = robot
@@ -724,17 +704,11 @@ class SimulatedMarkerTransform:
             if j6_gt is None or j5_gt is None or j3_gt is None:
                 raise ValueError(f"Missing joint mock GT values in BaseCalibrator.MOCK_GT_OFFSETS for {side}")
 
-            offsets = {}
-            if hasattr(self.robot, "joint_offsets") and self.robot.joint_offsets is not None:
-                offsets = self.robot.joint_offsets.get(side, {})
-            j6_staged = offsets.get("wrist_roll", 0.0) if is_v13 else offsets.get("wrist_yaw2", 0.0)
-            j5_staged = offsets.get("wrist_pitch", 0.0)
-            j3_staged = offsets.get("elbow", 0.0)
-
-            # Apply simulated joint offsets (ground-truth offset + staged user-applied offset) to simulate actual robot kinematics
-            q_actual[arm_idx[6]] += np.radians(j6_gt + j6_staged)
-            q_actual[arm_idx[5]] += np.radians(j5_gt + j5_staged)
-            q_actual[arm_idx[3]] += np.radians(j3_gt + j3_staged)
+            # Apply simulated joint offsets (ground-truth offset only) to simulate actual robot kinematics.
+            # Staged user-applied offsets are already included in q from commanded ready poses.
+            q_actual[arm_idx[6]] += np.radians(j6_gt)
+            q_actual[arm_idx[5]] += np.radians(j5_gt)
+            q_actual[arm_idx[3]] += np.radians(j3_gt)
                     
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual, ee_name, "link_torso_5")
             
@@ -1028,6 +1002,7 @@ class FullAutoWorker(QThread):
                     # Emitting the J6 calibration result to the UI plot
                     joint_res_roll['arm_side'] = arm_side
                     joint_res_roll['mode'] = "wrist_roll_v13" if is_v13 else "wrist_yaw2"
+                    joint_res_roll['pass_idx'] = pass_idx
                     self.joint_finished_signal.emit(joint_res_roll)
                     time.sleep(0.5)
                     if self.stop_event.is_set(): return
@@ -1044,13 +1019,11 @@ class FullAutoWorker(QThread):
                     if res_4 is not None:
                         unified_res['res_4'] = res_4
                     unified_res['arm_side'] = arm_side
+                    unified_res['pass_idx'] = pass_idx
                     
                     plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
-                    if os.path.exists(plot_path):
-                        plot_saved = True
-                        self.log_msg.emit(f"[INFO] Marker unified plot already exists at {plot_path}, skipping overwrite.")
-                    else:
-                        plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
+                    # Always overwrite the plot to keep it up to date
+                    plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
                     if plot_saved:
                         unified_res['plot_path_combined'] = plot_path
                     
@@ -1093,6 +1066,7 @@ class FullAutoWorker(QThread):
                         pass1_joint_results["wrist_pitch"] = joint_res_pitch
                     joint_res_pitch['arm_side'] = arm_side
                     joint_res_pitch['mode'] = "wrist_pitch_v13" if is_v13 else "wrist_pitch"
+                    joint_res_pitch['pass_idx'] = pass_idx
                     
                     opt_pitch = joint_res_pitch["recommended_joint_offset"]
                     self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
@@ -1125,6 +1099,7 @@ class FullAutoWorker(QThread):
                         pass1_joint_results["elbow"] = joint_res_elbow
                     joint_res_elbow['arm_side'] = arm_side
                     joint_res_elbow['mode'] = "elbow"
+                    joint_res_elbow['pass_idx'] = pass_idx
                     
                     opt_elbow = joint_res_elbow["recommended_joint_offset"]
                     self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
@@ -1458,6 +1433,8 @@ class UnifiedCalibrationApp(QWidget):
             "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0}
         }
         self.wrist_roll_calibrated = {"right": False, "left": False}
+        self.ready_done_joint = False
+        self.ready_done_marker = False
         self.load_offsets_from_yaml()
         
         self.recommended_joint_offset = None
@@ -1802,10 +1779,6 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
         self.btn_marker_ready.clicked.connect(self.move_to_ready_pose_marker)
         
-        self.btn_marker_center = QPushButton("MOVE TO CENTER")
-        self.btn_marker_center.setStyleSheet("background-color: #00838f; color: white;")
-        self.btn_marker_center.clicked.connect(self.move_to_center_marker)
-        
         self.btn_marker_start = QPushButton("START SWEEP")
         self.btn_marker_start.setStyleSheet("background-color: #1565c0; color: white;")
         self.btn_marker_start.clicked.connect(self.start_calibration_marker)
@@ -1817,7 +1790,6 @@ class UnifiedCalibrationApp(QWidget):
         marker_sublayout.addWidget(self.lbl_marker_axis)
         marker_sublayout.addWidget(self.marker_axis_sel)
         marker_sublayout.addWidget(self.btn_marker_ready)
-        marker_sublayout.addWidget(self.btn_marker_center)
         marker_sublayout.addWidget(self.btn_marker_start)
         marker_subtab.setLayout(marker_sublayout)
         
@@ -2392,6 +2364,8 @@ class UnifiedCalibrationApp(QWidget):
         new_side = "left" if "Left" in text else "right"
         if self.arm_side != new_side:
             self.arm_side = new_side
+            self.ready_done_joint = False
+            self.ready_done_marker = False
             self.log_msg(f"[INFO] Changed active arm to {self.arm_side.upper()}. Cleared loaded datasets.")
             self.marker_data_4 = None
             self.marker_data_5 = None
@@ -2507,6 +2481,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.poll_timer.start(200)
 
     def update_applied_offset_label(self):
+        self.ready_done_joint = False
         if not hasattr(self, 'tbl_offset_monitor') or not hasattr(self, 'btn_joint_apply'):
             return
         
@@ -2761,7 +2736,6 @@ class UnifiedCalibrationApp(QWidget):
             self.txt_bracket_r_yaw.setEnabled(enabled)
         
         self.btn_marker_ready.setEnabled(enabled)
-        self.btn_marker_center.setEnabled(enabled)
         self.btn_marker_start.setEnabled(enabled)
         if hasattr(self, 'btn_marker_result'):
             self.btn_marker_result.setEnabled(enabled)
@@ -2789,6 +2763,14 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_action_finished(self):
         self.set_controls_enabled(True)
+
+    def on_move_ready_joint_finished(self):
+        self.ready_done_joint = True
+        self.on_action_finished()
+
+    def on_move_ready_marker_finished(self):
+        self.ready_done_marker = True
+        self.on_action_finished()
 
     def get_robot_version(self) -> str:
         return str(getattr(self, "robot_version", "1.2"))
@@ -3005,6 +2987,11 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(True)
         if hasattr(self, 'btn_full_auto_start'):
             self.btn_full_auto_start.setEnabled(True)
+        
+        was_stopped = False
+        if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event is not None:
+            was_stopped = self.full_auto_stop_event.is_set()
+            
         self.active_worker = None
         self.log_msg("[INFO] Full Auto sequential calibration ended.")
         
@@ -3013,6 +3000,16 @@ class UnifiedCalibrationApp(QWidget):
         if self.left_tabs.currentIndex() != 1 and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
+                
+        if not was_stopped:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setWindowTitle("Calibration Complete")
+            msg_box.setText("Full Auto Sequential Calibration has completed successfully!\n\n"
+                            "Please review the calibrated offsets in the table and click 'APPLY BRACKETS' / 'APPLY OFFSET' to save them.")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+            msg_box.exec_()
 
     def handle_full_auto_bracket_finished(self, bracket_res):
         arm_side = bracket_res['arm_side']
@@ -3040,7 +3037,7 @@ class UnifiedCalibrationApp(QWidget):
             self.update_applied_offset_label()
             self.log_msg(f"[INFO] Full Auto: Staged joint offsets for {arm_side.upper()} Arm - Joint 5: {bracket_res['opt_delta_5']:.4f}°, Joint 6: {bracket_res['opt_delta_6']:.4f}°")
 
-        if 'plot_path_combined' in bracket_res:
+        if 'plot_path_combined' in bracket_res and bracket_res.get('pass_idx', 1) == 2:
             self.add_and_show_plot(f"[{arm_side.upper()}] FullAuto - Marker Bracket", bracket_res['plot_path_combined'])
 
         self.log_msg(f"[INFO] Full Auto: Finished bracket calibration for {arm_side.upper()} arm. Values staged in UI (click APPLY BRACKETS to save).")
@@ -3066,7 +3063,7 @@ class UnifiedCalibrationApp(QWidget):
         
         self.log_msg(f"[INFO] Full Auto: Finished joint calibration for {arm_side.upper()} {mode}. Staged: {recommended:.4f}° (click APPLY OFFSET to save).")
         
-        if 'plot_path_combined' in joint_res:
+        if 'plot_path_combined' in joint_res and joint_res.get('pass_idx', 1) == 2:
             self.add_and_show_plot(f"[{arm_side.upper()}] FullAuto Joint - {mode}", joint_res['plot_path_combined'])
 
         if hasattr(self, 'stop_event_mc'):
@@ -3077,7 +3074,7 @@ class UnifiedCalibrationApp(QWidget):
 
     # --- Joint Calibration Workflows ---
     def move_to_ready_pose_joint(self):
-        if not self.robot:
+        if not self.robot and not self.ui_only:
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
@@ -3090,14 +3087,23 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_calibrator.stop_requested = False
         self.ready_worker = MoveToReadyWorker(self.joint_calibrator, self.arm_side, mode)
         self.ready_worker.log_signal.connect(self.log_msg)
-        self.ready_worker.finished_signal.connect(self.on_action_finished)
+        self.ready_worker.finished_signal.connect(self.on_move_ready_joint_finished)
         self.ready_worker.start()
 
     def start_calibration_joint(self):
-        if not self.ui_only and not self.robot:
+        if not self.ready_done_joint:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Prerequisite Check")
+            msg_box.setText("Please move the robot to the Ready pose first by clicking 'MOVE TO READY'!")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
+            return
+
+        if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-            
+
         self.clear_old_plots()
 
         mode = self.get_selected_joint_mode()
@@ -3275,7 +3281,7 @@ class UnifiedCalibrationApp(QWidget):
 
     # --- Marker Bracket Calibration Workflows ---
     def move_to_ready_pose_marker(self):
-        if not self.robot:
+        if not self.robot and not self.ui_only:
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
@@ -3286,49 +3292,39 @@ class UnifiedCalibrationApp(QWidget):
         self.marker_calibrator.stop_requested = False
         self.ready_worker = MoveToReadyWorker(self.marker_calibrator, self.arm_side)
         self.ready_worker.log_signal.connect(self.log_msg)
-        self.ready_worker.finished_signal.connect(self.on_action_finished)
+        self.ready_worker.finished_signal.connect(self.on_move_ready_marker_finished)
         self.ready_worker.start()
 
-    def move_to_center_marker(self):
+    # Move to Center is removed as it is no longer needed
+
+    def start_calibration_marker(self):
+        # 1. Prerequisite Check: Joint 6 (Wrist Roll / Wrist Yaw 2) must be calibrated first
+        if not self.wrist_roll_calibrated.get(self.arm_side, False):
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Prerequisite Check")
+            msg_box.setText(
+                "Marker Bracket Calibration requires Joint 6 (Wrist Roll / Wrist Yaw 2) to be calibrated first.\n\n"
+                "Joint 6 has not been calibrated yet. Please go to the Joint Calibration tab, select Joint 6, and perform calibration."
+            )
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
+            return
+
+        # 2. Prerequisite Check: Move to Ready Pose first
+        if not self.ready_done_marker:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Warning)
+            msg_box.setWindowTitle("Prerequisite Check")
+            msg_box.setText("Please move the robot to the Ready pose first by clicking 'MOVE TO READY'!")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.exec_()
+            return
+
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
 
-
-        if hasattr(self, 'active_worker') and self.active_worker and self.active_worker.isRunning():
-            self.log_msg("[INFO] Cancelling Move to Center...")
-            self.stop_event_mc.set()
-            return
-
-        axis_str = self.marker_axis_sel.currentText()
-        target_dist = 190.0 if "Axis 6" in axis_str else 200.0
-        self.log_msg(f"[INFO] Move to Center (Marker Calibration) -> target: {target_dist} mm")
-
-        self.btn_marker_center.setText("CANCEL")
-        self.btn_marker_center.setStyleSheet("background-color: #b71c1c; color: white;")
-        self.set_controls_enabled(False)
-        self.btn_marker_center.setEnabled(True)
-        
-        if self.poll_timer.isActive(): self.poll_timer.stop()
-
-        self.joint_calibrator.stop_requested = False
-        self.marker_calibrator.stop_requested = False
-        self.stop_event_mc = threading.Event()
-        self.active_worker = MoveCenterWorker(self.marker_calibrator, self.arm_side, self.stop_event_mc, target_dist=target_dist)
-        self.active_worker.log_signal.connect(self.log_msg)
-        self.active_worker.finished_signal.connect(self.on_move_center_finished_marker)
-        self.active_worker.start()
-
-    def on_move_center_finished_marker(self):
-        self.btn_marker_center.setText("MOVE TO CENTER")
-        self.btn_marker_center.setStyleSheet("background-color: #00838f; color: white;")
-        self.on_action_finished()
-
-    def start_calibration_marker(self):
-        if not self.ui_only and not self.robot:
-            self.log_msg("[ERROR] Robot is not connected!")
-            return
-            
         self.clear_old_plots()
 
         # use_head = self.cb_head_tracking.isChecked()

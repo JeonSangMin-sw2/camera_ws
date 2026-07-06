@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 class BaseCalibrator:
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 10.0},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 10.0},
         "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
@@ -151,11 +151,6 @@ class BaseCalibrator:
                 angle_header_name = "Joint_B"
             else:
                 angle_header_name = f"Joint_{axis_num}"
-            if os.path.exists(filename):
-                if log_callback:
-                    log_callback(f"[INFO] Sweep points file already exists at {filename}, skipping overwrite.")
-                return
-
             with open(filename, "w") as f:
                 f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
                         "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
@@ -1217,10 +1212,10 @@ class BaseCalibrator:
             if log_callback: log_callback(f"[ERROR] Failed to move {label} to start pose or stop requested.")
             return None
 
-        if is_camera_mock:
-            time.sleep(0.01)
-        else:
+        if self.robot:
             time.sleep(1.0)
+        else:
+            time.sleep(0.01)
 
         # 2. Continuous sweep from start to end position
         logging.info(f"[INFO] Commencing continuous sweep on {label} (duration={sweep_duration}s)...")
