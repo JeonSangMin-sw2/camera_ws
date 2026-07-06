@@ -377,9 +377,11 @@ class FullAutoReadyWorker(QThread):
         self.joint_calibrator = joint_calibrator
         self.marker_calibrator = marker_calibrator
         self.ui_only = ui_only
+        self.error_msg = None
 
     def run(self):
         try:
+            self.error_msg = None
             self.log_signal.emit("Moving robot arms to Full Auto initial ready poses...")
             version_num = self.marker_calibrator.get_robot_version()
             is_v13 = self.marker_calibrator.is_v13()
@@ -403,6 +405,7 @@ class FullAutoReadyWorker(QThread):
                             raise RuntimeError(f"Failed to move {arm_side} arm to marker ready pose.")
             self.log_signal.emit("All arms moved to initial ready poses successfully.")
         except Exception as e:
+            self.error_msg = str(e)
             self.log_signal.emit(f"[ERROR] Ready pose movement failed: {e}")
         self.finished_signal.emit()
 
@@ -779,6 +782,7 @@ class FullAutoWorker(QThread):
         self.stop_event = stop_event
         self.joint_offsets_store = joint_offsets_store if joint_offsets_store is not None else {}
         self.save_debug = save_debug
+        self.error_msg = None
 
     def get_robot_version(self):
         return self.marker_calibrator.get_robot_version()
@@ -1214,6 +1218,7 @@ class FullAutoWorker(QThread):
                 self.log_msg.emit(f"  * Joint Offsets: Joint 6: {j6_cal:+.2f}°, Joint 5: {j5_cal:+.2f}°, Joint 3: {j3_cal:+.2f}°")
             self.log_msg.emit("==================================================\n")
         except Exception as e:
+            self.error_msg = str(e)
             self.log_msg.emit(f"[ERROR] Full Auto sequential calibration failed: {e}")
             import traceback
             self.log_msg.emit(traceback.format_exc())
@@ -2793,12 +2798,33 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_full_auto_ready_finished(self):
         self.set_controls_enabled(True)
+        error_msg = getattr(self.active_worker, 'error_msg', None) if self.active_worker else None
         self.active_worker = None
+        
         # Restart poll_timer if appropriate
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
         if self.left_tabs.currentIndex() != 1 and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
+                
+        if error_msg:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setWindowTitle("Movement Failed")
+            msg_box.setText(f"Ready pose movement failed!\n\nReason:\n{error_msg}")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+            msg_box.exec_()
+        else:
+            self.ready_done_joint = True
+            self.ready_done_marker = True
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Information)
+            msg_box.setWindowTitle("Movement Complete")
+            msg_box.setText("Robot arms have moved to the initial ready poses successfully!")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+            msg_box.exec_()
 
     def get_latest_result_path(self):
         result_dir = Path(CONFIG_PATHS["result_dir"])
@@ -2992,6 +3018,7 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event is not None:
             was_stopped = self.full_auto_stop_event.is_set()
             
+        error_msg = getattr(self.active_worker, 'error_msg', None) if self.active_worker else None
         self.active_worker = None
         self.log_msg("[INFO] Full Auto sequential calibration ended.")
         
@@ -3001,7 +3028,15 @@ class UnifiedCalibrationApp(QWidget):
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
                 
-        if not was_stopped:
+        if error_msg:
+            msg_box = QMessageBox(self)
+            msg_box.setIcon(QMessageBox.Critical)
+            msg_box.setWindowTitle("Calibration Failed")
+            msg_box.setText(f"Full Auto Sequential Calibration failed!\n\nReason:\n{error_msg}")
+            msg_box.setStandardButtons(QMessageBox.Ok)
+            msg_box.setDefaultButton(QMessageBox.Ok)
+            msg_box.exec_()
+        elif not was_stopped:
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Information)
             msg_box.setWindowTitle("Calibration Complete")

@@ -266,6 +266,8 @@ class BaseCalibrator:
                 logging.info("Enabling control manager with unlimited_mode_enabled=True...")
                 if not r.enable_control_manager(unlimited_mode_enabled=True):
                     logging.error("Failed to enable control manager with unlimited_mode_enabled=True")
+                else:
+                    time.sleep(1.0)
             except Exception as ex:
                 logging.error(f"Failed to configure control manager: {ex}")
 
