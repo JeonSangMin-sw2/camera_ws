@@ -20,3 +20,33 @@ joint_offset:
     joint3: 0.0
     joint5: 0.0
     joint6: 0.0
+
+thermal_compensation:
+  enabled: false
+  baseline_temp: 32.0
+  focal_scale_per_deg: 0.00028
+  pp_x_shift_per_deg: 0.035
+  pp_y_shift_per_deg: -0.142
+
+marker:
+  cube:
+    cube_size_mm: 40.0
+    left_ids:
+    - 10
+    - 11
+    - 12
+    - 13
+    - 14
+    right_ids:
+    - 30
+    - 31
+    - 32
+    - 33
+    - 34
+  plate:
+    left_ids:
+    - 7
+    right_ids:
+    - 8
+    plate_size_mm: 80.0
+
