@@ -978,6 +978,16 @@ class FullAutoWorker(QThread):
                             if self.stop_event.is_set(): return
                     else:
                         self.log_msg.emit(f"[INFO] Pass 2: Reusing marker sweep datasets from Pass 1.")
+                        # Revert calibrator joint offsets to Pass 1 state since the datasets were captured with Pass 1 offsets
+                        for calibrator in [self.joint_calibrator, self.marker_calibrator]:
+                            calibrator.joint_offsets[arm_side]["wrist_pitch"] = prev_j5
+                            if is_v13:
+                                calibrator.joint_offsets[arm_side]["wrist_roll"] = prev_j6
+                                calibrator.joint_offsets[arm_side]["wrist_yaw2"] = 0.0
+                            else:
+                                calibrator.joint_offsets[arm_side]["wrist_roll"] = 0.0
+                                calibrator.joint_offsets[arm_side]["wrist_yaw2"] = prev_j6
+                            calibrator.joint_offsets[arm_side]["elbow"] = prev_j3
 
                     # 2. Calibrate J6 Wrist Roll/Yaw 2
                     self.log_msg.emit(f"\n[FULL AUTO] Calibrating J6 ({'Wrist Roll' if is_v13 else 'Wrist Yaw 2'}) first...")
@@ -1013,7 +1023,7 @@ class FullAutoWorker(QThread):
 
                     # 3. Compute Marker Bracket (with J6 locked)
                     self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration (J6 locked)...")
-                    staged_pitch = self.joint_offsets_store[arm_side]["joint5"]
+                    staged_pitch = prev_j5 if pass_idx == 2 else self.joint_offsets_store[arm_side]["joint5"]
                     unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
                         res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll, calib_pitch_deg=staged_pitch
                     )
@@ -1050,6 +1060,17 @@ class FullAutoWorker(QThread):
 
                     # 4. Calibrate J5 Wrist Pitch
                     self.log_msg.emit("[FULL AUTO] Sweeping Wrist Pitch (Joint 5)...")
+                    # Restore/apply the newly calibrated offsets for physical sweeps in Pass 2
+                    for calibrator in [self.joint_calibrator, self.marker_calibrator]:
+                        calibrator.joint_offsets[arm_side]["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
+                        if is_v13:
+                            calibrator.joint_offsets[arm_side]["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
+                            calibrator.joint_offsets[arm_side]["wrist_yaw2"] = 0.0
+                        else:
+                            calibrator.joint_offsets[arm_side]["wrist_roll"] = 0.0
+                            calibrator.joint_offsets[arm_side]["wrist_yaw2"] = self.joint_offsets_store[arm_side]["joint6"]
+                        calibrator.joint_offsets[arm_side]["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
+
                     if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch_v13" if is_v13 else "wrist_pitch", log_callback=self.log_msg.emit):
                         raise RuntimeError(f"Failed to move to ready pose for wrist_pitch on {arm_side} arm")
                     if self.stop_event.is_set(): return
