@@ -1474,7 +1474,7 @@ class UnifiedCalibrationApp(QWidget):
                 pass
         
         self.setWindowTitle("Unified Robot Calibration Suite")
-        self.resize(1050, 550)
+        self.resize(1050, 700)
         self.setStyleSheet(DARK_STYLESHEET)
         
         # 1. 200ms poll timer (탭 1, 2, 4 용)
@@ -1760,6 +1760,11 @@ class UnifiedCalibrationApp(QWidget):
         arm_side_layout.addWidget(QLabel("Active Arm Side:"))
         arm_side_layout.addWidget(self.arm_sel)
         workflow_header.addLayout(arm_side_layout)
+        
+        self.chk_save_debug = QCheckBox("Save Debug Data")
+        self.chk_save_debug.setChecked(True)
+        workflow_header.addWidget(self.chk_save_debug)
+        
         workflow_header.addStretch()
         workflow_header.addWidget(self.btn_stop_motion)
         
@@ -1842,10 +1847,10 @@ class UnifiedCalibrationApp(QWidget):
         full_auto_sublayout.addStretch()
         full_auto_subtab.setLayout(full_auto_sublayout)
         
-        # Add workflow subtabs in order of: Full Auto, Marker Calib, Joint Calib
+        # Add workflow subtabs in order of: Full Auto, Joint Calib, Marker Calib
         self.workflow_tabs.addTab(full_auto_subtab, "1. Full Auto")
-        self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
-        self.workflow_tabs.addTab(joint_subtab, "3. Joint Calib")
+        self.workflow_tabs.addTab(joint_subtab, "2. Joint Calib")
+        self.workflow_tabs.addTab(marker_subtab, "3. Marker Calib")
         
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
@@ -2025,19 +2030,16 @@ class UnifiedCalibrationApp(QWidget):
         btn_layout.addWidget(self.btn_camera_feed)
         
         self.temp_label = QLabel("Camera Temp: -- °C")
-        
-        self.chk_save_debug = QCheckBox("Save Debug Data")
-        self.chk_save_debug.setChecked(True)
+        self.temp_label.setStyleSheet("color: #ff5500; font-weight: bold; font-size: 11px;")
         
         status_layout.addLayout(ind_layout)
-        status_layout.addLayout(btn_layout)
         status_layout.addWidget(self.temp_label)
-        status_layout.addWidget(self.chk_save_debug)
+        status_layout.addLayout(btn_layout)
         status_box.setLayout(status_layout)
 
         # Right Tab Widget
         self.right_tabs = QTabWidget()
-        self.right_tabs.setMinimumHeight(320) # Sized down for overall UI height reduction
+        self.right_tabs.setMinimumHeight(450)
         
         # Tab 1: System Log
         log_tab = QWidget()
@@ -2146,11 +2148,11 @@ class UnifiedCalibrationApp(QWidget):
         col3_layout.addWidget(status_box)
         col3_layout.addWidget(self.right_tabs, 1)
 
-        # Assemble side-by-side 3 Columns (3:3:4 weight)
+        # Assemble side-by-side 3 Columns (3:3:5 weight)
         main_tab_columns = QHBoxLayout()
         main_tab_columns.addLayout(col1_layout, 3)
         main_tab_columns.addLayout(col2_layout, 3)
-        main_tab_columns.addLayout(col3_layout, 4)
+        main_tab_columns.addLayout(col3_layout, 5)
         
         main_tab_layout.addLayout(main_tab_columns)
         
@@ -2260,8 +2262,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("="*60)
         self.log_msg("[RECOMMENDED SEQUENCE]")
         self.log_msg("  1. Calibrate camera intrinsics first if needed ('2. Camera' tab).")
-        self.log_msg("  2. Calibrate joint offsets using '1. Joint Calib' subtab.")
-        self.log_msg("  3. Perform marker bracket sweeps using '2. Marker Calib' subtab.")
+        self.log_msg("  2. Calibrate joint offsets using '2. Joint Calib' subtab.")
+        self.log_msg("  3. Perform marker bracket sweeps using '3. Marker Calib' subtab.")
         self.log_msg("  4. Control head and verify offsets as a final check.")
         self.log_msg("="*60)
 
