@@ -29,9 +29,9 @@ def rot_z(rad):
     return np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]], dtype=np.float64)
 
 def make_T(R, p):
-    T = np.eye(4, dtype=np.float64)
-    T[:3, :3] = R
-    T[:3, 3] = p
+    T = np.eye(4, dtype=np.float32)
+    T[:3, :3] = R.astype(np.float32)
+    T[:3, 3] = np.array(p, dtype=np.float32)
     return T
 
 def apply_cartesian_offset(T, dx=0.0, dy=0.0, dz=0.0, droll_deg=0.0, dpitch_deg=0.0, dyaw_deg=0.0):
@@ -247,18 +247,13 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     T_left[:3, :3] = T_left[:3, :3] @ rot_z(180*D2R)
 
     body2 = rby.BodyComponentBasedCommandBuilder()
-    body2.set_torso_command(
-        rby.JointPositionCommandBuilder()
-        .set_position(q_torso)
-        .set_minimum_time(minimum_time)
-    )
 
     if "right" in active_arms:
         header_right = rby.CommandHeaderBuilder()
         header_right.set_control_hold_time(0.5)
         
         right_cmd = rby.CartesianCommandBuilder()
-        right_cmd.add_target("link_torso_5", "ee_right", T_right, 0.5, 1.0, 0.3)
+        right_cmd.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.5, 1.0, 0.3)
         right_cmd.set_stop_position_tracking_error(0.005)
         right_cmd.set_stop_orientation_tracking_error(0.02)
         right_cmd.set_minimum_time(minimum_time)
@@ -276,7 +271,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
         header_left.set_control_hold_time(0.5)
         
         left_cmd = rby.CartesianCommandBuilder()
-        left_cmd.add_target("link_torso_5", "ee_left", T_left, 0.5, 1.0, 0.3)
+        left_cmd.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.5, 1.0, 0.3)
         left_cmd.set_stop_position_tracking_error(0.005)
         left_cmd.set_stop_orientation_tracking_error(0.02)
         left_cmd.set_minimum_time(minimum_time)
@@ -300,13 +295,6 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
 def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=0.5, q_right=None, q_left=None):
     body = rby.BodyComponentBasedCommandBuilder()
 
-    # Always lock Torso to stable pose
-    body.set_torso_command(
-        rby.JointPositionCommandBuilder()
-        .set_position(np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R)
-        .set_minimum_time(min_time)
-    )
-
     header_right = None
     if "right" in active_arms:
         if q_right is not None:
@@ -323,7 +311,7 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
             header_right.set_control_hold_time(hold_time)
             
             right_cart = rby.CartesianCommandBuilder()
-            right_cart.add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
+            right_cart.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.2, 0.5, 0.3)
             right_cart.set_stop_position_tracking_error(0.001)
             right_cart.set_stop_orientation_tracking_error(0.005)
             right_cart.set_command_header(header_right)
@@ -352,7 +340,7 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
             header_left.set_control_hold_time(hold_time)
             
             left_cart = rby.CartesianCommandBuilder()
-            left_cart.add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
+            left_cart.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.2, 0.5, 0.3)
             left_cart.set_stop_position_tracking_error(0.001)
             left_cart.set_stop_orientation_tracking_error(0.005)
             left_cart.set_command_header(header_left)
@@ -618,18 +606,13 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     STOP_POSITION_TRACKING_ERROR = 1e-3
 
     body = rby.BodyComponentBasedCommandBuilder()
-    body.set_torso_command(
-        rby.JointPositionCommandBuilder()
-        .set_position(q_torso)
-        .set_minimum_time(MINIMUM_TIME)
-    )
 
     if "right" in active_arms:
         header_right = rby.CommandHeaderBuilder()
         header_right.set_control_hold_time(0.5)
         
         right_cart = rby.CartesianCommandBuilder()
-        right_cart.add_target("link_torso_5", "ee_right", T_right, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
+        right_cart.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
         right_cart.set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
         right_cart.set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
         right_cart.set_minimum_time(MINIMUM_TIME)
@@ -647,7 +630,7 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
         header_left.set_control_hold_time(0.5)
         
         left_cart = rby.CartesianCommandBuilder()
-        left_cart.add_target("link_torso_5", "ee_left", T_left, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
+        left_cart.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
         left_cart.set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
         left_cart.set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
         left_cart.set_minimum_time(MINIMUM_TIME)

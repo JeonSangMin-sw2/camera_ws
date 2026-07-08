@@ -10,6 +10,7 @@ import rby1_sdk as rby
 import threading
 import yaml
 import traceback
+import json
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
@@ -585,6 +586,7 @@ class CheckCalibrationStateDialog(QDialog):
         
         self.parent_app = parent
         self.check_state_moved = False
+        self._worker = None  # QThread 참조 유지 (GC 방지)
         
         layout = QVBoxLayout()
         layout.setContentsMargins(15, 15, 15, 15)
@@ -618,13 +620,13 @@ class CheckCalibrationStateDialog(QDialog):
         layout.addWidget(self.lbl_status)
         
         btn_layout = QHBoxLayout()
-        btn_move = QPushButton("Move")
-        btn_move.clicked.connect(self.on_move)
-        btn_layout.addWidget(btn_move)
+        self.btn_move = QPushButton("Move")
+        self.btn_move.clicked.connect(self.on_move)
+        btn_layout.addWidget(self.btn_move)
         
-        btn_draw = QPushButton("Draw Square")
-        btn_draw.clicked.connect(self.on_draw_square)
-        btn_layout.addWidget(btn_draw)
+        self.btn_draw = QPushButton("Draw Square")
+        self.btn_draw.clicked.connect(self.on_draw_square)
+        btn_layout.addWidget(self.btn_draw)
         
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.reject)
@@ -632,6 +634,10 @@ class CheckCalibrationStateDialog(QDialog):
         
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+
+    def _set_buttons_enabled(self, enabled):
+        self.btn_move.setEnabled(enabled)
+        self.btn_draw.setEnabled(enabled)
         
     def on_move(self):
         try:
@@ -642,86 +648,91 @@ class CheckCalibrationStateDialog(QDialog):
         except ValueError:
             QMessageBox.critical(self, "Input Error", "Please enter valid floating-point numbers.")
             return
-            
+
+        if not self.parent_app.robot:
+            QMessageBox.critical(self, "Error", "Robot is not connected.")
+            return
+
         self.lbl_status.setText("Status: Moving...")
         self.lbl_status.setStyleSheet("color: #ff9800;")
-        
-        def move_worker():
-            try:
-                active_arms = ["right", "left"]
-                check_calibration_state(
-                    self.parent_app.robot,
-                    self.parent_app.model_input.currentText().strip(),
-                    active_arms,
-                    [x, y, z],
-                    offset,
-                    log_cb=lambda msg: self.parent_app.log_msg(f"[Check State] {msg}"),
-                    skip_ready=self.check_state_moved
-                )
+        self._set_buttons_enabled(False)
+
+        # threading.Thread 대신 QThread(CheckCalibrationStateWorker) 사용
+        # rby1_sdk C++ 라이브러리는 일반 Python 스레드와 호환되지 않아 segfault 발생
+        worker = CheckCalibrationStateWorker(
+            task_type="move",
+            robot=self.parent_app.robot,
+            model_name=self.parent_app.model_input.currentText().strip(),
+            active_arms=["right", "left"],
+            data=[x, y, z],
+            offset=offset,
+            skip_ready=self.check_state_moved,
+        )
+        worker.log_signal.connect(lambda msg: self.parent_app.log_msg(f"[Check State] {msg}"))
+
+        def on_move_finished(success, error_msg):
+            self._set_buttons_enabled(True)
+            self._worker = None
+            if success:
                 self.check_state_moved = True
                 self.parent_app.log_msg("[Check State] Symmetrical move completed successfully.")
                 self.lbl_status.setText("Status: Move OK")
                 self.lbl_status.setStyleSheet("color: #00e676;")
-            except Exception as e:
-                self.parent_app.log_msg(f"[Check State Error] {e}")
+            else:
+                self.parent_app.log_msg(f"[Check State Error] {error_msg}")
                 self.lbl_status.setText("Status: Error")
                 self.lbl_status.setStyleSheet("color: #ff1744;")
-                
-        t = threading.Thread(target=move_worker)
-        t.daemon = True
-        t.start()
-        
+
+        worker.finished_signal.connect(on_move_finished)
+        self._worker = worker
+        worker.start()
+
     def on_draw_square(self):
         if not self.check_state_moved:
             QMessageBox.warning(self, "Error", "Please click 'Move' first to reach the initial check state.")
             return
-            
+
+        if not self.parent_app.robot:
+            QMessageBox.critical(self, "Error", "Robot is not connected.")
+            return
+
         try:
             offset = float(self.offset_input.text())
         except ValueError:
             QMessageBox.critical(self, "Input Error", "Please enter valid floating-point numbers for Y Offset.")
             return
-            
+
         self.lbl_status.setText("Status: Drawing...")
         self.lbl_status.setStyleSheet("color: #ff9800;")
-        
-        def draw_square_worker():
-            try:
-                active_arms = ["right", "left"]
-                square_points = [
-                    [0.35, 0.07, 0.0],
-                    [0.35, 0.0, 0.07],
-                    [0.35, -0.07, 0.0],
-                    [0.35, 0.0, -0.07],
-                ]
-                
-                self.parent_app.log_msg("[Draw Square] Starting square drawing sequence (2 loops)...")
-                for loop_idx in range(2):
-                    self.parent_app.log_msg(f"[Draw Square] Loop {loop_idx + 1} / 2")
-                    for pt_idx, pt in enumerate(square_points):
-                        self.parent_app.log_msg(f"[Draw Square] Moving to point {pt_idx + 1}: {pt}")
-                        check_calibration_state(
-                            self.parent_app.robot,
-                            self.parent_app.model_input.currentText().strip(),
-                            active_arms,
-                            pt,
-                            offset,
-                            log_cb=lambda msg: self.parent_app.log_msg(f"[Draw Square] {msg}"),
-                            skip_ready=True
-                        )
-                        time.sleep(0.5)
-                        
+        self._set_buttons_enabled(False)
+
+        # threading.Thread 대신 QThread(CheckCalibrationStateWorker) 사용
+        worker = CheckCalibrationStateWorker(
+            task_type="draw_square",
+            robot=self.parent_app.robot,
+            model_name=self.parent_app.model_input.currentText().strip(),
+            active_arms=["right", "left"],
+            data=[0.35, 0.0, 0.0],  # 기준 포지션 (draw_square 내부에서 포인트 순회)
+            offset=offset,
+            skip_ready=True,
+        )
+        worker.log_signal.connect(lambda msg: self.parent_app.log_msg(f"[Draw Square] {msg}"))
+
+        def on_draw_finished(success, error_msg):
+            self._set_buttons_enabled(True)
+            self._worker = None
+            if success:
                 self.parent_app.log_msg("[Draw Square] Square drawing sequence completed successfully.")
                 self.lbl_status.setText("Status: Draw OK")
                 self.lbl_status.setStyleSheet("color: #00e676;")
-            except Exception as e:
-                self.parent_app.log_msg(f"[Draw Square Error] {e}")
+            else:
+                self.parent_app.log_msg(f"[Draw Square Error] {error_msg}")
                 self.lbl_status.setText("Status: Draw Error")
                 self.lbl_status.setStyleSheet("color: #ff1744;")
-                
-        t = threading.Thread(target=draw_square_worker)
-        t.daemon = True
-        t.start()
+
+        worker.finished_signal.connect(on_draw_finished)
+        self._worker = worker
+        worker.start()
 
 # --- Common Worker Threads ---
 
@@ -900,8 +911,8 @@ class Step2InitPoseWorker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, robot, active_arms, priority):
-        super().__init__()
+    def __init__(self, robot, active_arms, priority, parent=None):
+        super().__init__(parent)
         self.robot = robot
         self.active_arms = active_arms
         self.priority = priority
@@ -924,8 +935,8 @@ class Step2AutoMotionWorker(QThread):
     sample_signal = Signal(int)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, app):
-        super().__init__()
+    def __init__(self, app, parent=None):
+        super().__init__(parent)
         self.app = app
 
     def run(self):
@@ -2034,8 +2045,14 @@ class FullAutoWorker(QThread):
 
 # --- Unified Calibration App ---
 class UnifiedCalibrationApp(QWidget):
+    log_signal_safe = Signal(str)
+    update_ui_signal_safe = Signal(str)
+
     def __init__(self, marker_st, robot, arm_side="right", ui_only=False):
         super().__init__()
+        self.log_signal_safe.connect(self._log_msg_slot)
+        self.update_ui_signal_safe.connect(self._update_ui_slot)
+
         self.marker_st = marker_st
         self.robot = robot
         self.arm_side = arm_side
@@ -2228,16 +2245,29 @@ class UnifiedCalibrationApp(QWidget):
                 lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
                 lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
             else:
-                lines = lines[:jo_idx]
-                lines.append("joint_offset:\n")
-                lines.append("  left:\n")
-                lines.append(f"    joint3: {self.joint_offsets_store['left']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n")
-                lines.append(f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n")
-                lines.append("  right:\n")
-                lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
-                lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
+                # joint_offset 블록이 끝나는 지점(들여쓰기가 없는 다음 라인 또는 파일 끝)을 찾습니다.
+                block_end = len(lines)
+                for i in range(jo_idx + 1, len(lines)):
+                    line = lines[i]
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if not line.startswith(" ") and not line.startswith("\t"):
+                        block_end = i
+                        break
+                
+                new_jo_lines = [
+                    "joint_offset:\n",
+                    "  left:\n",
+                    f"    joint3: {self.joint_offsets_store['left']['joint3']}\n",
+                    f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n",
+                    f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n",
+                    "  right:\n",
+                    f"    joint3: {self.joint_offsets_store['right']['joint3']}\n",
+                    f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n",
+                    f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n"
+                ]
+                lines = lines[:jo_idx] + new_jo_lines + lines[block_end:]
 
             with open(config_path, "w") as f:
                 f.writelines(lines)
@@ -3073,12 +3103,53 @@ class UnifiedCalibrationApp(QWidget):
         return self.robot is None
 
     # --- Common Helper Functions ---
-    def log_msg(self, msg):
+    def _log_msg_slot(self, msg):
         if hasattr(self, 'log_text') and self.log_text is not None:
             self.log_text.append(msg)
             self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
         else:
             print(msg)
+
+    def _update_ui_slot(self, action):
+        if action == "head_pose":
+            self.update_head_pose_status()
+        elif action == "samples":
+            self.update_step2_est_samples()
+        elif action == "sample_counts":
+            self.update_sample_counts()
+
+    def log_msg(self, msg):
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+        if QThread.currentThread() == QApplication.instance().thread():
+            self._log_msg_slot(msg)
+        else:
+            self.log_signal_safe.emit(msg)
+
+    def safe_cancel_control(self):
+        # 동일 gRPC 커넥션에 대한 동시 gRPC 호출로 인한 C++ SDK Segfault 방지
+        if self.robot is None:
+            return
+        if self.is_mock:
+            self.log_msg("[STOP] (Mock Mode) Cancel control called.")
+            return
+
+        try:
+            import rby1_sdk as rby
+            addr = self.ip_input.text().strip()
+            model = self.model_input.currentText().strip().lower()
+            temp_robot = rby.create_robot(addr, model)
+            if temp_robot.connect():
+                temp_robot.cancel_control()
+                temp_robot.disconnect()
+                self.log_msg("[INFO] Control cancelled safely via temporary connection.")
+            else:
+                self.robot.cancel_control()
+        except Exception as e:
+            try:
+                self.robot.cancel_control()
+            except Exception:
+                pass
 
     def connect_robot(self):
         from core.calibration.CalibratorBase import BaseCalibrator
@@ -3172,12 +3243,12 @@ class UnifiedCalibrationApp(QWidget):
 
                 cm_state = robot.get_control_manager_state()
                 if cm_state.state == rby.ControlManagerState.State.Enabled:
-                    self.log_msg("[INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=False...")
+                    self.log_msg("[INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
                     robot.disable_control_manager()
                     time.sleep(0.5)
 
-                self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=False...")
-                if not robot.enable_control_manager(unlimited_mode_enabled=False):
+                self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=True...")
+                if not robot.enable_control_manager(unlimited_mode_enabled=True):
                     raise RuntimeError("Failed to enable control manager.")
                 time.sleep(1)
             except Exception as e:
@@ -3266,6 +3337,10 @@ class UnifiedCalibrationApp(QWidget):
                     self.marker_calibrator.marker_st = self.marker_st
                     self.joint_calibrator.marker_st = self.marker_st
                     self.log_msg("[INFO] Configured SimulatedMarkerTransform for simulation motion.")
+                    
+                if self.ui_only:
+                    self.step2_mode_sel.setCurrentText("sim")
+                    self.log_msg("[INFO] Automatically switched Step 2 Mode to 'sim' because camera is not connected.")
 
                 self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version}).")
                 self.btn_connect.setText("DISCONNECT")
@@ -3477,6 +3552,11 @@ class UnifiedCalibrationApp(QWidget):
     # =============================================
 
     def update_step2_est_samples(self, *args):
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+        if QThread.currentThread() != QApplication.instance().thread():
+            self.update_ui_signal_safe.emit("samples")
+            return
         try:
             p = float(self.step2_pos_step.text())
             step_x = float(self.step2_step_x.text())
@@ -3821,14 +3901,6 @@ class UnifiedCalibrationApp(QWidget):
 
         # Re-build incremental motion plan based on the CURRENT (possibly teached) pose
         if self.auto_motion_plan is None or self.head_move_count == 0:
-            try:
-                self.auto_config.angle_step_deg = float(self.step2_angle_step.text())
-                self.auto_config.position_step_m = float(self.step2_pos_step.text())
-                self.auto_config.step_x_m = float(self.step2_step_x.text())
-                self.auto_config.max_x = float(self.step2_max_x.text())
-            except Exception as e:
-                self.log_msg(f"Failed to read auto config: {e}. Using current values.")
-            
             self.log_msg(f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, StepX={self.auto_config.step_x_m}m, MaxX={self.auto_config.max_x}m)")
             self.auto_motion_plan = build_incremental_motion_plan(
                 self.robot, self.dyn_model, self.auto_config, active_arms
@@ -3884,6 +3956,14 @@ class UnifiedCalibrationApp(QWidget):
         if not self.auto_ready_done:
             raise RuntimeError("Please move to Init Pose first.")
 
+        try:
+            self.auto_config.angle_step_deg = float(self.step2_angle_step.text())
+            self.auto_config.position_step_m = float(self.step2_pos_step.text())
+            self.auto_config.step_x_m = float(self.step2_step_x.text())
+            self.auto_config.max_x = float(self.step2_max_x.text())
+        except Exception as e:
+            self.log_msg(f"Failed to read auto config: {e}. Using current values.")
+
         if self.auto_motion_plan is None or len(self.auto_motion_plan) == 0:
             self.log_msg("Motion plan is missing or empty. Re-building...")
             active_arms = ["right", "left"]
@@ -3904,7 +3984,7 @@ class UnifiedCalibrationApp(QWidget):
         self.auto_motion_running = True
         self.log_msg("Auto Motion started in a background thread. Press Stop to cancel.")
 
-        self.auto_motion_thread = Step2AutoMotionWorker(self)
+        self.auto_motion_thread = Step2AutoMotionWorker(self, parent=self)
         self.auto_motion_thread.log_signal.connect(self.log_msg)
         def on_finished(success, error_msg):
             self.auto_motion_running = False
@@ -3922,23 +4002,13 @@ class UnifiedCalibrationApp(QWidget):
         if reset_stop_requested:
             self.auto_stop_requested = False
 
-        if cancel_robot and self.robot is not None:
-            try:
-                self.robot.cancel_control()
-            except Exception:
-                pass
+        if cancel_robot:
+            self.safe_cancel_control()
 
-        # Safely wait for the active worker thread to exit
-        if hasattr(self, 'auto_motion_thread') and self.auto_motion_thread is not None:
-            if self.auto_motion_thread.isRunning():
-                self.log_msg("[INFO] Waiting for background motion thread to exit cleanly...")
-                # Wait up to 3 seconds for it to exit
-                if not self.auto_motion_thread.wait(3000):
-                    self.log_msg("[WARNING] Background thread did not exit. Terminating...")
-                    self.auto_motion_thread.terminate()
-                    self.auto_motion_thread.wait()
-                self.log_msg("[INFO] Background motion thread stopped.")
-            self.auto_motion_thread = None
+        # 백그라운드 스레드가 완전히 종료되어 finished_signal을 통해 on_finished()가 호출될 때까지
+        # self.auto_motion_thread를 None으로 설정하지 않고 유지합니다.
+        # 이를 통해 이전 작업이 완전히 끝나지 않은 상태에서 새로운 로봇 명령이 병렬로 전송되는 것을 방지합니다.
+        pass
 
         reset_motion_state()
 
@@ -3990,6 +4060,11 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[Auto-Save Error] {e}")
 
     def update_sample_counts(self):
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+        if QThread.currentThread() != QApplication.instance().thread():
+            self.update_ui_signal_safe.emit("sample_counts")
+            return
         sample_count = len(self.shared_arm_q_list)
         if hasattr(self, 'step2_sample_count_label'):
             self.step2_sample_count_label.setText(f"Shared Samples: {sample_count}")
@@ -4000,6 +4075,11 @@ class UnifiedCalibrationApp(QWidget):
         return 0
 
     def update_head_pose_status(self):
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+        if QThread.currentThread() != QApplication.instance().thread():
+            self.update_ui_signal_safe.emit("head_pose")
+            return
         pose_target_count = self.get_auto_pose_target_count()
         pose_idx = min(self.head_move_count, pose_target_count)
         label = f"Auto Motion: {pose_idx}/{pose_target_count}"
@@ -4021,9 +4101,11 @@ class UnifiedCalibrationApp(QWidget):
             q_full = state.position.copy()
             q_arm = q_full[cfg["arm_idx"]].copy()
             q_head = q_full[head_idx].copy() if head_idx is not None else None
-            # Return identity matrices as dummy marker measurements
-            T_meas = np.stack([np.eye(4), np.eye(4)], axis=0)
-            self.log_msg("Sim/Test mode: Bypassing camera capture, using dummy marker data.")
+            # MOCK_GT_OFFSETS 및 기구학 모델(FK)을 반영한 현실적인 가상 마커 포즈 생성
+            T_meas_right = self.marker_calibrator.get_simulated_marker_pose("right", q_actual=q_full)
+            T_meas_left = self.marker_calibrator.get_simulated_marker_pose("left", q_actual=q_full)
+            T_meas = np.stack([T_meas_right, T_meas_left], axis=0)
+            self.log_msg("Sim/Test mode: Using simulated marker data based on MOCK_GT_OFFSETS and FK.")
         else:
             q_arm, q_head, T_meas = capture_robot_sample(
                 robot=self.robot,
@@ -4255,7 +4337,8 @@ class UnifiedCalibrationApp(QWidget):
         self.auto_motion_thread = Step2InitPoseWorker(
             self.robot,
             active_arms,
-            self.auto_config.priority
+            self.auto_config.priority,
+            parent=self
         )
         self.auto_motion_thread.log_signal.connect(self.log_msg)
         def on_finished(success, error_msg):
@@ -4347,7 +4430,7 @@ class UnifiedCalibrationApp(QWidget):
                 
             head_cfg = get_head_config(self.model)
 
-            if mode == "live":
+            if mode in ["live", "sim"]:
                 if len(self.shared_arm_q_list) == 0:
                     QMessageBox.warning(self, "Warning", "No recorded samples.")
                     return
@@ -4522,10 +4605,7 @@ class UnifiedCalibrationApp(QWidget):
             self.stop_event_mc.set()
         if self.robot:
             self.log_msg("[STOP] Sending cancel_control to robot!")
-            if not self.is_mock:
-                self.robot.cancel_control()
-            else:
-                self.log_msg("[STOP] (Mock Mode) Cancel control called.")
+            self.safe_cancel_control()
         else:
             self.log_msg("[STOP] No robot connected to cancel control.")
 
@@ -4981,8 +5061,8 @@ class UnifiedCalibrationApp(QWidget):
             self.full_auto_stop_event.set()
         self.joint_calibrator.stop_requested = True
         self.marker_calibrator.stop_requested = True
-        if self.robot and not self.is_mock:
-            self.robot.cancel_control()
+        if self.robot:
+            self.safe_cancel_control()
 
     def on_full_auto_finished(self):
         self.set_controls_enabled(True)

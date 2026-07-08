@@ -30,20 +30,28 @@ class BaseCalibrator:
     }
     MOCK_GT_OFFSETS = {
         "right": {
-            "joint6": 2.3,
+            "joint0": 0.5,
+            "joint1": 2.5,
+            "joint2": 1.2,
+            "joint3": 0.5,
+            "joint4": -1.5,
             "joint5_v13": -2.1,
             "joint5_v12": 5.4,
-            "joint3": 0.5,
+            "joint6": 2.3,
             "bracket_pos": [0.0005, 0.002, 0.005],  # meters
             "bracket_rpy": [-0.4, 0.8, 0.1]        # degrees
         },
         "left": {
-            "joint6": 3.5,
-            "joint5_v13": 3.6,
-            "joint5_v12": -3,
+            "joint0": -0.4,
+            "joint1": -1.6,
+            "joint2": -1.0,
             "joint3": 0.7,
+            "joint4": 1.1,
+            "joint5_v13": 3.6,
+            "joint5_v12": -3.0,
+            "joint6": 3.5,
             "bracket_pos": [-0.002, 0.00, -0.003], # meters
-            "bracket_rpy": [-0.3, 1.5, 0.0]        # degrees
+            "bracket_rpy": [0.3, 1.5, 0.0]        # degrees
         }
     }
     NOMINAL_BRACKET_TEMPLATES = {
@@ -336,16 +344,17 @@ class BaseCalibrator:
         ee_name = f"ee_{arm_side}"
         
         mock_gt = self.MOCK_GT_OFFSETS[arm_side]
-        j6_gt = mock_gt["joint6"]
-        j5_gt = mock_gt["joint5_v13"] if is_v13 else mock_gt["joint5_v12"]
-        j3_gt = mock_gt["joint3"]
         bracket_pos_gt = mock_gt["bracket_pos"]
         bracket_rpy_gt = mock_gt["bracket_rpy"]
             
         injected_joint_offsets_deg = [0.0] * 7
-        injected_joint_offsets_deg[3] = j3_gt
-        injected_joint_offsets_deg[5] = j5_gt
-        injected_joint_offsets_deg[6] = j6_gt
+        injected_joint_offsets_deg[0] = mock_gt.get("joint0", 0.0)
+        injected_joint_offsets_deg[1] = mock_gt.get("joint1", 0.0)
+        injected_joint_offsets_deg[2] = mock_gt.get("joint2", 0.0)
+        injected_joint_offsets_deg[3] = mock_gt.get("joint3", 0.0)
+        injected_joint_offsets_deg[4] = mock_gt.get("joint4", 0.0)
+        injected_joint_offsets_deg[5] = mock_gt.get("joint5_v13" if is_v13 else "joint5_v12", 0.0)
+        injected_joint_offsets_deg[6] = mock_gt.get("joint6", 0.0)
 
         
         if q_actual is None:

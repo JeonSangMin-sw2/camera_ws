@@ -1672,16 +1672,29 @@ class UnifiedCalibrationApp(QWidget):
                 lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
                 lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
             else:
-                lines = lines[:jo_idx]
-                lines.append("joint_offset:\n")
-                lines.append("  left:\n")
-                lines.append(f"    joint3: {self.joint_offsets_store['left']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n")
-                lines.append(f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n")
-                lines.append("  right:\n")
-                lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
-                lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
+                # joint_offset 블록이 끝나는 지점(들여쓰기가 없는 다음 라인 또는 파일 끝)을 찾습니다.
+                block_end = len(lines)
+                for i in range(jo_idx + 1, len(lines)):
+                    line = lines[i]
+                    stripped = line.strip()
+                    if not stripped:
+                        continue
+                    if not line.startswith(" ") and not line.startswith("\t"):
+                        block_end = i
+                        break
+                
+                new_jo_lines = [
+                    "joint_offset:\n",
+                    "  left:\n",
+                    f"    joint3: {self.joint_offsets_store['left']['joint3']}\n",
+                    f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n",
+                    f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n",
+                    "  right:\n",
+                    f"    joint3: {self.joint_offsets_store['right']['joint3']}\n",
+                    f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n",
+                    f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n"
+                ]
+                lines = lines[:jo_idx] + new_jo_lines + lines[block_end:]
 
             with open(config_path, "w") as f:
                 f.writelines(lines)

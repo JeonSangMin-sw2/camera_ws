@@ -441,6 +441,20 @@ class QPCalibrationOptimizer:
                 q_lower[12] = min(v1_l5, v2_l5)
                 q_upper[12] = max(v1_l5, v2_l5)
 
+                # Joint 6 오프셋 제한 범위 추가 (오른쪽: index 6, 왼쪽: index 13)
+                r_j6 = jo.get("right", {}).get("joint6", 0.0)
+                l_j6 = jo.get("left", {}).get("joint6", 0.0)
+
+                v1_r6 = (-r_j6 - 0.001) * D2R
+                v2_r6 = (-r_j6 + 0.001) * D2R
+                q_lower[6] = min(v1_r6, v2_r6)
+                q_upper[6] = max(v1_r6, v2_r6)
+
+                v1_l6 = (-l_j6 - 0.001) * D2R
+                v2_l6 = (-l_j6 + 0.001) * D2R
+                q_lower[13] = min(v1_l6, v2_l6)
+                q_upper[13] = max(v1_l6, v2_l6)
+
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)
 
@@ -829,6 +843,8 @@ class QPCalibrationOptimizer:
                 H[pos_slice, pos_slice] += self.lambda_cam_pos * np.eye(3)
                 g[pos_slice] += -self.lambda_cam_pos * xi_mount_cam[3:]
 
+
+
         P = 0.5 * (H + H.T)
         if self.qp_regularization > 0.0:
             P += self.qp_regularization * np.eye(dim)
@@ -1211,6 +1227,8 @@ class CalibrationOptimizer:
             if self.lambda_cam_pos > 0.0:
                 H[pos_slice, pos_slice] += self.lambda_cam_pos * np.eye(3)
                 g[pos_slice] += -self.lambda_cam_pos * xi_mount_cam[3:]
+
+
 
         dx = np.linalg.pinv(H) @ g
         return dx, total_err

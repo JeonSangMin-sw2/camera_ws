@@ -83,7 +83,7 @@ class MarkerCalibrator(BaseCalibrator):
             T_rob_to_ee_new[:3, 3] = p_ee + dp_rob
             
             cb = rby.CartesianCommandBuilder().set_minimum_time(3.0)
-            cb.add_target("link_torso_5", ee_name, T_rob_to_ee_new, 0.2, 0.5, 1.0)
+            cb.add_target("link_torso_5", ee_name, T_rob_to_ee_new.astype(np.float32), 0.2, 0.5, 1.0)
             cb.set_stop_orientation_tracking_error(1e-4)
             cb.set_stop_position_tracking_error(1e-3)
             
