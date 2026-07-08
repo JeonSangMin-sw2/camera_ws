@@ -30,8 +30,58 @@ from homeoffset_core import (
     reset_current_pose_home_offsets,
     save_home_reset_baseline_json,
     move_to_offset_candidate_from_json,
-    load_offset_from_json
+    load_offset_from_json,
+    move_robot_to_zero_pose
 )
+
+try:
+    from core.calibration_core import (
+        capture_one_sample as capture_robot_sample,
+        get_arm_config,
+        get_both_arm_config,
+        get_head_config,
+        load_npz_dataset,
+        save_npz_dataset,
+        validate_dataset,
+        check_calibration_state,
+    )
+    from core.calibration_optimizer import (
+        DEFAULT_LAMBDA_CAM_POS,
+        DEFAULT_LAMBDA_CAM_ROT,
+        CalibrationOptimizer,
+        QPCalibrationOptimizer,
+    )
+    from core.robot_motion import (
+        AutoCollectionConfig,
+        build_incremental_motion_plan,
+        move_to_auto_ready_pose,
+        execute_auto_motion_step,
+        reset_motion_state,
+    )
+except ImportError:
+    from calibration_core import (
+        capture_one_sample as capture_robot_sample,
+        get_arm_config,
+        get_both_arm_config,
+        get_head_config,
+        load_npz_dataset,
+        save_npz_dataset,
+        validate_dataset,
+        check_calibration_state,
+    )
+    from calibration_optimizer import (
+        DEFAULT_LAMBDA_CAM_POS,
+        DEFAULT_LAMBDA_CAM_ROT,
+        CalibrationOptimizer,
+        QPCalibrationOptimizer,
+    )
+    from robot_motion import (
+        AutoCollectionConfig,
+        build_incremental_motion_plan,
+        move_to_auto_ready_pose,
+        execute_auto_motion_step,
+        reset_motion_state,
+    )
 current_dir = os.path.dirname(os.path.abspath(__file__))
 calibration_dir = os.path.abspath(os.path.join(current_dir,"core","calibration"))
 # --- Configuration & Paths ---
@@ -291,6 +341,388 @@ class PlotViewerDialog(QDialog):
         if self.parent() and hasattr(self.parent(), "display_current_plot"):
             self.parent().display_current_plot()
 
+class ZeroPoseCheckDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Zero Pose Check")
+        self.resize(760, 800)
+        self.setStyleSheet(DARK_STYLESHEET)
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        msg = (
+            "The robot has moved to zero pose.\n\n"
+            "Please compare the actual robot posture with the reference image.\n\n"
+            "- If the posture matches the reference, you can proceed with data collection.\n"
+            "- If the posture does not match and the two target joints appear outside the recommended range,\n"
+            "  use direct teaching to move the robot to the recommended posture,\n"
+            "  perform reset first, and then start data collection."
+        )
+        msg_lbl = QLabel(msg)
+        msg_lbl.setWordWrap(True)
+        layout.addWidget(msg_lbl)
+        
+        # Load warning pose check images
+        for path_name in ["warning_pose_check.png", "warning_pose.png"]:
+            img_path = os.path.join(current_dir, path_name)
+            if os.path.exists(img_path):
+                pixmap = QPixmap(img_path)
+                if not pixmap.isNull():
+                    lbl = QLabel()
+                    lbl.setPixmap(pixmap.scaled(640, 360, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                    lbl.setAlignment(Qt.AlignCenter)
+                    layout.addWidget(lbl)
+                    
+        btn = QPushButton("OK")
+        btn.clicked.connect(self.accept)
+        layout.addWidget(btn)
+        
+        self.setLayout(layout)
+
+class ApplyHomeOffsetDialog(QDialog):
+    def __init__(self, parent, result_path, baseline_path, arm, include_head, compare_summary=None):
+        super().__init__(parent)
+        self.setWindowTitle("Apply Home Offset")
+        self.resize(900, 600)
+        self.setStyleSheet(DARK_STYLESHEET)
+        
+        self.parent_app = parent
+        self.result_path = result_path
+        self.baseline_path = baseline_path
+        self.arm = arm
+        self.include_head = include_head
+        
+        self.current_apply_arm = parent.infer_home_offset_apply_arm(arm, result_path)
+        
+        if compare_summary is None:
+            compare_summary = parent.format_home_offset_compare_summary(result_path, baseline_path)
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        msg = (
+            "Compare the original baseline zero and the optimized zero before applying.\n\n"
+            "1. Move to Zero to inspect the zero pose before calibration reset.\n"
+            "2. Move to Check Position to move the robot to the custom check pose.\n"
+            "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
+            "Make sure the workspace is clear before each move."
+        )
+        msg_lbl = QLabel(msg)
+        msg_lbl.setWordWrap(True)
+        layout.addWidget(msg_lbl)
+        
+        # Summary text box
+        self.summary_box = QTextEdit()
+        self.summary_box.setReadOnly(True)
+        self.summary_box.setText(compare_summary)
+        self.summary_box.setFont(QFont("Consolas", 10))
+        layout.addWidget(self.summary_box, 1)
+        
+        # Action buttons row
+        btn_layout = QHBoxLayout()
+        
+        self.btn_move_baseline = QPushButton("Move to Baseline Zero")
+        self.btn_move_baseline.clicked.connect(self.on_move_baseline)
+        if baseline_path is None or not os.path.exists(baseline_path):
+            self.btn_move_baseline.setEnabled(False)
+        btn_layout.addWidget(self.btn_move_baseline)
+        
+        self.btn_move_baseline_check = QPushButton("Move to Baseline Check")
+        self.btn_move_baseline_check.clicked.connect(self.on_move_baseline_check)
+        if baseline_path is None or not os.path.exists(baseline_path):
+            self.btn_move_baseline_check.setEnabled(False)
+        btn_layout.addWidget(self.btn_move_baseline_check)
+        
+        self.btn_move_opt = QPushButton("Move to Optimized Zero")
+        self.btn_move_opt.clicked.connect(self.on_move_optimized)
+        btn_layout.addWidget(self.btn_move_opt)
+        
+        self.btn_move_opt_check = QPushButton("Move to Optimized Check")
+        self.btn_move_opt_check.clicked.connect(self.on_move_optimized_check)
+        btn_layout.addWidget(self.btn_move_opt_check)
+        
+        self.btn_apply_current = QPushButton("Apply Current Pose")
+        self.btn_apply_current.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
+        self.btn_apply_current.clicked.connect(self.on_apply_current)
+        btn_layout.addWidget(self.btn_apply_current)
+        
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_close)
+        
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+        
+    def on_move_baseline(self):
+        self.set_buttons_enabled(False)
+        self.worker = Step2ApplyHomeOffsetWorker(
+            self.parent_app,
+            "move_zero",
+            json_path=self.baseline_path,
+            label="Baseline Zero",
+            arm=self.arm,
+            include_head=self.include_head
+        )
+        self.worker.log_signal.connect(self.parent_app.log_msg)
+        def on_finished(success, error_msg, res):
+            self.set_buttons_enabled(True)
+            if success:
+                self.current_apply_arm = res["arm"]
+                QMessageBox.information(self, "Preview Complete", "Moved to baseline zero candidate.")
+            else:
+                QMessageBox.critical(self, "Baseline Preview Error", error_msg)
+        self.worker.finished_signal.connect(on_finished)
+        self.worker.start()
+
+    def on_move_baseline_check(self):
+        self.set_buttons_enabled(False)
+        self.worker = Step2ApplyHomeOffsetWorker(
+            self.parent_app,
+            "move_check",
+            json_path=self.baseline_path,
+            label="Baseline Check Position",
+            arm=self.arm,
+            include_head=self.include_head
+        )
+        self.worker.log_signal.connect(self.parent_app.log_msg)
+        def on_finished(success, error_msg, res):
+            self.set_buttons_enabled(True)
+            if success:
+                self.current_apply_arm = res["arm"]
+                QMessageBox.information(self, "Preview Complete", "Moved to baseline check position candidate.")
+            else:
+                QMessageBox.critical(self, "Baseline Check Preview Error", error_msg)
+        self.worker.finished_signal.connect(on_finished)
+        self.worker.start()
+
+    def on_move_optimized(self):
+        self.set_buttons_enabled(False)
+        self.worker = Step2ApplyHomeOffsetWorker(
+            self.parent_app,
+            "move_zero",
+            json_path=self.result_path,
+            label="Optimized Zero",
+            arm=self.arm,
+            include_head=self.include_head
+        )
+        self.worker.log_signal.connect(self.parent_app.log_msg)
+        def on_finished(success, error_msg, res):
+            self.set_buttons_enabled(True)
+            if success:
+                self.current_apply_arm = res["arm"]
+                QMessageBox.information(self, "Preview Complete", "Moved to optimized zero candidate.")
+            else:
+                QMessageBox.critical(self, "Optimized Preview Error", error_msg)
+        self.worker.finished_signal.connect(on_finished)
+        self.worker.start()
+
+    def on_move_optimized_check(self):
+        self.set_buttons_enabled(False)
+        self.worker = Step2ApplyHomeOffsetWorker(
+            self.parent_app,
+            "move_check",
+            json_path=self.result_path,
+            label="Optimized Check Position",
+            arm=self.arm,
+            include_head=self.include_head
+        )
+        self.worker.log_signal.connect(self.parent_app.log_msg)
+        def on_finished(success, error_msg, res):
+            self.set_buttons_enabled(True)
+            if success:
+                self.current_apply_arm = res["arm"]
+                QMessageBox.information(self, "Preview Complete", "Moved to optimized check position candidate.")
+            else:
+                QMessageBox.critical(self, "Optimized Check Preview Error", error_msg)
+        self.worker.finished_signal.connect(on_finished)
+        self.worker.start()
+
+    def on_apply_current(self):
+        msg = (
+            "This will redefine the selected joints' home offset using the robot's CURRENT pose.\n\n"
+            "Only continue if the robot is currently at the zero pose you want to keep."
+        )
+        if QMessageBox.question(self, "Apply Current Pose", msg, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+            return
+        
+        self.set_buttons_enabled(False)
+        self.worker = Step2ApplyHomeOffsetWorker(
+            self.parent_app,
+            "apply",
+            arm=self.current_apply_arm,
+            include_head=self.include_head
+        )
+        self.worker.log_signal.connect(self.parent_app.log_msg)
+        def on_finished(success, error_msg, res):
+            self.set_buttons_enabled(True)
+            if success:
+                if res.get("success", False):
+                    QMessageBox.information(self, "Success", "Home offset applied from current pose.")
+                    self.accept()
+                else:
+                    QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Please check the logs.")
+            else:
+                QMessageBox.critical(self, "Apply Current Pose Error", error_msg)
+        self.worker.finished_signal.connect(on_finished)
+        self.worker.start()
+
+    def set_buttons_enabled(self, enabled):
+        self.btn_move_baseline.setEnabled(enabled and self.baseline_path is not None and os.path.exists(self.baseline_path))
+        self.btn_move_baseline_check.setEnabled(enabled and self.baseline_path is not None and os.path.exists(self.baseline_path))
+        self.btn_move_opt.setEnabled(enabled)
+        self.btn_move_opt_check.setEnabled(enabled)
+        self.btn_apply_current.setEnabled(enabled)
+
+class CheckCalibrationStateDialog(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.setWindowTitle("Check Calibration State")
+        self.resize(450, 300)
+        self.setStyleSheet(DARK_STYLESHEET)
+        
+        self.parent_app = parent
+        self.check_state_moved = False
+        
+        layout = QVBoxLayout()
+        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setSpacing(10)
+        
+        grid = QGridLayout()
+        grid.addWidget(QLabel("X Position (m):"), 0, 0)
+        self.x_input = QLineEdit("0.35")
+        self.x_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        grid.addWidget(self.x_input, 0, 1)
+        
+        grid.addWidget(QLabel("Y Position (m):"), 1, 0)
+        self.y_input = QLineEdit("0.0")
+        self.y_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        grid.addWidget(self.y_input, 1, 1)
+        
+        grid.addWidget(QLabel("Z Position (m):"), 2, 0)
+        self.z_input = QLineEdit("0.0")
+        self.z_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        grid.addWidget(self.z_input, 2, 1)
+        
+        grid.addWidget(QLabel("Y Offset (m):"), 3, 0)
+        self.offset_input = QLineEdit("0.175")
+        self.offset_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        grid.addWidget(self.offset_input, 3, 1)
+        
+        layout.addLayout(grid)
+        
+        self.lbl_status = QLabel("Status: Ready")
+        self.lbl_status.setStyleSheet("color: #2979ff; font-weight: bold;")
+        layout.addWidget(self.lbl_status)
+        
+        btn_layout = QHBoxLayout()
+        btn_move = QPushButton("Move")
+        btn_move.clicked.connect(self.on_move)
+        btn_layout.addWidget(btn_move)
+        
+        btn_draw = QPushButton("Draw Square")
+        btn_draw.clicked.connect(self.on_draw_square)
+        btn_layout.addWidget(btn_draw)
+        
+        btn_close = QPushButton("Close")
+        btn_close.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_close)
+        
+        layout.addLayout(btn_layout)
+        self.setLayout(layout)
+        
+    def on_move(self):
+        try:
+            x = float(self.x_input.text())
+            y = float(self.y_input.text())
+            z = float(self.z_input.text())
+            offset = float(self.offset_input.text())
+        except ValueError:
+            QMessageBox.critical(self, "Input Error", "Please enter valid floating-point numbers.")
+            return
+            
+        self.lbl_status.setText("Status: Moving...")
+        self.lbl_status.setStyleSheet("color: #ff9800;")
+        
+        def move_worker():
+            try:
+                active_arms = ["right", "left"]
+                check_calibration_state(
+                    self.parent_app.robot,
+                    self.parent_app.model_input.currentText().strip(),
+                    active_arms,
+                    [x, y, z],
+                    offset,
+                    log_cb=lambda msg: self.parent_app.log_msg(f"[Check State] {msg}"),
+                    skip_ready=self.check_state_moved
+                )
+                self.check_state_moved = True
+                self.parent_app.log_msg("[Check State] Symmetrical move completed successfully.")
+                self.lbl_status.setText("Status: Move OK")
+                self.lbl_status.setStyleSheet("color: #00e676;")
+            except Exception as e:
+                self.parent_app.log_msg(f"[Check State Error] {e}")
+                self.lbl_status.setText("Status: Error")
+                self.lbl_status.setStyleSheet("color: #ff1744;")
+                
+        t = threading.Thread(target=move_worker)
+        t.daemon = True
+        t.start()
+        
+    def on_draw_square(self):
+        if not self.check_state_moved:
+            QMessageBox.warning(self, "Error", "Please click 'Move' first to reach the initial check state.")
+            return
+            
+        try:
+            offset = float(self.offset_input.text())
+        except ValueError:
+            QMessageBox.critical(self, "Input Error", "Please enter valid floating-point numbers for Y Offset.")
+            return
+            
+        self.lbl_status.setText("Status: Drawing...")
+        self.lbl_status.setStyleSheet("color: #ff9800;")
+        
+        def draw_square_worker():
+            try:
+                active_arms = ["right", "left"]
+                square_points = [
+                    [0.35, 0.07, 0.0],
+                    [0.35, 0.0, 0.07],
+                    [0.35, -0.07, 0.0],
+                    [0.35, 0.0, -0.07],
+                ]
+                
+                self.parent_app.log_msg("[Draw Square] Starting square drawing sequence (2 loops)...")
+                for loop_idx in range(2):
+                    self.parent_app.log_msg(f"[Draw Square] Loop {loop_idx + 1} / 2")
+                    for pt_idx, pt in enumerate(square_points):
+                        self.parent_app.log_msg(f"[Draw Square] Moving to point {pt_idx + 1}: {pt}")
+                        check_calibration_state(
+                            self.parent_app.robot,
+                            self.parent_app.model_input.currentText().strip(),
+                            active_arms,
+                            pt,
+                            offset,
+                            log_cb=lambda msg: self.parent_app.log_msg(f"[Draw Square] {msg}"),
+                            skip_ready=True
+                        )
+                        time.sleep(0.5)
+                        
+                self.parent_app.log_msg("[Draw Square] Square drawing sequence completed successfully.")
+                self.lbl_status.setText("Status: Draw OK")
+                self.lbl_status.setStyleSheet("color: #00e676;")
+            except Exception as e:
+                self.parent_app.log_msg(f"[Draw Square Error] {e}")
+                self.lbl_status.setText("Status: Draw Error")
+                self.lbl_status.setStyleSheet("color: #ff1744;")
+                
+        t = threading.Thread(target=draw_square_worker)
+        t.daemon = True
+        t.start()
+
 # --- Common Worker Threads ---
 
 class MoveToReadyWorker(QThread):
@@ -463,6 +895,263 @@ class ApplyCurrentPoseWorker(QThread):
         except Exception as e:
             self.log_signal.emit(f"[ERROR] Apply current pose failed: {e}")
             self.finished_signal.emit({"success": False, "error": str(e)})
+
+class Step2InitPoseWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, robot, active_arms, priority):
+        super().__init__()
+        self.robot = robot
+        self.active_arms = active_arms
+        self.priority = priority
+
+    def run(self):
+        try:
+            from core.robot_motion import move_to_auto_ready_pose
+            move_to_auto_ready_pose(
+                robot=self.robot,
+                active_arms=self.active_arms,
+                minimum_time=10.0,
+                priority=self.priority,
+            )
+            self.finished_signal.emit(True, "")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+class Step2AutoMotionWorker(QThread):
+    log_signal = Signal(str)
+    sample_signal = Signal(int)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, app):
+        super().__init__()
+        self.app = app
+
+    def run(self):
+        try:
+            pose_target = self.app.get_auto_pose_target_count()
+            while self.app.head_move_count < pose_target:
+                if self.app.auto_stop_requested:
+                    self.log_signal.emit("Auto Motion stopped by user.")
+                    break
+
+                ok = self.app.run_auto_motion_step_blocking()
+                if not ok:
+                    if self.app.auto_stop_requested:
+                        self.log_signal.emit("Auto Motion stopped by user.")
+                        break
+                    self.log_signal.emit("Step capture failed and skipped. Continuing sequence...")
+
+                self.sample_signal.emit(self.app.head_move_count)
+                time.sleep(0.2)
+            else:
+                self.log_signal.emit("Auto motions completed.")
+            self.finished_signal.emit(True, "")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+class Step2ZeroPoseCheckWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, robot, model, servo_regex, arm):
+        super().__init__()
+        self.robot = robot
+        self.model = model
+        self.servo_regex = servo_regex
+        self.arm = arm
+
+    def run(self):
+        try:
+            from core.homeoffset_core import move_robot_to_zero_pose
+            move_robot_to_zero_pose(
+                self.robot,
+                self.model,
+                servo_regex=self.servo_regex,
+                arm=self.arm,
+                log_cb=self.log_signal.emit,
+            )
+            self.finished_signal.emit(True, "")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+class Step2ApplyHomeOffsetWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str, dict)
+
+    def __init__(self, app, task_type, **kwargs):
+        super().__init__()
+        self.app = app
+        self.task_type = task_type
+        self.kwargs = kwargs
+
+    def run(self):
+        try:
+            if self.task_type == "move_zero":
+                res = self.app.move_home_offset_candidate_path(
+                    self.kwargs["json_path"],
+                    self.kwargs["label"],
+                    self.kwargs["arm"],
+                    self.kwargs["include_head"]
+                )
+                self.finished_signal.emit(True, "", res)
+            elif self.task_type == "move_check":
+                res = self.app.move_to_check_position_candidate_path(
+                    self.kwargs["json_path"],
+                    self.kwargs["label"],
+                    self.kwargs["arm"],
+                    self.kwargs["include_head"]
+                )
+                self.finished_signal.emit(True, "", res)
+            elif self.task_type == "apply":
+                res = self.app.apply_current_pose_home_offset(
+                    self.kwargs["arm"],
+                    self.kwargs["include_head"]
+                )
+                self.finished_signal.emit(True, "", res)
+        except Exception as e:
+            self.finished_signal.emit(False, str(e), {})
+
+class CheckCalibrationStateWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, task_type, robot, model_name, active_arms, data, offset, skip_ready=False):
+        super().__init__()
+        self.task_type = task_type
+        self.robot = robot
+        self.model_name = model_name
+        self.active_arms = active_arms
+        self.data = data
+        self.offset = offset
+        self.skip_ready = skip_ready
+
+    def run(self):
+        try:
+            from core.robot_motion import check_calibration_state, make_dual_arm_head_cmd
+            if self.task_type == "move":
+                check_calibration_state(
+                    self.robot,
+                    self.model_name,
+                    self.active_arms,
+                    self.data,
+                    self.offset,
+                    log_cb=self.log_signal.emit,
+                    skip_ready=self.skip_ready
+                )
+                self.finished_signal.emit(True, "")
+            elif self.task_type == "draw_square":
+                import rby1_sdk as rby
+                import math
+                square_points = [
+                    [0.35, 0.07, 0.0],
+                    [0.35, 0.0, 0.07],
+                    [0.35, -0.07, 0.0],
+                    [0.35, 0.0, -0.07],
+                ]
+                
+                self.log_signal.emit("Starting square drawing sequence (2 loops)...")
+                for loop_idx in range(2):
+                    self.log_signal.emit(f"Loop {loop_idx + 1} / 2")
+                    for pt_idx, pt in enumerate(square_points):
+                        self.log_signal.emit(f"  Target Point {pt_idx + 1}: X={pt[0]}, Y={pt[1]}, Z={pt[2]}")
+                        
+                        roll_r = 90 * math.pi / 180
+                        pitch_r = -90 * math.pi / 180
+                        yaw_r = 0.0
+                        cr_r = math.cos(roll_r); sr_r = math.sin(roll_r)
+                        cp_r = math.cos(pitch_r); sp_r = math.sin(pitch_r)
+                        cy_r = math.cos(yaw_r); sy_r = math.sin(yaw_r)
+                        
+                        T_right = np.eye(4, dtype=np.float64)
+                        T_right[0, 0] = cy_r * cp_r
+                        T_right[0, 1] = sr_r * sp_r * cy_r - cr_r * sy_r
+                        T_right[0, 2] = cr_r * sp_r * cy_r + sr_r * sy_r
+                        T_right[0, 3] = pt[0]
+                        T_right[1, 0] = sy_r * cp_r
+                        T_right[1, 1] = sr_r * sp_r * sy_r + cr_r * cy_r
+                        T_right[1, 2] = cr_r * sp_r * sy_r - sr_r * cy_r
+                        T_right[1, 3] = pt[1] - self.offset
+                        T_right[2, 0] = -sp_r
+                        T_right[2, 1] = cp_r * sr_r
+                        T_right[2, 2] = cp_r * cr_r
+                        T_right[2, 3] = pt[2]
+                        
+                        roll_l = -90 * math.pi / 180
+                        pitch_l = -90 * math.pi / 180
+                        yaw_l = 0.0
+                        cr_l = math.cos(roll_l); sr_l = math.sin(roll_l)
+                        cp_l = math.cos(pitch_l); sp_l = math.sin(pitch_l)
+                        cy_l = math.cos(yaw_l); sy_l = math.sin(yaw_l)
+                        
+                        T_left = np.eye(4, dtype=np.float64)
+                        T_left[0, 0] = cy_l * cp_l
+                        T_left[0, 1] = sr_l * sp_l * cy_l - cr_l * sy_l
+                        T_left[0, 2] = cr_l * sp_l * cy_l + sr_l * sy_l
+                        T_left[0, 3] = pt[0]
+                        T_left[1, 0] = sy_l * cp_l
+                        T_left[1, 1] = sr_l * sp_l * sy_l + cr_l * cy_l
+                        T_left[1, 2] = cr_l * sp_l * sy_l - sr_l * cy_l
+                        T_left[1, 3] = pt[1] + self.offset
+                        T_left[2, 0] = -sp_l
+                        T_left[2, 1] = cp_l * sr_l
+                        T_left[2, 2] = cp_l * cr_l
+                        T_left[2, 3] = pt[2]
+                        
+                        cmd = make_dual_arm_head_cmd(
+                            T_right=T_right,
+                            T_left=T_left,
+                            active_arms=self.active_arms,
+                            head_position=None,
+                            min_time=2.0,
+                            hold_time=0.2
+                        )
+                        rv = self.robot.send_command(cmd, 10).get()
+                        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                            raise RuntimeError(f"Draw point move failed: {rv.finish_code}")
+                        time.sleep(0.5)
+                        
+                self.log_signal.emit("Square drawing sequence completed successfully.")
+                self.finished_signal.emit(True, "")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+class Step2CalculateWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, app, active_arms, optimize_head, optimize_camera, q_arm_list, q_head_list, T_meas_list, result_path, lambda_cam_pos, lambda_cam_rot):
+        super().__init__()
+        self.app = app
+        self.active_arms = active_arms
+        self.optimize_head = optimize_head
+        self.optimize_camera = optimize_camera
+        self.q_arm_list = q_arm_list
+        self.q_head_list = q_head_list
+        self.T_meas_list = T_meas_list
+        self.result_path = result_path
+        self.lambda_cam_pos = lambda_cam_pos
+        self.lambda_cam_rot = lambda_cam_rot
+
+    def run(self):
+        try:
+            self.app.run_optimizer(
+                active_arms=self.active_arms,
+                optimize_head=self.optimize_head,
+                optimize_camera=self.optimize_camera,
+                q_arm_list=self.q_arm_list,
+                q_head_list=self.q_head_list,
+                T_meas_list=self.T_meas_list,
+                result_path=self.result_path,
+                lambda_cam_pos=self.lambda_cam_pos,
+                lambda_cam_rot=self.lambda_cam_rot,
+                solver_type="QP Solver",
+                use_sag=False,
+            )
+            self.finished_signal.emit(True, "")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
 
 class FullAutoReadyWorker(QThread):
     log_signal = Signal(str)
@@ -1343,174 +2032,6 @@ class FullAutoWorker(QThread):
             self.finished_signal.emit()
 
 
-class ApplyHomeOffsetDialog(QDialog):
-    def __init__(self, parent, result_path, baseline_path, arm, include_head):
-        super().__init__(parent)
-        self.parent = parent
-        self.result_path = result_path
-        self.baseline_path = baseline_path
-        self.arm = arm
-        self.include_head = include_head
-        
-        self.setWindowTitle("Apply Home Offset")
-        self.resize(780, 520)
-        self.setStyleSheet(parent.styleSheet())
-        
-        layout = QVBoxLayout(self)
-        
-        msg = (
-            "Compare the original baseline zero and the optimized zero before applying.\n\n"
-            "1. Move to Baseline Zero to inspect the zero pose before calibration reset.\n"
-            "2. Move to Optimized Zero to inspect the computed calibration zero.\n"
-            "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
-            "Make sure the workspace is clear before each move."
-        )
-        layout.addWidget(QLabel(msg))
-        
-        self.summary_box = QTextEdit()
-        self.summary_box.setReadOnly(True)
-        self.summary_box.setFont(QFont("Consolas", 10))
-        layout.addWidget(self.summary_box)
-        
-        btn_frame = QHBoxLayout()
-        self.btn_baseline = QPushButton("Move to Baseline Zero")
-        self.btn_optimized = QPushButton("Move to Optimized Zero")
-        self.btn_apply = QPushButton("Apply Current Pose")
-        self.btn_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold;")
-        self.btn_close = QPushButton("Close")
-        
-        btn_frame.addWidget(self.btn_baseline)
-        btn_frame.addWidget(self.btn_optimized)
-        btn_frame.addWidget(self.btn_apply)
-        btn_frame.addStretch()
-        btn_frame.addWidget(self.btn_close)
-        layout.addLayout(btn_frame)
-        
-        self.btn_baseline.clicked.connect(self.move_baseline)
-        self.btn_optimized.clicked.connect(self.move_optimized)
-        self.btn_apply.clicked.connect(self.apply_current)
-        self.btn_close.clicked.connect(self.close)
-        
-        if not self.baseline_path or not Path(self.baseline_path).exists():
-            self.btn_baseline.setEnabled(False)
-            
-        self.update_summary()
-        self.active_worker = None
-
-    def update_summary(self):
-        lines = [
-            "Preview moves use the same convention as Apply Home Offset:",
-            "the robot moves to zero pose first, then to -joint_offset.",
-            "",
-            f"Optimized result: {self.result_path}",
-        ]
-        if not self.baseline_path or not Path(self.baseline_path).exists():
-            lines.append("Baseline reset: not found")
-        else:
-            lines.append(f"Baseline reset: {self.baseline_path}")
-            try:
-                opt_arm, opt_head = load_offset_from_json(str(self.result_path))
-                base_arm, base_head = load_offset_from_json(str(self.baseline_path))
-                if len(opt_arm) == len(base_arm):
-                    diff_arm_deg = np.rad2deg(base_arm - opt_arm)
-                    lines.append("")
-                    lines.append("Baseline - Optimized arm diff (deg):")
-                    lines.append(np.array2string(np.round(diff_arm_deg, 4), separator=", "))
-                else:
-                    lines.append("")
-                    lines.append(
-                        f"Arm diff unavailable: optimized has {len(opt_arm)} values, baseline has {len(base_arm)}."
-                    )
-
-                if opt_head is not None and base_head is not None:
-                    if len(opt_head) == len(base_head):
-                        diff_head_deg = np.rad2deg(base_head - opt_head)
-                        lines.append("")
-                        lines.append("Baseline - Optimized head diff (deg):")
-                        lines.append(np.array2string(np.round(diff_head_deg, 4), separator=", "))
-                    else:
-                        lines.append("")
-                        lines.append(
-                            f"Head diff unavailable: optimized has {len(opt_head)} values, baseline has {len(base_head)}."
-                        )
-            except Exception as e:
-                lines.append("")
-                lines.append(f"Failed to compute diff: {e}")
-                
-        self.summary_box.setPlainText("\n".join(lines))
-
-    def set_buttons_enabled(self, enabled):
-        self.btn_baseline.setEnabled(enabled and bool(self.baseline_path and Path(self.baseline_path).exists()))
-        self.btn_optimized.setEnabled(enabled)
-        self.btn_apply.setEnabled(enabled)
-        self.btn_close.setEnabled(enabled)
-
-    def move_baseline(self):
-        self.set_buttons_enabled(False)
-        self.active_worker = MoveHomeOffsetWorker(
-            self.parent.robot,
-            self.parent.robot.model() if (self.parent.robot and not self.parent.is_mock) else None,
-            self.arm,
-            self.baseline_path,
-            self.include_head,
-            "Baseline Zero"
-        )
-        self.active_worker.log_signal.connect(self.parent.log_msg)
-        self.active_worker.finished_signal.connect(self.on_move_finished)
-        self.active_worker.start()
-
-    def move_optimized(self):
-        self.set_buttons_enabled(False)
-        self.active_worker = MoveHomeOffsetWorker(
-            self.parent.robot,
-            self.parent.robot.model() if (self.parent.robot and not self.parent.is_mock) else None,
-            self.arm,
-            self.result_path,
-            self.include_head,
-            "Optimized Zero"
-        )
-        self.active_worker.log_signal.connect(self.parent.log_msg)
-        self.active_worker.finished_signal.connect(self.on_move_finished)
-        self.active_worker.start()
-
-    def on_move_finished(self, success):
-        self.set_buttons_enabled(True)
-        if success:
-            QMessageBox.information(self, "Preview Complete", "Moved to zero candidate pose.")
-        else:
-            QMessageBox.critical(self, "Error", "Failed to move robot.")
-
-    def apply_current(self):
-        msg = (
-            "This will redefine the selected joints' home offset using the robot's CURRENT pose.\n\n"
-            "Only continue if the robot is currently at the zero pose you want to keep."
-        )
-        reply = QMessageBox.question(
-            self, "Apply Current Pose", msg,
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        )
-        if reply == QMessageBox.Yes:
-            self.set_buttons_enabled(False)
-            self.active_worker = ApplyCurrentPoseWorker(
-                self.parent.robot,
-                self.parent.robot.model() if (self.parent.robot and not self.parent.is_mock) else None,
-                self.arm,
-                self.include_head
-            )
-            self.active_worker.log_signal.connect(self.parent.log_msg)
-            self.active_worker.finished_signal.connect(self.on_apply_finished)
-            self.active_worker.start()
-
-    def on_apply_finished(self, result):
-        self.set_buttons_enabled(True)
-        if result.get("success", False):
-            QMessageBox.information(self, "Success", "Home offset applied successfully from current pose.")
-            self.parent.log_msg("Re-connecting and initializing robot...")
-            self.parent.connect_robot()
-            self.accept()
-        else:
-            QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Check logs.")
-
 # --- Unified Calibration App ---
 class UnifiedCalibrationApp(QWidget):
     def __init__(self, marker_st, robot, arm_side="right", ui_only=False):
@@ -1562,6 +2083,37 @@ class UnifiedCalibrationApp(QWidget):
         # Step 2 calibration state
         self.apply_joint_offset_flag = False
         self.include_head_motion = True
+        self.shared_arm_q_list = []
+        self.shared_head_q_list = []
+        self.shared_T_list = []
+        self.head_move_count = 0
+        
+        self.auto_config = AutoCollectionConfig()
+        self.auto_motion_plan = None
+        self.auto_base_head_q = None
+        self.auto_ready_done = False
+        self.auto_motion_running = False
+        self.auto_stop_requested = False
+        self.auto_motion_thread = None
+        
+        self.last_result_path = None
+        self.last_home_reset_path = None
+        self.last_dataset_path = None
+        self.dataset_saved_in_session = False
+        self.current_session_dataset_path = None
+        
+        self.check_state_moved = False
+        
+        if self.robot:
+            try:
+                self.model = self.robot.model()
+                self.dyn_model = self.robot.get_dynamics()
+            except Exception:
+                self.model = None
+                self.dyn_model = None
+        else:
+            self.model = None
+            self.dyn_model = None
         
         self.recommended_joint_offset = None
         
@@ -2399,6 +2951,13 @@ class UnifiedCalibrationApp(QWidget):
         config_box.setLayout(config_layout)
         self.step2_left_col.addWidget(config_box, 1)
         
+        self.step2_angle_step.textChanged.connect(self.update_step2_est_samples)
+        self.step2_pos_step.textChanged.connect(self.update_step2_est_samples)
+        self.step2_step_x.textChanged.connect(self.update_step2_est_samples)
+        self.step2_max_x.textChanged.connect(self.update_step2_est_samples)
+        self.step2_mode_sel.currentTextChanged.connect(self.update_step2_est_samples)
+        QTimer.singleShot(100, self.update_step2_est_samples)
+        
         # Actions Box (mirrors calibration_ui Actions section)
         actions_box = QGroupBox("Actions")
         actions_box.setStyleSheet("QGroupBox { border: 1px solid #555; border-radius: 4px; } QGroupBox::title { color: #ff9800; font-weight: bold; }")
@@ -2529,6 +3088,8 @@ class UnifiedCalibrationApp(QWidget):
             if not self.is_mock:
                 MarkerCalibrator.terminate_robot(self.robot)
             self.robot = None
+            self.model = None
+            self.dyn_model = None
             self.robot_version = "1.2"
             self.marker_calibrator.robot = None
             self.marker_calibrator.robot_version = "1.2"
@@ -2539,6 +3100,8 @@ class UnifiedCalibrationApp(QWidget):
             self.update_applied_offset_label()
             self.btn_connect.setText("CONNECT")
             self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
+            if hasattr(self, 'chk_servo_head'):
+                self.chk_servo_head.setEnabled(True)
             self.log_msg("[INFO] Robot disconnected.")
             return
 
@@ -2551,13 +3114,93 @@ class UnifiedCalibrationApp(QWidget):
             self.include_head_motion = head_enabled
             self.log_msg(f"[INFO] Connecting to robot at {addr} ({model}), head={'ON' if head_enabled else 'OFF'}...")
             
-            self.robot = BaseCalibrator.initialize_robot(addr, model)
-            if not self.robot:
-                raise ConnectionError(f"Failed to connect to robot at {addr}")
+            # 1. Create and connect robot
+            robot = rby.create_robot(addr, model)
+            if not robot.connect():
+                raise ConnectionError(f"Failed to connect robot at {addr}")
+            time.sleep(1)
+
+            # 2. Safety check: Verify actual connected robot model matches expected model
+            try:
+                robot_info = robot.get_robot_info()
+                actual_model = robot_info.robot_model_name.lower()
+                expected_model = model.lower()
+                if actual_model != expected_model:
+                    self.log_msg(f"[WARNING] Model mismatch! UI selected model: {model}, but actual robot model is: {robot_info.robot_model_name}. Auto-reconnecting with actual model...")
+                    robot.disconnect()
+                    robot = rby.create_robot(addr, robot_info.robot_model_name.lower())
+                    if not robot.connect():
+                        raise ConnectionError(f"Failed to connect robot {addr} with actual model {robot_info.robot_model_name}")
+                    time.sleep(1)
+            except Exception as e:
+                self.log_msg(f"[ERROR] Safety check failed: {e}")
+
+            # 3. Turn on power if not already ON
+            try:
+                if not robot.is_power_on(".*"):
+                    self.log_msg("[INFO] Power is not ON. Turning overall power on...")
+                    if not robot.power_on(".*"):
+                        raise RuntimeError("Failed to turn power on.")
+                    time.sleep(1)
+                else:
+                    self.log_msg("[INFO] Power is already ON.")
+            except Exception as e:
+                self.log_msg(f"[ERROR] Power configuration failed: {e}")
+
+            # 4. Turn on servos if not already ON
+            try:
+                if not robot.is_servo_on(".*"):
+                    self.log_msg("[INFO] Turning servos on...")
+                    if not robot.servo_on(".*"):
+                        raise RuntimeError("Failed to turn servos on.")
+                    time.sleep(1)
+                else:
+                    self.log_msg("[INFO] Servos are ON.")
+            except Exception as e:
+                self.log_msg(f"[ERROR] Servo configuration failed: {e}")
+
+            # 5. Enable control manager with False (standard mode, unlimited mode disabled)
+            try:
+                cm_state = robot.get_control_manager_state()
+                if cm_state.state in [
+                    rby.ControlManagerState.State.MajorFault,
+                    rby.ControlManagerState.State.MinorFault,
+                ]:
+                    self.log_msg("[WARNING] Control manager is in fault state. Resetting...")
+                    robot.reset_fault_control_manager()
+                    time.sleep(0.5)
+
+                cm_state = robot.get_control_manager_state()
+                if cm_state.state == rby.ControlManagerState.State.Enabled:
+                    self.log_msg("[INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=False...")
+                    robot.disable_control_manager()
+                    time.sleep(0.5)
+
+                self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=False...")
+                if not robot.enable_control_manager(unlimited_mode_enabled=False):
+                    raise RuntimeError("Failed to enable control manager.")
+                time.sleep(1)
+            except Exception as e:
+                self.log_msg(f"[ERROR] Control manager configuration failed: {e}")
+
+            self.robot = robot
                 
             if self.robot:
+                self.model = self.robot.model()
+                self.dyn_model = self.robot.get_dynamics()
                 self.marker_calibrator.robot = self.robot
                 self.joint_calibrator.robot = self.robot
+                
+                # Check for head presence
+                if len(self.model.head_idx) == 0:
+                    if hasattr(self, 'chk_servo_head'):
+                        self.chk_servo_head.setChecked(False)
+                        self.chk_servo_head.setEnabled(False)
+                    self.include_head_motion = False
+                    self.log_msg("[INFO] No head joints detected. Head motion disabled (Torso base).")
+                else:
+                    if hasattr(self, 'chk_servo_head'):
+                        self.chk_servo_head.setEnabled(True)
                 
                 # Determine version classification automatically
                 detected_version = "1.2"
@@ -2832,6 +3475,724 @@ class UnifiedCalibrationApp(QWidget):
     # =============================================
     # Step 2 Action Handlers
     # =============================================
+
+    def update_step2_est_samples(self, *args):
+        try:
+            p = float(self.step2_pos_step.text())
+            step_x = float(self.step2_step_x.text())
+            m = float(self.step2_max_x.text())
+            if p <= 0 or step_x <= 0:
+                return
+
+            current_x = 0.0
+            if self.robot is not None and self.dyn_model is not None:
+                try:
+                    # Sync config values for build_incremental_motion_plan
+                    self.auto_config.angle_step_deg = float(self.step2_angle_step.text())
+                    self.auto_config.position_step_m = float(self.step2_pos_step.text())
+                    self.auto_config.step_x_m = float(self.step2_step_x.text())
+                    self.auto_config.max_x = float(self.step2_max_x.text())
+
+                    active_arms = ["right", "left"]
+                    temp_plan = build_incremental_motion_plan(
+                        self.robot, self.dyn_model, self.auto_config, active_arms
+                    )
+                    cnt = len(temp_plan)
+
+                    # Compute current_x for display
+                    q_full = self.robot.get_state().position
+                    T_fk = BaseCalibrator.compute_fk(self.robot, self.dyn_model, q_full, "ee_right", "link_torso_5")
+                    current_x = T_fk[0, 3]
+
+                    self.step2_est_samples_label.setText(f"Est. Samples: {cnt} (from X={current_x:.3f})")
+                    return
+                except:
+                    pass
+
+            # Fallback/Offline estimation:
+            # We exactly generate 33 steps per X-step (12 joint steps + 1 restore step + 12 RPY steps + 8 YZ steps = 33)
+            current_x = 0.3
+            if m > current_x:
+                cnt = 33 * (int((m - current_x) / step_x) + 1)
+            else:
+                cnt = 0
+            self.step2_est_samples_label.setText(f"Est. Samples: {cnt} (approx)")
+        except:
+            pass
+
+    def get_capture_head_idx(self):
+        if self.model is None:
+            return None
+        return get_head_config(self.model)["head_idx"]
+
+    def get_active_arms(self):
+        arm_text = self.arm_sel.currentText()
+        if "Left" in arm_text:
+            return ["left"]
+        elif "Right" in arm_text:
+            return ["right"]
+        return ["right", "left"]
+
+    def get_target_arm_str(self):
+        active_arms = self.get_active_arms()
+        if len(active_arms) == 1:
+            return active_arms[0]
+        return "both"
+
+    def ensure_home_offset_robot(self):
+        if self.robot is None or self.model is None:
+            self.log_msg("[INFO] Robot is not connected. Connecting before home offset operation...")
+            self.connect_robot()
+        if self.robot is None or self.model is None:
+            raise RuntimeError("Robot is not connected.")
+
+    def resolve_input_path(self, raw_path):
+        input_path = Path(raw_path).expanduser()
+        if input_path.is_absolute():
+            return input_path
+        return Path(current_dir) / input_path
+
+    def ensure_result_dir(self):
+        path = Path(CONFIG_PATHS["result_dir"])
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def build_output_paths(self):
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        result_dir = self.ensure_result_dir()
+        dataset_path = result_dir / f"dataset_{timestamp}.npz"
+        result_path = result_dir / f"result_{timestamp}.json"
+        return dataset_path, result_path
+
+    def get_latest_result_path(self):
+        if self.last_result_path is not None and Path(self.last_result_path).exists():
+            return Path(self.last_result_path)
+
+        result_dir = self.ensure_result_dir()
+        result_files = sorted(
+            result_dir.glob("result_*.json"),
+            key=lambda file_path: file_path.stat().st_mtime,
+            reverse=True,
+        )
+        if not result_files:
+            raise RuntimeError(f"No calibration result JSON found in {result_dir}")
+
+        self.last_result_path = result_files[0]
+        return self.last_result_path
+
+    def get_home_reset_path_for_result(self, result_path):
+        path = Path(current_dir) / "config" / "home_reset_baseline.json"
+        if path.exists():
+            self.last_home_reset_path = path
+            return path
+        return None
+
+    def format_home_offset_compare_summary(self, result_path, baseline_path):
+        lines = [
+            "Preview moves use the same convention as Apply Home Offset:",
+            "the robot moves to zero pose first, then to -joint_offset.",
+            "",
+            f"Optimized result: {result_path}",
+        ]
+        if baseline_path is None:
+            lines.append("Baseline reset: not found")
+            return "\n".join(lines)
+
+        lines.append(f"Baseline reset: {baseline_path}")
+        try:
+            opt_arm, opt_head = load_offset_from_json(str(result_path))
+            base_arm, base_head = load_offset_from_json(str(baseline_path))
+            if len(opt_arm) == len(base_arm):
+                diff_arm_deg = np.rad2deg(base_arm - opt_arm)
+                lines.append("")
+                lines.append("Baseline - Optimized arm diff (deg):")
+                lines.append(np.array2string(np.round(diff_arm_deg, 4), separator=", "))
+            else:
+                lines.append("")
+                lines.append(
+                    f"Arm diff unavailable: optimized has {len(opt_arm)} values, baseline has {len(base_arm)}."
+                )
+
+            if opt_head is not None and base_head is not None:
+                if len(opt_head) == len(base_head):
+                    diff_head_deg = np.rad2deg(base_head - opt_head)
+                    lines.append("")
+                    lines.append("Baseline - Optimized head diff (deg):")
+                    lines.append(np.array2string(np.round(diff_head_deg, 4), separator=", "))
+                else:
+                    lines.append("")
+                    lines.append(
+                        f"Head diff unavailable: optimized has {len(opt_head)} values, baseline has {len(base_head)}."
+                    )
+        except Exception as e:
+            lines.append("")
+            lines.append(f"Failed to compute diff: {e}")
+        return "\n".join(lines)
+
+    def infer_home_offset_apply_arm(self, requested_arm, json_path):
+        try:
+            offset_rad, _ = load_offset_from_json(str(json_path))
+        except Exception:
+            return requested_arm
+
+        if self.model is not None:
+            both_dof = len(self.model.right_arm_idx) + len(self.model.left_arm_idx)
+            if len(offset_rad) == both_dof:
+                return "both"
+
+        if len(offset_rad) == 14:
+            return "both"
+        return requested_arm
+
+    def move_home_offset_candidate_path(self, json_path, label, arm, include_head):
+        self.ensure_home_offset_robot()
+        result = move_to_offset_candidate_from_json(
+            robot=self.robot,
+            model=self.model,
+            arm=arm,
+            json_path=str(json_path),
+            include_head=include_head,
+            minimum_time=10,
+            move_zero_first=True,
+        )
+
+        self.log_msg(f"\n===== HOME OFFSET PREVIEW: {label} =====")
+        self.log_msg(f"JSON: {json_path}")
+        self.log_msg(f"Arm: {result['arm']}")
+        if result.get("right_offset_deg") is not None:
+            self.log_msg(f"Right move offset (deg): {result['right_offset_deg']}")
+        if result.get("left_offset_deg") is not None:
+            self.log_msg(f"Left move offset (deg): {result['left_offset_deg']}")
+        if result.get("head_offset_deg") is not None:
+            self.log_msg(f"Head move offset (deg): {result['head_offset_deg']}")
+        self.log_msg("Preview move complete. Inspect the robot pose before applying.")
+        return result
+
+    def move_to_check_position_candidate_path(self, json_path, label, arm, include_head):
+        self.ensure_home_offset_robot()
+        
+        # Load offsets from json
+        from homeoffset_core import load_offset_from_json, _split_arm_offset, _normalize_head_offset, movej
+        offset_rad, head_offset_rad = load_offset_from_json(str(json_path))
+        
+        apply_mode, right_offset_rad, left_offset_rad = _split_arm_offset(
+            self.model,
+            arm,
+            offset_rad,
+        )
+        
+        right_offset_to_apply = -right_offset_rad
+        left_offset_to_apply = -left_offset_rad
+        head_offset_full, head_offset_size = _normalize_head_offset(
+            self.model,
+            head_offset_rad,
+            include_head,
+        )
+        head_offset_to_apply = None if head_offset_full is None else -head_offset_full
+        
+        # Determine version key
+        version_key = "v1.2"
+        if self.robot is not None:
+            try:
+                robot_info = self.robot.get_robot_info()
+                raw_version = robot_info.robot_model_version
+                if "1.3" in raw_version:
+                    version_key = "v1.3"
+            except Exception:
+                pass
+                
+        # Load check_calib ready poses
+        ready_poses_path = Path(current_dir) / "config" / "ready_poses.yaml"
+        check_calib_joints = {
+            "right_arm": [-90.0, -45.0, 73.0, -107.0, 90.0, 90.0, 0.0],
+            "left_arm": [-90.0, 45.0, -73.0, -107.0, -90.0, 90.0, 0.0]
+        }
+        if ready_poses_path.exists():
+            try:
+                import yaml
+                with open(ready_poses_path, "r") as f:
+                    ready_poses = yaml.safe_load(f) or {}
+                if version_key in ready_poses and "check_calib" in ready_poses[version_key]:
+                    check_calib_joints = ready_poses[version_key]["check_calib"]
+            except Exception as e:
+                self.log_msg(f"[WARNING] Failed to parse ready_poses.yaml: {e}")
+                
+        # 1. Move to 1st ready pose (like check_calibration_state)
+        active_arms = []
+        if arm in ("right", "both"):
+            active_arms.append("right")
+        if arm in ("left", "both"):
+            active_arms.append("left")
+            
+        self.log_msg(f"\n[Check Position] Step 1: Moving to Joint Ready Pose...")
+        ok = movej(
+            self.robot,
+            torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+            right_arm=np.deg2rad([-45, -30, 0, -90, 0, 45, 0]) if "right" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+            left_arm=np.deg2rad([-45, 30, 0, -90, 0, 45, 0]) if "left" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+            minimum_time=5
+        )
+        if not ok:
+            raise RuntimeError("Failed to move robot to Step 1 Ready Pose")
+        time.sleep(2.0)
+        
+        # 2. Move to Check Position with offsets added
+        self.log_msg(f"[Check Position] Step 2: Moving to Check Pose with Offsets...")
+        
+        right_target = np.deg2rad(check_calib_joints["right_arm"]) + right_offset_to_apply
+        left_target = np.deg2rad(check_calib_joints["left_arm"]) + left_offset_to_apply
+        
+        head_zero_pose = np.zeros(len(self.model.head_idx)) if include_head else None
+        head_target_pose = None
+        if include_head:
+            head_target_pose = (
+                head_zero_pose
+                if head_offset_to_apply is None
+                else head_zero_pose + head_offset_to_apply
+            )
+            
+        ok = movej(
+            self.robot,
+            torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+            right_arm=right_target,
+            left_arm=left_target,
+            head=head_target_pose if include_head else None,
+            minimum_time=10
+        )
+        if not ok:
+            raise RuntimeError("Failed to move robot to Step 2 Check Pose")
+        time.sleep(2.0)
+        
+        offset_to_apply = np.concatenate([right_offset_to_apply, left_offset_to_apply])
+        head_offset_deg = None
+        if head_offset_to_apply is not None:
+            head_offset_deg = np.rad2deg(head_offset_to_apply[:head_offset_size]).tolist()
+            
+        result = {
+            "status": "success",
+            "arm": apply_mode,
+            "offset_deg": np.rad2deg(offset_to_apply).tolist(),
+            "right_offset_deg": np.rad2deg(right_offset_to_apply).tolist(),
+            "left_offset_deg": np.rad2deg(left_offset_to_apply).tolist(),
+            "head_offset_deg": head_offset_deg,
+        }
+        
+        self.log_msg(f"\n===== HOME OFFSET PREVIEW: {label} =====")
+        self.log_msg(f"JSON: {json_path}")
+        self.log_msg(f"Arm: {result['arm']}")
+        if result.get("right_offset_deg") is not None:
+            self.log_msg(f"Right move offset (deg): {result['right_offset_deg']}")
+        if result.get("left_offset_deg") is not None:
+            self.log_msg(f"Left move offset (deg): {result['left_offset_deg']}")
+        if result.get("head_offset_deg") is not None:
+            self.log_msg(f"Head move offset (deg): {result['head_offset_deg']}")
+        self.log_msg("Preview move complete. Inspect the robot pose before applying.")
+        return result
+
+    def apply_current_pose_home_offset(self, arm, include_head):
+        self.ensure_home_offset_robot()
+        result = reset_current_pose_home_offsets(
+            self.robot,
+            self.model,
+            arm=arm,
+            include_head=include_head,
+            log_cb=self.log_msg,
+        )
+
+        self.log_msg("Re-connecting and initializing robot...")
+        self.connect_robot()
+        self.log_msg("Current pose home offset apply complete.")
+        return result
+
+    def run_auto_motion_step_blocking(self):
+        if self.robot is None or self.model is None:
+            raise RuntimeError("Robot is not connected.")
+
+        pose_target = self.get_auto_pose_target_count()
+        if self.head_move_count >= pose_target:
+            self.log_msg("Auto motions have already been executed.")
+            return True
+
+        if not self.auto_ready_done:
+            raise RuntimeError("Please move to Init Pose first.")
+
+        active_arms = ["right", "left"]
+
+        # Re-build incremental motion plan based on the CURRENT (possibly teached) pose
+        if self.auto_motion_plan is None or self.head_move_count == 0:
+            try:
+                self.auto_config.angle_step_deg = float(self.step2_angle_step.text())
+                self.auto_config.position_step_m = float(self.step2_pos_step.text())
+                self.auto_config.step_x_m = float(self.step2_step_x.text())
+                self.auto_config.max_x = float(self.step2_max_x.text())
+            except Exception as e:
+                self.log_msg(f"Failed to read auto config: {e}. Using current values.")
+            
+            self.log_msg(f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, StepX={self.auto_config.step_x_m}m, MaxX={self.auto_config.max_x}m)")
+            self.auto_motion_plan = build_incremental_motion_plan(
+                self.robot, self.dyn_model, self.auto_config, active_arms
+            )
+            self.update_head_pose_status()
+            self.update_step2_est_samples()
+
+        if self.include_head_motion and self.auto_base_head_q is None:
+            head_cfg = get_head_config(self.model)
+            if head_cfg["head_idx"] is not None:
+                self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
+                self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+            else:
+                self.auto_base_head_q = None
+                self.include_head_motion = False
+
+        if self.auto_stop_requested:
+            self.log_msg("Auto Motion stopped by user.")
+            return False
+
+        motion_plan_step = self.auto_motion_plan[self.head_move_count]
+        
+        motion_info = execute_auto_motion_step(
+            robot=self.robot,
+            config=self.auto_config,
+            motion_plan_step=motion_plan_step,
+            active_arms=active_arms,
+            include_head_motion=self.include_head_motion,
+        )
+        self.log_msg(f"Auto motion done: {motion_plan_step['desc']}")
+
+        if self.auto_stop_requested:
+            self.log_msg("Auto Motion stopped by user.")
+            return False
+
+        q_arm, q_head, T_meas = self.capture_one_sample()
+        if q_arm is None:
+            self.head_move_count += 1
+            self.update_head_pose_status()
+            self.log_msg("Capture failed after motion. This pose is skipped.")
+            return False
+
+        self.shared_arm_q_list.append(q_arm)
+        if q_head is not None:
+            self.shared_head_q_list.append(q_head)
+        self.shared_T_list.append(T_meas)
+        self.head_move_count += 1
+        self.update_sample_counts()
+        self.update_head_pose_status()
+        return True
+
+    def move_to_all_auto_motions(self):
+        if not self.auto_ready_done:
+            raise RuntimeError("Please move to Init Pose first.")
+
+        if self.auto_motion_plan is None or len(self.auto_motion_plan) == 0:
+            self.log_msg("Motion plan is missing or empty. Re-building...")
+            active_arms = ["right", "left"]
+            self.auto_motion_plan = build_incremental_motion_plan(
+                self.robot, self.dyn_model, self.auto_config, active_arms
+            )
+
+        pose_target = self.get_auto_pose_target_count()
+        if self.head_move_count >= pose_target:
+            self.log_msg("Auto motions have already been executed.")
+            return
+
+        if self.auto_motion_running or self.auto_motion_thread is not None:
+            self.log_msg("Another robot operation is already running.")
+            return
+
+        self.auto_stop_requested = False
+        self.auto_motion_running = True
+        self.log_msg("Auto Motion started in a background thread. Press Stop to cancel.")
+
+        self.auto_motion_thread = Step2AutoMotionWorker(self)
+        self.auto_motion_thread.log_signal.connect(self.log_msg)
+        def on_finished(success, error_msg):
+            self.auto_motion_running = False
+            self.auto_motion_thread = None
+            self.auto_save_current_dataset()
+            if success:
+                self.log_msg("Auto motions sequence completed.")
+            else:
+                self.log_msg(f"Auto motion error: {error_msg}")
+        self.auto_motion_thread.finished_signal.connect(on_finished)
+        self.auto_motion_thread.start()
+
+    def stop_all_auto_motion_internal(self, cancel_robot=False, reset_stop_requested=True):
+        self.auto_motion_running = False
+        if reset_stop_requested:
+            self.auto_stop_requested = False
+
+        if cancel_robot and self.robot is not None:
+            try:
+                self.robot.cancel_control()
+            except Exception:
+                pass
+
+        # Safely wait for the active worker thread to exit
+        if hasattr(self, 'auto_motion_thread') and self.auto_motion_thread is not None:
+            if self.auto_motion_thread.isRunning():
+                self.log_msg("[INFO] Waiting for background motion thread to exit cleanly...")
+                # Wait up to 3 seconds for it to exit
+                if not self.auto_motion_thread.wait(3000):
+                    self.log_msg("[WARNING] Background thread did not exit. Terminating...")
+                    self.auto_motion_thread.terminate()
+                    self.auto_motion_thread.wait()
+                self.log_msg("[INFO] Background motion thread stopped.")
+            self.auto_motion_thread = None
+
+        reset_motion_state()
+
+    def request_stop_all_auto_motion(self):
+        if not self.auto_motion_running and self.auto_motion_thread is None:
+            self.log_msg("No Auto Motion sequence is running.")
+            self.stop_all_auto_motion_internal(cancel_robot=True)
+            return
+
+        self.auto_stop_requested = True
+        self.stop_all_auto_motion_internal(cancel_robot=True, reset_stop_requested=False)
+        self.log_msg("Stop requested. Sent robot.cancel_control(); the auto motion sequence stops after the current step.")
+
+    def auto_save_current_dataset(self):
+        if len(self.shared_arm_q_list) == 0:
+            return
+        
+        q_arm_list = np.array(self.shared_arm_q_list)
+        q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
+        T_meas_list = np.array(self.shared_T_list)
+        
+        # Auto-slice for single-arm mode if data has both
+        active_arms = ["right", "left"]
+        optimize_head = self.include_head_motion
+        if len(active_arms) == 1:
+            if q_arm_list.shape[1] == 14:
+                if active_arms[0] == "right":
+                    q_arm_list = q_arm_list[:, :7]
+                else:
+                    q_arm_list = q_arm_list[:, 7:]
+            if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                if active_arms[0] == "right":
+                    T_meas_list = T_meas_list[:, 0]
+                else:
+                    T_meas_list = T_meas_list[:, 1]
+                    
+        try:
+            validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
+            
+            if not self.dataset_saved_in_session or self.current_session_dataset_path is None:
+                dataset_path, _ = self.build_output_paths()
+                self.current_session_dataset_path = dataset_path
+                self.dataset_saved_in_session = True
+                
+            save_npz_dataset(self.current_session_dataset_path, q_arm=q_arm_list, q_head=q_head_list, T_meas=T_meas_list)
+            self.last_dataset_path = self.current_session_dataset_path
+            self.log_msg(f"[Auto-Save] Dataset saved/updated in: {self.current_session_dataset_path}")
+        except Exception as e:
+            self.log_msg(f"[Auto-Save Error] {e}")
+
+    def update_sample_counts(self):
+        sample_count = len(self.shared_arm_q_list)
+        if hasattr(self, 'step2_sample_count_label'):
+            self.step2_sample_count_label.setText(f"Shared Samples: {sample_count}")
+
+    def get_auto_pose_target_count(self):
+        if self.auto_motion_plan is not None:
+            return len(self.auto_motion_plan)
+        return 0
+
+    def update_head_pose_status(self):
+        pose_target_count = self.get_auto_pose_target_count()
+        pose_idx = min(self.head_move_count, pose_target_count)
+        label = f"Auto Motion: {pose_idx}/{pose_target_count}"
+        if not self.include_head_motion:
+            label += " (headless)"
+        if hasattr(self, 'step2_head_status_label'):
+            self.step2_head_status_label.setText(label)
+
+    def capture_one_sample(self):
+        if self.robot is None:
+            raise RuntimeError("Robot is not connected.")
+
+        cfg = get_both_arm_config(self.model)
+        head_idx = self.get_capture_head_idx()
+
+        # In sim mode bypass camera and return dummy marker data
+        if self.step2_mode_sel.currentText() == "sim":
+            state = self.robot.get_state()
+            q_full = state.position.copy()
+            q_arm = q_full[cfg["arm_idx"]].copy()
+            q_head = q_full[head_idx].copy() if head_idx is not None else None
+            # Return identity matrices as dummy marker measurements
+            T_meas = np.stack([np.eye(4), np.eye(4)], axis=0)
+            self.log_msg("Sim/Test mode: Bypassing camera capture, using dummy marker data.")
+        else:
+            q_arm, q_head, T_meas = capture_robot_sample(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                marker_transform=self.marker_st,
+                head_idx=head_idx,
+                side="all",
+            )
+        if T_meas is None:
+            self.log_msg("Marker not detected.")
+            return None, None, None
+
+        self.log_msg(f"Captured sample")
+        self.log_msg(f"q_arm = {np.round(q_arm, 3)}")
+        if q_head is not None:
+            self.log_msg(f"q_head = {np.round(q_head, 3)}")
+        else:
+            self.log_msg("q_head = None")
+        self.log_msg(f"marker_right =\n{np.round(T_meas[0], 3)}")
+        self.log_msg(f"marker_left =\n{np.round(T_meas[1], 3)}")
+        return q_arm, q_head, T_meas
+
+    def run_optimizer(
+        self,
+        active_arms,
+        optimize_head,
+        optimize_camera,
+        q_arm_list,
+        q_head_list,
+        T_meas_list,
+        result_path,
+        lambda_cam_pos=1.0,
+        lambda_cam_rot=1.0,
+        solver_type="QP Solver",
+        use_sag=False,
+    ):
+        if self.model is None:
+            raise RuntimeError("Robot is not connected.")
+
+        if len(active_arms) == 1:
+            cfg = get_arm_config(self.model, active_arms[0])
+            ee_links = {active_arms[0]: cfg["ee_link"]}
+            ee_to_marker_nom = {active_arms[0]: cfg["ee_to_marker_nom"]}
+        else:
+            cfg = get_both_arm_config(self.model)
+            ee_links = cfg["ee_links"]
+            ee_to_marker_nom = cfg["ee_to_marker_nom"]
+
+        head_cfg = get_head_config(self.model)
+
+        apply_limits = getattr(self, "apply_joint_offset_flag", False)
+        joint_offsets = None
+        if apply_limits:
+            joint_offsets = {
+                "right": {
+                    "joint3": self.joint_offsets_store["right"].get("joint3", 0.0),
+                    "joint5": self.joint_offsets_store["right"].get("joint5", 0.0),
+                    "joint6": self.joint_offsets_store["right"].get("joint6", 0.0),
+                },
+                "left": {
+                    "joint3": self.joint_offsets_store["left"].get("joint3", 0.0),
+                    "joint5": self.joint_offsets_store["left"].get("joint5", 0.0),
+                    "joint6": self.joint_offsets_store["left"].get("joint6", 0.0),
+                }
+            }
+            self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
+
+        if solver_type == "QP Solver":
+            optimizer = QPCalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                ee_links=ee_links,
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom=ee_to_marker_nom,
+                head_idx=head_cfg["head_idx"],
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                active_arms=active_arms,
+                estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+            )
+        else:
+            optimizer = CalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                ee_links=ee_links,
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom=ee_to_marker_nom,
+                active_arms=active_arms,
+                optimize_arm=True,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                head_idx=head_cfg["head_idx"],
+                use_head_kinematics=optimize_head,
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
+                estimate_measurement_noise=True,
+            )
+
+        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+            q_arm_list,
+            q_head_list,
+            T_meas_list,
+        )
+        
+        if len(active_arms) == 1:
+            if active_arms[0] == "right":
+                right_arm_offset = q_arm_offset
+                left_arm_offset = None
+            else:
+                right_arm_offset = None
+                left_arm_offset = q_arm_offset
+        else:
+            right_arm_offset = q_arm_offset[:7]
+            left_arm_offset = q_arm_offset[7:]
+
+        head_base_to_cam_new = [float(x) for x in head_base_to_cam_new] if head_base_to_cam_new else None
+        mount_to_cam_new = [float(x) for x in mount_to_cam_new] if mount_to_cam_new else None
+
+        self.log_msg("\n===== RESULT =====")
+        self.log_msg(f"lambda_cam_pos = {lambda_cam_pos}")
+        self.log_msg(f"lambda_cam_rot = {lambda_cam_rot}")
+        self.log_msg(f"measurement_noise = {optimizer.noise_estimator.format()}")
+        
+        if right_arm_offset is not None:
+            self.log_msg(f"Right arm joint offset (deg): {np.rad2deg(right_arm_offset)}")
+            
+        if left_arm_offset is not None:
+            self.log_msg(f"Left arm joint offset (deg): {np.rad2deg(left_arm_offset)}")
+        if q_head_offset is not None:
+            self.log_msg(f"Head joint offset (deg): {np.rad2deg(q_head_offset)}")
+        
+        if optimize_head:
+            self.log_msg(f"mount_to_cam xi: {xi_cam}")
+            self.log_msg(f"mount_to_cam_new: {mount_to_cam_new}")
+        else:
+            self.log_msg(f"head_base-to-camera xi: {xi_cam}")
+            self.log_msg(f"head_base_to_cam_new: {head_base_to_cam_new}")
+
+        result_dict = {
+            "joint_offset_deg": np.rad2deg(q_arm_offset).tolist(),
+            "right_arm_joint_offset_deg": np.rad2deg(right_arm_offset).tolist() if right_arm_offset is not None else None,
+            "left_arm_joint_offset_deg": np.rad2deg(left_arm_offset).tolist() if left_arm_offset is not None else None,
+            "head_joint_offset_deg": np.rad2deg(q_head_offset).tolist() if q_head_offset is not None else None,
+            "xi_cam": np.array(xi_cam).tolist(),
+            "measurement_noise": optimizer.noise_estimator.as_dict(),
+        }
+
+        if self.last_home_reset_path is not None and Path(self.last_home_reset_path).exists():
+            result_dict["home_reset_baseline_path"] = str(self.last_home_reset_path)
+
+        if optimize_head:
+            result_dict["xi_mount_cam"] = result_dict["xi_cam"]
+        else:
+            result_dict["xi_head_base_cam"] = result_dict["xi_cam"]
+
+        with open(result_path, "w") as f:
+            json.dump(result_dict, f, indent=4)
+
+        self.last_result_path = result_path
+        self.log_msg(f"Result saved to {result_path}")
+
     def _on_apply_joint_offset_toggled(self, checked):
         """Toggle apply joint offset flag and update status label."""
         self.apply_joint_offset_flag = checked
@@ -2848,21 +4209,97 @@ class UnifiedCalibrationApp(QWidget):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        # TODO: Wire to calibration_ui.dev_zero_pose_check logic
-        self.log_msg("[Step2] Zero Pose Check — not yet implemented in main_ui.")
+        
+        parts = []
+        parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
+        if self.include_head_motion:
+            parts.append(r"head_.*")
+        servo_regex = "|".join(parts) if parts else r"^$"
+
+        arm = "both"
+        
+        self.zero_pose_worker = Step2ZeroPoseCheckWorker(
+            self.robot,
+            self.model,
+            servo_regex,
+            arm
+        )
+        self.zero_pose_worker.log_signal.connect(self.log_msg)
+        def on_finished(success, error_msg):
+            if success:
+                self.log_msg("\n===== ZERO POSE CHECK COMPLETE =====")
+                dialog = ZeroPoseCheckDialog(self)
+                dialog.exec()
+            else:
+                self.log_msg(f"Zero pose check failed: {error_msg}")
+        self.zero_pose_worker.finished_signal.connect(on_finished)
+        self.zero_pose_worker.start()
 
     def step2_stop_auto_motion(self):
         self.log_msg("[Step2] Stop Auto Motion requested.")
-        # Stop any running motion
-        self.stop_motion()
+        self.request_stop_all_auto_motion()
+        self.auto_save_current_dataset()
 
     def step2_init_pose(self):
         self.log_msg("[Step2] Init Pose requested.")
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        # TODO: Wire to calibration_ui.dev_init_pose logic
-        self.log_msg("[Step2] Init Pose — not yet implemented in main_ui.")
+            
+        if self.auto_motion_running or self.auto_motion_thread is not None:
+            QMessageBox.critical(self, "Execution Error", "Another robot operation is currently running.")
+            return
+            
+        self.auto_motion_running = True
+        active_arms = ["right", "left"]
+        self.auto_motion_thread = Step2InitPoseWorker(
+            self.robot,
+            active_arms,
+            self.auto_config.priority
+        )
+        self.auto_motion_thread.log_signal.connect(self.log_msg)
+        def on_finished(success, error_msg):
+            self.auto_motion_running = False
+            self.auto_motion_thread = None
+            if success:
+                self.auto_ready_done = True
+                self.auto_base_head_q = None
+                try:
+                    self.auto_config.angle_step_deg = float(self.step2_angle_step.text())
+                    self.auto_config.position_step_m = float(self.step2_pos_step.text())
+                    self.auto_config.step_x_m = float(self.step2_step_x.text())
+                    self.auto_config.max_x = float(self.step2_max_x.text())
+                except Exception as e:
+                    self.log_msg(f"Failed to read auto config: {e}. Using default values.")
+
+                self.auto_motion_plan = None
+                if self.include_head_motion:
+                    head_cfg = get_head_config(self.model)
+                    if head_cfg["head_idx"] is not None:
+                        self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
+                        self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+                    else:
+                        self.auto_base_head_q = None
+                        self.include_head_motion = False
+
+                self.head_move_count = 0
+                self.update_head_pose_status()
+                self.update_step2_est_samples()
+                
+                QMessageBox.information(
+                    self,
+                    "Teaching Required",
+                    "Robot has moved to the initial pose.\n\n"
+                    "Please adjust the robot's pose so that the marker is clearly visible to the camera.\n"
+                    "Once adjusted, press '2) Auto Motion' to start the sequence."
+                )
+            else:
+                self.log_msg(f"Init pose failed: {error_msg}")
+                if not self.auto_stop_requested:
+                    QMessageBox.critical(self, "Init Error", error_msg)
+        
+        self.auto_motion_thread.finished_signal.connect(on_finished)
+        self.auto_motion_thread.start()
 
     def step2_auto_motion(self):
         self.log_msg("[Step2] Auto Motion requested.")
@@ -2873,38 +4310,158 @@ class UnifiedCalibrationApp(QWidget):
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        # TODO: Wire to calibration_ui.dev_all_auto_motion logic
-        self.log_msg("[Step2] Auto Motion — not yet implemented in main_ui.")
+            
+        try:
+            self.move_to_all_auto_motions()
+        except Exception as e:
+            QMessageBox.critical(self, "Auto Motion Error", str(e))
+            self.log_msg(f"Auto motion failed: {e}")
 
     def step2_calculate(self):
         self.log_msg("[Step2] Calculate requested.")
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        # TODO: Wire to calibration_ui.dev_calculate logic
-        self.log_msg("[Step2] Calculate — not yet implemented in main_ui.")
+            
+        try:
+            mode = self.step2_mode_sel.currentText()
+            active_arms = ["right", "left"]
+            optimize_head = self.include_head_motion
+            optimize_camera = False
+            
+            lambda_cam_pos = 1.0
+            lambda_cam_rot = 1.0
+            
+            if not self.include_head_motion and optimize_head:
+                optimize_head = False
+                self.log_msg("Headless mode selected; optimize_head changed to False.")
+
+            if len(active_arms) == 1:
+                cfg = get_arm_config(self.model, active_arms[0])
+                ee_links = {active_arms[0]: cfg["ee_link"]}
+                ee_to_marker_nom = {active_arms[0]: cfg["ee_to_marker_nom"]}
+            else:
+                cfg = get_both_arm_config(self.model)
+                ee_links = cfg["ee_links"]
+                ee_to_marker_nom = cfg["ee_to_marker_nom"]
+                
+            head_cfg = get_head_config(self.model)
+
+            if mode == "live":
+                if len(self.shared_arm_q_list) == 0:
+                    QMessageBox.warning(self, "Warning", "No recorded samples.")
+                    return
+
+                q_arm_list = np.array(self.shared_arm_q_list)
+                q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
+                T_meas_list = np.array(self.shared_T_list)
+                
+                if len(active_arms) == 1:
+                    if q_arm_list.shape[1] == 14:
+                        if active_arms[0] == "right":
+                            q_arm_list = q_arm_list[:, :7]
+                        else:
+                            q_arm_list = q_arm_list[:, 7:]
+                    if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                        if active_arms[0] == "right":
+                            T_meas_list = T_meas_list[:, 0]
+                        else:
+                            T_meas_list = T_meas_list[:, 1]
+
+            elif mode == "npz":
+                npz_path = self.resolve_input_path(self.step2_path_input.text().strip())
+                q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
+                
+                if len(active_arms) == 1:
+                    if q_arm_list.shape[1] == 14:
+                        if active_arms[0] == "right":
+                            q_arm_list = q_arm_list[:, :7]
+                        else:
+                            q_arm_list = q_arm_list[:, 7:]
+                    if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
+                        if active_arms[0] == "right":
+                            T_meas_list = T_meas_list[:, 0]
+                        else:
+                            T_meas_list = T_meas_list[:, 1]
+                            
+            dataset_path, result_path = self.build_output_paths()
+            
+            self.calc_worker = Step2CalculateWorker(
+                self,
+                active_arms,
+                optimize_head,
+                optimize_camera,
+                q_arm_list,
+                q_head_list,
+                T_meas_list,
+                result_path,
+                lambda_cam_pos,
+                lambda_cam_rot
+            )
+            self.calc_worker.log_signal.connect(self.log_msg)
+            def on_finished(success, error_msg):
+                if success:
+                    self.log_msg("Optimization finished successfully.")
+                else:
+                    self.log_msg(f"[Error] Optimization failed: {error_msg}")
+            self.calc_worker.finished_signal.connect(on_finished)
+            self.calc_worker.start()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Calculate Error", str(e))
+            self.log_msg(f"Calculate failed: {e}")
 
     def step2_clear_samples(self):
         self.log_msg("[Step2] Clear Samples requested.")
-        self.step2_sample_count_label.setText("Shared Samples: 0")
-        # TODO: Wire to calibration_ui.clear_samples logic
-        self.log_msg("[Step2] Samples cleared (placeholder).")
+        self.stop_all_auto_motion_internal(cancel_robot=True)
+        reset_motion_state()
+        self.shared_arm_q_list.clear()
+        self.shared_head_q_list.clear()
+        self.shared_T_list.clear()
+        self.head_move_count = 0
+        self.auto_base_head_q = None
+        self.auto_ready_done = False
+        self.dataset_saved_in_session = False
+        self.current_session_dataset_path = None
+        self.update_sample_counts()
+        self.update_head_pose_status()
+        self.log_msg("Shared samples cleared.")
 
     def step2_apply_home_offset(self):
         self.log_msg("[Step2] Apply Home Offset requested.")
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        # TODO: Wire to calibration_ui.dev_apply_home_offset logic
-        self.log_msg("[Step2] Apply Home Offset — not yet implemented in main_ui.")
+            
+        try:
+            result_path = self.get_latest_result_path()
+            baseline_path = self.get_home_reset_path_for_result(result_path)
+            arm = "both"
+            
+            compare_summary = self.format_home_offset_compare_summary(result_path, baseline_path)
+            
+            dialog = ApplyHomeOffsetDialog(
+                parent=self,
+                result_path=result_path,
+                baseline_path=baseline_path,
+                arm=arm,
+                include_head=self.include_head_motion,
+                compare_summary=compare_summary
+            )
+            dialog.exec()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "Apply Home Offset Error", str(e))
+            self.log_msg(f"Apply home offset failed: {e}")
 
     def step2_check_calibration_state(self):
         self.log_msg("[Step2] Check Calibration State requested.")
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
-        # TODO: Wire to calibration_ui.dev_check_calibration_state logic
-        self.log_msg("[Step2] Check Calibration State — not yet implemented in main_ui.")
+            
+        dialog = CheckCalibrationStateDialog(self)
+        dialog.exec()
 
     def update_applied_offset_label(self):
         self.ready_done_joint = False

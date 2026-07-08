@@ -254,36 +254,40 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
     )
 
     if "right" in active_arms:
-        body2.set_right_arm_command(
-            rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_right", T_right, 0.5, 1.0, 0.3)
-            .set_stop_position_tracking_error(0.005)
-            .set_stop_orientation_tracking_error(0.02)
-            .set_minimum_time(minimum_time)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
-        )
+        header_right = rby.CommandHeaderBuilder()
+        header_right.set_control_hold_time(0.5)
+        
+        right_cmd = rby.CartesianCommandBuilder()
+        right_cmd.add_target("link_torso_5", "ee_right", T_right, 0.5, 1.0, 0.3)
+        right_cmd.set_stop_position_tracking_error(0.005)
+        right_cmd.set_stop_orientation_tracking_error(0.02)
+        right_cmd.set_minimum_time(minimum_time)
+        right_cmd.set_command_header(header_right)
+        
+        body2.set_right_arm_command(right_cmd)
     else:
-        body2.set_right_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
-            .set_minimum_time(minimum_time)
-        )
+        right_joint = rby.JointPositionCommandBuilder()
+        right_joint.set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+        right_joint.set_minimum_time(minimum_time)
+        body2.set_right_arm_command(right_joint)
 
     if "left" in active_arms:
-        body2.set_left_arm_command(
-            rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_left", T_left, 0.5, 1.0, 0.3)
-            .set_stop_position_tracking_error(0.005)
-            .set_stop_orientation_tracking_error(0.02)
-            .set_minimum_time(minimum_time)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
-        )
+        header_left = rby.CommandHeaderBuilder()
+        header_left.set_control_hold_time(0.5)
+        
+        left_cmd = rby.CartesianCommandBuilder()
+        left_cmd.add_target("link_torso_5", "ee_left", T_left, 0.5, 1.0, 0.3)
+        left_cmd.set_stop_position_tracking_error(0.005)
+        left_cmd.set_stop_orientation_tracking_error(0.02)
+        left_cmd.set_minimum_time(minimum_time)
+        left_cmd.set_command_header(header_left)
+        
+        body2.set_left_arm_command(left_cmd)
     else:
-        body2.set_left_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
-            .set_minimum_time(minimum_time)
-        )
+        left_joint = rby.JointPositionCommandBuilder()
+        left_joint.set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+        left_joint.set_minimum_time(minimum_time)
+        body2.set_left_arm_command(left_joint)
 
     print("Step 2: Moving to Cartesian Checking Pose...")
     cmd2 = rby.RobotCommandBuilder().set_command(
@@ -303,55 +307,63 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         .set_minimum_time(min_time)
     )
 
+    header_right = None
     if "right" in active_arms:
         if q_right is not None:
-            body.set_right_arm_command(
-                rby.JointPositionCommandBuilder()
-                .set_position(q_right)
-                .set_minimum_time(min_time)
-                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
-            )
+            header_right = rby.CommandHeaderBuilder()
+            header_right.set_control_hold_time(hold_time)
+            
+            right_joint = rby.JointPositionCommandBuilder()
+            right_joint.set_position(q_right)
+            right_joint.set_minimum_time(min_time)
+            right_joint.set_command_header(header_right)
+            body.set_right_arm_command(right_joint)
         elif T_right is not None:
-            body.set_right_arm_command(
-                rby.CartesianCommandBuilder()
-                .add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
-                .set_stop_position_tracking_error(0.001)
-                .set_stop_orientation_tracking_error(0.005)
-                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
-                .set_minimum_time(min_time)
-            )
+            header_right = rby.CommandHeaderBuilder()
+            header_right.set_control_hold_time(hold_time)
+            
+            right_cart = rby.CartesianCommandBuilder()
+            right_cart.add_target("link_torso_5", "ee_right", T_right, 0.2, 0.5, 0.3)
+            right_cart.set_stop_position_tracking_error(0.001)
+            right_cart.set_stop_orientation_tracking_error(0.005)
+            right_cart.set_command_header(header_right)
+            right_cart.set_minimum_time(min_time)
+            body.set_right_arm_command(right_cart)
     else:
         # Lock inactive right arm
-        body.set_right_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
-            .set_minimum_time(min_time)
-        )
+        right_joint = rby.JointPositionCommandBuilder()
+        right_joint.set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+        right_joint.set_minimum_time(min_time)
+        body.set_right_arm_command(right_joint)
 
+    header_left = None
     if "left" in active_arms:
         if q_left is not None:
-            body.set_left_arm_command(
-                rby.JointPositionCommandBuilder()
-                .set_position(q_left)
-                .set_minimum_time(min_time)
-                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
-            )
+            header_left = rby.CommandHeaderBuilder()
+            header_left.set_control_hold_time(hold_time)
+            
+            left_joint = rby.JointPositionCommandBuilder()
+            left_joint.set_position(q_left)
+            left_joint.set_minimum_time(min_time)
+            left_joint.set_command_header(header_left)
+            body.set_left_arm_command(left_joint)
         elif T_left is not None:
-            body.set_left_arm_command(
-                rby.CartesianCommandBuilder()
-                .add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
-                .set_stop_position_tracking_error(0.001)
-                .set_stop_orientation_tracking_error(0.005)
-                .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(hold_time))
-                .set_minimum_time(min_time)
-            )
+            header_left = rby.CommandHeaderBuilder()
+            header_left.set_control_hold_time(hold_time)
+            
+            left_cart = rby.CartesianCommandBuilder()
+            left_cart.add_target("link_torso_5", "ee_left", T_left, 0.2, 0.5, 0.3)
+            left_cart.set_stop_position_tracking_error(0.001)
+            left_cart.set_stop_orientation_tracking_error(0.005)
+            left_cart.set_command_header(header_left)
+            left_cart.set_minimum_time(min_time)
+            body.set_left_arm_command(left_cart)
     else:
         # Lock inactive left arm
-        body.set_left_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
-            .set_minimum_time(min_time)
-        )
+        left_joint = rby.JointPositionCommandBuilder()
+        left_joint.set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+        left_joint.set_minimum_time(min_time)
+        body.set_left_arm_command(left_joint)
 
     cmd = rby.ComponentBasedCommandBuilder().set_body_command(body)
     if head_position is not None:
@@ -613,36 +625,40 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     )
 
     if "right" in active_arms:
-        body.set_right_arm_command(
-            rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_right", T_right, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
-            .set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
-            .set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
-            .set_minimum_time(MINIMUM_TIME)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
-        )
+        header_right = rby.CommandHeaderBuilder()
+        header_right.set_control_hold_time(0.5)
+        
+        right_cart = rby.CartesianCommandBuilder()
+        right_cart.add_target("link_torso_5", "ee_right", T_right, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
+        right_cart.set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
+        right_cart.set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
+        right_cart.set_minimum_time(MINIMUM_TIME)
+        right_cart.set_command_header(header_right)
+        
+        body.set_right_arm_command(right_cart)
     else:
-        body.set_right_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
-            .set_minimum_time(MINIMUM_TIME)
-        )
+        right_joint = rby.JointPositionCommandBuilder()
+        right_joint.set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+        right_joint.set_minimum_time(MINIMUM_TIME)
+        body.set_right_arm_command(right_joint)
 
     if "left" in active_arms:
-        body.set_left_arm_command(
-            rby.CartesianCommandBuilder()
-            .add_target("link_torso_5", "ee_left", T_left, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
-            .set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
-            .set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
-            .set_minimum_time(MINIMUM_TIME)
-            .set_command_header(rby.CommandHeaderBuilder().set_control_hold_time(0.5))
-        )
+        header_left = rby.CommandHeaderBuilder()
+        header_left.set_control_hold_time(0.5)
+        
+        left_cart = rby.CartesianCommandBuilder()
+        left_cart.add_target("link_torso_5", "ee_left", T_left, LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
+        left_cart.set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
+        left_cart.set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
+        left_cart.set_minimum_time(MINIMUM_TIME)
+        left_cart.set_command_header(header_left)
+        
+        body.set_left_arm_command(left_cart)
     else:
-        body.set_left_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
-            .set_minimum_time(MINIMUM_TIME)
-        )
+        left_joint = rby.JointPositionCommandBuilder()
+        left_joint.set_position(np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R)
+        left_joint.set_minimum_time(MINIMUM_TIME)
+        body.set_left_arm_command(left_joint)
 
     cmd2 = rby.RobotCommandBuilder().set_command(
         rby.ComponentBasedCommandBuilder().set_body_command(body)
