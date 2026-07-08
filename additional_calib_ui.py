@@ -1581,6 +1581,11 @@ class UnifiedCalibrationApp(QWidget):
         self.video_timer = QTimer(self)
         self.video_timer.timeout.connect(self.update_video_frame)
         
+        # 3. Dedicated Temperature Monitor Timer (runs continuously every 2 seconds)
+        self.temp_timer = QTimer(self)
+        self.temp_timer.timeout.connect(self.poll_camera_temperature)
+        self.temp_timer.start(2000)
+        
         self.init_ui()
         self.load_bracket_design_values()
         self.update_applied_offset_label()
@@ -2514,11 +2519,21 @@ class UnifiedCalibrationApp(QWidget):
             else:
                 if hasattr(self, 'lbl_marker_pos'):
                     self.lbl_marker_pos.setText(f"Position ({self.arm_side}): Marker Not Detected")
-            
-            self.marker_st.camera.get_color_image()
-            temp = self.marker_st.camera.get_camera_temperature()
-            if temp:
-                self.temp_label.setText(f"Camera Temp: {temp:.1f} °C")
+        except Exception:
+            pass
+
+    def poll_camera_temperature(self):
+        if self.ui_only or self.marker_st is None:
+            return
+        try:
+            if hasattr(self.marker_st, 'camera') and self.marker_st.camera is not None:
+                temp = self.marker_st.camera.get_camera_temperature()
+                if temp is not None:
+                    text = f"Camera Temp: {temp:.1f} °C"
+                    if hasattr(self, 'temp_label') and self.temp_label is not None:
+                        self.temp_label.setText(text)
+                    if hasattr(self, 'lbl_temp') and self.lbl_temp is not None:
+                        self.lbl_temp.setText(text)
         except Exception:
             pass
 
@@ -3856,6 +3871,8 @@ class UnifiedCalibrationApp(QWidget):
             self.video_timer.stop()
         if self.poll_timer.isActive():
             self.poll_timer.stop()
+        if hasattr(self, 'temp_timer') and self.temp_timer.isActive():
+            self.temp_timer.stop()
             
         if not self.ui_only and self.marker_st is not None:
             try:

@@ -195,6 +195,102 @@ class CameraFeedDialog(QDialog):
             self.parent().on_feed_dialog_closed()
         super().closeEvent(event)
 
+class PlotViewerDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Calibration Plot Viewer")
+        self.resize(950, 750)
+        self.setStyleSheet(DARK_STYLESHEET)
+        
+        layout = QVBoxLayout(self)
+        
+        # Navigation layout
+        nav_layout = QHBoxLayout()
+        nav_layout.setContentsMargins(10, 5, 10, 5)
+        nav_layout.setSpacing(10)
+        
+        self.btn_prev = QPushButton("◀")
+        self.btn_prev.setFixedSize(40, 30)
+        self.btn_prev.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #505050;
+                border-color: #666666;
+            }
+            QPushButton:pressed {
+                background-color: #2b2b2b;
+            }
+            QPushButton:disabled {
+                background-color: #222222;
+                color: #555555;
+                border-color: #333333;
+            }
+        """)
+        
+        self.lbl_title = QLabel("No Plot Loaded")
+        self.lbl_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
+        self.lbl_title.setAlignment(Qt.AlignCenter)
+        self.lbl_title.setStyleSheet("""
+            background-color: #252525;
+            color: #ffffff;
+            border: 1px solid #3d3d3d;
+            border-radius: 4px;
+            padding: 5px;
+        """)
+        
+        self.btn_next = QPushButton("▶")
+        self.btn_next.setFixedSize(40, 30)
+        self.btn_next.setStyleSheet("""
+            QPushButton {
+                background-color: #3d3d3d;
+                color: #ffffff;
+                border: 1px solid #555555;
+                border-radius: 4px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #505050;
+                border-color: #666666;
+            }
+            QPushButton:pressed {
+                background-color: #2b2b2b;
+            }
+            QPushButton:disabled {
+                background-color: #222222;
+                color: #555555;
+                border-color: #333333;
+            }
+        """)
+        
+        nav_layout.addWidget(self.btn_prev)
+        nav_layout.addWidget(self.lbl_title, 1)
+        nav_layout.addWidget(self.btn_next)
+        
+        self.plot_label = QLabel("No plots to display")
+        self.plot_label.setAlignment(Qt.AlignCenter)
+        self.plot_label.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
+        self.plot_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
+        layout.addLayout(nav_layout)
+        layout.addWidget(self.plot_label)
+        
+        if parent:
+            self.btn_prev.clicked.connect(parent.show_prev_plot)
+            self.btn_next.clicked.connect(parent.show_next_plot)
+            
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.parent() and hasattr(self.parent(), "display_current_plot"):
+            self.parent().display_current_plot()
+
 # --- Common Worker Threads ---
 
 class MoveToReadyWorker(QThread):
@@ -1474,7 +1570,7 @@ class UnifiedCalibrationApp(QWidget):
                 pass
         
         self.setWindowTitle("Unified Robot Calibration Suite")
-        self.resize(1050, 550)
+        self.resize(1050, 700)
         self.setStyleSheet(DARK_STYLESHEET)
         
         # 1. 200ms poll timer (탭 1, 2, 4 용)
@@ -1484,6 +1580,11 @@ class UnifiedCalibrationApp(QWidget):
         # 2. 33ms video timer (탭 3용)
         self.video_timer = QTimer(self)
         self.video_timer.timeout.connect(self.update_video_frame)
+        
+        # 3. Dedicated Temperature Monitor Timer (runs continuously every 2 seconds)
+        self.temp_timer = QTimer(self)
+        self.temp_timer.timeout.connect(self.poll_camera_temperature)
+        self.temp_timer.start(2000)
         
         self.init_ui()
         self.load_bracket_design_values()
@@ -1652,6 +1753,14 @@ class UnifiedCalibrationApp(QWidget):
             return mode
 
     def init_ui(self):
+        # Instantiate the dialog first
+        self.plot_dialog = PlotViewerDialog(self)
+        # Re-map plot widgets to the floating dialog
+        self.lbl_plot_title = self.plot_dialog.lbl_title
+        self.plot_label_combined = self.plot_dialog.plot_label
+        self.btn_plot_prev = self.plot_dialog.btn_prev
+        self.btn_plot_next = self.plot_dialog.btn_next
+
         # Main horizontal layout
         main_layout = QHBoxLayout()
         
@@ -1669,82 +1778,62 @@ class UnifiedCalibrationApp(QWidget):
         # --- COLUMN 1 (Robot Connection, Head & Home, Workflows) ---
         col1_layout = QVBoxLayout()
         
-        # Connection Box (Robot Model next to IP/Port)
-        conn_box = QGroupBox("Robot Connection & Control")
-        conn_layout = QVBoxLayout()
-        conn_layout.setSpacing(4)
-        conn_layout.setContentsMargins(6, 6, 6, 6)
+        # Combined Connection & Head Control Box
+        conn_head_box = QGroupBox("Robot Connection & Head Control")
+        conn_head_box.setFixedHeight(160)
+        conn_head_layout = QVBoxLayout()
+        conn_head_layout.setSpacing(4)
+        conn_head_layout.setContentsMargins(6, 6, 6, 6)
         
         ip_row = QHBoxLayout()
         ip_row.addWidget(QLabel("IP/Port:"))
         self.ip_input = QLineEdit("192.168.30.1:50051")
         if self.ui_only:
             self.ip_input.setText("127.0.0.1:50051")
+        self.ip_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         ip_row.addWidget(self.ip_input)
+        conn_head_layout.addLayout(ip_row)
         
-        ip_row.addWidget(QLabel("Model:"))
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel("Model:"))
         self.model_input = QComboBox()
         self.model_input.addItems(UI_DROPDOWNS["robot_models"])
-        ip_row.addWidget(self.model_input)
-        conn_layout.addLayout(ip_row)
+        model_row.addWidget(self.model_input)
+        conn_head_layout.addLayout(model_row)
         
         self.btn_connect = QPushButton("CONNECT")
         self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
         self.btn_connect.clicked.connect(self.connect_robot)
         self.btn_connect.setFixedHeight(24)
-        conn_layout.addWidget(self.btn_connect)
+        conn_head_layout.addWidget(self.btn_connect)
         
-        conn_box.setLayout(conn_layout)
-
-        # Manual Head Control Box
-        head_box = QGroupBox("Manual Head Control")
-        head_layout = QVBoxLayout()
-        head_layout.setSpacing(4)
-        head_layout.setContentsMargins(6, 6, 6, 6)
-        
-        inputs_row = QHBoxLayout()
-        inputs_row.addWidget(QLabel("Yaw:"))
+        # Head Control Row
+        head_row = QHBoxLayout()
+        head_row.addWidget(QLabel("Y:"))
         self.txt_head_yaw = QLineEdit("0.0")
         self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
-        inputs_row.addWidget(self.txt_head_yaw)
+        self.txt_head_yaw.setFixedWidth(40)
+        head_row.addWidget(self.txt_head_yaw)
         
-        inputs_row.addWidget(QLabel("Pitch:"))
+        head_row.addWidget(QLabel("P:"))
         self.txt_head_pitch = QLineEdit("0.0")
         self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
-        inputs_row.addWidget(self.txt_head_pitch)
-        head_layout.addLayout(inputs_row)
+        self.txt_head_pitch.setFixedWidth(40)
+        head_row.addWidget(self.txt_head_pitch)
         
         self.btn_move_head = QPushButton("MOVE HEAD")
         self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
         self.btn_move_head.clicked.connect(self.move_head_manually)
         self.btn_move_head.setFixedHeight(24)
-        head_layout.addWidget(self.btn_move_head)
+        head_row.addWidget(self.btn_move_head)
+        conn_head_layout.addLayout(head_row)
         
-        head_box.setLayout(head_layout)
-
-        # Standalone Robot Home Offset Reset Box (Relocated to the right of Head Control)
-        home_offset_box = QGroupBox("Robot Home Offset")
-        home_offset_layout = QVBoxLayout()
-        home_offset_layout.setSpacing(4)
-        home_offset_layout.setContentsMargins(6, 6, 6, 6)
+        conn_head_box.setLayout(conn_head_layout)
         
-        home_offset_layout.addWidget(QLabel("Reset joint offsets:"))
-        self.btn_home_reset = QPushButton("Home Offset Reset")
-        self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
-        self.btn_home_reset.clicked.connect(self.home_offset_reset)
-        self.btn_home_reset.setFixedHeight(24)
-        home_offset_layout.addWidget(self.btn_home_reset)
-        
-        home_offset_box.setLayout(home_offset_layout)
-
         # Calibration Workflows Box
         workflow_box = QGroupBox("Calibration Workflows")
         workflow_layout = QVBoxLayout()
         
-        self.btn_stop_motion = QPushButton("STOP MOTION")
-        self.btn_stop_motion.setStyleSheet("background-color: #ff1744; color: #ffffff; font-weight: bold;")
-        self.btn_stop_motion.clicked.connect(self.stop_motion)
-
         # Target Arm Selection
         self.arm_sel = QComboBox()
         self.arm_sel.addItems(UI_DROPDOWNS["arm_sides"])
@@ -1755,15 +1844,22 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_arm_sel = self.arm_sel
         self.marker_arm_sel = self.arm_sel
 
-        workflow_header = QHBoxLayout()
         arm_side_layout = QHBoxLayout()
         arm_side_layout.addWidget(QLabel("Active Arm Side:"))
         arm_side_layout.addWidget(self.arm_sel)
-        workflow_header.addLayout(arm_side_layout)
-        workflow_header.addStretch()
-        workflow_header.addWidget(self.btn_stop_motion)
+        workflow_layout.addLayout(arm_side_layout)
         
-        workflow_layout.addLayout(workflow_header)
+        debug_row = QHBoxLayout()
+        self.chk_save_debug = QCheckBox("Save Debug Data")
+        self.chk_save_debug.setChecked(True)
+        debug_row.addWidget(self.chk_save_debug)
+        workflow_layout.addLayout(debug_row)
+        
+        self.btn_stop_motion = QPushButton("STOP MOTION")
+        self.btn_stop_motion.setStyleSheet("background-color: #ff1744; color: #ffffff; font-weight: bold;")
+        self.btn_stop_motion.clicked.connect(self.stop_motion)
+        self.btn_stop_motion.setFixedHeight(26)
+        workflow_layout.addWidget(self.btn_stop_motion)
         
         self.workflow_tabs = QTabWidget()
         
@@ -1842,22 +1938,45 @@ class UnifiedCalibrationApp(QWidget):
         full_auto_sublayout.addStretch()
         full_auto_subtab.setLayout(full_auto_sublayout)
         
-        # Add workflow subtabs in order of: Full Auto, Marker Calib, Joint Calib
-        self.workflow_tabs.addTab(full_auto_subtab, "1. Full Auto")
-        self.workflow_tabs.addTab(marker_subtab, "2. Marker Calib")
-        self.workflow_tabs.addTab(joint_subtab, "3. Joint Calib")
+        # Add workflow subtabs in order of: Full Auto, Joint Calib, Marker Calib
+        self.workflow_tabs.addTab(full_auto_subtab, "Auto")
+        self.workflow_tabs.addTab(joint_subtab, "Joint")
+        self.workflow_tabs.addTab(marker_subtab, "Marker")
         
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
 
         # Assemble Column 1
-        col1_layout.addWidget(conn_box)
-        col1_layout.addWidget(head_box)
-        col1_layout.addWidget(workflow_box)
-        col1_layout.addStretch()
+        col1_layout.addWidget(conn_head_box)
+        col1_layout.addWidget(workflow_box, 1)
 
         # --- COLUMN 2 (Calibration Status & Monitoring) ---
         col2_layout = QVBoxLayout()
+
+        # Standalone Robot Home Offset Reset Box
+        home_offset_box = QGroupBox("Robot Home Offset")
+        home_offset_box.setFixedHeight(160)
+        home_offset_layout = QVBoxLayout()
+        home_offset_layout.setSpacing(6)
+        home_offset_layout.setContentsMargins(8, 8, 8, 8)
+        
+        desc_label = QLabel("Reset joint offsets to zero to restore factory alignment:")
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        home_offset_layout.addWidget(desc_label)
+        
+        self.btn_home_reset = QPushButton("Home Offset Reset")
+        self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
+        self.btn_home_reset.clicked.connect(self.home_offset_reset)
+        self.btn_home_reset.setFixedHeight(28)
+        home_offset_layout.addWidget(self.btn_home_reset)
+        
+        hint_label = QLabel("Tip: Double-click any cell in the table below to manually stage individual offsets.")
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: #2979ff; font-size: 11px; font-weight: bold;")
+        home_offset_layout.addWidget(hint_label)
+        
+        home_offset_box.setLayout(home_offset_layout)
 
         dash_box = QGroupBox("Calibration Status & Monitoring")
         dash_layout = QVBoxLayout()
@@ -1994,15 +2113,17 @@ class UnifiedCalibrationApp(QWidget):
         dash_box.setLayout(dash_layout)
 
         col2_layout.addWidget(home_offset_box)
-        col2_layout.addWidget(dash_box)
-        col2_layout.addStretch()
+        col2_layout.addWidget(dash_box, 1)
 
         # --- COLUMN 3 (Camera Status & System Log/Plots) ---
         col3_layout = QVBoxLayout()
 
         # Status Indicator Box (Constructed here for Col 3)
         status_box = QGroupBox("Camera & Marker Status")
+        status_box.setFixedHeight(160)
         status_layout = QVBoxLayout()
+        status_layout.setSpacing(6)
+        status_layout.setContentsMargins(8, 8, 8, 8)
         
         ind_layout = QHBoxLayout()
         self.indicator = IndicatorWidget()
@@ -2012,145 +2133,63 @@ class UnifiedCalibrationApp(QWidget):
         self.status_label.setStyleSheet("color: #ff1744;")
         ind_layout.addWidget(self.status_label)
         ind_layout.addStretch()
+        status_layout.addLayout(ind_layout)
+        
+        self.temp_label = QLabel("Camera Temp: -- °C")
+        self.temp_label.setStyleSheet("color: #ff5500; font-weight: bold; font-size: 11px;")
+        status_layout.addWidget(self.temp_label)
         
         btn_layout = QHBoxLayout()
         self.btn_monitor = QPushButton("Marker Monitor: OFF")
         self.btn_monitor.setCheckable(True)
         self.btn_monitor.toggled.connect(self.on_monitor_toggled)
+        self.btn_monitor.setFixedHeight(26)
         
         self.btn_camera_feed = QPushButton("Camera Feed")
         self.btn_camera_feed.clicked.connect(self.toggle_camera_feed_dialog)
+        self.btn_camera_feed.setFixedHeight(26)
         
         btn_layout.addWidget(self.btn_monitor)
         btn_layout.addWidget(self.btn_camera_feed)
-        
-        self.temp_label = QLabel("Camera Temp: -- °C")
-        
-        self.chk_save_debug = QCheckBox("Save Debug Data")
-        self.chk_save_debug.setChecked(True)
-        
-        status_layout.addLayout(ind_layout)
         status_layout.addLayout(btn_layout)
-        status_layout.addWidget(self.temp_label)
-        status_layout.addWidget(self.chk_save_debug)
+        
         status_box.setLayout(status_layout)
 
-        # Right Tab Widget
-        self.right_tabs = QTabWidget()
-        self.right_tabs.setMinimumHeight(320) # Sized down for overall UI height reduction
-        
-        # Tab 1: System Log
-        log_tab = QWidget()
+        # System Log GroupBox
+        log_box = QGroupBox("System Log & Control")
         log_layout = QVBoxLayout()
-        console_title = QLabel("System Log / Execution Console")
+        log_layout.setContentsMargins(6, 6, 6, 6)
+        
+        log_header = QHBoxLayout()
+        console_title = QLabel("Execution Console Logs")
         console_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
         console_title.setStyleSheet("color: #2979ff; margin-bottom: 2px;")
+        
+        self.btn_show_plot = QPushButton("Show Calibration Plot")
+        self.btn_show_plot.setStyleSheet("background-color: #2979ff; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_show_plot.setFixedHeight(24)
+        self.btn_show_plot.clicked.connect(self.open_plot_dialog)
+        
+        log_header.addWidget(console_title)
+        log_header.addStretch()
+        log_header.addWidget(self.btn_show_plot)
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
         self.log_text.setFont(QFont("Consolas", 10))
         
-        log_layout.addWidget(console_title)
+        log_layout.addLayout(log_header)
         log_layout.addWidget(self.log_text)
-        log_tab.setLayout(log_layout)
-        
-        # Tab 2: Interactive Plot Viewer (Plot)
-        self.plot_tab = QWidget()
-        plot_layout = QVBoxLayout()
-        
-        # Navigation area for selecting plots (Left/Right buttons + Title label)
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(10, 5, 10, 5)
-        nav_layout.setSpacing(10)
-        
-        self.btn_plot_prev = QPushButton("◀")
-        self.btn_plot_prev.setFixedSize(40, 30)
-        self.btn_plot_prev.setStyleSheet("""
-            QPushButton {
-                background-color: #3d3d3d;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #505050;
-                border-color: #666666;
-            }
-            QPushButton:pressed {
-                background-color: #2b2b2b;
-            }
-            QPushButton:disabled {
-                background-color: #222222;
-                color: #555555;
-                border-color: #333333;
-            }
-        """)
-        self.btn_plot_prev.clicked.connect(self.show_prev_plot)
-        self.btn_plot_prev.setEnabled(False)
-        
-        self.lbl_plot_title = QLabel("No Plot Loaded")
-        self.lbl_plot_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        self.lbl_plot_title.setAlignment(Qt.AlignCenter)
-        self.lbl_plot_title.setStyleSheet("""
-            background-color: #252525;
-            color: #ffffff;
-            border: 1px solid #3d3d3d;
-            border-radius: 4px;
-            padding: 5px;
-        """)
-        
-        self.btn_plot_next = QPushButton("▶")
-        self.btn_plot_next.setFixedSize(40, 30)
-        self.btn_plot_next.setStyleSheet("""
-            QPushButton {
-                background-color: #3d3d3d;
-                color: #ffffff;
-                border: 1px solid #555555;
-                border-radius: 4px;
-                font-size: 14px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #505050;
-                border-color: #666666;
-            }
-            QPushButton:pressed {
-                background-color: #2b2b2b;
-            }
-            QPushButton:disabled {
-                background-color: #222222;
-                color: #555555;
-                border-color: #333333;
-            }
-        """)
-        self.btn_plot_next.clicked.connect(self.show_next_plot)
-        self.btn_plot_next.setEnabled(False)
-        
-        nav_layout.addWidget(self.btn_plot_prev)
-        nav_layout.addWidget(self.lbl_plot_title, 1)
-        nav_layout.addWidget(self.btn_plot_next)
-        
-        self.plot_label_combined = QLabel("Joint Sweep Calibration Visualizations")
-        self.plot_label_combined.setAlignment(Qt.AlignCenter)
-        self.plot_label_combined.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
-        
-        plot_layout.addLayout(nav_layout)
-        plot_layout.addWidget(self.plot_label_combined)
-        self.plot_tab.setLayout(plot_layout)
-        
-        self.right_tabs.addTab(log_tab, "System Log")
-        self.right_tabs.addTab(self.plot_tab, "Plot")
+        log_box.setLayout(log_layout)
 
         col3_layout.addWidget(status_box)
-        col3_layout.addWidget(self.right_tabs, 1)
+        col3_layout.addWidget(log_box, 1)
 
-        # Assemble side-by-side 3 Columns (3:3:4 weight)
+        # Assemble side-by-side 3 Columns (1:3:3 weight)
         main_tab_columns = QHBoxLayout()
-        main_tab_columns.addLayout(col1_layout, 3)
+        main_tab_columns.addLayout(col1_layout, 1)
         main_tab_columns.addLayout(col2_layout, 3)
-        main_tab_columns.addLayout(col3_layout, 4)
+        main_tab_columns.addLayout(col3_layout, 3)
         
         main_tab_layout.addLayout(main_tab_columns)
         
@@ -2260,8 +2299,8 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("="*60)
         self.log_msg("[RECOMMENDED SEQUENCE]")
         self.log_msg("  1. Calibrate camera intrinsics first if needed ('2. Camera' tab).")
-        self.log_msg("  2. Calibrate joint offsets using '1. Joint Calib' subtab.")
-        self.log_msg("  3. Perform marker bracket sweeps using '2. Marker Calib' subtab.")
+        self.log_msg("  2. Calibrate joint offsets using '2. Joint Calib' subtab.")
+        self.log_msg("  3. Perform marker bracket sweeps using '3. Marker Calib' subtab.")
         self.log_msg("  4. Control head and verify offsets as a final check.")
         self.log_msg("="*60)
 
@@ -2480,11 +2519,21 @@ class UnifiedCalibrationApp(QWidget):
             else:
                 if hasattr(self, 'lbl_marker_pos'):
                     self.lbl_marker_pos.setText(f"Position ({self.arm_side}): Marker Not Detected")
-            
-            self.marker_st.camera.get_color_image()
-            temp = self.marker_st.camera.get_camera_temperature()
-            if temp:
-                self.temp_label.setText(f"Camera Temp: {temp:.1f} °C")
+        except Exception:
+            pass
+
+    def poll_camera_temperature(self):
+        if self.ui_only or self.marker_st is None:
+            return
+        try:
+            if hasattr(self.marker_st, 'camera') and self.marker_st.camera is not None:
+                temp = self.marker_st.camera.get_camera_temperature()
+                if temp is not None:
+                    text = f"Camera Temp: {temp:.1f} °C"
+                    if hasattr(self, 'temp_label') and self.temp_label is not None:
+                        self.temp_label.setText(text)
+                    if hasattr(self, 'lbl_temp') and self.lbl_temp is not None:
+                        self.lbl_temp.setText(text)
         except Exception:
             pass
 
@@ -3585,6 +3634,14 @@ class UnifiedCalibrationApp(QWidget):
             
         self.log_msg("="*50)
 
+    def open_plot_dialog(self):
+        if not hasattr(self, 'plot_dialog') or self.plot_dialog is None:
+            self.plot_dialog = PlotViewerDialog(self)
+        self.plot_dialog.show()
+        self.plot_dialog.raise_()
+        self.plot_dialog.activateWindow()
+        self.display_current_plot()
+
     def add_and_show_plot(self, friendly_name, file_path):
         if not file_path or not os.path.exists(file_path):
             return
@@ -3604,8 +3661,7 @@ class UnifiedCalibrationApp(QWidget):
         else:
             self.current_plot_idx = existing_idx
             
-        self.display_current_plot()
-        self.right_tabs.setCurrentIndex(1) # Switch to Plot tab
+        self.open_plot_dialog()
 
     def update_navigation_buttons(self):
         self.btn_plot_prev.setEnabled(self.current_plot_idx > 0)
@@ -3635,7 +3691,14 @@ class UnifiedCalibrationApp(QWidget):
 
     def display_plot_image(self, file_path):
         if os.path.exists(file_path):
-            pix = QPixmap(file_path).scaled(900, 450, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            # Scale to fit the current dialog size dynamically
+            if hasattr(self, 'plot_dialog') and self.plot_dialog is not None and self.plot_dialog.isVisible():
+                target_w = max(800, self.plot_dialog.width() - 40)
+                target_h = max(500, self.plot_dialog.height() - 100)
+            else:
+                target_w = 900
+                target_h = 550
+            pix = QPixmap(file_path).scaled(target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             self.plot_label_combined.setPixmap(pix)
 
     # --- Head Control and Manual Operations ---
@@ -3808,6 +3871,8 @@ class UnifiedCalibrationApp(QWidget):
             self.video_timer.stop()
         if self.poll_timer.isActive():
             self.poll_timer.stop()
+        if hasattr(self, 'temp_timer') and self.temp_timer.isActive():
+            self.temp_timer.stop()
             
         if not self.ui_only and self.marker_st is not None:
             try:
