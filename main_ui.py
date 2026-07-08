@@ -1559,6 +1559,10 @@ class UnifiedCalibrationApp(QWidget):
         self.ready_done_marker = False
         self.load_offsets_from_yaml()
         
+        # Step 2 calibration state
+        self.apply_joint_offset_flag = False
+        self.include_head_motion = True
+        
         self.recommended_joint_offset = None
         
         self.marker_calibrator.joint_offsets = self.joint_offsets
@@ -1764,7 +1768,7 @@ class UnifiedCalibrationApp(QWidget):
         # Main horizontal layout
         main_layout = QHBoxLayout()
         
-        # --- Left Panel (TabWidget based!) ---
+        # --- Top-Level Step Tabs ---
         self.left_tabs = QTabWidget()
         self.left_tabs.currentChanged.connect(self.on_left_tab_changed)
         
@@ -1778,9 +1782,9 @@ class UnifiedCalibrationApp(QWidget):
         # --- COLUMN 1 (Robot Connection, Head & Home, Workflows) ---
         col1_layout = QVBoxLayout()
         
-        # Combined Connection & Head Control Box
-        conn_head_box = QGroupBox("Robot Connection & Head Control")
-        conn_head_box.setFixedHeight(160)
+        # Robot Connection Box (head movement controls removed per user request)
+        conn_head_box = QGroupBox("Robot Connection")
+        conn_head_box.setFixedHeight(130)
         conn_head_layout = QVBoxLayout()
         conn_head_layout.setSpacing(4)
         conn_head_layout.setContentsMargins(6, 6, 6, 6)
@@ -1801,32 +1805,19 @@ class UnifiedCalibrationApp(QWidget):
         model_row.addWidget(self.model_input)
         conn_head_layout.addLayout(model_row)
         
+        connect_head_row = QHBoxLayout()
         self.btn_connect = QPushButton("CONNECT")
         self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
         self.btn_connect.clicked.connect(self.connect_robot)
         self.btn_connect.setFixedHeight(24)
-        conn_head_layout.addWidget(self.btn_connect)
+        connect_head_row.addWidget(self.btn_connect)
         
-        # Head Control Row
-        head_row = QHBoxLayout()
-        head_row.addWidget(QLabel("Y:"))
-        self.txt_head_yaw = QLineEdit("0.0")
-        self.txt_head_yaw.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
-        self.txt_head_yaw.setFixedWidth(40)
-        head_row.addWidget(self.txt_head_yaw)
-        
-        head_row.addWidget(QLabel("P:"))
-        self.txt_head_pitch = QLineEdit("0.0")
-        self.txt_head_pitch.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
-        self.txt_head_pitch.setFixedWidth(40)
-        head_row.addWidget(self.txt_head_pitch)
-        
-        self.btn_move_head = QPushButton("MOVE HEAD")
-        self.btn_move_head.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
-        self.btn_move_head.clicked.connect(self.move_head_manually)
-        self.btn_move_head.setFixedHeight(24)
-        head_row.addWidget(self.btn_move_head)
-        conn_head_layout.addLayout(head_row)
+        # Head checkbox — controls whether head servos are enabled on connect
+        self.chk_servo_head = QCheckBox("Head")
+        self.chk_servo_head.setChecked(True)
+        self.chk_servo_head.setStyleSheet("color: #cccccc;")
+        connect_head_row.addWidget(self.chk_servo_head)
+        conn_head_layout.addLayout(connect_head_row)
         
         conn_head_box.setLayout(conn_head_layout)
         
@@ -1946,6 +1937,12 @@ class UnifiedCalibrationApp(QWidget):
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
 
+        # Store shared boxes as instance attributes for reparenting
+        self.conn_head_box = conn_head_box
+        self.home_offset_box = None  # Will be set below after creation
+        self.status_box = None  # Will be set below after creation
+        self.log_box = None  # Will be set below after creation
+
         # Assemble Column 1
         col1_layout.addWidget(conn_head_box)
         col1_layout.addWidget(workflow_box, 1)
@@ -1977,6 +1974,7 @@ class UnifiedCalibrationApp(QWidget):
         home_offset_layout.addWidget(hint_label)
         
         home_offset_box.setLayout(home_offset_layout)
+        self.home_offset_box = home_offset_box
 
         dash_box = QGroupBox("Calibration Status & Monitoring")
         dash_layout = QVBoxLayout()
@@ -2154,6 +2152,7 @@ class UnifiedCalibrationApp(QWidget):
         status_layout.addLayout(btn_layout)
         
         status_box.setLayout(status_layout)
+        self.status_box = status_box
 
         # System Log GroupBox
         log_box = QGroupBox("System Log & Control")
@@ -2181,6 +2180,7 @@ class UnifiedCalibrationApp(QWidget):
         log_layout.addLayout(log_header)
         log_layout.addWidget(self.log_text)
         log_box.setLayout(log_layout)
+        self.log_box = log_box
 
         col3_layout.addWidget(status_box)
         col3_layout.addWidget(log_box, 1)
@@ -2200,10 +2200,9 @@ class UnifiedCalibrationApp(QWidget):
         main_tab_layout.addWidget(self.btn_quit)
         
         main_tab.setLayout(main_tab_layout)
-        self.left_tabs.addTab(main_tab, "1. Main")
         
         # ==========================================
-        # 2. Camera Tab (카메라 내부 파라미터 보정 전용)
+        # Camera Tab (카메라 내부 파라미터 보정 전용)
         # ==========================================
         camera_tab = QWidget()
         camera_tab_layout = QHBoxLayout()
@@ -2264,8 +2263,8 @@ class UnifiedCalibrationApp(QWidget):
         
         int_right = QVBoxLayout()
         
-        stats_box = QGroupBox("Capture Stats")
-        stats_layout = QHBoxLayout()
+        stats_box2 = QGroupBox("Capture Stats")
+        stats_layout2 = QHBoxLayout()
         self.lbl_captured = QLabel("Captured Frames: 0")
         self.lbl_captured.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.lbl_captured.setStyleSheet("color: #2979ff;")
@@ -2274,19 +2273,225 @@ class UnifiedCalibrationApp(QWidget):
         self.lbl_temp.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.lbl_temp.setStyleSheet("color: #ff5500;")
         
-        stats_layout.addWidget(self.lbl_captured)
-        stats_layout.addStretch()
-        stats_layout.addWidget(self.lbl_temp)
-        stats_box.setLayout(stats_layout)
+        stats_layout2.addWidget(self.lbl_captured)
+        stats_layout2.addStretch()
+        stats_layout2.addWidget(self.lbl_temp)
+        stats_box2.setLayout(stats_layout2)
         
-        int_right.addWidget(stats_box)
+        int_right.addWidget(stats_box2)
         int_right.addWidget(controls_box) # Placed below stats box!
         int_right.addStretch()
         
         camera_tab_layout.addLayout(int_left, 2)
         camera_tab_layout.addLayout(int_right, 1)
         camera_tab.setLayout(camera_tab_layout)
-        self.left_tabs.addTab(camera_tab, "2. Camera")
+        
+        # ==========================================
+        # Step 1 Tab: Contains Main + Camera as sub-tabs
+        # ==========================================
+        step1_tab = QWidget()
+        step1_layout = QVBoxLayout()
+        step1_layout.setContentsMargins(0, 0, 0, 0)
+        
+        self.step1_tabs = QTabWidget()
+        self.step1_tabs.currentChanged.connect(self._on_step1_subtab_changed)
+        self.step1_tabs.addTab(main_tab, "Main")
+        self.step1_tabs.addTab(camera_tab, "Camera")
+        
+        step1_layout.addWidget(self.step1_tabs)
+        step1_tab.setLayout(step1_layout)
+        
+        self.left_tabs.addTab(step1_tab, "Step 1")
+        
+        # ==========================================
+        # Step 2 Tab: Shared widgets + empty Box1
+        # ==========================================
+        step2_tab = QWidget()
+        step2_layout = QVBoxLayout()
+        step2_layout.setContentsMargins(5, 5, 5, 5)
+        
+        # Step 2 columns: Left (conn_head + home_offset + Box1), Right (status + log)
+        step2_columns = QHBoxLayout()
+        
+        # Step 2 Left Column
+        self.step2_left_col = QVBoxLayout()
+        # Placeholders for reparented widgets — they will be moved here on tab switch
+        # conn_head_box and home_offset_box go here
+        
+        # Config Box (replaces Box1 — mirrors calibration_ui Config section)
+        config_box = QGroupBox("Config")
+        config_box.setStyleSheet("QGroupBox { border: 1px solid #555; border-radius: 4px; } QGroupBox::title { color: #2979ff; font-weight: bold; }")
+        config_layout = QVBoxLayout()
+        config_layout.setSpacing(4)
+        config_layout.setContentsMargins(6, 6, 6, 6)
+        
+        # Mode selector
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel("Mode:"))
+        self.step2_mode_sel = QComboBox()
+        self.step2_mode_sel.addItems(["live", "npz", "sim"])
+        self.step2_mode_sel.setStyleSheet("background-color: #2a2a2a; color: white;")
+        mode_row.addWidget(self.step2_mode_sel)
+        config_layout.addLayout(mode_row)
+        
+        # Path input
+        path_row = QHBoxLayout()
+        path_row.addWidget(QLabel("Path:"))
+        self.step2_path_input = QLineEdit("result/dataset_YYYYMMDD_HHMMSS.npz")
+        self.step2_path_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        path_row.addWidget(self.step2_path_input)
+        config_layout.addLayout(path_row)
+        
+        # Estimated samples label
+        self.step2_est_samples_label = QLabel("Est. Samples: 0")
+        self.step2_est_samples_label.setStyleSheet("color: #2979ff; font-weight: bold; font-size: 11px;")
+        config_layout.addWidget(self.step2_est_samples_label)
+        
+        # Auto Motion Step parameters
+        auto_step_row = QHBoxLayout()
+        auto_step_row.addWidget(QLabel("Angle(deg):"))
+        self.step2_angle_step = QLineEdit("5.0")
+        self.step2_angle_step.setFixedWidth(45)
+        self.step2_angle_step.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        auto_step_row.addWidget(self.step2_angle_step)
+        
+        auto_step_row.addWidget(QLabel("Pos(m):"))
+        self.step2_pos_step = QLineEdit("0.03")
+        self.step2_pos_step.setFixedWidth(45)
+        self.step2_pos_step.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        auto_step_row.addWidget(self.step2_pos_step)
+        config_layout.addLayout(auto_step_row)
+        
+        auto_step_row2 = QHBoxLayout()
+        auto_step_row2.addWidget(QLabel("Step(m):"))
+        self.step2_step_x = QLineEdit("0.03")
+        self.step2_step_x.setFixedWidth(45)
+        self.step2_step_x.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        auto_step_row2.addWidget(self.step2_step_x)
+        
+        auto_step_row2.addWidget(QLabel("Max X(m):"))
+        self.step2_max_x = QLineEdit("0.4")
+        self.step2_max_x.setFixedWidth(45)
+        self.step2_max_x.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        auto_step_row2.addWidget(self.step2_max_x)
+        config_layout.addLayout(auto_step_row2)
+        
+        # Head status label
+        self.step2_head_status_label = QLabel("Auto Motion: 0/0")
+        self.step2_head_status_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        config_layout.addWidget(self.step2_head_status_label)
+        
+        # Apply Joint Offset checkbox (instead of full joint offset box)
+        jo_row = QHBoxLayout()
+        self.chk_apply_joint_offset = QCheckBox("Apply Joint Offset")
+        self.chk_apply_joint_offset.setChecked(False)
+        self.chk_apply_joint_offset.setStyleSheet("color: #cccccc; font-weight: bold;")
+        self.chk_apply_joint_offset.toggled.connect(self._on_apply_joint_offset_toggled)
+        jo_row.addWidget(self.chk_apply_joint_offset)
+        
+        self.lbl_jo_status = QLabel("INACTIVE")
+        self.lbl_jo_status.setStyleSheet("color: #ff1744; font-weight: bold; font-size: 11px;")
+        jo_row.addWidget(self.lbl_jo_status)
+        jo_row.addStretch()
+        config_layout.addLayout(jo_row)
+        
+        config_layout.addStretch()
+        config_box.setLayout(config_layout)
+        self.step2_left_col.addWidget(config_box, 1)
+        
+        # Actions Box (mirrors calibration_ui Actions section)
+        actions_box = QGroupBox("Actions")
+        actions_box.setStyleSheet("QGroupBox { border: 1px solid #555; border-radius: 4px; } QGroupBox::title { color: #ff9800; font-weight: bold; }")
+        actions_layout = QVBoxLayout()
+        actions_layout.setSpacing(4)
+        actions_layout.setContentsMargins(6, 6, 6, 6)
+        
+        # Top row: Zero Pose Check, Stop (Home Offset Reset and Camera Feed excluded — already in Step 1)
+        top_action_row = QHBoxLayout()
+        self.btn_step2_zero_pose = QPushButton("Zero Pose Check")
+        self.btn_step2_zero_pose.setStyleSheet("background-color: #37474f; color: white; font-weight: bold;")
+        self.btn_step2_zero_pose.setFixedHeight(28)
+        self.btn_step2_zero_pose.clicked.connect(self.step2_zero_pose_check)
+        top_action_row.addWidget(self.btn_step2_zero_pose)
+        
+        self.btn_step2_stop = QPushButton("Stop")
+        self.btn_step2_stop.setStyleSheet("background-color: #ff1744; color: white; font-weight: bold;")
+        self.btn_step2_stop.setFixedHeight(28)
+        self.btn_step2_stop.clicked.connect(self.step2_stop_auto_motion)
+        top_action_row.addWidget(self.btn_step2_stop)
+        actions_layout.addLayout(top_action_row)
+        
+        # Numbered actions row 1
+        act_row1 = QHBoxLayout()
+        self.btn_step2_init_pose = QPushButton("1) Init Pose")
+        self.btn_step2_init_pose.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold;")
+        self.btn_step2_init_pose.setFixedHeight(28)
+        self.btn_step2_init_pose.clicked.connect(self.step2_init_pose)
+        act_row1.addWidget(self.btn_step2_init_pose)
+        
+        self.btn_step2_auto_motion = QPushButton("2) Auto Motion")
+        self.btn_step2_auto_motion.setStyleSheet("background-color: #1565c0; color: white; font-weight: bold;")
+        self.btn_step2_auto_motion.setFixedHeight(28)
+        self.btn_step2_auto_motion.clicked.connect(self.step2_auto_motion)
+        act_row1.addWidget(self.btn_step2_auto_motion)
+        actions_layout.addLayout(act_row1)
+        
+        # Numbered actions row 2
+        act_row2 = QHBoxLayout()
+        self.btn_step2_calculate = QPushButton("3) Calculate")
+        self.btn_step2_calculate.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        self.btn_step2_calculate.setFixedHeight(28)
+        self.btn_step2_calculate.clicked.connect(self.step2_calculate)
+        act_row2.addWidget(self.btn_step2_calculate)
+        
+        self.btn_step2_clear = QPushButton("4) Clear Samples")
+        self.btn_step2_clear.setStyleSheet("background-color: #555555; color: white; font-weight: bold;")
+        self.btn_step2_clear.setFixedHeight(28)
+        self.btn_step2_clear.clicked.connect(self.step2_clear_samples)
+        act_row2.addWidget(self.btn_step2_clear)
+        actions_layout.addLayout(act_row2)
+        
+        # Numbered actions row 3
+        act_row3 = QHBoxLayout()
+        self.btn_step2_apply_home = QPushButton("5) Apply Home Offset")
+        self.btn_step2_apply_home.setStyleSheet("background-color: #e65100; color: white; font-weight: bold;")
+        self.btn_step2_apply_home.setFixedHeight(28)
+        self.btn_step2_apply_home.clicked.connect(self.step2_apply_home_offset)
+        act_row3.addWidget(self.btn_step2_apply_home)
+        
+        self.btn_step2_check_state = QPushButton("6) Check Calibration State")
+        self.btn_step2_check_state.setStyleSheet("background-color: #00838f; color: white; font-weight: bold;")
+        self.btn_step2_check_state.setFixedHeight(28)
+        self.btn_step2_check_state.clicked.connect(self.step2_check_calibration_state)
+        act_row3.addWidget(self.btn_step2_check_state)
+        actions_layout.addLayout(act_row3)
+        
+        # Sample count label
+        self.step2_sample_count_label = QLabel("Shared Samples: 0")
+        self.step2_sample_count_label.setStyleSheet("color: #cccccc; font-weight: bold; font-size: 11px;")
+        actions_layout.addWidget(self.step2_sample_count_label)
+        
+        actions_layout.addStretch()
+        actions_box.setLayout(actions_layout)
+        self.step2_left_col.addWidget(actions_box, 1)
+        
+        # Step 2 Right Column
+        self.step2_right_col = QVBoxLayout()
+        # status_box and log_box (without plot button) go here
+        
+        step2_columns.addLayout(self.step2_left_col, 1)
+        step2_columns.addLayout(self.step2_right_col, 1)
+        
+        step2_layout.addLayout(step2_columns)
+        step2_tab.setLayout(step2_layout)
+        
+        self.left_tabs.addTab(step2_tab, "Step 2")
+        
+        # Keep references for reparenting logic
+        # Step 1 Main tab column layout indices for reinserting shared widgets
+        self._step1_col1 = col1_layout
+        self._step1_col2 = col2_layout
+        self._step1_col3 = col3_layout
         
         # Assemble full-width tabs
         main_layout.addWidget(self.left_tabs)
@@ -2298,9 +2503,9 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("  UNIFIED ROBOT CALIBRATION SUITE LOADED")
         self.log_msg("="*60)
         self.log_msg("[RECOMMENDED SEQUENCE]")
-        self.log_msg("  1. Calibrate camera intrinsics first if needed ('2. Camera' tab).")
-        self.log_msg("  2. Calibrate joint offsets using '2. Joint Calib' subtab.")
-        self.log_msg("  3. Perform marker bracket sweeps using '3. Marker Calib' subtab.")
+        self.log_msg("  1. Calibrate camera intrinsics first if needed (Step 1 > Camera tab).")
+        self.log_msg("  2. Calibrate joint offsets using Joint subtab.")
+        self.log_msg("  3. Perform marker bracket sweeps using Marker subtab.")
         self.log_msg("  4. Control head and verify offsets as a final check.")
         self.log_msg("="*60)
 
@@ -2340,7 +2545,11 @@ class UnifiedCalibrationApp(QWidget):
         try:
             addr = self.ip_input.text().strip()
             model = self.model_input.currentText().strip()
-            self.log_msg(f"[INFO] Connecting to robot at {addr} ({model})...")
+            
+            # Read head checkbox state (like calibration_ui's servo_head)
+            head_enabled = self.chk_servo_head.isChecked() if hasattr(self, 'chk_servo_head') else True
+            self.include_head_motion = head_enabled
+            self.log_msg(f"[INFO] Connecting to robot at {addr} ({model}), head={'ON' if head_enabled else 'OFF'}...")
             
             self.robot = BaseCalibrator.initialize_robot(addr, model)
             if not self.robot:
@@ -2492,7 +2701,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def poll_camera_status(self):
         # Camera Tab이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
-        if self.left_tabs.currentIndex() == 1:
+        if self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1:
             return
             
         try:
@@ -2537,23 +2746,165 @@ class UnifiedCalibrationApp(QWidget):
         except Exception:
             pass
 
+    def _on_step1_subtab_changed(self, index):
+        """Handle sub-tab switching within Step 1 (Main=0, Camera=1)."""
+        if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
+            return
+        # Only act if Step 1 is the active top-level tab
+        if self.left_tabs.currentIndex() != 0:
+            return
+        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        if index == 1 or dialog_visible:  # Camera sub-tab
+            if self.poll_timer.isActive():
+                self.poll_timer.stop()
+            self.video_timer.start(50)
+        else:  # Main sub-tab
+            if self.video_timer.isActive():
+                self.video_timer.stop()
+            if not self.ui_only and self.marker_st is not None:
+                self.poll_timer.start(200)
+
     def on_left_tab_changed(self, index):
         # 방어적 코드: 타이머 객체가 아직 미생성된 상태이면 처리를 생략
         if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
             return
 
+        # Reparent shared widgets between Step 1 and Step 2
+        self._reparent_shared_widgets(index)
+
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        if index == 1 or dialog_visible: # Camera Tab or popup feed dialog is open
-            # poll_timer 끄고 video_timer 가동
-            if self.poll_timer.isActive():
-                self.poll_timer.stop()
-            self.video_timer.start(50)
-        else: # Main Tab (no popup feed dialog open)
-            # video_timer 끄고 poll_timer 기동
+
+        if index == 0:  # Step 1 tab
+            # Delegate to sub-tab handler
+            self._on_step1_subtab_changed(self.step1_tabs.currentIndex())
+        elif index == 1:  # Step 2 tab
+            # Step 2 has no camera feed — stop video, start poll
+            if self.video_timer.isActive():
+                self.video_timer.stop()
+            if dialog_visible:
+                self.video_timer.start(50)
+            elif not self.ui_only and self.marker_st is not None:
+                self.poll_timer.start(200)
+        else:
             if self.video_timer.isActive():
                 self.video_timer.stop()
             if not self.ui_only and self.marker_st is not None:
                 self.poll_timer.start(200)
+
+    def _reparent_shared_widgets(self, top_tab_index):
+        """Move shared GroupBoxes between Step 1 Main and Step 2 layouts."""
+        if not hasattr(self, 'conn_head_box') or self.conn_head_box is None:
+            return
+        if not hasattr(self, 'step2_left_col'):
+            return
+
+        if top_tab_index == 1:  # Switching TO Step 2
+            # Move shared widgets into Step 2 columns
+            # Left column: conn_head_box, home_offset_box at top, then box1 fills rest
+            self.step2_left_col.insertWidget(0, self.conn_head_box)
+            self.step2_left_col.insertWidget(1, self.home_offset_box)
+            # box1 stays at position 2 (already there)
+
+            # Right column: status_box, log_box
+            self.step2_right_col.insertWidget(0, self.status_box)
+            self.step2_right_col.insertWidget(1, self.log_box)
+            # Set stretch for log_box in step2
+            self.step2_right_col.setStretchFactor(self.log_box, 1)
+
+            # Hide "Show Calibration Plot" button in Step 2
+            if hasattr(self, 'btn_show_plot'):
+                self.btn_show_plot.hide()
+
+        else:  # Switching TO Step 1 (or any other tab)
+            # Move shared widgets back into Step 1 Main columns
+            self._step1_col1.insertWidget(0, self.conn_head_box)
+
+            self._step1_col2.insertWidget(0, self.home_offset_box)
+
+            self._step1_col3.insertWidget(0, self.status_box)
+            self._step1_col3.insertWidget(1, self.log_box)
+            self._step1_col3.setStretchFactor(self.log_box, 1)
+
+            # Show "Show Calibration Plot" button back in Step 1
+            if hasattr(self, 'btn_show_plot'):
+                self.btn_show_plot.show()
+
+    # =============================================
+    # Step 2 Action Handlers
+    # =============================================
+    def _on_apply_joint_offset_toggled(self, checked):
+        """Toggle apply joint offset flag and update status label."""
+        self.apply_joint_offset_flag = checked
+        if checked:
+            self.lbl_jo_status.setText("ACTIVE")
+            self.lbl_jo_status.setStyleSheet("color: #00e676; font-weight: bold; font-size: 11px;")
+        else:
+            self.lbl_jo_status.setText("INACTIVE")
+            self.lbl_jo_status.setStyleSheet("color: #ff1744; font-weight: bold; font-size: 11px;")
+        self.log_msg(f"[INFO] Apply Joint Offset: {'ACTIVE' if checked else 'INACTIVE'}")
+
+    def step2_zero_pose_check(self):
+        self.log_msg("[Step2] Zero Pose Check requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        # TODO: Wire to calibration_ui.dev_zero_pose_check logic
+        self.log_msg("[Step2] Zero Pose Check — not yet implemented in main_ui.")
+
+    def step2_stop_auto_motion(self):
+        self.log_msg("[Step2] Stop Auto Motion requested.")
+        # Stop any running motion
+        self.stop_motion()
+
+    def step2_init_pose(self):
+        self.log_msg("[Step2] Init Pose requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        # TODO: Wire to calibration_ui.dev_init_pose logic
+        self.log_msg("[Step2] Init Pose — not yet implemented in main_ui.")
+
+    def step2_auto_motion(self):
+        self.log_msg("[Step2] Auto Motion requested.")
+        mode = self.step2_mode_sel.currentText()
+        if mode not in ["live", "sim"]:
+            self.log_msg("[Step2] Auto motion is only available in live or sim mode.")
+            return
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        # TODO: Wire to calibration_ui.dev_all_auto_motion logic
+        self.log_msg("[Step2] Auto Motion — not yet implemented in main_ui.")
+
+    def step2_calculate(self):
+        self.log_msg("[Step2] Calculate requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        # TODO: Wire to calibration_ui.dev_calculate logic
+        self.log_msg("[Step2] Calculate — not yet implemented in main_ui.")
+
+    def step2_clear_samples(self):
+        self.log_msg("[Step2] Clear Samples requested.")
+        self.step2_sample_count_label.setText("Shared Samples: 0")
+        # TODO: Wire to calibration_ui.clear_samples logic
+        self.log_msg("[Step2] Samples cleared (placeholder).")
+
+    def step2_apply_home_offset(self):
+        self.log_msg("[Step2] Apply Home Offset requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        # TODO: Wire to calibration_ui.dev_apply_home_offset logic
+        self.log_msg("[Step2] Apply Home Offset — not yet implemented in main_ui.")
+
+    def step2_check_calibration_state(self):
+        self.log_msg("[Step2] Check Calibration State requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return
+        # TODO: Wire to calibration_ui.dev_check_calibration_state logic
+        self.log_msg("[Step2] Check Calibration State — not yet implemented in main_ui.")
 
     def update_applied_offset_label(self):
         self.ready_done_joint = False
@@ -2819,12 +3170,8 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_int_calibrate.setEnabled(enabled)
         self.btn_int_reset.setEnabled(enabled)
         
-        if hasattr(self, 'btn_move_head'):
-            self.btn_move_head.setEnabled(enabled)
-        if hasattr(self, 'txt_head_yaw'):
-            self.txt_head_yaw.setEnabled(enabled)
-        if hasattr(self, 'txt_head_pitch'):
-            self.txt_head_pitch.setEnabled(enabled)
+        if hasattr(self, 'chk_servo_head'):
+            self.chk_servo_head.setEnabled(enabled)
             
         self.btn_connect.setEnabled(enabled)
         self.model_input.setEnabled(enabled)
@@ -2873,7 +3220,8 @@ class UnifiedCalibrationApp(QWidget):
         
         # Restart poll_timer if appropriate
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        if self.left_tabs.currentIndex() != 1 and not dialog_visible:
+        camera_subtab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        if not camera_subtab_active and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
                 
@@ -3094,7 +3442,8 @@ class UnifiedCalibrationApp(QWidget):
         
         # Restart poll_timer if appropriate (not tab 2 and feed dialog closed)
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        if self.left_tabs.currentIndex() != 1 and not dialog_visible:
+        camera_subtab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        if not camera_subtab_active and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
                 
@@ -3740,9 +4089,10 @@ class UnifiedCalibrationApp(QWidget):
                 self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
 
     def update_video_frame(self):
-        # 왼쪽 Camera 탭(인덱스 1)이 활성화되어 있거나, Camera Feed 대화상자가 열려있을 때 업데이트
+        # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자가 열려있을 때 업데이트
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        if self.left_tabs.currentIndex() != 1 and not dialog_visible:
+        camera_tab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        if not camera_tab_active and not dialog_visible:
             return
 
         if not self.ui_only and self.marker_st is not None:
@@ -3774,7 +4124,7 @@ class UnifiedCalibrationApp(QWidget):
         qimg = QImage(display_img.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
         
-        if self.left_tabs.currentIndex() == 1:
+        if camera_tab_active:
             self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
         if dialog_visible:
             w_lbl = max(20, self.feed_dialog.lbl_feed.width())
@@ -3782,7 +4132,8 @@ class UnifiedCalibrationApp(QWidget):
             self.feed_dialog.lbl_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_C and self.left_tabs.currentIndex() == 1:
+        camera_tab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        if event.key() == Qt.Key_C and camera_tab_active:
             self.capture_intrinsics_frame()
         super().keyPressEvent(event)
 
