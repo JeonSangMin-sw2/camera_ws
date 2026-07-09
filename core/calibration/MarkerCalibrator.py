@@ -792,7 +792,8 @@ class MarkerCalibrator(BaseCalibrator):
         from scipy.optimize import least_squares
         if marker_data_4 is not None:
             def residuals_trans(params):
-                xe, ye, ze = params
+                ye, ze = params
+                xe = x_nom
                 r6_pred = np.sqrt(xe**2 + ye**2)
                 Z_prime = ze + z_sign * L_5_ee
                 r5_pred = np.sqrt(xe**2 + Z_prime**2)
@@ -806,16 +807,16 @@ class MarkerCalibrator(BaseCalibrator):
                     r4_pred - radius_4
                 ]
                 reg_weight = 1e-7
-                res.append(reg_weight * (xe - x_nom))
                 res.append(reg_weight * (ye - y_nom))
                 res.append(reg_weight * (ze - z_nom))
                 return res
 
-            initial_guess = [x_nom, y_nom, z_nom]
-            lower_bounds = [x_nom - 30.0, y_nom - 30.0, -250.0]
-            upper_bounds = [x_nom + 30.0, y_nom + 30.0, 10.0]
+            initial_guess = [y_nom, z_nom]
+            lower_bounds = [y_nom - 30.0, -250.0]
+            upper_bounds = [y_nom + 30.0, 10.0]
             opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
-            x_e, y_e, z_e = opt_res.x
+            y_e, z_e = opt_res.x
+            x_e = x_nom
         else:
             def residuals_trans(params):
                 ye, ze = params

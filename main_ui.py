@@ -1470,7 +1470,7 @@ class SimulatedMarkerTransform:
     def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
         if side == "all":
             res = []
-            for s in ["left", "right"]:
+            for s in ["right", "left"]:
                 try:
                     res_s = self.get_marker_transform(sampling_time, s, use_filter)
                     if res_s:
@@ -1809,6 +1809,14 @@ class FullAutoWorker(QThread):
                         self.joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
                         self.marker_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
                     
+                    # Generate and save the J6 calibration comparison plot
+                    plot_path = self.joint_calibrator.save_calibration_comparison_plot(
+                        arm_side, "wrist_roll_v13" if is_v13 else "wrist_yaw2", joint_res_roll, joint_res_roll, 
+                        log_callback=self.log_msg.emit, force_overwrite=True
+                    )
+                    if plot_path:
+                        joint_res_roll['plot_path_combined'] = plot_path
+                    
                     # Emitting the J6 calibration result to the UI plot
                     joint_res_roll['arm_side'] = arm_side
                     joint_res_roll['mode'] = "wrist_roll_v13" if is_v13 else "wrist_yaw2"
@@ -2098,7 +2106,7 @@ class UnifiedCalibrationApp(QWidget):
         self.load_offsets_from_yaml()
         
         # Step 2 calibration state
-        self.apply_joint_offset_flag = False
+        self.apply_joint_offset_flag = True
         self.include_head_motion = True
         self.shared_arm_q_list = []
         self.shared_head_q_list = []
@@ -2381,11 +2389,16 @@ class UnifiedCalibrationApp(QWidget):
         conn_head_layout.addLayout(ip_row)
         
         model_row = QHBoxLayout()
-        model_row.addWidget(QLabel("Model:"))
+        self.lbl_model_tag = QLabel("Model:")
+        model_row.addWidget(self.lbl_model_tag)
         self.model_input = QComboBox()
         self.model_input.addItems(UI_DROPDOWNS["robot_models"])
         model_row.addWidget(self.model_input)
         conn_head_layout.addLayout(model_row)
+        
+        # Hide model selection UI as it is auto-detected and updated dynamically
+        self.lbl_model_tag.hide()
+        self.model_input.hide()
         
         connect_head_row = QHBoxLayout()
         self.btn_connect = QPushButton("CONNECT")
@@ -2500,14 +2513,9 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
         self.btn_full_auto_start.clicked.connect(self.start_full_auto)
         
-        self.btn_full_auto_stop = QPushButton("STOP")
-        self.btn_full_auto_stop.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold;")
-        self.btn_full_auto_stop.clicked.connect(self.stop_full_auto)
-        
         full_auto_sublayout.addWidget(QLabel("Full Auto Sequential Calibration:"))
         full_auto_sublayout.addWidget(self.btn_full_auto_ready)
         full_auto_sublayout.addWidget(self.btn_full_auto_start)
-        full_auto_sublayout.addWidget(self.btn_full_auto_stop)
         full_auto_sublayout.addStretch()
         full_auto_subtab.setLayout(full_auto_sublayout)
         
@@ -2966,13 +2974,13 @@ class UnifiedCalibrationApp(QWidget):
         # Apply Joint Offset checkbox (instead of full joint offset box)
         jo_row = QHBoxLayout()
         self.chk_apply_joint_offset = QCheckBox("Apply Joint Offset")
-        self.chk_apply_joint_offset.setChecked(False)
+        self.chk_apply_joint_offset.setChecked(True)
         self.chk_apply_joint_offset.setStyleSheet("color: #cccccc; font-weight: bold;")
         self.chk_apply_joint_offset.toggled.connect(self._on_apply_joint_offset_toggled)
         jo_row.addWidget(self.chk_apply_joint_offset)
         
-        self.lbl_jo_status = QLabel("INACTIVE")
-        self.lbl_jo_status.setStyleSheet("color: #ff1744; font-weight: bold; font-size: 11px;")
+        self.lbl_jo_status = QLabel("ACTIVE")
+        self.lbl_jo_status.setStyleSheet("color: #00e676; font-weight: bold; font-size: 11px;")
         jo_row.addWidget(self.lbl_jo_status)
         jo_row.addStretch()
         config_layout.addLayout(jo_row)
@@ -3006,7 +3014,7 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_step2_stop = QPushButton("Stop")
         self.btn_step2_stop.setStyleSheet("background-color: #ff1744; color: white; font-weight: bold;")
         self.btn_step2_stop.setFixedHeight(28)
-        self.btn_step2_stop.clicked.connect(self.step2_stop_auto_motion)
+        self.btn_step2_stop.clicked.connect(self.stop_motion)
         top_action_row.addWidget(self.btn_step2_stop)
         actions_layout.addLayout(top_action_row)
         
@@ -3072,6 +3080,13 @@ class UnifiedCalibrationApp(QWidget):
         step2_columns.addLayout(self.step2_right_col, 1)
         
         step2_layout.addLayout(step2_columns)
+        
+        # Step 2 Quit Button
+        self.btn_quit_step2 = QPushButton("QUIT")
+        self.btn_quit_step2.setStyleSheet("background-color: #b71c1c; color: white;")
+        self.btn_quit_step2.clicked.connect(self.close)
+        step2_layout.addWidget(self.btn_quit_step2)
+        
         step2_tab.setLayout(step2_layout)
         
         self.left_tabs.addTab(step2_tab, "Step 2")
@@ -4599,15 +4614,29 @@ class UnifiedCalibrationApp(QWidget):
 
     def stop_motion(self):
         self.log_msg("[STOP] Stop requested by user.")
+        
+        # 1. Stop Step 1 sweep calibrations
         self.joint_calibrator.stop_requested = True
         self.marker_calibrator.stop_requested = True
         if hasattr(self, 'stop_event_mc') and self.stop_event_mc:
             self.stop_event_mc.set()
-        if self.robot:
-            self.log_msg("[STOP] Sending cancel_control to robot!")
-            self.safe_cancel_control()
+            
+        # 2. Stop Step 2 auto collection/motion
+        if self.auto_motion_running or self.auto_motion_thread is not None:
+            self.request_stop_all_auto_motion()
+            self.auto_save_current_dataset()
         else:
-            self.log_msg("[STOP] No robot connected to cancel control.")
+            # If not running Step 2 auto motion, we still want to make sure
+            # any robot motion is cancelled if robot is connected.
+            if self.robot:
+                self.log_msg("[STOP] Sending cancel_control to robot!")
+                self.safe_cancel_control()
+            else:
+                self.log_msg("[STOP] No robot connected to cancel control.")
+                
+        # 3. Stop Full Auto calibration
+        if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event:
+            self.full_auto_stop_event.set()
 
     def clear_joint_offset(self):
         reply = QMessageBox.question(
@@ -5026,7 +5055,6 @@ class UnifiedCalibrationApp(QWidget):
         
         self.set_controls_enabled(False)
         self.btn_full_auto_start.setEnabled(False)
-        self.btn_full_auto_stop.setEnabled(True)
         
         if self.poll_timer.isActive():
             self.poll_timer.stop()

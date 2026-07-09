@@ -851,8 +851,9 @@ class QPCalibrationOptimizer:
         q = -g
         lb, ub = self._build_qp_bounds(dim, q_arm_offset, q_head_offset, xi_mount_cam)
 
+        import scipy.sparse as spa
         dx = qpsolvers.solve_qp(
-            P,
+            spa.csc_matrix(P),
             q,
             lb=lb,
             ub=ub,

@@ -770,7 +770,7 @@ class SimulatedMarkerTransform:
     def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
         if side == "all":
             res = []
-            for s in ["left", "right"]:
+            for s in ["right", "left"]:
                 try:
                     res_s = self.get_marker_transform(sampling_time, s, use_filter)
                     if res_s:
