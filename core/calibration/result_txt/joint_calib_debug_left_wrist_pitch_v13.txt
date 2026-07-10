@@ -14,47 +14,47 @@
 [DEBUG] Saved Axis 5 debug points to sweep_points_left_joint_A_axis_5.txt
 [DEBUG] Saved Axis 3 debug points to sweep_points_left_joint_B_axis_3.txt
 [INFO] Dynamically calculated nominal axes from FK (Arm: left, Mode: wrist_pitch_v13):
-       a_cand_t5 = [-0.07137807269126296, 0.5782998287427024, 0.8126958095222597]
-       a_A_t5    = [-0.07137807269126296, 0.5782998287427024, 0.8126958095222597]
-       a_B_t5    = [-0.07137786935649788, 0.5782998813745576, 0.812695789928986]
+       a_cand_t5 = [-0.07145773672180111, 0.5783115756657665, 0.8126804496932207]
+       a_A_t5    = [-0.07145773672180111, 0.5783115756657665, 0.8126804496932207]
+       a_B_t5    = [-0.07145776231833775, 0.5783115690403101, 0.8126804521572977]
 
 ==================================================
    SWEEP ANALYSIS & RESULTS (WRIST_PITCH_V13)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 1.1088 deg
-  * Circle Size Error (abs: r_A - r_B)     : 286.8015 mm
-  * Estimated Circle Center Distance       : 311.0542 mm
-  * Calculated Offset Correction           : -1.791073 deg
+  * Camera Circle Normals Angle (Reference): 1.1018 deg
+  * Circle Size Error (abs: r_A - r_B)     : 286.8020 mm
+  * Estimated Circle Center Distance       : 311.0592 mm
+  * Calculated Offset Correction           : -1.803644 deg
 ==================================================
-  * Angle Error (Deviation)          : 1.1088°
+  * Angle Error (Deviation)          : 1.1018°
   * Perpendicular Distance (After)   : 999.0000 mm
   * Perpendicular Distance (Before)  : 999.0000 mm
-  * Updated Absolute Offset     : -1.7021°
+  * Updated Absolute Offset     : -1.7140°
 
-[ITERATION 2/6] Sweeping physically with staged offset -1.7021°...
+[ITERATION 2/6] Sweeping physically with staged offset -1.7140°...
 
 ==================================================
    STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): -1.7021°]
+   [Baseline Shift (Current Applied Offset): -1.7140°]
 ==================================================
 [INFO] Dynamically calculated nominal axes from FK (Arm: left, Mode: wrist_pitch_v13):
-       a_cand_t5 = [-0.07142881821146772, 0.5782876335174136, 0.8127000288235149]
-       a_A_t5    = [-0.07142881821146772, 0.5782876335174136, 0.8127000288235149]
-       a_B_t5    = [-0.0714284879202926, 0.5782877190148622, 0.8126999970161239]
+       a_cand_t5 = [-0.07147910930869865, 0.5782951685517618, 0.8126902453961932]
+       a_A_t5    = [-0.07147910930869865, 0.5782951685517618, 0.8126902453961932]
+       a_B_t5    = [-0.07147891049891521, 0.57829522001439, 0.8126902262623789]
 
 ==================================================
    SWEEP ANALYSIS & RESULTS (WRIST_PITCH_V13)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 1.0787 deg
-  * Circle Size Error (abs: r_A - r_B)     : 286.7996 mm
-  * Estimated Circle Center Distance       : 311.0570 mm
-  * Calculated Offset Correction           : -0.049992 deg
+  * Camera Circle Normals Angle (Reference): 1.1067 deg
+  * Circle Size Error (abs: r_A - r_B)     : 286.7988 mm
+  * Estimated Circle Center Distance       : 311.0572 mm
+  * Calculated Offset Correction           : -0.049394 deg
 ==================================================
-  * Angle Error (Deviation)          : 1.0787°
+  * Angle Error (Deviation)          : 1.1067°
   * Perpendicular Distance (After)   : 999.0000 mm
   * Perpendicular Distance (Before)  : 999.0000 mm
 
 [SUCCESS] Calibration CONVERGED successfully:
-  * Step Correction: -0.0475° < 0.05° (reached resolution limit)
-  * Recommended Absolute Offset: -1.7021°
+  * Step Correction: -0.0469° < 0.05° (reached resolution limit)
+  * Recommended Absolute Offset: -1.7140°
 [SUCCESS] Saved combined calibration comparison plot to: /home/rainbow/camera_ws/core/calibration/result_img/circle_fit_left_wrist_pitch_v13_joint_calib.png

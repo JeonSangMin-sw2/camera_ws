@@ -491,7 +491,11 @@ class Marker_Detection:
 
         # 등록된 마커만 필터링 (tuple과 ndarray는 pop()을 쓸 수 없으므로 새로 리스트를 만듭니다)
         if ids is not None and len(ids) > 0 and self.marker_id is not None:
-            valid_indices = [i for i, mid in enumerate(ids) if mid[0] in self.marker_id]
+            valid_indices = []
+            for i, mid in enumerate(ids):
+                val = mid[0] if isinstance(mid, (np.ndarray, list)) else mid
+                if val in self.marker_id:
+                    valid_indices.append(i)
             if len(valid_indices) > 0:
                 corners = tuple(corners[i] for i in valid_indices)
                 ids = np.array([ids[i] for i in valid_indices])

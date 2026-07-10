@@ -39,7 +39,7 @@ class BaseCalibrator:
             "joint5_v12": 5.4,
             "joint6": 2.3,
             "bracket_pos": [0.0005, 0.0, 0.002],  # meters
-            "bracket_rpy": [-0.4, -0.1, 0.05]        # degrees
+            "bracket_rpy": [-0.1, -0.1, 0.05]        # degrees
         },
         "left": {
             "joint0": -0.4,
@@ -51,7 +51,7 @@ class BaseCalibrator:
             "joint5_v12": -3.0,
             "joint6": 3.5,
             "bracket_pos": [0.001, 0.0005, -0.002], # meters
-            "bracket_rpy": [0.3, 0.1, 0.0]        # degrees
+            "bracket_rpy": [0.1, 0.1, 0.0]        # degrees
         }
     }
     NOMINAL_BRACKET_TEMPLATES = {
