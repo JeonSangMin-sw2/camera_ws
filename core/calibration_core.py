@@ -116,7 +116,7 @@ def split_arm_offsets(q_offset):
         return q_offset[:7], q_offset[7:]
     return q_offset, None
 
-def load_camera_nominals():
+def load_camera_nominals(version="1.2"):
     with open(SETTING_PATH, "r") as f:
         config = yaml.safe_load(f) or {}
 
@@ -124,16 +124,23 @@ def load_camera_nominals():
     mount_to_cam_nom = camera_cfg.get("mount_to_cam")
     head_base_to_cam_nom = camera_cfg.get("head_base_to_cam")
 
+    if str(version) == "1.3":
+        ee_to_marker_left = camera_cfg.get("Tf_to_marker_left_v13", camera_cfg.get("Tf_to_marker_left"))
+        ee_to_marker_right = camera_cfg.get("Tf_to_marker_right_v13", camera_cfg.get("Tf_to_marker_right"))
+    else:
+        ee_to_marker_left = camera_cfg.get("Tf_to_marker_left", camera_cfg.get("Tf_to_marker_left_v12"))
+        ee_to_marker_right = camera_cfg.get("Tf_to_marker_right", camera_cfg.get("Tf_to_marker_right_v12"))
+
     return {
         "mount_to_cam_nom": mount_to_cam_nom,
         "head_base_to_cam_nom": head_base_to_cam_nom,
         "camera_mount_link": camera_cfg.get("camera_mount_link", "link_head_2"),
-        "ee_to_marker_left": camera_cfg["Tf_to_marker_left"],
-        "ee_to_marker_right": camera_cfg["Tf_to_marker_right"],
+        "ee_to_marker_left": ee_to_marker_left,
+        "ee_to_marker_right": ee_to_marker_right,
     }
 
-def get_arm_config(model, arm):
-    camera_nominals = load_camera_nominals()
+def get_arm_config(model, arm, version="1.2"):
+    camera_nominals = load_camera_nominals(version=version)
     base_config = {
         "mount_to_cam_nom": camera_nominals["mount_to_cam_nom"],
         "head_base_to_cam_nom": camera_nominals["head_base_to_cam_nom"],
@@ -154,8 +161,8 @@ def get_arm_config(model, arm):
         })
     return base_config
 
-def get_both_arm_config(model):
-    camera_nominals = load_camera_nominals()
+def get_both_arm_config(model, version="1.2"):
+    camera_nominals = load_camera_nominals(version=version)
     return {
         "arm_idx": np.concatenate([model.right_arm_idx[:7], model.left_arm_idx[:7]]),
         "ee_links": {

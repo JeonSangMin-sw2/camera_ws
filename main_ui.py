@@ -4107,7 +4107,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.robot is None:
             raise RuntimeError("Robot is not connected.")
 
-        cfg = get_both_arm_config(self.model)
+        cfg = get_both_arm_config(self.model, version=self.get_robot_version())
         head_idx = self.get_capture_head_idx()
 
         # In sim mode bypass camera and return dummy marker data
@@ -4161,11 +4161,11 @@ class UnifiedCalibrationApp(QWidget):
             raise RuntimeError("Robot is not connected.")
 
         if len(active_arms) == 1:
-            cfg = get_arm_config(self.model, active_arms[0])
+            cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
             ee_links = {active_arms[0]: cfg["ee_link"]}
             ee_to_marker_nom = {active_arms[0]: cfg["ee_to_marker_nom"]}
         else:
-            cfg = get_both_arm_config(self.model)
+            cfg = get_both_arm_config(self.model, version=self.get_robot_version())
             ee_links = cfg["ee_links"]
             ee_to_marker_nom = cfg["ee_to_marker_nom"]
 
@@ -4435,11 +4435,11 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg("Headless mode selected; optimize_head changed to False.")
 
             if len(active_arms) == 1:
-                cfg = get_arm_config(self.model, active_arms[0])
+                cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
                 ee_links = {active_arms[0]: cfg["ee_link"]}
                 ee_to_marker_nom = {active_arms[0]: cfg["ee_to_marker_nom"]}
             else:
-                cfg = get_both_arm_config(self.model)
+                cfg = get_both_arm_config(self.model, version=self.get_robot_version())
                 ee_links = cfg["ee_links"]
                 ee_to_marker_nom = cfg["ee_to_marker_nom"]
                 
