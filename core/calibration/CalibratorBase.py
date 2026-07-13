@@ -1050,10 +1050,11 @@ class BaseCalibrator:
 
                 ax_top.set_xlabel('X (mm)')
                 ax_top.set_ylabel('Y (mm)')
-                ax_top.set_title(f'[{stage_name}] Top View (X-Y Projection)')
+                ax_top.set_title(f'[{stage_name}] Top View (X-Y Projection)', fontsize=15, fontweight='bold')
                 ax_top.set_aspect('equal')
                 ax_top.grid(True)
-                ax_top.legend(loc='upper right')
+                if col_idx == 0:
+                    ax_top.legend(loc='upper right', fontsize=10)
 
                 # --- 2. SIDE VIEW (Row 1, Col col_idx): Y-Z Projection ---
                 ax_side = axes[1, col_idx]
@@ -1071,10 +1072,9 @@ class BaseCalibrator:
 
                 ax_side.set_xlabel('Y (mm)')
                 ax_side.set_ylabel('Z (mm)')
-                ax_side.set_title(f'[{stage_name}] Side View (Y-Z Projection)\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm')
+                ax_side.set_title(f'[{stage_name}] Side View (Y-Z Projection)\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm', fontsize=15, fontweight='bold')
                 ax_side.set_aspect('equal')
                 ax_side.grid(True)
-                ax_side.legend(loc='upper right')
 
             def compute_shortest_distance_between_lines(cA, nA, cB, nB):
                 nA_norm = nA / np.linalg.norm(nA)

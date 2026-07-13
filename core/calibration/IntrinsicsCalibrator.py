@@ -10,6 +10,29 @@ class IntrinsicsCalibrator:
         CHESSBOARD = 1
         CHARUCOBOARD = 2
 
+    CALIB_GUIDELINES = [
+        # Center Poses
+        {"name": "Center (Flat)", "pts": np.array([[0.30, 0.25], [0.70, 0.25], [0.70, 0.70], [0.30, 0.70]])},
+        {"name": "Center (Tilt Up)", "pts": np.array([[0.30, 0.25], [0.70, 0.25], [0.66, 0.70], [0.34, 0.70]])},
+        {"name": "Center (Tilt Down)", "pts": np.array([[0.34, 0.25], [0.66, 0.25], [0.70, 0.70], [0.30, 0.70]])},
+        {"name": "Center (Tilt Left)", "pts": np.array([[0.30, 0.25], [0.70, 0.30], [0.70, 0.65], [0.30, 0.70]])},
+        {"name": "Center (Tilt Right)", "pts": np.array([[0.30, 0.30], [0.70, 0.25], [0.70, 0.70], [0.30, 0.65]])},
+        # Four Corners Flat
+        {"name": "Top-Left Corner (Flat)", "pts": np.array([[0.05, 0.05], [0.43, 0.05], [0.43, 0.45], [0.05, 0.45]])},
+        {"name": "Top-Right Corner (Flat)", "pts": np.array([[0.57, 0.05], [0.95, 0.05], [0.95, 0.45], [0.57, 0.45]])},
+        {"name": "Bottom-Left Corner (Flat)", "pts": np.array([[0.05, 0.50], [0.43, 0.50], [0.43, 0.90], [0.05, 0.90]])},
+        {"name": "Bottom-Right Corner (Flat)", "pts": np.array([[0.57, 0.50], [0.95, 0.50], [0.95, 0.90], [0.57, 0.90]])},
+        # Four Corners Tilted
+        {"name": "Top-Left Corner (Tilt Up-Left)", "pts": np.array([[0.05, 0.05], [0.43, 0.08], [0.43, 0.42], [0.05, 0.45]])},
+        {"name": "Top-Right Corner (Tilt Up-Right)", "pts": np.array([[0.57, 0.08], [0.95, 0.05], [0.95, 0.45], [0.57, 0.42]])},
+        {"name": "Bottom-Left Corner (Tilt Down-Left)", "pts": np.array([[0.05, 0.50], [0.43, 0.53], [0.43, 0.87], [0.05, 0.90]])},
+        {"name": "Bottom-Right Corner (Tilt Down-Right)", "pts": np.array([[0.57, 0.53], [0.95, 0.50], [0.95, 0.90], [0.57, 0.87]])},
+        # Edge Midpoints Flat
+        {"name": "Left Edge (Flat)", "pts": np.array([[0.05, 0.25], [0.43, 0.25], [0.43, 0.70], [0.05, 0.70]])},
+        {"name": "Right Edge (Flat)", "pts": np.array([[0.57, 0.25], [0.95, 0.25], [0.95, 0.70], [0.57, 0.70]])},
+        {"name": "Top Edge (Flat)", "pts": np.array([[0.30, 0.05], [0.70, 0.05], [0.70, 0.50], [0.30, 0.50]])},
+    ]
+
     def __init__(self):
         self.cameraMatrix = np.eye(3, dtype=np.float64)
         self.distCoeffs = np.zeros((5, 1), dtype=np.float64)
@@ -28,6 +51,11 @@ class IntrinsicsCalibrator:
         self.all_img_points = []
         self.all_ids = []
         self.rms_error = 0.0
+        self.std_fx = 0.0
+        self.std_fy = 0.0
+        self.std_cx = 0.0
+        self.std_cy = 0.0
+        self.test_rmse = None
 
     def set_board(self, width, height, pattern, square_size, marker_size, aruco_dict_name):
         self.board_size = (width, height)
@@ -92,26 +120,12 @@ class IntrinsicsCalibrator:
                     all_ids.append(charuco_ids)
                     all_obj_points.append(self.charuco_board.getChessboardCorners()[charuco_ids.flatten()])
 
-        if len(all_obj_points) < 5:
-            print("Not enough valid frames for calibration (minimum 5 required).")
-            return False
-
-        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(all_obj_points, all_img_points, img_size, None, None)
-        
-        self.cameraMatrix = mtx
-        self.distCoeffs = dist
-        self.rvecs = rvecs
-        self.tvecs = tvecs
-        self.all_obj_points = all_obj_points
-        self.all_img_points = all_img_points
-        self.all_ids = all_ids
-        self.rms_error = ret
-
-        print(f"Calibration successful! RMS error: {ret:.4f}")
-        
-        if output_yaml is not None:
-            self._save_results(output_yaml, img_size[0], img_size[1])
-        return True
+        success = self._calibrate_and_validate(all_obj_points, all_img_points, img_size, all_ids)
+        if success:
+            print(f"Calibration successful! RMS error: {self.rms_error:.4f}")
+            if output_yaml is not None:
+                self._save_results(output_yaml, img_size[0], img_size[1])
+        return success
 
     def run_calibration_with_images(self, images, output_yaml):
         """
@@ -159,26 +173,102 @@ class IntrinsicsCalibrator:
                     all_ids.append(charuco_ids)
                     all_obj_points.append(self.charuco_board.getChessboardCorners()[charuco_ids.flatten()])
 
+        success = self._calibrate_and_validate(all_obj_points, all_img_points, img_size, all_ids)
+        if success:
+            print(f"Calibration successful! RMS error: {self.rms_error:.4f}")
+            if output_yaml is not None:
+                self._save_results(output_yaml, img_size[0], img_size[1])
+        return success
+
+    def _calibrate_and_validate(self, all_obj_points, all_img_points, img_size, all_ids):
         if len(all_obj_points) < 5:
             print(f"Not enough valid frames for calibration (detected {len(all_obj_points)} valid frames, minimum 5 required).")
             return False
 
-        ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(all_obj_points, all_img_points, img_size, None, None)
-        
-        self.cameraMatrix = mtx
-        self.distCoeffs = dist
-        self.rvecs = rvecs
-        self.tvecs = tvecs
-        self.all_obj_points = all_obj_points
-        self.all_img_points = all_img_points
-        self.all_ids = all_ids
-        self.rms_error = ret
+        try:
+            cameraMatrix = np.eye(3, dtype=np.float64)
+            distCoeffs = np.zeros((5, 1), dtype=np.float64)
+            ret, mtx, dist, rvecs, tvecs, stdIntrinsics, stdExtrinsics, perViewErrors = cv2.calibrateCameraExtended(
+                all_obj_points, all_img_points, img_size, cameraMatrix, distCoeffs
+            )
+            self.cameraMatrix = mtx
+            self.distCoeffs = dist
+            self.rvecs = rvecs
+            self.tvecs = tvecs
+            self.all_obj_points = all_obj_points
+            self.all_img_points = all_img_points
+            self.all_ids = all_ids
+            self.rms_error = ret
+            
+            std_int = stdIntrinsics.flatten()
+            self.std_fx = float(std_int[0])
+            self.std_fy = float(std_int[1])
+            self.std_cx = float(std_int[2])
+            self.std_cy = float(std_int[3])
+        except Exception as e:
+            # Fallback to standard calibrateCamera if extended is unsupported or fails
+            try:
+                ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
+                    all_obj_points, all_img_points, img_size, None, None
+                )
+                self.cameraMatrix = mtx
+                self.distCoeffs = dist
+                self.rvecs = rvecs
+                self.tvecs = tvecs
+                self.all_obj_points = all_obj_points
+                self.all_img_points = all_img_points
+                self.all_ids = all_ids
+                self.rms_error = ret
+                
+                self.std_fx = 0.0
+                self.std_fy = 0.0
+                self.std_cx = 0.0
+                self.std_cy = 0.0
+            except Exception as inner_e:
+                print(f"Calibration calculation failed: {inner_e}")
+                return False
 
-        print(f"Calibration successful! RMS error: {ret:.4f}")
-        
-        if output_yaml is not None:
-            self._save_results(output_yaml, img_size[0], img_size[1])
+        # Run cross-validation
+        self.test_rmse = self.compute_cross_validation_rmse(all_obj_points, all_img_points, img_size)
         return True
+
+    def compute_cross_validation_rmse(self, all_obj_points, all_img_points, img_size):
+        if len(all_obj_points) < 6:
+            return None
+            
+        # Determinisitic split: test set is every 4th frame (indices 3, 7, etc.)
+        test_indices = list(range(3, len(all_obj_points), 4))
+        train_indices = [i for i in range(len(all_obj_points)) if i not in test_indices]
+        
+        train_obj = [all_obj_points[i] for i in train_indices]
+        train_img = [all_img_points[i] for i in train_indices]
+        
+        test_obj = [all_obj_points[i] for i in test_indices]
+        test_img = [all_img_points[i] for i in test_indices]
+        
+        # Calibrate on train set
+        mtx_init = np.eye(3, dtype=np.float64)
+        dist_init = np.zeros((5, 1), dtype=np.float64)
+        try:
+            ret_t, mtx_t, dist_t, rvecs_t, tvecs_t = cv2.calibrateCamera(
+                train_obj, train_img, img_size, mtx_init, dist_init
+            )
+            
+            # Evaluate on test set
+            test_errors = []
+            for obj_pts, img_pts in zip(test_obj, test_img):
+                # Solve PnP to find test view extrinsics
+                ok, rvec, tvec = cv2.solvePnP(obj_pts, img_pts, mtx_t, dist_t)
+                if ok:
+                    proj_pts, _ = cv2.projectPoints(obj_pts, rvec, tvec, mtx_t, dist_t)
+                    err = np.linalg.norm(img_pts - proj_pts, axis=2)
+                    test_errors.extend(err.flatten())
+            
+            if test_errors:
+                return float(np.sqrt(np.mean(np.array(test_errors)**2)))
+        except Exception:
+            pass
+        return None
 
     def _save_results(self, output_yaml, width, height):
         data = {

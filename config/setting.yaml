@@ -1,8 +1,8 @@
 camera:
-  Tf_to_marker_left: [0.00000, 0.05450, -0.05000, 90.26, 1.51, 0.00]
+  Tf_to_marker_left: [0.00000, 0.05450, -0.05000, 90.09, 0.10, 0.00]
   Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
   Tf_to_marker_left_v13: [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
-  Tf_to_marker_right: [0.00000, -0.05190, -0.04580, 90.39, -0.81, 180.00]
+  Tf_to_marker_right: [0.00000, -0.05390, -0.04580, 90.07, 0.10, 180.00]
   Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0,0.0, 180.0]
   Tf_to_marker_right_v13: [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
   camera_mount_link: link_head_2
@@ -13,13 +13,13 @@ camera:
   width: 1280
 joint_offset:
   left:
-    joint3: 0.0
-    joint5: 0.0
-    joint6: 0.0
+    joint3: -0.6522163290707143
+    joint5: 2.98415313850197
+    joint6: -3.500173870225266
   right:
-    joint3: 0.0
-    joint5: 0.0
-    joint6: 0.0
+    joint3: -0.47283166330395954
+    joint5: -5.368111490036108
+    joint6: -2.3496844189024495
 thermal_compensation:
   enabled: false
   baseline_temp: 32.0

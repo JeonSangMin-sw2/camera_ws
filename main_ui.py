@@ -966,23 +966,32 @@ class Step2ZeroPoseCheckWorker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, robot, model, servo_regex, arm):
+    def __init__(self, robot, model, arm, include_head):
         super().__init__()
         self.robot = robot
         self.model = model
-        self.servo_regex = servo_regex
         self.arm = arm
+        self.include_head = include_head
 
     def run(self):
         try:
-            from core.homeoffset_core import move_robot_to_zero_pose
-            move_robot_to_zero_pose(
+            from core.homeoffset_core import movej
+            
+            right_zero_pose = np.zeros(len(self.model.right_arm_idx))
+            left_zero_pose = np.zeros(len(self.model.left_arm_idx))
+            head_zero_pose = np.zeros(len(self.model.head_idx)) if self.include_head else None
+
+            self.log_signal.emit("Moving robot to zero pose...")
+            ok = movej(
                 self.robot,
-                self.model,
-                servo_regex=self.servo_regex,
-                arm=self.arm,
-                log_cb=self.log_signal.emit,
+                right_arm=right_zero_pose,
+                left_arm=left_zero_pose,
+                head=head_zero_pose,
+                minimum_time=5,
             )
+            if not ok:
+                raise RuntimeError("Failed to move robot to zero pose")
+                
             self.finished_signal.emit(True, "")
         except Exception as e:
             self.finished_signal.emit(False, str(e))
@@ -2085,6 +2094,7 @@ class UnifiedCalibrationApp(QWidget):
             
         self.monitor_enabled = False
         self.captured_images = []
+        self.current_guide_idx = 0
         self.output_yaml = CONFIG_PATHS["camera_intrinsics"]
         
         # Saved Calibration Results
@@ -2402,9 +2412,9 @@ class UnifiedCalibrationApp(QWidget):
         
         connect_head_row = QHBoxLayout()
         self.btn_connect = QPushButton("CONNECT")
-        self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
+        self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
         self.btn_connect.clicked.connect(self.connect_robot)
-        self.btn_connect.setFixedHeight(24)
+        self.btn_connect.setFixedHeight(28)
         connect_head_row.addWidget(self.btn_connect)
         
         # Head checkbox — controls whether head servos are enabled on connect
@@ -2824,6 +2834,12 @@ class UnifiedCalibrationApp(QWidget):
         controls_box = QGroupBox("Calibration Controls")
         controls_layout = QVBoxLayout()
         
+        self.chk_int_guide = QCheckBox("Show Guide Overlay")
+        self.chk_int_guide.setChecked(True)
+        self.chk_int_guide.setStyleSheet("color: #00e5ff; font-weight: bold;")
+        self.chk_int_guide.stateChanged.connect(self.on_guide_changed)
+        controls_layout.addWidget(self.chk_int_guide)
+        
         self.btn_int_capture = QPushButton("CAPTURE FRAME (C)")
         self.btn_int_capture.setMinimumHeight(45)
         self.btn_int_capture.setStyleSheet("background-color: #1565c0; color: white; font-size: 13px;")
@@ -3185,7 +3201,7 @@ class UnifiedCalibrationApp(QWidget):
             self.load_offsets_from_yaml()
             self.update_applied_offset_label()
             self.btn_connect.setText("CONNECT")
-            self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold;")
+            self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
             if hasattr(self, 'chk_servo_head'):
                 self.chk_servo_head.setEnabled(True)
             self.log_msg("[INFO] Robot disconnected.")
@@ -3198,7 +3214,14 @@ class UnifiedCalibrationApp(QWidget):
             # Read head checkbox state (like calibration_ui's servo_head)
             head_enabled = self.chk_servo_head.isChecked() if hasattr(self, 'chk_servo_head') else True
             self.include_head_motion = head_enabled
-            self.log_msg(f"[INFO] Connecting to robot at {addr} ({model}), head={'ON' if head_enabled else 'OFF'}...")
+            
+            # Update connection button to loading state
+            self.btn_connect.setText("CONNECTING...")
+            self.btn_connect.setStyleSheet("background-color: #ffb74d; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+            self.btn_connect.setEnabled(False)
+            self.log_msg(f"[INFO] 로봇 연결 시도 중... (IP: {addr})")
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents()
             
             # 1. Create and connect robot
             robot = rby.create_robot(addr, model)
@@ -3359,13 +3382,20 @@ class UnifiedCalibrationApp(QWidget):
 
                 self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version}).")
                 self.btn_connect.setText("DISCONNECT")
-                self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold;")
+                self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+                self.btn_connect.setEnabled(True)
             else:
                 self.log_msg("[ERROR] Robot initialization failed. Check IP.")
+                self.btn_connect.setText("CONNECT")
+                self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+                self.btn_connect.setEnabled(True)
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.log_msg(f"[ERROR] Connection failure: {e}")
+            self.btn_connect.setText("CONNECT")
+            self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+            self.btn_connect.setEnabled(True)
 
     def on_arm_side_changed(self, text):
         new_side = "left" if "Left" in text else "right"
@@ -4307,19 +4337,13 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[ERROR] Robot is not connected!")
             return
         
-        parts = []
-        parts.append(r"mobile_.*|torso_.*|right_arm_.*|left_arm_.*")
-        if self.include_head_motion:
-            parts.append(r"head_.*")
-        servo_regex = "|".join(parts) if parts else r"^$"
-
         arm = "both"
         
         self.zero_pose_worker = Step2ZeroPoseCheckWorker(
             self.robot,
             self.model,
-            servo_regex,
-            arm
+            arm,
+            self.include_head_motion
         )
         self.zero_pose_worker.log_signal.connect(self.log_msg)
         def on_finished(success, error_msg):
@@ -5120,6 +5144,10 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
             msg_box.exec_()
+            
+            # Automatically show plot if generated
+            if self.generated_plots:
+                self.open_plot_dialog()
         elif not was_stopped:
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Information)
@@ -5129,6 +5157,10 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
             msg_box.exec_()
+            
+            # Automatically show plot if generated
+            if self.generated_plots:
+                self.open_plot_dialog()
 
     def handle_full_auto_bracket_finished(self, bracket_res):
         arm_side = bracket_res['arm_side']
@@ -5675,7 +5707,7 @@ class UnifiedCalibrationApp(QWidget):
         else:
             self.current_plot_idx = existing_idx
             
-        self.open_plot_dialog()
+        # Do not automatically show the plot. It will be shown only when Full Auto ends/errors, or by manual click.
 
     def update_navigation_buttons(self):
         self.btn_plot_prev.setEnabled(self.current_plot_idx > 0)
@@ -5782,6 +5814,29 @@ class UnifiedCalibrationApp(QWidget):
         self.current_frame = img.copy()
         display_img = img.copy()
         
+        if hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked() and camera_tab_active:
+            num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
+            if self.current_guide_idx < num_steps:
+                guideline = IntrinsicsCalibrator.CALIB_GUIDELINES[self.current_guide_idx]
+                h, w = display_img.shape[:2]
+                pts_pixel = np.array(guideline["pts"] * [w, h], dtype=np.int32)
+                
+                # Draw filled transparent guide poly
+                overlay = display_img.copy()
+                cv2.fillPoly(overlay, [pts_pixel], (255, 229, 0)) # Neon Cyan in BGR
+                cv2.addWeighted(overlay, 0.15, display_img, 0.85, 0, display_img)
+                
+                # Draw border poly
+                cv2.polylines(display_img, [pts_pixel], isClosed=True, color=(255, 229, 0), thickness=3)
+                
+                # Draw guide labels
+                guide_name = guideline["name"]
+                text_title = f"Guide {self.current_guide_idx + 1}/{num_steps}: {guide_name}"
+                cv2.putText(display_img, text_title, (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(display_img, "Align checkerboard and press CAPTURE (C)", (30, 95), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 1, cv2.LINE_AA)
+            else:
+                cv2.putText(display_img, f"All {num_steps} steps captured! Press RUN CALIBRATION", (30, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 255, 0), 2, cv2.LINE_AA)
+        
         # Convert to QImage and display
         h, w, ch = display_img.shape
         bytes_per_line = ch * w
@@ -5807,12 +5862,26 @@ class UnifiedCalibrationApp(QWidget):
             self.captured_images.append(self.current_frame.copy())
             self.lbl_captured.setText(f"Captured Frames: {len(self.captured_images)}")
             self.log_msg(f"[INTRINSICS] Frame {len(self.captured_images)} captured.")
+            
+            num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
+            if hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked() and self.current_guide_idx < num_steps:
+                self.current_guide_idx += 1
+                if self.current_guide_idx == num_steps:
+                    self.log_msg(f"[INTRINSICS] All {num_steps} guided frames captured! You can now run calibration.")
 
     def reset_intrinsics_captures(self):
         self.captured_images.clear()
+        self.current_guide_idx = 0
         self.lbl_captured.setText(f"Captured Frames: 0")
         self.btn_int_save.setEnabled(False)
         self.log_msg("[INTRINSICS] Capture memory cleared.")
+
+    def on_guide_changed(self, state):
+        checked = (state == Qt.Checked or state == 2)
+        self.log_msg(f"[INTRINSICS] Guidance overlay {'ENABLED' if checked else 'DISABLED'}.")
+        if checked:
+            num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
+            self.current_guide_idx = min(num_steps, len(self.captured_images))
 
     def run_intrinsics_calibration(self):
         if len(self.captured_images) < 5:
@@ -5830,6 +5899,21 @@ class UnifiedCalibrationApp(QWidget):
         
         if success:
             self.log_msg(f"[SUCCESS] Calibration complete! RMS Error: {self.intrinsics_calibrator.rms_error:.4f}")
+            self.log_msg("[INTRINSICS] Parameter Standard Error (Uncertainty):")
+            self.log_msg(f"  * Focal Length fx: {self.intrinsics_calibrator.std_fx:.4f} pixels")
+            self.log_msg(f"  * Focal Length fy: {self.intrinsics_calibrator.std_fy:.4f} pixels")
+            self.log_msg(f"  * Principal Point cx: {self.intrinsics_calibrator.std_cx:.4f} pixels")
+            self.log_msg(f"  * Principal Point cy: {self.intrinsics_calibrator.std_cy:.4f} pixels")
+            
+            if self.intrinsics_calibrator.test_rmse is not None:
+                self.log_msg(f"[INTRINSICS] Cross-Validation Test RMSE: {self.intrinsics_calibrator.test_rmse:.4f} pixels")
+                if self.intrinsics_calibrator.test_rmse < 0.18:
+                    self.log_msg("[INTRINSICS] Generalization check: EXCELLENT (low variance, high stability)")
+                else:
+                    self.log_msg("[INTRINSICS] Generalization check: WARNING (high variance, check board angles)")
+            else:
+                self.log_msg("[INTRINSICS] Cross-Validation: Not enough frames (min 6 frames needed)")
+                
             self.log_msg("[INTRINSICS] Click 'SAVE PARAMETERS' to apply changes.")
             self.btn_int_save.setEnabled(True)
             self.show_intrinsics_verification()
