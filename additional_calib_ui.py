@@ -2206,11 +2206,7 @@ class UnifiedCalibrationApp(QWidget):
         
         main_tab_layout.addLayout(main_tab_columns)
         
-        # Quit Button
-        self.btn_quit = QPushButton("QUIT")
-        self.btn_quit.setStyleSheet("background-color: #b71c1c; color: white;")
-        self.btn_quit.clicked.connect(self.close)
-        main_tab_layout.addWidget(self.btn_quit)
+
         
         main_tab.setLayout(main_tab_layout)
         self.left_tabs.addTab(main_tab, "1. Main")
@@ -2304,7 +2300,17 @@ class UnifiedCalibrationApp(QWidget):
         # Assemble full-width tabs
         main_layout.addWidget(self.left_tabs)
         
-        self.setLayout(main_layout)
+        # Create outer vertical layout to place QUIT button at the very bottom
+        outer_layout = QVBoxLayout()
+        outer_layout.addLayout(main_layout)
+        
+        self.btn_quit_global = QPushButton("QUIT")
+        self.btn_quit_global.setMinimumHeight(40)
+        self.btn_quit_global.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold; font-size: 14px;")
+        self.btn_quit_global.clicked.connect(self.close)
+        outer_layout.addWidget(self.btn_quit_global)
+        
+        self.setLayout(outer_layout)
         
         # Startup info
         self.log_msg("="*60)
@@ -3840,7 +3846,7 @@ class UnifiedCalibrationApp(QWidget):
         try:
             data = {
                 "camera_matrix": self.intrinsics_calibrator.cameraMatrix.tolist(),
-                "dist_coeffs": self.intrinsics_calibrator.distCoeffs.tolist(),
+                "dist_coeffs": self.intrinsics_calibrator.distCoeffs.flatten().tolist(),
                 "rms_error": float(self.intrinsics_calibrator.rms_error),
                 "width": int(self.captured_images[0].shape[1]),
                 "height": int(self.captured_images[0].shape[0])
@@ -3869,10 +3875,36 @@ class UnifiedCalibrationApp(QWidget):
         # Delegate image generation to IntrinsicsCalibrator
         self.intrinsics_calibrator.generate_verification_image(test_img, save_path)
         
-        # Load inside Plot tab
+        # Load inside Plot viewer dialog history
         self.add_and_show_plot("[INTRINSICS] Verification Image", save_path)
         
-        self.log_msg(f"[INTRINSICS] Verification image loaded to Plot tab and saved to: {save_path}")
+        # Pop up visual verification dialog directly
+        if os.path.exists(save_path):
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Camera Intrinsics Calibration Verification (Original vs Undistorted)")
+            dialog.setStyleSheet(DARK_STYLESHEET)
+            
+            layout = QVBoxLayout(dialog)
+            
+            pixmap = QPixmap(save_path)
+            scaled_pix = pixmap.scaled(1200, 900, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            img_label = QLabel()
+            img_label.setPixmap(scaled_pix)
+            img_label.setAlignment(Qt.AlignCenter)
+            img_label.setStyleSheet("border: 2px solid #2d2d2d; border-radius: 6px;")
+            layout.addWidget(img_label)
+            
+            btn_close = QPushButton("CLOSE")
+            btn_close.setMinimumHeight(40)
+            btn_close.setStyleSheet("background-color: #37474f; color: white; font-weight: bold; font-size: 13px;")
+            btn_close.clicked.connect(dialog.accept)
+            layout.addWidget(btn_close)
+            
+            dialog.exec()
+            self.log_msg(f"[INTRINSICS] Verification dialog shown. Image saved to: {save_path}")
+        else:
+            self.log_msg(f"[ERROR] Failed to generate verification image at: {save_path}")
 
     def closeEvent(self, event):
         if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:

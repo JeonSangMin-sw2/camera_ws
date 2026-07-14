@@ -112,10 +112,15 @@ class IntrinsicsCalibrator:
                     all_ids.append(np.arange(len(corners)))
 
             elif self.pattern == self.BoardPattern.CHARUCOBOARD:
+                dp = cv2.aruco.DetectorParameters()
+                dp.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
                 detector = cv2.aruco.CharucoDetector(self.charuco_board)
+                detector.setDetectorParameters(dp)
                 charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
 
                 if charuco_ids is not None and len(charuco_ids) > 4:
+                    cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                                    (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
                     all_img_points.append(charuco_corners)
                     all_ids.append(charuco_ids)
                     all_obj_points.append(self.charuco_board.getChessboardCorners()[charuco_ids.flatten()])
@@ -165,10 +170,15 @@ class IntrinsicsCalibrator:
                     all_ids.append(np.arange(len(corners)))
 
             elif self.pattern == self.BoardPattern.CHARUCOBOARD:
+                dp = cv2.aruco.DetectorParameters()
+                dp.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
                 detector = cv2.aruco.CharucoDetector(self.charuco_board)
+                detector.setDetectorParameters(dp)
                 charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
 
                 if charuco_ids is not None and len(charuco_ids) > 4:
+                    cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                                    (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
                     all_img_points.append(charuco_corners)
                     all_ids.append(charuco_ids)
                     all_obj_points.append(self.charuco_board.getChessboardCorners()[charuco_ids.flatten()])
@@ -185,51 +195,90 @@ class IntrinsicsCalibrator:
             print(f"Not enough valid frames for calibration (detected {len(all_obj_points)} valid frames, minimum 5 required).")
             return False
 
-        try:
-            cameraMatrix = np.eye(3, dtype=np.float64)
-            distCoeffs = np.zeros((5, 1), dtype=np.float64)
-            ret, mtx, dist, rvecs, tvecs, stdIntrinsics, stdExtrinsics, perViewErrors = cv2.calibrateCameraExtended(
-                all_obj_points, all_img_points, img_size, cameraMatrix, distCoeffs
-            )
+        # Set up calibration flags. Fix tangential distortion to 0.
+        flags = cv2.CALIB_ZERO_TANGENT_DIST
+
+        # Iteratively filter outliers (worst-view-first)
+        current_obj_points = list(all_obj_points)
+        current_img_points = list(all_img_points)
+        current_ids = list(all_ids)
+
+        max_iters = 5
+        for iter_idx in range(max_iters):
+            n_views = len(current_obj_points)
+            if n_views < 5:
+                break
+
+            try:
+                cameraMatrix = np.eye(3, dtype=np.float64)
+                distCoeffs = np.zeros((5, 1), dtype=np.float64)
+                ret, mtx, dist, rvecs, tvecs, stdIntrinsics, stdExtrinsics, perViewErrors = cv2.calibrateCameraExtended(
+                    current_obj_points, current_img_points, img_size, cameraMatrix, distCoeffs, flags=flags
+                )
+                per_view_err = perViewErrors.flatten()
+            except Exception as e:
+                # Fallback to standard calibrateCamera
+                try:
+                    ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
+                        current_obj_points, current_img_points, img_size, None, None, flags=flags
+                    )
+                    # Manually compute per-view errors since standard calibrateCamera doesn't return them
+                    per_view_err = []
+                    for obj_pts, img_pts, rvec, tvec in zip(current_obj_points, current_img_points, rvecs, tvecs):
+                        proj_pts, _ = cv2.projectPoints(obj_pts, rvec, tvec, mtx, dist)
+                        err = np.linalg.norm(img_pts - proj_pts, axis=2)
+                        rms = np.sqrt(np.mean(err ** 2))
+                        per_view_err.append(rms)
+                    per_view_err = np.array(per_view_err)
+                    stdIntrinsics = None
+                except Exception as inner_e:
+                    print(f"Calibration calculation failed at iter {iter_idx}: {inner_e}")
+                    return False
+
+            # Update calibration results with current iteration
             self.cameraMatrix = mtx
             self.distCoeffs = dist
             self.rvecs = rvecs
             self.tvecs = tvecs
-            self.all_obj_points = all_obj_points
-            self.all_img_points = all_img_points
-            self.all_ids = all_ids
+            self.all_obj_points = current_obj_points
+            self.all_img_points = current_img_points
+            self.all_ids = current_ids
             self.rms_error = ret
-            
-            std_int = stdIntrinsics.flatten()
-            self.std_fx = float(std_int[0])
-            self.std_fy = float(std_int[1])
-            self.std_cx = float(std_int[2])
-            self.std_cy = float(std_int[3])
-        except Exception as e:
-            # Fallback to standard calibrateCamera if extended is unsupported or fails
-            try:
-                ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-                    all_obj_points, all_img_points, img_size, None, None
-                )
-                self.cameraMatrix = mtx
-                self.distCoeffs = dist
-                self.rvecs = rvecs
-                self.tvecs = tvecs
-                self.all_obj_points = all_obj_points
-                self.all_img_points = all_img_points
-                self.all_ids = all_ids
-                self.rms_error = ret
-                
+
+            if stdIntrinsics is not None:
+                std_int = stdIntrinsics.flatten()
+                self.std_fx = float(std_int[0])
+                self.std_fy = float(std_int[1])
+                self.std_cx = float(std_int[2])
+                self.std_cy = float(std_int[3])
+            else:
                 self.std_fx = 0.0
                 self.std_fy = 0.0
                 self.std_cx = 0.0
                 self.std_cy = 0.0
-            except Exception as inner_e:
-                print(f"Calibration calculation failed: {inner_e}")
-                return False
 
-        # Run cross-validation
-        self.test_rmse = self.compute_cross_validation_rmse(all_obj_points, all_img_points, img_size)
+            # Find the view with the maximum error
+            max_idx = np.argmax(per_view_err)
+            max_err = per_view_err[max_idx]
+            median_err = np.median(per_view_err)
+            outlier_threshold = max(0.35, median_err * 1.5)
+
+            # If the worst view exceeds the outlier threshold, filter it out
+            if max_err > outlier_threshold:
+                # Ensure we keep a minimum number of views
+                min_keep = max(5, min(10, int(len(all_obj_points) * 0.7)))
+                if len(current_obj_points) - 1 >= min_keep:
+                    print(f"[Iter {iter_idx}] Filtered out worst outlier view (index {max_idx}, error: {max_err:.4f} px). Remaining: {len(current_obj_points) - 1}")
+                    current_obj_points.pop(max_idx)
+                    current_img_points.pop(max_idx)
+                    current_ids.pop(max_idx)
+                    continue
+
+            # If no outlier was removed (or min_keep prevents it), stop early
+            break
+
+        # Run cross-validation on final inlier points
+        self.test_rmse = self.compute_cross_validation_rmse(self.all_obj_points, self.all_img_points, img_size)
         return True
 
     def compute_cross_validation_rmse(self, all_obj_points, all_img_points, img_size):
@@ -251,7 +300,7 @@ class IntrinsicsCalibrator:
         dist_init = np.zeros((5, 1), dtype=np.float64)
         try:
             ret_t, mtx_t, dist_t, rvecs_t, tvecs_t = cv2.calibrateCamera(
-                train_obj, train_img, img_size, mtx_init, dist_init
+                train_obj, train_img, img_size, mtx_init, dist_init, flags=cv2.CALIB_ZERO_TANGENT_DIST
             )
             
             # Evaluate on test set
@@ -275,7 +324,7 @@ class IntrinsicsCalibrator:
             "width": int(width),
             "height": int(height),
             "camera_matrix": self.cameraMatrix.tolist(),
-            "dist_coeffs": self.distCoeffs.tolist()
+            "dist_coeffs": self.distCoeffs.flatten().tolist()
         }
         with open(output_yaml, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
