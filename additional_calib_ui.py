@@ -2876,6 +2876,8 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(False)
         if self.poll_timer.isActive():
             self.poll_timer.stop()
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         self.active_worker = FullAutoReadyWorker(
             self.joint_calibrator,
             self.marker_calibrator,
@@ -3064,6 +3066,8 @@ class UnifiedCalibrationApp(QWidget):
         
         if self.poll_timer.isActive():
             self.poll_timer.stop()
+        self.joint_calibrator.stop_requested = False
+        self.marker_calibrator.stop_requested = False
         
         
         self.full_auto_stop_event = threading.Event()
