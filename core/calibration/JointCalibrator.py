@@ -950,29 +950,45 @@ class JointCalibrator(BaseCalibrator):
                 optimal_offset_deg = 0.0
                 diff_angle = 0.0
         else:
-            a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
-            a_B_proj = a_B_cam_nom - np.dot(a_B_cam_nom, a_cand_cam) * a_cand_cam
-            if np.linalg.norm(a_A_proj) > 1e-6:
-                a_A_proj /= np.linalg.norm(a_A_proj)
-            if np.linalg.norm(a_B_proj) > 1e-6:
-                a_B_proj /= np.linalg.norm(a_B_proj)
+            # Use geometric center-distance velocity projection instead of noisy diff_angle
+            try:
+                state = self.robot.get_state()
+                dyn_model = self.robot.get_dynamics()
+                # Get true camera transform
+                head_pitch = state.position[self.robot.model().head_idx[0]]
+                head_yaw = state.position[self.robot.model().head_idx[1]]
+                T_t5_to_head = self.compute_fk(self.robot, dyn_model, state.position, "link_head_2", "link_torso_5")
                 
-            nominal_angle = np.arctan2(np.dot(np.cross(a_A_proj, a_B_proj), a_cand_cam), np.dot(a_A_proj, a_B_proj))
+                if self.camera_config and "Tf_to_cam" in self.camera_config:
+                    T_mount_to_cam = self.make_transform(self.camera_config["Tf_to_cam"])
+                else:
+                    T_mount_to_cam = np.eye(4)
+                    
+                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                T_torso_to_cam_true = np.linalg.inv(T_t5_to_cam)
+            except Exception as e:
+                if log_callback:
+                    log_callback(f"[WARN] Failed to compute T_t5_to_cam: {e}. Falling back to nominal.")
+                T_torso_to_cam_true = np.eye(4)
+                T_torso_to_cam_true[:3, :3] = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
             
-            n_A_proj = n_A - np.dot(n_A, a_cand_cam) * a_cand_cam
-            n_B_proj = n_B - np.dot(n_B, a_cand_cam) * a_cand_cam
-            if np.linalg.norm(n_A_proj) > 1e-6:
-                n_A_proj /= np.linalg.norm(n_A_proj)
-            if np.linalg.norm(n_B_proj) > 1e-6:
-                n_B_proj /= np.linalg.norm(n_B_proj)
+            p_cand_t5 = T_cand[:3, 3] * 1000.0
+            p_cand_cam = T_torso_to_cam_true[:3, :3] @ p_cand_t5 + T_torso_to_cam_true[:3, 3] * 1000.0
+            
+            # The velocity direction of c_A when rotating around cand axis
+            v_dir = np.cross(a_cand_cam, c_A_c - p_cand_cam)
+            v_norm_sq = np.linalg.norm(v_dir)**2
+            
+            if v_norm_sq > 1e-6:
+                delta_rad = np.dot(c_B_c - c_A_c, v_dir) / v_norm_sq
+                optimal_offset_deg = -np.degrees(delta_rad)
                 
-            actual_angle = np.arctan2(np.dot(np.cross(n_A_proj, n_B_proj), a_cand_cam), np.dot(n_A_proj, n_B_proj))
-            
-            diff_angle = actual_angle - nominal_angle
-            diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
-            
-            # Match the physical motor driver rotations (negative feedback loop)
-            optimal_offset_deg = -np.degrees(diff_angle)
+                # Assign to diff_angle for logging / signs below
+                diff_angle = -delta_rad
+            else:
+                optimal_offset_deg = 0.0
+                diff_angle = 0.0
+
 
         # Match the physical motor driver rotations (negative feedback loop)
         sign = 1.0 if diff_angle > 0.0 else -1.0
