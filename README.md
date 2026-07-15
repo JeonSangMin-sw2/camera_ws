@@ -40,19 +40,19 @@ Starting FULL AUTO sequential calibration...
 [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
 
 [FULL AUTO] Calibrating J6 (Wrist Yaw 2) first...
-[INFO] wrist_yaw2: J7 ready pose=-10.04°, raw_diff=10.23°, optimal_offset=0.19°
+[INFO] wrist_yaw2: J7 ready pose=-10.04°, raw_diff=10.91°, optimal_offset=0.87°
 
 ==================================================
    SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 88.0885 deg
-  * Circle Size Error (abs: r_A - r_B)     : 120.4778 mm
-  * Estimated Circle Center Distance       : 47.5350 mm
-  * Calculated Offset Correction           : 0.189930 deg
+  * Camera Circle Normals Angle (Reference): 88.3930 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.4606 mm
+  * Estimated Circle Center Distance       : 48.5249 mm
+  * Calculated Offset Correction           : 0.874350 deg
 ==================================================
-[FULL AUTO] Staging J6 offset: 0.1899°
+[FULL AUTO] Staging J6 offset: 0.8744°
 [SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_yaw2_joint_calib.png
-[INFO] Full Auto: Finished joint calibration for RIGHT wrist_yaw2. Staged: 0.1899° (click APPLY OFFSET to save).
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_yaw2. Staged: 0.8744° (click APPLY OFFSET to save).
 
 [FULL AUTO] Computing unified marker bracket calibration (J6 locked)...
 [INFO] Full Auto: Finished bracket calibration for RIGHT arm. Values staged in UI (click APPLY BRACKETS to save).
@@ -66,11 +66,30 @@ Starting FULL AUTO sequential calibration...
 [ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
-[ITERATION 2/6] Sweeping physically with staged offset -1.6616°...
+[ITERATION 2/6] Sweeping physically with staged offset -8.5022°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
-[ITERATION 3/6] Sweeping physically with staged offset -2.9871°...
+[ITERATION 3/6] Sweeping physically with staged offset -9.4078°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
 
-[ITERATION 4/6] Sweeping physically with staged offset -3.9459°...
+[ITERATION 4/6] Sweeping physically with staged offset -10.4009°...
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 5/6] Sweeping physically with staged offset -9.7343°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 6/6] Sweeping physically with staged offset -9.3898°...
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_pitch. Staged: -10.2310° (click APPLY OFFSET to save).
+[FULL AUTO] Sweeping Elbow (Joint 3)...
+[INFO] Moving right arm to elbow Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[ERROR] Full Auto sequential calibration failed: Failed to move to ready pose for elbow on right arm
+Traceback (most recent call last):
+  File "/home/nvidia/camera_ws/main_ui.py", line 1912, in run
+    raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
+RuntimeError: Failed to move to ready pose for elbow on right arm
+
+[INFO] Full Auto sequential calibration ended.
