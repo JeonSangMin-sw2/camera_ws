@@ -55,7 +55,8 @@ class JointCalibrator(BaseCalibrator):
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
         config_dir = os.path.abspath(os.path.dirname(__file__))
-        result_txt_dir = os.path.join(config_dir, "result_txt")
+        from core.paths import CONFIG_PATHS
+        result_txt_dir = CONFIG_PATHS["txt_dir"]
         os.makedirs(result_txt_dir, exist_ok=True)
         debug_file_path = os.path.join(result_txt_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
         logger = DebugLogger(log_callback, debug_file_path)
@@ -157,7 +158,7 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
-                damping = 0.95
+                damping = 1.0 if i == 1 else 0.9 # Use 1.0 for first step, then reduce to 0.9 to prevent oscillation
                 step_correction = direction_multiplier * raw_optimal_offset * damping
                 
                 # Calculate relative step delta for convergence check
@@ -167,7 +168,7 @@ class JointCalibrator(BaseCalibrator):
                     step_correction_delta = step_correction
 
                 # Convergence check:
-                # step correction delta < 0.05°
+                # step correction delta < 0.05° to handle bracket RPY noise
                 converged_criteria = (abs(step_correction_delta) < 0.05)
                 
                 if converged_criteria:
@@ -304,8 +305,8 @@ class JointCalibrator(BaseCalibrator):
             pts_b = np.array(pts_b)
             
             # 3D fit circles
-            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a)
-            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b)
+            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a, robust=not self.is_mock)
+            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b, robust=not self.is_mock)
             
             n_A = R_c_A[:, 2]
             n_B = R_c_B[:, 2]
@@ -402,7 +403,8 @@ class JointCalibrator(BaseCalibrator):
             )
             plt.tight_layout()
             
-            result_dir = os.path.join(os.path.dirname(__file__), "result_img")
+            from core.paths import CONFIG_PATHS
+            result_dir = CONFIG_PATHS["plot_dir"]
             os.makedirs(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"debug_orthogonal_circles_{arm_side}_{frame}.png"))
             plt.savefig(plot_save_path, dpi=150)
@@ -558,7 +560,8 @@ class JointCalibrator(BaseCalibrator):
             )
             plt.tight_layout()
 
-            result_dir = os.path.join(os.path.dirname(__file__), "result_img")
+            camera_ws_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+            result_dir = os.path.join(camera_ws_dir, "result", "result_img")
             os.makedirs(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
             if not force_overwrite and os.path.exists(plot_save_path):
@@ -783,11 +786,10 @@ class JointCalibrator(BaseCalibrator):
         a_A_t5 = T_A[:3, :3] @ a_A_local
         a_B_t5 = T_B[:3, :3] @ a_B_local
         
-        if log_callback:
-            log_callback(f"[INFO] Dynamically calculated nominal axes from FK (Arm: {arm_side}, Mode: {mode}):")
-            log_callback(f"       a_cand_t5 = {a_cand_t5.tolist()}")
-            log_callback(f"       a_A_t5    = {a_A_t5.tolist()}")
-            log_callback(f"       a_B_t5    = {a_B_t5.tolist()}")
+        logging.debug(f"[INFO] Dynamically calculated nominal axes from FK (Arm: {arm_side}, Mode: {mode}):")
+        logging.debug(f"       a_cand_t5 = {a_cand_t5.tolist()}")
+        logging.debug(f"       a_A_t5    = {a_A_t5.tolist()}")
+        logging.debug(f"       a_B_t5    = {a_B_t5.tolist()}")
 
         # Use nominal fixed camera rotation relative to torso (ZYX [-90, 0, -90])
         # to avoid using uncalibrated mount_to_cam values or head kinematics.
@@ -809,8 +811,8 @@ class JointCalibrator(BaseCalibrator):
         angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
 
         # 3. Fit Sweep A and B axes in the camera frame
-        res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_A, angles_A, axis_prior=a_A_cam)
-        res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_B, angles_B, axis_prior=a_B_cam_nom)
+        res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_A, angles_A, axis_prior=a_A_cam, robust=not self.is_mock)
+        res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_B, angles_B, axis_prior=a_B_cam_nom, robust=not self.is_mock)
 
         n_A = res_A['axis_opt']
         n_B = res_B['axis_opt']
@@ -936,7 +938,21 @@ class JointCalibrator(BaseCalibrator):
                     
                     # Calculate angle around z_axis from ref_y to n5_proj
                     diff_angle = np.arctan2(np.dot(n5_proj, ref_x), np.dot(n5_proj, ref_y))
-                    optimal_offset_deg = np.degrees(diff_angle)
+                    raw_diff_deg = np.degrees(diff_angle)
+                    
+                    # Compensate for the initial ready pose angle of J7 (index 6)
+                    # We must take the J7 angle from dataset_B (the J5 sweep), because during dataset_A (the J6 sweep), J7 is moving.
+                    q_full_B_first = dataset_B[0][0]
+                    j7_ready_pose_deg = np.degrees(q_full_B_first[arm_idx[6]])
+                    
+                    # Due to kinematics, the apparent marker rotation is the negative of the actual J7 rotation:
+                    # raw_diff_deg = - (j7_ready_pose_deg + physical_offset)
+                    # physical_offset = - raw_diff_deg - j7_ready_pose_deg
+                    # We must return the compensation offset (correction), which is the negative of the physical offset:
+                    optimal_offset_deg = raw_diff_deg + j7_ready_pose_deg
+                    
+                    if log_callback:
+                        log_callback(f"[INFO] {mode}: J7 ready pose={j7_ready_pose_deg:.2f}°, raw_diff={raw_diff_deg:.2f}°, optimal_offset={optimal_offset_deg:.2f}°")
             except Exception as e:
                 import traceback
                 if log_callback:

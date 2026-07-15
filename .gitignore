@@ -1,5 +1,4 @@
 .venv/
-log/
 *.npz
 *.json
 __pycache__/

@@ -184,7 +184,7 @@ class MarkerCalibrator(BaseCalibrator):
 
         # Solve Circle Fitting
         n_nom = mcfg["n_nom_v13"] if self.is_v13() else mcfg["n_nom_v12"]
-        res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom)
+        res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom, robust=not self.is_mock)
         
         # Load mount_to_cam (transform from head mount "link_head_2" to camera)
         mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])

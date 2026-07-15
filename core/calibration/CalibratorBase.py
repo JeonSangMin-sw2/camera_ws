@@ -24,8 +24,8 @@ class BaseCalibrator:
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-3.0, 0.0),   "sweep_range_A": 15.0, "sweep_range_B": 15.0},
     }
     MARKER_CONFIGS = {
-        "axis_4": {"joint_i": 4, "start_deg": -20.0, "end_deg": 20.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
-        "axis_5": {"joint_i": 5, "start_deg": -20.0, "end_deg": 20.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
+        "axis_4": {"joint_i": 4, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
+        "axis_5": {"joint_i": 5, "start_deg": -25.0, "end_deg": 25.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
         "axis_6": {"joint_i": 6, "start_deg": -20.0, "end_deg": 20.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
     MOCK_GT_OFFSETS = {
@@ -99,6 +99,10 @@ class BaseCalibrator:
         """Returns the robot version as a string: '1.0', '1.1', '1.2', or '1.3'."""
         return str(getattr(self, "robot_version", "1.2"))
 
+    @property
+    def is_mock(self) -> bool:
+        return self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform"
+
     def is_v13(self) -> bool:
         """Returns True only for model-m v1.3 robots."""
         return self.get_robot_version() == "1.3"
@@ -143,8 +147,8 @@ class BaseCalibrator:
             if T_mount_to_cam is None:
                 mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
                 T_mount_to_cam = self.make_transform(mount_to_cam)
-            config_dir = os.path.abspath(os.path.dirname(__file__))
-            result_txt_dir = os.path.join(config_dir, "result_txt")
+            from core.paths import CONFIG_PATHS
+            result_txt_dir = CONFIG_PATHS["txt_dir"]
             os.makedirs(result_txt_dir, exist_ok=True)
             if not self.robot:
                 raise RuntimeError("Robot instance is not initialized")
@@ -609,7 +613,7 @@ class BaseCalibrator:
         return center_3d, R_circle, radius_3d, rmse, pts_2d_all, uc_opt, vc_opt
 
     @staticmethod
-    def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False):
+    def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False, robust=True):
         points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])
         angles_rad_base = np.radians(captured_angles)
         
@@ -622,7 +626,7 @@ class BaseCalibrator:
             raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Input captured_angles contain NaN or Inf values! angles={captured_angles}")
             
         # Initial Center and Normal estimation using unified circle fit
-        c_fit, R_fit, radius_fit, rmse_fit, _, _, _ = BaseCalibrator.fit_circle_3d(points)
+        c_fit, R_fit, radius_fit, rmse_fit, _, _, _ = BaseCalibrator.fit_circle_3d(points, robust=robust)
         
         # Check if initial circle fit yielded valid numbers
         if np.any(np.isnan(c_fit)) or np.any(np.isinf(c_fit)) or np.isnan(radius_fit):
@@ -1128,7 +1132,8 @@ class BaseCalibrator:
             )
             plt.tight_layout()
 
-            result_dir = os.path.join(os.path.dirname(__file__), "result_img")
+            from core.paths import CONFIG_PATHS
+            result_dir = CONFIG_PATHS["plot_dir"]
             os.makedirs(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
             plt.savefig(plot_save_path, dpi=150)
@@ -1172,7 +1177,7 @@ class BaseCalibrator:
                     apply_offsets=False
                 )
 
-        is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
+        is_camera_mock = self.is_mock
         model = self.robot.model() if self.robot else None
         arm_idx = (model.left_arm_idx if arm_side == "left" else model.right_arm_idx) if model else list(range(7))
 

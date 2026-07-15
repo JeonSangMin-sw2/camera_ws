@@ -14,7 +14,7 @@ import json
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
-                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy)
+                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy, QRadioButton, QStackedWidget)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
 import matplotlib
@@ -27,6 +27,7 @@ from pathlib import Path
 from marker_detection import Marker_Detection, Marker_Transform
 from calibration.Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
 from calibration.IntrinsicsCalibrator import IntrinsicsCalibrator
+from core.wizard_widget import CalibrationWizardWidget
 from homeoffset_core import (
     reset_current_pose_home_offsets,
     save_home_reset_baseline_json,
@@ -86,12 +87,7 @@ except ImportError:
 current_dir = os.path.dirname(os.path.abspath(__file__))
 calibration_dir = os.path.abspath(os.path.join(current_dir,"core","calibration"))
 # --- Configuration & Paths ---
-CONFIG_PATHS = {
-    "setting_yaml": os.path.abspath(os.path.join(current_dir, "config", "setting.yaml")),
-    "camera_intrinsics": os.path.abspath(os.path.join(current_dir, "config", "camera_intrinsics.yaml")),
-    "result_dir": os.path.abspath(os.path.join(current_dir, "result")),
-    "plot_dir": os.path.abspath(os.path.join(calibration_dir, "result_img")),
-}
+from core.paths import CONFIG_PATHS
 
 UI_DROPDOWNS = {
     "robot_models": ["a", "m"],
@@ -406,9 +402,10 @@ class ApplyHomeOffsetDialog(QDialog):
         
         msg = (
             "Compare the original baseline zero and the optimized zero before applying.\n\n"
-            "1. Move to Zero to inspect the zero pose before calibration reset.\n"
-            "2. Move to Check Position to move the robot to the custom check pose.\n"
-            "3. When the robot is at the pose you want to keep, click Apply Current Pose.\n\n"
+            "1. Select Baseline or Optimized state.\n"
+            "2. Move to Zero to inspect the zero pose before calibration reset.\n"
+            "3. Move to Check Position to move the robot to the custom check pose.\n"
+            "4. Apply the pose you want to keep using Rollback or Apply Optimized Result.\n\n"
             "Make sure the workspace is clear before each move."
         )
         msg_lbl = QLabel(msg)
@@ -422,33 +419,46 @@ class ApplyHomeOffsetDialog(QDialog):
         self.summary_box.setFont(QFont("Consolas", 10))
         layout.addWidget(self.summary_box, 1)
         
+        # State Switcher (Radio Buttons)
+        state_layout = QHBoxLayout()
+        self.radio_baseline = QRadioButton("Baseline")
+        self.radio_baseline.setChecked(True)
+        self.radio_opt = QRadioButton("Optimized")
+        
+        if result_path is None or not os.path.exists(result_path):
+            self.radio_opt.setEnabled(False)
+            
+        state_layout.addWidget(QLabel("Target State:"))
+        state_layout.addWidget(self.radio_baseline)
+        state_layout.addWidget(self.radio_opt)
+        state_layout.addStretch()
+        layout.addLayout(state_layout)
+        
+        # Movement Buttons
+        move_layout = QHBoxLayout()
+        self.btn_move_zero = QPushButton("Move to Zero")
+        self.btn_move_zero.clicked.connect(self.on_move_zero)
+        move_layout.addWidget(self.btn_move_zero)
+        
+        self.btn_move_check = QPushButton("Move to Check")
+        self.btn_move_check.clicked.connect(self.on_move_check)
+        move_layout.addWidget(self.btn_move_check)
+        layout.addLayout(move_layout)
+        
         # Action buttons row
         btn_layout = QHBoxLayout()
         
-        self.btn_move_baseline = QPushButton("Move to Baseline Zero")
-        self.btn_move_baseline.clicked.connect(self.on_move_baseline)
-        if baseline_path is None or not os.path.exists(baseline_path):
-            self.btn_move_baseline.setEnabled(False)
-        btn_layout.addWidget(self.btn_move_baseline)
+        self.btn_rollback = QPushButton("Rollback Pose")
+        self.btn_rollback.setStyleSheet("background-color: #555; color: white; font-weight: bold;")
+        self.btn_rollback.clicked.connect(lambda: self.on_apply("baseline"))
+        btn_layout.addWidget(self.btn_rollback)
         
-        self.btn_move_baseline_check = QPushButton("Move to Baseline Check")
-        self.btn_move_baseline_check.clicked.connect(self.on_move_baseline_check)
-        if baseline_path is None or not os.path.exists(baseline_path):
-            self.btn_move_baseline_check.setEnabled(False)
-        btn_layout.addWidget(self.btn_move_baseline_check)
-        
-        self.btn_move_opt = QPushButton("Move to Optimized Zero")
-        self.btn_move_opt.clicked.connect(self.on_move_optimized)
-        btn_layout.addWidget(self.btn_move_opt)
-        
-        self.btn_move_opt_check = QPushButton("Move to Optimized Check")
-        self.btn_move_opt_check.clicked.connect(self.on_move_optimized_check)
-        btn_layout.addWidget(self.btn_move_opt_check)
-        
-        self.btn_apply_current = QPushButton("Apply Current Pose")
-        self.btn_apply_current.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
-        self.btn_apply_current.clicked.connect(self.on_apply_current)
-        btn_layout.addWidget(self.btn_apply_current)
+        self.btn_apply_opt = QPushButton("Apply Optimized Result")
+        self.btn_apply_opt.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
+        self.btn_apply_opt.clicked.connect(lambda: self.on_apply("optimized"))
+        if result_path is None or not os.path.exists(result_path):
+            self.btn_apply_opt.setEnabled(False)
+        btn_layout.addWidget(self.btn_apply_opt)
         
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.reject)
@@ -457,13 +467,24 @@ class ApplyHomeOffsetDialog(QDialog):
         layout.addLayout(btn_layout)
         self.setLayout(layout)
         
-    def on_move_baseline(self):
+    def get_current_target(self):
+        if self.radio_baseline.isChecked():
+            return "baseline", self.baseline_path
+        else:
+            return "optimized", self.result_path
+
+    def on_move_zero(self):
+        state, path = self.get_current_target()
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(self, "Warning", f"No {state} JSON found.")
+            return
+            
         self.set_buttons_enabled(False)
         self.worker = Step2ApplyHomeOffsetWorker(
             self.parent_app,
             "move_zero",
-            json_path=self.baseline_path,
-            label="Baseline Zero",
+            json_path=path,
+            label=f"{state.capitalize()} Zero",
             arm=self.arm,
             include_head=self.include_head
         )
@@ -472,19 +493,24 @@ class ApplyHomeOffsetDialog(QDialog):
             self.set_buttons_enabled(True)
             if success:
                 self.current_apply_arm = res["arm"]
-                QMessageBox.information(self, "Preview Complete", "Moved to baseline zero candidate.")
+                QMessageBox.information(self, "Preview Complete", f"Moved to {state} zero candidate.")
             else:
-                QMessageBox.critical(self, "Baseline Preview Error", error_msg)
+                QMessageBox.critical(self, "Preview Error", error_msg)
         self.worker.finished_signal.connect(on_finished)
         self.worker.start()
 
-    def on_move_baseline_check(self):
+    def on_move_check(self):
+        state, path = self.get_current_target()
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(self, "Warning", f"No {state} JSON found.")
+            return
+
         self.set_buttons_enabled(False)
         self.worker = Step2ApplyHomeOffsetWorker(
             self.parent_app,
             "move_check",
-            json_path=self.baseline_path,
-            label="Baseline Check Position",
+            json_path=path,
+            label=f"{state.capitalize()} Check Position",
             arm=self.arm,
             include_head=self.include_head
         )
@@ -493,60 +519,18 @@ class ApplyHomeOffsetDialog(QDialog):
             self.set_buttons_enabled(True)
             if success:
                 self.current_apply_arm = res["arm"]
-                QMessageBox.information(self, "Preview Complete", "Moved to baseline check position candidate.")
+                QMessageBox.information(self, "Preview Complete", f"Moved to {state} check position candidate.")
             else:
-                QMessageBox.critical(self, "Baseline Check Preview Error", error_msg)
+                QMessageBox.critical(self, "Check Preview Error", error_msg)
         self.worker.finished_signal.connect(on_finished)
         self.worker.start()
 
-    def on_move_optimized(self):
-        self.set_buttons_enabled(False)
-        self.worker = Step2ApplyHomeOffsetWorker(
-            self.parent_app,
-            "move_zero",
-            json_path=self.result_path,
-            label="Optimized Zero",
-            arm=self.arm,
-            include_head=self.include_head
-        )
-        self.worker.log_signal.connect(self.parent_app.log_msg)
-        def on_finished(success, error_msg, res):
-            self.set_buttons_enabled(True)
-            if success:
-                self.current_apply_arm = res["arm"]
-                QMessageBox.information(self, "Preview Complete", "Moved to optimized zero candidate.")
-            else:
-                QMessageBox.critical(self, "Optimized Preview Error", error_msg)
-        self.worker.finished_signal.connect(on_finished)
-        self.worker.start()
-
-    def on_move_optimized_check(self):
-        self.set_buttons_enabled(False)
-        self.worker = Step2ApplyHomeOffsetWorker(
-            self.parent_app,
-            "move_check",
-            json_path=self.result_path,
-            label="Optimized Check Position",
-            arm=self.arm,
-            include_head=self.include_head
-        )
-        self.worker.log_signal.connect(self.parent_app.log_msg)
-        def on_finished(success, error_msg, res):
-            self.set_buttons_enabled(True)
-            if success:
-                self.current_apply_arm = res["arm"]
-                QMessageBox.information(self, "Preview Complete", "Moved to optimized check position candidate.")
-            else:
-                QMessageBox.critical(self, "Optimized Check Preview Error", error_msg)
-        self.worker.finished_signal.connect(on_finished)
-        self.worker.start()
-
-    def on_apply_current(self):
+    def on_apply(self, state):
         msg = (
-            "This will redefine the selected joints' home offset using the robot's CURRENT pose.\n\n"
+            f"This will redefine the selected joints' home offset using the robot's CURRENT pose as the new {state}.\n\n"
             "Only continue if the robot is currently at the zero pose you want to keep."
         )
-        if QMessageBox.question(self, "Apply Current Pose", msg, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+        if QMessageBox.question(self, f"Apply {state.capitalize()} Pose", msg, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         
         self.set_buttons_enabled(False)
@@ -561,21 +545,28 @@ class ApplyHomeOffsetDialog(QDialog):
             self.set_buttons_enabled(True)
             if success:
                 if res.get("success", False):
-                    QMessageBox.information(self, "Success", "Home offset applied from current pose.")
+                    QMessageBox.information(self, "Success", f"Home offset applied from current pose ({state}).")
                     self.accept()
                 else:
                     QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Please check the logs.")
             else:
-                QMessageBox.critical(self, "Apply Current Pose Error", error_msg)
+                QMessageBox.critical(self, "Apply Pose Error", error_msg)
         self.worker.finished_signal.connect(on_finished)
         self.worker.start()
 
     def set_buttons_enabled(self, enabled):
-        self.btn_move_baseline.setEnabled(enabled and self.baseline_path is not None and os.path.exists(self.baseline_path))
-        self.btn_move_baseline_check.setEnabled(enabled and self.baseline_path is not None and os.path.exists(self.baseline_path))
-        self.btn_move_opt.setEnabled(enabled)
-        self.btn_move_opt_check.setEnabled(enabled)
-        self.btn_apply_current.setEnabled(enabled)
+        self.btn_move_zero.setEnabled(enabled)
+        self.btn_move_check.setEnabled(enabled)
+        self.btn_rollback.setEnabled(enabled)
+        if self.result_path is not None and os.path.exists(self.result_path):
+            self.btn_apply_opt.setEnabled(enabled)
+            self.radio_opt.setEnabled(enabled)
+        self.radio_baseline.setEnabled(enabled)
+
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
+                                 QLabel, QStackedWidget, QGroupBox, QCheckBox)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QFont, QPixmap
 
 class CheckCalibrationStateDialog(QDialog):
     def __init__(self, parent):
@@ -2562,11 +2553,20 @@ class UnifiedCalibrationApp(QWidget):
         desc_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
         home_offset_layout.addWidget(desc_label)
         
+        btn_row = QHBoxLayout()
         self.btn_home_reset = QPushButton("Home Offset Reset")
         self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
         self.btn_home_reset.clicked.connect(self.home_offset_reset)
         self.btn_home_reset.setFixedHeight(28)
-        home_offset_layout.addWidget(self.btn_home_reset)
+        btn_row.addWidget(self.btn_home_reset)
+
+        self.btn_step2_zero_pose = QPushButton("Zero Pose")
+        self.btn_step2_zero_pose.setStyleSheet("background-color: #37474f; color: white; font-weight: bold;")
+        self.btn_step2_zero_pose.setFixedHeight(28)
+        self.btn_step2_zero_pose.clicked.connect(self.step2_zero_pose_check)
+        btn_row.addWidget(self.btn_step2_zero_pose)
+        
+        home_offset_layout.addLayout(btn_row)
         
         hint_label = QLabel("Tip: Double-click any cell in the table below to manually stage individual offsets.")
         hint_label.setWordWrap(True)
@@ -2888,6 +2888,40 @@ class UnifiedCalibrationApp(QWidget):
         camera_tab.setLayout(camera_tab_layout)
         
         # ==========================================
+        # Overview Tab
+        # ==========================================
+        overview_tab = QWidget()
+        overview_layout = QVBoxLayout()
+        overview_layout.setContentsMargins(20, 20, 20, 20)
+        
+        overview_title = QLabel("Calibration Process Overview")
+        overview_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
+        overview_title.setAlignment(Qt.AlignCenter)
+        overview_layout.addWidget(overview_title)
+        
+        self.overview_img = QLabel()
+        process_pix = QPixmap("img/process.png")
+        if not process_pix.isNull():
+            self.overview_img.setPixmap(process_pix.scaled(1000, 700, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            self.overview_img.setText("[img/process.png not found]")
+        self.overview_img.setAlignment(Qt.AlignCenter)
+        self.overview_img.setStyleSheet("border: 2px solid #555; background-color: #222; border-radius: 8px;")
+        overview_layout.addWidget(self.overview_img, stretch=1)
+        
+        self.btn_start_wizard = QPushButton("Start Wizard")
+        self.btn_start_wizard.setStyleSheet("background-color: #d84315; color: white; font-weight: bold; font-size: 18px; padding: 10px;")
+        self.btn_start_wizard.setFixedWidth(400)
+        self.btn_start_wizard.clicked.connect(self.show_wizard_ui)
+        overview_layout.addWidget(self.btn_start_wizard, alignment=Qt.AlignCenter)
+        
+        self.wizard_widget = CalibrationWizardWidget(self)
+        self.wizard_widget.setVisible(False)
+        overview_layout.addWidget(self.wizard_widget, stretch=1)
+        
+        overview_tab.setLayout(overview_layout)
+
+        # ==========================================
         # Step 1 Tab: Contains Main + Camera as sub-tabs
         # ==========================================
         step1_tab = QWidget()
@@ -2902,6 +2936,7 @@ class UnifiedCalibrationApp(QWidget):
         step1_layout.addWidget(self.step1_tabs)
         step1_tab.setLayout(step1_layout)
         
+        self.left_tabs.addTab(overview_tab, "Overview")
         self.left_tabs.addTab(step1_tab, "Step 1")
         
         # ==========================================
@@ -2938,7 +2973,7 @@ class UnifiedCalibrationApp(QWidget):
         # Path input
         path_row = QHBoxLayout()
         path_row.addWidget(QLabel("Path:"))
-        self.step2_path_input = QLineEdit("result/dataset_YYYYMMDD_HHMMSS.npz")
+        self.step2_path_input = QLineEdit("result/result_step2/dataset_YYYYMMDD_HHMMSS.npz")
         self.step2_path_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         path_row.addWidget(self.step2_path_input)
         config_layout.addLayout(path_row)
@@ -3156,6 +3191,17 @@ class UnifiedCalibrationApp(QWidget):
             self._log_msg_slot(msg)
         else:
             self.log_signal_safe.emit(msg)
+
+    def _write_step2_log(self, msg):
+        import os
+        from core.paths import CONFIG_PATHS
+        log_file = os.path.join(CONFIG_PATHS["txt_dir"], "step2_capture_log.txt")
+        try:
+            os.makedirs(CONFIG_PATHS["txt_dir"], exist_ok=True)
+            with open(log_file, "a") as f:
+                f.write(msg + "\n")
+        except Exception as e:
+            self.log_msg(f"Failed to write step2 log: {e}")
 
     def safe_cancel_control(self):
         # 동일 gRPC 커넥션에 대한 동시 gRPC 호출로 인한 C++ SDK Segfault 방지
@@ -3440,6 +3486,12 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_monitor.setText("Marker Monitor: OFF")
             self.btn_monitor.setStyleSheet("")
 
+    def show_wizard_ui(self):
+        self.overview_img.setVisible(False)
+        self.btn_start_wizard.setVisible(False)
+        self.wizard_widget.setVisible(True)
+
+
     def toggle_camera_feed_dialog(self):
         if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:
             self.feed_dialog.close()
@@ -3464,7 +3516,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def poll_camera_status(self):
         # Camera Tab이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
-        if self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1:
+        if self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1:
             return
             
         try:
@@ -3514,7 +3566,7 @@ class UnifiedCalibrationApp(QWidget):
         if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
             return
         # Only act if Step 1 is the active top-level tab
-        if self.left_tabs.currentIndex() != 0:
+        if self.left_tabs.currentIndex() != 1:
             return
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
         if index == 1 or dialog_visible:  # Camera sub-tab
@@ -3537,10 +3589,10 @@ class UnifiedCalibrationApp(QWidget):
 
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
 
-        if index == 0:  # Step 1 tab
+        if index == 1:  # Step 1 tab
             # Delegate to sub-tab handler
             self._on_step1_subtab_changed(self.step1_tabs.currentIndex())
-        elif index == 1:  # Step 2 tab
+        elif index == 2:  # Step 2 tab
             # Step 2 has no camera feed — stop video, start poll
             if self.video_timer.isActive():
                 self.video_timer.stop()
@@ -3561,7 +3613,7 @@ class UnifiedCalibrationApp(QWidget):
         if not hasattr(self, 'step2_left_col'):
             return
 
-        if top_tab_index == 1:  # Switching TO Step 2
+        if top_tab_index == 2:  # Switching TO Step 2
             # Move shared widgets into Step 2 columns
             # Left column: conn_head_box, home_offset_box at top, then box1 fills rest
             self.step2_left_col.insertWidget(0, self.conn_head_box)
@@ -3718,41 +3770,55 @@ class UnifiedCalibrationApp(QWidget):
             "Preview moves use the same convention as Apply Home Offset:",
             "the robot moves to zero pose first, then to -joint_offset.",
             "",
-            f"Optimized result: {result_path}",
+            f"Optimized result: {result_path if result_path else 'None'}",
+            f"Baseline reset: {baseline_path if baseline_path else 'None'}",
+            ""
         ]
-        if baseline_path is None:
-            lines.append("Baseline reset: not found")
-            return "\n".join(lines)
 
-        lines.append(f"Baseline reset: {baseline_path}")
-        try:
-            opt_arm, opt_head = load_offset_from_json(str(result_path))
-            base_arm, base_head = load_offset_from_json(str(baseline_path))
-            if len(opt_arm) == len(base_arm):
-                diff_arm_deg = np.rad2deg(base_arm - opt_arm)
-                lines.append("")
-                lines.append("Baseline - Optimized arm diff (deg):")
-                lines.append(np.array2string(np.round(diff_arm_deg, 4), separator=", "))
+        def get_offsets(path):
+            if path is None or not os.path.exists(path):
+                return None, None, None
+            try:
+                import json
+                with open(path, "r") as f:
+                    data = json.load(f)
+                right = np.array(data.get("right_arm_joint_offset_deg", []))
+                left = np.array(data.get("left_arm_joint_offset_deg", []))
+                head = data.get("head_joint_offset_deg", [])
+                if head is not None:
+                    head = np.array(head)
+                return right, left, head
+            except Exception:
+                return None, None, None
+
+        opt_r, opt_l, opt_h = get_offsets(result_path)
+        base_r, base_l, base_h = get_offsets(baseline_path)
+
+        def format_section(title, opt, base):
+            section = [f"--- {title} ---"]
+            if base is not None and len(base) > 0:
+                section.append(f"  Baseline  : {np.array2string(np.round(base, 4), separator=', ')}")
             else:
-                lines.append("")
-                lines.append(
-                    f"Arm diff unavailable: optimized has {len(opt_arm)} values, baseline has {len(base_arm)}."
-                )
+                section.append(f"  Baseline  : Unavailable")
+                
+            if opt is not None and len(opt) > 0:
+                section.append(f"  Optimized : {np.array2string(np.round(opt, 4), separator=', ')}")
+            else:
+                section.append(f"  Optimized : Unavailable")
+                
+            if base is not None and opt is not None and len(base) == len(opt) and len(base) > 0:
+                diff = base - opt
+                section.append(f"  Diff (B-O): {np.array2string(np.round(diff, 4), separator=', ')}")
+            else:
+                section.append(f"  Diff (B-O): Unavailable")
+            section.append("")
+            return section
 
-            if opt_head is not None and base_head is not None:
-                if len(opt_head) == len(base_head):
-                    diff_head_deg = np.rad2deg(base_head - opt_head)
-                    lines.append("")
-                    lines.append("Baseline - Optimized head diff (deg):")
-                    lines.append(np.array2string(np.round(diff_head_deg, 4), separator=", "))
-                else:
-                    lines.append("")
-                    lines.append(
-                        f"Head diff unavailable: optimized has {len(opt_head)} values, baseline has {len(base_head)}."
-                    )
-        except Exception as e:
-            lines.append("")
-            lines.append(f"Failed to compute diff: {e}")
+        lines.extend(format_section("RIGHT ARM (deg)", opt_r, base_r))
+        lines.extend(format_section("LEFT ARM (deg)", opt_l, base_l))
+        lines.extend(format_section("HEAD (deg)", opt_h, base_h))
+
+        return "\n".join(lines)
         return "\n".join(lines)
 
     def infer_home_offset_apply_arm(self, requested_arm, json_path):
@@ -4037,6 +4103,7 @@ class UnifiedCalibrationApp(QWidget):
             self.auto_save_current_dataset()
             if success:
                 self.log_msg("Auto motions sequence completed.")
+                self.step2_calculate()
             else:
                 self.log_msg(f"Auto motion error: {error_msg}")
         self.auto_motion_thread.finished_signal.connect(on_finished)
@@ -4163,14 +4230,18 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("Marker not detected.")
             return None, None, None
 
-        self.log_msg(f"Captured sample")
-        self.log_msg(f"q_arm = {np.round(q_arm, 3)}")
+        status_lines = []
+        status_lines.append(f"q_arm = {np.round(q_arm, 3)}")
         if q_head is not None:
-            self.log_msg(f"q_head = {np.round(q_head, 3)}")
+            status_lines.append(f"q_head = {np.round(q_head, 3)}")
         else:
-            self.log_msg("q_head = None")
-        self.log_msg(f"marker_right =\n{np.round(T_meas[0], 3)}")
-        self.log_msg(f"marker_left =\n{np.round(T_meas[1], 3)}")
+            status_lines.append("q_head = None")
+        status_lines.append(f"marker_right =\n{np.round(T_meas[0], 3)}")
+        status_lines.append(f"marker_left =\n{np.round(T_meas[1], 3)}")
+        
+        status_str = "\n".join(status_lines)
+        self._write_step2_log("--- Captured Sample ---\n" + status_str + "\n")
+        
         return q_arm, q_head, T_meas
 
     def run_optimizer(
@@ -4524,8 +4595,10 @@ class UnifiedCalibrationApp(QWidget):
             def on_finished(success, error_msg):
                 if success:
                     self.log_msg("Optimization finished successfully.")
+                    QMessageBox.information(self, "Step 2 Calculation", "Optimization finished successfully!\nCheck the logs and Result Output for details.")
                 else:
                     self.log_msg(f"[Error] Optimization failed: {error_msg}")
+                    QMessageBox.warning(self, "Step 2 Calculation Failed", f"Optimization failed:\n{error_msg}")
             self.calc_worker.finished_signal.connect(on_finished)
             self.calc_worker.start()
             
@@ -4912,7 +4985,7 @@ class UnifiedCalibrationApp(QWidget):
         
         # Restart poll_timer if appropriate
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        camera_subtab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        camera_subtab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
         if not camera_subtab_active and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
@@ -4924,7 +4997,7 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setText(f"Ready pose movement failed!\n\nReason:\n{error_msg}")
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
         else:
             self.ready_done_joint = True
             self.ready_done_marker = True
@@ -4934,7 +5007,7 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setText("Robot arms have moved to the initial ready poses successfully!")
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
 
     def get_latest_result_path(self):
         result_dir = Path(CONFIG_PATHS["result_dir"])
@@ -4946,7 +5019,7 @@ class UnifiedCalibrationApp(QWidget):
             reverse=True,
         )
         if not result_files:
-            raise RuntimeError(f"No calibration result JSON found in {result_dir}")
+            return None
         return result_files[0]
 
     def get_latest_home_reset_path(self, required=True):
@@ -4996,11 +5069,42 @@ class UnifiedCalibrationApp(QWidget):
             "3. Click OK to start the process.\n\n"
             "During this, the control manager will disable, 48v power will cycle, and the robot connection will automatically restart."
         )
-        reply = QMessageBox.warning(
-            self, "Confirm Home Offset Reset", msg,
-            QMessageBox.Ok | QMessageBox.Cancel, QMessageBox.Cancel
-        )
-        if reply != QMessageBox.Ok:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Confirm Home Offset Reset")
+        dialog.setStyleSheet(DARK_STYLESHEET)
+        layout = QVBoxLayout(dialog)
+
+        # Image
+        img_label = QLabel()
+        pixmap = QPixmap("img/home_offset_position.png")
+        if not pixmap.isNull():
+            img_label.setPixmap(pixmap.scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_label.setText("[img/home_offset_position.png not found]")
+        img_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(img_label)
+
+        # Text
+        msg_label = QLabel(msg)
+        msg_label.setStyleSheet("font-size: 14px; color: white;")
+        layout.addWidget(msg_label)
+
+        # Buttons
+        btn_layout = QHBoxLayout()
+        btn_ok = QPushButton("OK")
+        btn_ok.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; padding: 5px;")
+        btn_cancel = QPushButton("Cancel")
+        btn_cancel.setStyleSheet("background-color: #555; color: white; padding: 5px;")
+        
+        btn_ok.clicked.connect(dialog.accept)
+        btn_cancel.clicked.connect(dialog.reject)
+        
+        btn_layout.addStretch()
+        btn_layout.addWidget(btn_ok)
+        btn_layout.addWidget(btn_cancel)
+        layout.addLayout(btn_layout)
+
+        if dialog.exec() != QDialog.Accepted:
             return
 
         self.set_controls_enabled(False)
@@ -5025,7 +5129,10 @@ class UnifiedCalibrationApp(QWidget):
         if result.get("success", False):
             QMessageBox.information(self, "Success", "Home Offset Reset completed successfully!")
             self.log_msg("Re-connecting and initializing robot...")
-            self.connect_robot()
+            if self.robot:
+                self.connect_robot() # Disconnects first
+                QApplication.processEvents()
+            self.connect_robot() # Connects again
             self.log_msg("Home Offset Reset complete!")
         else:
             QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {result.get('error', '')}")
@@ -5135,7 +5242,7 @@ class UnifiedCalibrationApp(QWidget):
         
         # Restart poll_timer if appropriate (not tab 2 and feed dialog closed)
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        camera_subtab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        camera_subtab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
         if not camera_subtab_active and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
@@ -5147,7 +5254,7 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setText(f"Full Auto Sequential Calibration failed!\n\nReason:\n{error_msg}")
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
             
             # Automatically show plot if generated
             if self.generated_plots:
@@ -5160,7 +5267,7 @@ class UnifiedCalibrationApp(QWidget):
                             "Please review the calibrated offsets in the table and click 'APPLY BRACKETS' / 'APPLY OFFSET' to save them.")
             msg_box.setStandardButtons(QMessageBox.Ok)
             msg_box.setDefaultButton(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
             
             # Automatically show plot if generated
             if self.generated_plots:
@@ -5252,7 +5359,7 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setWindowTitle("Prerequisite Check")
             msg_box.setText("Please move the robot to the Ready pose first by clicking 'MOVE TO READY'!")
             msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
             return
 
         if not self.robot:
@@ -5463,7 +5570,7 @@ class UnifiedCalibrationApp(QWidget):
                 "Joint 6 has not been calibrated yet. Please go to the Joint Calibration tab, select Joint 6, and perform calibration."
             )
             msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
             return
 
         # 2. Prerequisite Check: Move to Ready Pose first
@@ -5473,7 +5580,7 @@ class UnifiedCalibrationApp(QWidget):
             msg_box.setWindowTitle("Prerequisite Check")
             msg_box.setText("Please move the robot to the Ready pose first by clicking 'MOVE TO READY'!")
             msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec_()
+            msg_box.exec()
             return
 
         if not self.robot:
@@ -5792,8 +5899,9 @@ class UnifiedCalibrationApp(QWidget):
     def update_video_frame(self):
         # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자가 열려있을 때 업데이트
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        camera_tab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
-        if not camera_tab_active and not dialog_visible:
+        camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        wizard_slide1_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
+        if not camera_tab_active and not dialog_visible and not wizard_slide1_active:
             return
 
         if not self.ui_only and self.marker_st is not None:
@@ -5807,6 +5915,11 @@ class UnifiedCalibrationApp(QWidget):
                 self.update_marker_indicator(detected)
             except Exception:
                 pass
+                
+            if img is None:
+                img = np.zeros((720, 1280, 3), dtype=np.uint8)
+                import cv2
+                cv2.putText(img, "No Camera Detected", (350, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (0, 0, 255), 3)
         else:
             # Mock image
             img = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -5818,7 +5931,8 @@ class UnifiedCalibrationApp(QWidget):
         self.current_frame = img.copy()
         display_img = img.copy()
         
-        if hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked() and camera_tab_active:
+        guide_checked = (hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked()) or (hasattr(self, 'wizard_widget') and self.wizard_widget.chk_int_guide.isChecked())
+        if guide_checked and (camera_tab_active or wizard_slide1_active):
             num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
             if self.current_guide_idx < num_steps:
                 guideline = IntrinsicsCalibrator.CALIB_GUIDELINES[self.current_guide_idx]
@@ -5850,14 +5964,17 @@ class UnifiedCalibrationApp(QWidget):
         
         if camera_tab_active:
             self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
+        if wizard_slide1_active and hasattr(self.wizard_widget, 'wizard_video_label'):
+            self.wizard_widget.wizard_video_label.setPixmap(pixmap.scaled(self.wizard_widget.wizard_video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
         if dialog_visible:
             w_lbl = max(20, self.feed_dialog.lbl_feed.width())
             h_lbl = max(20, self.feed_dialog.lbl_feed.height())
             self.feed_dialog.lbl_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
-        camera_tab_active = (self.left_tabs.currentIndex() == 0 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
-        if event.key() == Qt.Key_C and camera_tab_active:
+        camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        wizard_slide1_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
+        if event.key() == Qt.Key_C and (camera_tab_active or wizard_slide1_active):
             self.capture_intrinsics_frame()
         super().keyPressEvent(event)
 
@@ -5969,11 +6086,13 @@ class UnifiedCalibrationApp(QWidget):
             dialog.setWindowTitle("Camera Intrinsics Calibration Verification (Original vs Undistorted)")
             dialog.setStyleSheet(DARK_STYLESHEET)
             
-            layout = QVBoxLayout(dialog)
-            
+            main_layout = QVBoxLayout(dialog)
+
+            content_layout = QHBoxLayout()
+
+            # Left side: Image
             pixmap = QPixmap(save_path)
-            scaled_pix = pixmap.scaled(1200, 900, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            
+            scaled_pix = pixmap.scaled(1000, 750, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             img_label = QLabel()
             img_label.setPixmap(scaled_pix)
             img_label.setAlignment(Qt.AlignCenter)

@@ -44,6 +44,9 @@ class IntrinsicsCalibrator:
         self.charuco_board = None
         self.b_set_board = False
         
+        self.use_rational_model = False
+        self.camera_matrix_guess = None
+
         # Results and verification data
         self.rvecs = None
         self.tvecs = None
@@ -75,6 +78,31 @@ class IntrinsicsCalibrator:
         self.b_set_board = True
         return True
 
+    def set_calibration_flags(self, use_rational_model=False):
+        self.use_rational_model = use_rational_model
+
+    def set_intrinsic_guess(self, fx, fy, cx, cy):
+        self.camera_matrix_guess = np.array([
+            [fx,  0, cx],
+            [ 0, fy, cy],
+            [ 0,  0,  1]
+        ], dtype=np.float64)
+
+    def _get_dynamic_win_size(self, corners, img_size):
+        if corners is None or len(corners) < 2:
+            ws = max(5, int(min(img_size) * 0.01))
+            return (ws, ws)
+        pts = corners.reshape(-1, 2)
+        diffs = np.linalg.norm(pts[1:] - pts[:-1], axis=1)
+        diffs = diffs[diffs > 1.0] # Ignore duplicate-like points
+        if len(diffs) == 0:
+            ws = max(5, int(min(img_size) * 0.01))
+            return (ws, ws)
+        avg_dist = np.mean(diffs)
+        # Typically window size is about 1/4 to 1/2 of the distance between corners
+        win_size = int(max(5, min(31, avg_dist / 4)))
+        return (win_size, win_size)
+
     def run_calibration(self, image_dir, output_yaml):
         if not self.b_set_board:
             print("Board not set!")
@@ -102,7 +130,8 @@ class IntrinsicsCalibrator:
             if self.pattern == self.BoardPattern.CHESSBOARD:
                 ret, corners = cv2.findChessboardCorners(gray, self.board_size, None)
                 if ret:
-                    cv2.cornerSubPix(gray, corners, (11, 11), (-1, -1), 
+                    win_size = self._get_dynamic_win_size(corners, img_size)
+                    cv2.cornerSubPix(gray, corners, win_size, (-1, -1), 
                                     (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
                     objp = np.zeros((self.board_size[0] * self.board_size[1], 3), np.float32)
                     objp[:, :2] = np.mgrid[0:self.board_size[0], 0:self.board_size[1]].T.reshape(-1, 2)
@@ -119,7 +148,8 @@ class IntrinsicsCalibrator:
                 charuco_corners, charuco_ids, _, _ = detector.detectBoard(gray)
 
                 if charuco_ids is not None and len(charuco_ids) > 4:
-                    cv2.cornerSubPix(gray, charuco_corners, (11, 11), (-1, -1),
+                    win_size = self._get_dynamic_win_size(charuco_corners, img_size)
+                    cv2.cornerSubPix(gray, charuco_corners, win_size, (-1, -1),
                                     (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 30, 0.001))
                     all_img_points.append(charuco_corners)
                     all_ids.append(charuco_ids)
@@ -195,8 +225,27 @@ class IntrinsicsCalibrator:
             print(f"Not enough valid frames for calibration (detected {len(all_obj_points)} valid frames, minimum 5 required).")
             return False
 
-        # Set up calibration flags. Fix tangential distortion to 0.
-        flags = cv2.CALIB_ZERO_TANGENT_DIST
+        # Set up calibration flags
+        flags = 0
+        if self.use_rational_model:
+            flags |= cv2.CALIB_RATIONAL_MODEL
+
+        # Initialize intrinsic guess
+        initial_camera_matrix = np.eye(3, dtype=np.float64)
+        if self.camera_matrix_guess is not None:
+            flags |= cv2.CALIB_USE_INTRINSIC_GUESS
+            initial_camera_matrix = self.camera_matrix_guess.copy()
+        else:
+            # Fallback guess based on image size
+            initial_camera_matrix[0, 2] = img_size[0] / 2.0
+            initial_camera_matrix[1, 2] = img_size[1] / 2.0
+            focal_guess = max(img_size[0], img_size[1]) * 0.8
+            initial_camera_matrix[0, 0] = focal_guess
+            initial_camera_matrix[1, 1] = focal_guess
+            flags |= cv2.CALIB_USE_INTRINSIC_GUESS
+
+        dist_len = 8 if self.use_rational_model else 5
+        initial_dist_coeffs = np.zeros((dist_len, 1), dtype=np.float64)
 
         # Iteratively filter outliers (worst-view-first)
         current_obj_points = list(all_obj_points)
@@ -210,17 +259,15 @@ class IntrinsicsCalibrator:
                 break
 
             try:
-                cameraMatrix = np.eye(3, dtype=np.float64)
-                distCoeffs = np.zeros((5, 1), dtype=np.float64)
                 ret, mtx, dist, rvecs, tvecs, stdIntrinsics, stdExtrinsics, perViewErrors = cv2.calibrateCameraExtended(
-                    current_obj_points, current_img_points, img_size, cameraMatrix, distCoeffs, flags=flags
+                    current_obj_points, current_img_points, img_size, initial_camera_matrix.copy(), initial_dist_coeffs.copy(), flags=flags
                 )
                 per_view_err = perViewErrors.flatten()
             except Exception as e:
                 # Fallback to standard calibrateCamera
                 try:
                     ret, mtx, dist, rvecs, tvecs = cv2.calibrateCamera(
-                        current_obj_points, current_img_points, img_size, None, None, flags=flags
+                        current_obj_points, current_img_points, img_size, initial_camera_matrix.copy(), initial_dist_coeffs.copy(), flags=flags
                     )
                     # Manually compute per-view errors since standard calibrateCamera doesn't return them
                     per_view_err = []
@@ -278,10 +325,10 @@ class IntrinsicsCalibrator:
             break
 
         # Run cross-validation on final inlier points
-        self.test_rmse = self.compute_cross_validation_rmse(self.all_obj_points, self.all_img_points, img_size)
+        self.test_rmse = self.compute_cross_validation_rmse(self.all_obj_points, self.all_img_points, img_size, flags, initial_camera_matrix, initial_dist_coeffs)
         return True
 
-    def compute_cross_validation_rmse(self, all_obj_points, all_img_points, img_size):
+    def compute_cross_validation_rmse(self, all_obj_points, all_img_points, img_size, flags=0, mtx_init=None, dist_init=None):
         if len(all_obj_points) < 6:
             return None
             
@@ -296,11 +343,19 @@ class IntrinsicsCalibrator:
         test_img = [all_img_points[i] for i in test_indices]
         
         # Calibrate on train set
-        mtx_init = np.eye(3, dtype=np.float64)
-        dist_init = np.zeros((5, 1), dtype=np.float64)
+        if mtx_init is None:
+            mtx_init = np.eye(3, dtype=np.float64)
+        else:
+            mtx_init = mtx_init.copy()
+            
+        if dist_init is None:
+            dist_init = np.zeros((5, 1), dtype=np.float64)
+        else:
+            dist_init = dist_init.copy()
+            
         try:
             ret_t, mtx_t, dist_t, rvecs_t, tvecs_t = cv2.calibrateCamera(
-                train_obj, train_img, img_size, mtx_init, dist_init, flags=cv2.CALIB_ZERO_TANGENT_DIST
+                train_obj, train_img, img_size, mtx_init, dist_init, flags=flags
             )
             
             # Evaluate on test set
@@ -342,7 +397,7 @@ class IntrinsicsCalibrator:
         new_mtx, _ = cv2.getOptimalNewCameraMatrix(self.cameraMatrix, self.distCoeffs, (w, h), 1, (w, h))
         undistorted = cv2.undistort(test_img, self.cameraMatrix, self.distCoeffs, None, new_mtx)
         
-        combined_res = np.hstack((test_img, undistorted))
+        combined_res = np.vstack((test_img, undistorted))
         h_res, w_res = combined_res.shape[:2]
 
         grid_size = 60
@@ -352,8 +407,8 @@ class IntrinsicsCalibrator:
             cv2.line(combined_res, (x, 0), (x, h_res), (0, 255, 0), 1)
 
         cv2.putText(combined_res, "Original", (30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
-        cv2.putText(combined_res, "Undistorted", (w + 30, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
-        cv2.putText(combined_res, f"RMS Error: {self.rms_error:.4f}", (w + 30, 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
+        cv2.putText(combined_res, "Undistorted", (30, h + 40), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+        cv2.putText(combined_res, f"RMS Error: {self.rms_error:.4f}", (30, h + 80), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 0), 2)
 
         os.makedirs(os.path.dirname(save_path), exist_ok=True)
         cv2.imwrite(save_path, combined_res)

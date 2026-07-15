@@ -174,6 +174,22 @@ class RealSenseCamera:
             for i in range(10):
                 self.pipeline.wait_for_frames()
             
+            # [NEW] 센서 수동 노출(Manual Exposure) 설정 - 모션 블러 방지 및 Gain 활용
+            device = self.profile.get_device()
+            for sensor in device.query_sensors():
+                if sensor.supports(rs.option.enable_auto_exposure):
+                    sensor.set_option(rs.option.enable_auto_exposure, 0)
+                if sensor.supports(rs.option.exposure):
+                    try:
+                        sensor.set_option(rs.option.exposure, 3000)
+                    except Exception as e:
+                        print(f"Warning: Failed to set exposure on sensor {sensor.get_info(rs.camera_info.name)}: {e}")
+                if sensor.supports(rs.option.gain):
+                    try:
+                        sensor.set_option(rs.option.gain, 60)
+                    except Exception as e:
+                        print(f"Warning: Failed to set gain on sensor {sensor.get_info(rs.camera_info.name)}: {e}")
+
             # depth 카메라 내부 파라미터 얻기 : baseline, fx, fy, principal_point 를 위해 사용
             color_stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
 
@@ -401,10 +417,10 @@ class Marker_Detection:
         self.depth_resolution = 1
         self.rpy = [0, 0, 0]
         
-        self.lpf_alpha = 0.3
+        self.lpf_alpha = 0.5
         self.prev_pts_dict = {}
 
-        self.focal_scale = 0.99 # Focal length scaling factor for fine-tuning
+        self.focal_scale = 1.0# 0.99 # Focal length scaling factor for fine-tuning
 
         # 인식할 마커 타입과 ID
         self.marker_type = None
@@ -547,7 +563,43 @@ class Marker_Detection:
                     continue
                 rot_matrix, _ = cv2.Rodrigues(rvec)
                 center_pos = tvec.flatten().tolist()
-                rot_matrix_smoothed = rot_matrix
+                
+                # --- EMA & Slerp Smoothing ---
+                if use_filter or lpf:
+                    alpha = self.lpf_alpha
+                    if marker_id in self.prev_pts_dict:
+                        prev_pos, prev_rot = self.prev_pts_dict[marker_id]
+                        
+                        # Adaptive EMA: Calculate position delta
+                        dist = np.linalg.norm(np.array(center_pos) - np.array(prev_pos))
+                        # If movement is larger than 2mm per frame (fast motor movement), disable smoothing to avoid lag
+                        if dist > 2.0:
+                            alpha = 1.0
+                            
+                        # 1. Position EMA
+                        center_pos = [
+                            alpha * center_pos[0] + (1 - alpha) * prev_pos[0],
+                            alpha * center_pos[1] + (1 - alpha) * prev_pos[1],
+                            alpha * center_pos[2] + (1 - alpha) * prev_pos[2]
+                        ]
+                        # 2. Rotation Slerp
+                        try:
+                            from scipy.spatial.transform import Rotation as R
+                            r_curr = R.from_matrix(rot_matrix)
+                            r_prev = R.from_matrix(prev_rot)
+                            
+                            delta_rot = r_curr * r_prev.inv()
+                            r_smoothed = R.from_rotvec(delta_rot.as_rotvec() * alpha) * r_prev
+                            rot_matrix_smoothed = r_smoothed.as_matrix()
+                        except ImportError:
+                            rot_matrix_smoothed = rot_matrix
+                    else:
+                        rot_matrix_smoothed = rot_matrix
+                        
+                    # Update previous state
+                    self.prev_pts_dict[marker_id] = (center_pos, rot_matrix_smoothed)
+                else:
+                    rot_matrix_smoothed = rot_matrix
                 
                 transform = [
                     rot_matrix_smoothed[0][0], rot_matrix_smoothed[0][1], rot_matrix_smoothed[0][2], center_pos[0],
