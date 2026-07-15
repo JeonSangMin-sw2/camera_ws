@@ -627,7 +627,7 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        ver_key = "1.3" if self.is_v13() else "1.2"
+        ver_key = "v1.3" if self.is_v13() else "v1.2"
         ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
         q_cand = list(initial_joint_pos)
         q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
@@ -758,7 +758,7 @@ class JointCalibrator(BaseCalibrator):
 
         # Compute dynamic nominal axes using forward kinematics (FK) at the ready pose
         # Determine nominal ready pose for the arm (zero offsets)
-        ver_key = "1.3" if self.is_v13() else "1.2"
+        ver_key = "v1.3" if self.is_v13() else "v1.2"
         ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
         
         q_ready_full = np.array(state.position)
@@ -840,7 +840,7 @@ class JointCalibrator(BaseCalibrator):
                 T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
                 T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
                 
-                ver_key = "1.3" if self.is_v13() else "1.2"
+                ver_key = "v1.3" if self.is_v13() else "v1.2"
                 key = f"Tf_to_marker_{arm_side}"
                 if self.camera_config and key in self.camera_config:
                     bracket_vec = self.camera_config[key]
