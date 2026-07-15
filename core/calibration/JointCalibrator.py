@@ -999,8 +999,11 @@ class JointCalibrator(BaseCalibrator):
             optimal_offset_deg = 0.0
         else:
             if mode not in ("wrist_roll_v13", "wrist_yaw2"):
-                # damping = 0.95
-                optimal_offset_deg = -np.degrees(diff_angle)
+                # We already computed optimal_offset_deg correctly in the else block above for elbow/wrist_pitch.
+                # However, diff_angle may have been computed by phase fitting if use_angle_based_fitting == False.
+                # Let's ensure we only compute from diff_angle if we used the phase fitting method!
+                if not getattr(self, 'use_angle_based_fitting', True):
+                    optimal_offset_deg = -np.degrees(diff_angle)
 
         if log_callback:
             log_callback("\n" + "="*50)

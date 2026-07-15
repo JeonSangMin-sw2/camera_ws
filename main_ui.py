@@ -2514,9 +2514,15 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
         self.btn_full_auto_start.clicked.connect(self.start_full_auto)
         
+        self.btn_full_auto_apply = QPushButton("APPLY FULL AUTO RESULTS")
+        self.btn_full_auto_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold;")
+        self.btn_full_auto_apply.clicked.connect(self.apply_full_auto_results)
+        self.btn_full_auto_apply.setEnabled(False) # Enabled after full auto finishes
+        
         full_auto_sublayout.addWidget(QLabel("Full Auto Sequential Calibration:"))
         full_auto_sublayout.addWidget(self.btn_full_auto_ready)
         full_auto_sublayout.addWidget(self.btn_full_auto_start)
+        full_auto_sublayout.addWidget(self.btn_full_auto_apply)
         full_auto_sublayout.addStretch()
         full_auto_subtab.setLayout(full_auto_sublayout)
         
@@ -5169,6 +5175,16 @@ class UnifiedCalibrationApp(QWidget):
                             os.remove(os.path.join(txt_dir, f_name))
                         except Exception:
                             pass
+    def apply_full_auto_results(self):
+        reply = QMessageBox.question(self, 'Apply Full Auto Results', 
+                                     "Do you want to apply all calibrated Joint Offsets and Marker Brackets to setting.yaml?",
+                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+        if reply == QMessageBox.Yes:
+            self.apply_joint_offset()
+            self.apply_bracket_design_values(silent=True)
+            self.log_msg("[APPLY] Full auto results (Joints & Brackets) applied successfully.")
+            QMessageBox.information(self, "Apply Complete", "All full auto calibration results have been applied successfully.")
+            
 
     def start_full_auto(self):
         if not self.ui_only and not self.robot:
@@ -5239,6 +5255,8 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(True)
         if hasattr(self, 'btn_full_auto_start'):
             self.btn_full_auto_start.setEnabled(True)
+        if hasattr(self, 'btn_full_auto_apply'):
+            self.btn_full_auto_apply.setEnabled(True)
         
         was_stopped = False
         if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event is not None:
