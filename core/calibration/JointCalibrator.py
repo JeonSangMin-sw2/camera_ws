@@ -950,19 +950,20 @@ class JointCalibrator(BaseCalibrator):
                 optimal_offset_deg = 0.0
                 diff_angle = 0.0
         else:
-            # Use absolute 3D angle between rotation axes to avoid out-of-plane 2D projection distortion
-            # This is mathematically exact for orthogonal sequential joints like elbow/wrist_pitch.
-            nom_dot = np.clip(np.dot(a_A_cam, a_B_cam_nom), -1.0, 1.0)
-            nom_cross = np.cross(a_A_cam, a_B_cam_nom)
-            nom_sign = np.sign(np.dot(nom_cross, a_cand_cam))
-            if nom_sign == 0: nom_sign = 1.0
-            nominal_angle = nom_sign * np.arccos(nom_dot)
+            # Project axes onto the candidate joint's rotation plane to absorb physical DH twist errors
+            # This ensures smooth zero-crossing even if the sweep axes are not perfectly parallel.
+            a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
+            a_B_proj = a_B_cam_nom - np.dot(a_B_cam_nom, a_cand_cam) * a_cand_cam
+            if np.linalg.norm(a_A_proj) > 1e-6: a_A_proj /= np.linalg.norm(a_A_proj)
+            if np.linalg.norm(a_B_proj) > 1e-6: a_B_proj /= np.linalg.norm(a_B_proj)
             
-            act_dot = np.clip(np.dot(n_A, n_B), -1.0, 1.0)
-            act_cross = np.cross(n_A, n_B)
-            act_sign = np.sign(np.dot(act_cross, a_cand_cam))
-            if act_sign == 0: act_sign = 1.0
-            actual_angle = act_sign * np.arccos(act_dot)
+            n_A_proj = n_A - np.dot(n_A, a_cand_cam) * a_cand_cam
+            n_B_proj = n_B - np.dot(n_B, a_cand_cam) * a_cand_cam
+            if np.linalg.norm(n_A_proj) > 1e-6: n_A_proj /= np.linalg.norm(n_A_proj)
+            if np.linalg.norm(n_B_proj) > 1e-6: n_B_proj /= np.linalg.norm(n_B_proj)
+            
+            nominal_angle = np.arctan2(np.dot(np.cross(a_A_proj, a_B_proj), a_cand_cam), np.dot(a_A_proj, a_B_proj))
+            actual_angle = np.arctan2(np.dot(np.cross(n_A_proj, n_B_proj), a_cand_cam), np.dot(n_A_proj, n_B_proj))
             
             diff_angle = actual_angle - nominal_angle
             diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
