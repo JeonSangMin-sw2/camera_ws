@@ -627,14 +627,10 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        offset_key = jcfg.get("offset_key", mode)
-        if arm_side in self.joint_offsets:
-            active_offset = self.joint_offsets[arm_side].get(offset_key, 0.0)
-        else:
-            active_offset = self.joint_offsets.get(offset_key, 0.0)
-        nominal_joint_pos = initial_joint_pos[cand_joint] - np.radians(active_offset)
+        ver_key = "1.3" if self.is_v13() else "1.2"
+        ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
         q_cand = list(initial_joint_pos)
-        q_cand[cand_joint] = nominal_joint_pos + np.radians(current_offset_deg)
+        q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
 
         # Determine sweep ranges from JOINT_CONFIGS
         range_A = jcfg.get("sweep_range_A", 20.0)
@@ -761,19 +757,13 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Compute dynamic nominal axes using forward kinematics (FK) at the ready pose
-        # Construct full q array at ready pose
+        # Determine nominal ready pose for the arm (zero offsets)
+        ver_key = "1.3" if self.is_v13() else "1.2"
+        ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
+        
         q_ready_full = np.array(state.position)
-        for idx, val in zip(arm_idx, initial_joint_pos):
+        for idx, val in zip(arm_idx, ready_pose_nom):
             q_ready_full[idx] = val
-
-        # Subtract joint offsets to get nominal angles
-        if hasattr(self, 'joint_offsets') and self.joint_offsets:
-            offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-            is_v13 = self.is_v13()
-            j6_key = "wrist_roll" if is_v13 else "wrist_yaw2"
-            q_ready_full[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
-            q_ready_full[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
-            q_ready_full[arm_idx[6]] -= np.radians(offsets.get(j6_key, 0.0))
 
         def get_link_name(j_idx):
             return f"link_{arm_side}_arm_{j_idx}"
