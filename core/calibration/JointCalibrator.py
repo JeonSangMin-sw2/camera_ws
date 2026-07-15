@@ -168,14 +168,14 @@ class JointCalibrator(BaseCalibrator):
                     step_correction_delta = step_correction
 
                 # Convergence check:
-                # step correction delta < 0.05° to handle bracket RPY noise
-                converged_criteria = (abs(step_correction_delta) < 0.05)
+                # step correction delta < 0.1° to handle bracket RPY noise
+                converged_criteria = (abs(step_correction_delta) < 0.1)
                 
                 if converged_criteria:
                     converged = True
                     if log_callback:
                         log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.05° (reached resolution limit)")
+                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.1° (reached resolution limit)")
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
                 
