@@ -3490,6 +3490,7 @@ class UnifiedCalibrationApp(QWidget):
         self.overview_img.setVisible(False)
         self.btn_start_wizard.setVisible(False)
         self.wizard_widget.setVisible(True)
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
 
 
     def toggle_camera_feed_dialog(self):
@@ -3601,10 +3602,17 @@ class UnifiedCalibrationApp(QWidget):
             elif not self.ui_only and self.marker_st is not None:
                 self.poll_timer.start(200)
         else:
-            if self.video_timer.isActive():
-                self.video_timer.stop()
-            if not self.ui_only and self.marker_st is not None:
-                self.poll_timer.start(200)
+            # Check if wizard is running and on slide 1, or dialog visible
+            wizard_slide1_active = (hasattr(self, "wizard_widget") and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
+            if wizard_slide1_active or dialog_visible:
+                if self.poll_timer.isActive():
+                    self.poll_timer.stop()
+                self.video_timer.start(50)
+            else:
+                if self.video_timer.isActive():
+                    self.video_timer.stop()
+                if not self.ui_only and self.marker_st is not None:
+                    self.poll_timer.start(200)
 
     def _reparent_shared_widgets(self, top_tab_index):
         """Move shared GroupBoxes between Step 1 Main and Step 2 layouts."""
@@ -5918,7 +5926,6 @@ class UnifiedCalibrationApp(QWidget):
                 
             if img is None:
                 img = np.zeros((720, 1280, 3), dtype=np.uint8)
-                import cv2
                 cv2.putText(img, "No Camera Detected", (350, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (0, 0, 255), 3)
         else:
             # Mock image
@@ -6088,8 +6095,6 @@ class UnifiedCalibrationApp(QWidget):
             
             main_layout = QVBoxLayout(dialog)
 
-            content_layout = QHBoxLayout()
-
             # Left side: Image
             pixmap = QPixmap(save_path)
             scaled_pix = pixmap.scaled(1000, 750, Qt.KeepAspectRatio, Qt.SmoothTransformation)
@@ -6097,13 +6102,13 @@ class UnifiedCalibrationApp(QWidget):
             img_label.setPixmap(scaled_pix)
             img_label.setAlignment(Qt.AlignCenter)
             img_label.setStyleSheet("border: 2px solid #2d2d2d; border-radius: 6px;")
-            layout.addWidget(img_label)
+            main_layout.addWidget(img_label)
             
             btn_close = QPushButton("CLOSE")
             btn_close.setMinimumHeight(40)
             btn_close.setStyleSheet("background-color: #37474f; color: white; font-weight: bold; font-size: 13px;")
             btn_close.clicked.connect(dialog.accept)
-            layout.addWidget(btn_close)
+            main_layout.addWidget(btn_close)
             
             dialog.exec()
             self.log_msg(f"[INTRINSICS] Verification dialog shown. Image saved to: {save_path}")

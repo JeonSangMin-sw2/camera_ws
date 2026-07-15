@@ -376,6 +376,8 @@ class CalibrationWizardWidget(QWidget):
             self.stacked_widget.setCurrentIndex(0) # reset
             
     def update_navigation(self, idx):
+        if hasattr(self, "parent_app") and hasattr(self.parent_app, "on_left_tab_changed"):
+            self.parent_app.on_left_tab_changed(self.parent_app.left_tabs.currentIndex())
         self.btn_prev.setVisible(True)
         if idx == 0:
             self.btn_prev.setText("Back to Overview")
