@@ -1,3 +1,8 @@
+Full Auto Sequential Calibration failed!
+
+Reason:
+"[ERROR] Failed to get ready pose for version='1.2', type='joint', mode='wrist_yaw2', arm='right_arm'. Please check your ready_poses.yaml file. Details: '1.2'"
+
 [INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...
 Starting FULL AUTO sequential calibration...
 
