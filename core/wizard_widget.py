@@ -28,7 +28,7 @@ class CalibrationWizardWidget(QWidget):
         self.btn_next.clicked.connect(self.go_next)
         
         self.lbl_skip_hint = QLabel("If you have already completed this step, please click the skip button.")
-        self.lbl_skip_hint.setStyleSheet("color: red; font-weight: bold; font-size: 13px;")
+        self.lbl_skip_hint.setStyleSheet("color: red; font-weight: bold; font-size: 18px;")
         
         self.nav_layout.addWidget(self.btn_prev)
         self.nav_layout.addStretch()
@@ -191,10 +191,10 @@ class CalibrationWizardWidget(QWidget):
         conn_layout.addLayout(ip_row)
         
         connect_row = QHBoxLayout()
-        btn_connect = QPushButton("CONNECT")
-        btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 6px; font-size: 14px;")
-        btn_connect.clicked.connect(self.step2_connect)
-        connect_row.addWidget(btn_connect)
+        self.btn_wizard_connect = QPushButton("CONNECT")
+        self.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 6px; font-size: 14px;")
+        self.btn_wizard_connect.clicked.connect(self.step2_connect)
+        connect_row.addWidget(self.btn_wizard_connect)
         
         self.wizard_chk_head = QCheckBox("Head")
         self.wizard_chk_head.setChecked(True)
@@ -434,14 +434,27 @@ class CalibrationWizardWidget(QWidget):
 
     # Step 2: Robot Connection
     def step2_connect(self):
+        # Update connection button to loading state
+        self.btn_wizard_connect.setText("CONNECTING...")
+        self.btn_wizard_connect.setStyleSheet("background-color: #ffb74d; color: #000000; font-weight: bold; padding: 6px; font-size: 14px;")
+        self.btn_wizard_connect.setEnabled(False)
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
         # Sync to main UI
         self.parent_app.ip_input.setText(self.wizard_ip_input.text())
         self.parent_app.chk_servo_head.setChecked(self.wizard_chk_head.isChecked())
         
         self.parent_app.connect_robot()
+        
+        self.btn_wizard_connect.setEnabled(True)
         if self.parent_app.robot is not None:
+            self.btn_wizard_connect.setText("CONNECTED")
+            self.btn_wizard_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 6px; font-size: 14px;")
             self.mark_step_completed(1, True, "Connected to Robot")
         else:
+            self.btn_wizard_connect.setText("CONNECT")
+            self.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 6px; font-size: 14px;")
             self.mark_step_completed(1, False, "Connection Failed")
 
     # Step 3: Home Offset Reset

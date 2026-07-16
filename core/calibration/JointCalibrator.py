@@ -992,7 +992,34 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            if mode not in ("wrist_roll_v13", "wrist_yaw2"):
+            if mode in ("elbow", "wrist_pitch"):
+                # Robust Center-Distance Method for parallel joints
+                # The normal vector of a small arc is highly sensitive to vibrations.
+                # However, the distance between the rotation centers is extremely robust and proportional to the angle error.
+                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                T_mount_to_cam = self.make_transform(mount_to_cam)
+                q_init = dataset_A[0][0]
+                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
+                T_torso_to_cam = np.linalg.inv(T_t5_to_head @ T_mount_to_cam)
+                
+                arm_side_str = "left" if arm_side == "left" else "right"
+                T_cand_torso = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint - 1}")
+                p_cand_cam = (T_torso_to_cam @ T_cand_torso)[:3, 3] * 1000.0  # mm
+                
+                vec_elbow_to_cA = c_A_c - p_cand_cam
+                
+                # Cross direction gives the expected displacement direction for a positive physical offset
+                dir_vec = np.cross(a_cand_cam, vec_elbow_to_cA)
+                L2 = np.sum(dir_vec**2)
+                
+                if L2 > 1.0:
+                    proj = np.dot(diff_centers, dir_vec)
+                    sin_theta = np.clip(proj / L2, -1.0, 1.0)
+                    optimal_offset_deg = float(np.degrees(np.arcsin(sin_theta)))
+                else:
+                    optimal_offset_deg = 0.0
+                    
+            elif mode not in ("wrist_roll_v13", "wrist_yaw2"):
                 optimal_offset_deg = -np.degrees(diff_angle)
 
         if log_callback:

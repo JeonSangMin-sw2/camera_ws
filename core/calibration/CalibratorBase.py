@@ -1286,7 +1286,9 @@ class BaseCalibrator:
                 pose_mat = np.array(pose_flat).reshape(4, 4)
 
                 if np.linalg.norm(pose_mat[:3, 3]) > 0.01:
-                    dataset.append((q_full_captured, pose_mat))
+                    # Deduplicate: Only append if the pose is actually new (camera updated)
+                    if len(dataset) == 0 or not np.allclose(dataset[-1][1], pose_mat, atol=1e-5):
+                        dataset.append((q_full_captured, pose_mat))
 
             if is_camera_mock:
                 time.sleep(0.002)
