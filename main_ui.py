@@ -4556,7 +4556,7 @@ class UnifiedCalibrationApp(QWidget):
             mode = self.step2_mode_sel.currentText()
             active_arms = ["right", "left"]
             optimize_head = self.include_head_motion
-            optimize_camera = False
+            optimize_camera = True
             
             lambda_cam_pos = 1.0
             lambda_cam_rot = 1.0
