@@ -421,14 +421,36 @@ class ApplyHomeOffsetDialog(QDialog):
         
         # State Switcher (Radio Buttons)
         state_layout = QHBoxLayout()
-        self.radio_baseline = QRadioButton("Baseline")
+        self.radio_baseline = QRadioButton("Baseline (Rollback)")
+        self.radio_opt = QRadioButton("Optimized (Apply)")
+        
+        radio_style = """
+        QRadioButton {
+            font-size: 18px;
+            font-weight: bold;
+            padding: 10px;
+            color: white;
+        }
+        QRadioButton::indicator {
+            width: 30px;
+            height: 30px;
+            border-radius: 15px;
+            border: 3px solid #777;
+            background-color: #333;
+        }
+        QRadioButton::indicator:checked {
+            background-color: #d84315;
+            border: 3px solid #ff5722;
+        }
+        """
+        self.radio_baseline.setStyleSheet(radio_style)
+        self.radio_opt.setStyleSheet(radio_style)
+        
         self.radio_baseline.setChecked(True)
-        self.radio_opt = QRadioButton("Optimized")
         
         if result_path is None or not os.path.exists(result_path):
             self.radio_opt.setEnabled(False)
             
-        state_layout.addWidget(QLabel("Target State:"))
         state_layout.addWidget(self.radio_baseline)
         state_layout.addWidget(self.radio_opt)
         state_layout.addStretch()
@@ -448,17 +470,14 @@ class ApplyHomeOffsetDialog(QDialog):
         # Action buttons row
         btn_layout = QHBoxLayout()
         
-        self.btn_rollback = QPushButton("Rollback Pose")
-        self.btn_rollback.setStyleSheet("background-color: #555; color: white; font-weight: bold;")
-        self.btn_rollback.clicked.connect(lambda: self.on_apply("baseline"))
-        btn_layout.addWidget(self.btn_rollback)
+        self.btn_apply = QPushButton("Apply Selected Offset")
+        self.btn_apply.setStyleSheet("background-color: #d84315; color: white; font-weight: bold; font-size: 16px; padding: 10px;")
+        self.btn_apply.clicked.connect(self.on_apply_selected)
         
-        self.btn_apply_opt = QPushButton("Apply Optimized Result")
-        self.btn_apply_opt.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
-        self.btn_apply_opt.clicked.connect(lambda: self.on_apply("optimized"))
         if result_path is None or not os.path.exists(result_path):
-            self.btn_apply_opt.setEnabled(False)
-        btn_layout.addWidget(self.btn_apply_opt)
+            self.btn_apply.setEnabled(False)
+            
+        btn_layout.addWidget(self.btn_apply)
         
         btn_close = QPushButton("Close")
         btn_close.clicked.connect(self.reject)
@@ -466,6 +485,10 @@ class ApplyHomeOffsetDialog(QDialog):
         
         layout.addLayout(btn_layout)
         self.setLayout(layout)
+        
+    def on_apply_selected(self):
+        state, path = self.get_current_target()
+        self.on_apply(state)
         
     def get_current_target(self):
         if self.radio_baseline.isChecked():
@@ -1853,7 +1876,7 @@ class FullAutoWorker(QThread):
                     
                     # Update J5 offset from marker calibration as a first step (if Pass 1)
                     if pass_idx == 1:
-                        staged_pitch = unified_res.get('opt_delta_5', 0.0)
+                        staged_pitch = unified_res.get('opt_delta_5', prev_j5) # Use prev_j5 (baseline) if opt_delta_5 is not provided
                         self.joint_offsets_store[arm_side]["joint5"] = staged_pitch
                         self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
                         self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
@@ -4293,12 +4316,14 @@ class UnifiedCalibrationApp(QWidget):
                 "right": {
                     "joint3": self.joint_offsets_store["right"].get("joint3", 0.0),
                     "joint5": self.joint_offsets_store["right"].get("joint5", 0.0),
-                    "joint6": self.joint_offsets_store["right"].get("joint6", 0.0),
+                    # TEMP: skip joint 6 bounds for QP test
+                    # "joint6": self.joint_offsets_store["right"].get("joint6", 0.0),
                 },
                 "left": {
                     "joint3": self.joint_offsets_store["left"].get("joint3", 0.0),
                     "joint5": self.joint_offsets_store["left"].get("joint5", 0.0),
-                    "joint6": self.joint_offsets_store["left"].get("joint6", 0.0),
+                    # TEMP: skip joint 6 bounds for QP test
+                    # "joint6": self.joint_offsets_store["left"].get("joint6", 0.0),
                 }
             }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
@@ -5141,13 +5166,13 @@ class UnifiedCalibrationApp(QWidget):
         self.active_worker = None
         
         if result.get("success", False):
-            QMessageBox.information(self, "Success", "Home Offset Reset completed successfully!")
             self.log_msg("Re-connecting and initializing robot...")
             if self.robot:
                 self.connect_robot() # Disconnects first
                 QApplication.processEvents()
             self.connect_robot() # Connects again
             self.log_msg("Home Offset Reset complete!")
+            QMessageBox.information(self, "Success", "Home Offset Reset, Power, and Servo Initialization completed successfully!")
         else:
             QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {result.get('error', '')}")
 
