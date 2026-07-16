@@ -801,12 +801,7 @@ class JointCalibrator(BaseCalibrator):
         angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
 
         # 3. Fit Sweep A and B axes in the camera frame
-        # J2 and J4 have large radii in elbow mode, but the marker is very far from the camera.
-        # Heavy orientation weighting (robust=True) causes noise to corrupt the normal vector.
         robust_fit = not self.is_mock
-        if mode == "elbow":
-            robust_fit = False
-
         res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_A, angles_A, axis_prior=a_A_cam, robust=robust_fit)
         res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_B, angles_B, axis_prior=a_B_cam_nom, robust=robust_fit)
 
