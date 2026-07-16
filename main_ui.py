@@ -428,28 +428,28 @@ class ApplyHomeOffsetDialog(QDialog):
         
         btn_style = """
         QPushButton {
-            font-size: 24px;
+            font-size: 16px;
             font-weight: bold;
             color: #aaaaaa;
             background-color: #333333;
-            border: 4px solid #444444;
-            border-radius: 12px;
+            border: 2px solid #444444;
+            border-radius: 8px;
         }
         QPushButton:checked {
             color: #ffffff;
             background-color: #d84315;
-            border: 6px solid #ff9800;
+            border: 3px solid #ff9800;
         }
         QPushButton:disabled {
             background-color: #222222;
             color: #555555;
-            border: 4px solid #333333;
+            border: 2px solid #333333;
         }
         """
         
         for btn in [self.btn_baseline, self.btn_opt]:
             btn.setCheckable(True)
-            btn.setMinimumHeight(120)
+            btn.setMinimumHeight(60)
             btn.setStyleSheet(btn_style)
             self.btn_group.addButton(btn)
             state_layout.addWidget(btn)
@@ -603,8 +603,8 @@ class ApplyHomeOffsetDialog(QDialog):
         self.btn_move_check.setEnabled(enabled)
         self.btn_apply.setEnabled(enabled)
         if self.result_path is not None and os.path.exists(self.result_path):
-            self.radio_opt.setEnabled(enabled)
-        self.radio_baseline.setEnabled(enabled)
+            self.btn_opt.setEnabled(enabled)
+        self.btn_baseline.setEnabled(enabled)
 
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QPushButton, 
                                  QLabel, QStackedWidget, QGroupBox, QCheckBox)
