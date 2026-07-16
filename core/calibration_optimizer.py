@@ -920,15 +920,19 @@ class QPCalibrationOptimizer:
             np.rad2deg(rpy[2]),
         ]
 
-    def optimize(self, q_arm_list, q_head_list, T_meas_list):
+    def optimize(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset_init=None, q_head_offset_init=None, xi_mount_cam_init=None):
         if self.use_head_kinematics and q_head_list is None:
             raise RuntimeError(
                 "Head kinematics are enabled for this ndof, but q_head_list is missing."
             )
 
-        q_arm_offset = np.zeros(len(self.arm_idx))
-        q_head_offset = np.zeros(len(self.head_idx)) if self.optimize_head else None
-        xi_mount_cam = np.zeros(6)
+        q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
+        if self.optimize_head:
+            q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else np.zeros(len(self.head_idx))
+        else:
+            q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
+            
+        xi_mount_cam = xi_mount_cam_init.copy() if xi_mount_cam_init is not None else np.zeros(6)
 
         for it in range(self.max_iter):
             dx, total_err = self.compute_step(
@@ -1285,15 +1289,19 @@ class CalibrationOptimizer:
             np.rad2deg(rpy[2]),
         ]
 
-    def optimize(self, q_arm_list, q_head_list, T_meas_list):
+    def optimize(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset_init=None, q_head_offset_init=None, xi_cam_init=None):
         if self.use_head_kinematics and q_head_list is None:
             raise RuntimeError(
                 "Head kinematics are enabled for this ndof, but q_head_list is missing."
             )
 
-        q_arm_offset = np.zeros(len(self.arm_idx))
-        q_head_offset = np.zeros(len(self.head_idx)) if self.optimize_head else None
-        xi_cam = np.zeros(6)
+        q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
+        if self.optimize_head:
+            q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else np.zeros(len(self.head_idx))
+        else:
+            q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
+            
+        xi_cam = xi_cam_init.copy() if xi_cam_init is not None else np.zeros(6)
 
         for it in range(self.max_iter):
             dx, total_err = self.compute_step(

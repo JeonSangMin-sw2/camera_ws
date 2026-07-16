@@ -21,7 +21,9 @@ class CalibrationWizardWidget(QWidget):
         # Apply standard styling
         self.nav_style = "font-weight: bold; font-size: 14px; padding: 6px 12px; border-radius: 4px;"
         self.btn_prev.setStyleSheet("background-color: #555; color: white; " + self.nav_style)
-        self.btn_skip.setStyleSheet("background-color: #555; color: white; " + self.nav_style)
+        
+        # Make Skip button much larger and more prominent
+        self.btn_skip.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; font-size: 18px; padding: 10px 24px; border-radius: 6px;")
         
         self.btn_prev.clicked.connect(self.go_prev)
         self.btn_skip.clicked.connect(self.go_next)

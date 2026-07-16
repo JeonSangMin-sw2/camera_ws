@@ -419,41 +419,46 @@ class ApplyHomeOffsetDialog(QDialog):
         self.summary_box.setFont(QFont("Consolas", 10))
         layout.addWidget(self.summary_box, 1)
         
-        # State Switcher (Radio Buttons)
+        # State Switcher (Big Toggle Buttons)
         state_layout = QHBoxLayout()
-        self.radio_baseline = QRadioButton("Baseline (Rollback)")
-        self.radio_opt = QRadioButton("Optimized (Apply)")
+        self.btn_group = QButtonGroup(self)
         
-        radio_style = """
-        QRadioButton {
-            font-size: 18px;
+        self.btn_baseline = QPushButton("BASELINE\n(Rollback)")
+        self.btn_opt = QPushButton("OPTIMIZED\n(Apply)")
+        
+        btn_style = """
+        QPushButton {
+            font-size: 24px;
             font-weight: bold;
-            padding: 10px;
-            color: white;
+            color: #aaaaaa;
+            background-color: #333333;
+            border: 4px solid #444444;
+            border-radius: 12px;
         }
-        QRadioButton::indicator {
-            width: 30px;
-            height: 30px;
-            border-radius: 15px;
-            border: 3px solid #777;
-            background-color: #333;
-        }
-        QRadioButton::indicator:checked {
+        QPushButton:checked {
+            color: #ffffff;
             background-color: #d84315;
-            border: 3px solid #ff5722;
+            border: 6px solid #ff9800;
+        }
+        QPushButton:disabled {
+            background-color: #222222;
+            color: #555555;
+            border: 4px solid #333333;
         }
         """
-        self.radio_baseline.setStyleSheet(radio_style)
-        self.radio_opt.setStyleSheet(radio_style)
         
-        self.radio_baseline.setChecked(True)
+        for btn in [self.btn_baseline, self.btn_opt]:
+            btn.setCheckable(True)
+            btn.setMinimumHeight(120)
+            btn.setStyleSheet(btn_style)
+            self.btn_group.addButton(btn)
+            state_layout.addWidget(btn)
+            
+        self.btn_baseline.setChecked(True)
         
         if result_path is None or not os.path.exists(result_path):
-            self.radio_opt.setEnabled(False)
+            self.btn_opt.setEnabled(False)
             
-        state_layout.addWidget(self.radio_baseline)
-        state_layout.addWidget(self.radio_opt)
-        state_layout.addStretch()
         layout.addLayout(state_layout)
         
         # Movement Buttons
@@ -488,10 +493,21 @@ class ApplyHomeOffsetDialog(QDialog):
         
     def on_apply_selected(self):
         state, path = self.get_current_target()
-        self.on_apply(state)
+        
+        # Add confirmation popup
+        confirm = QMessageBox.question(
+            self, 
+            "Confirm Apply", 
+            f"Are you sure you want to apply the '{state.upper()}' offsets?\n\nThis will write to the robot's configuration.",
+            QMessageBox.Yes | QMessageBox.No, 
+            QMessageBox.No
+        )
+        
+        if confirm == QMessageBox.Yes:
+            self.on_apply(state)
         
     def get_current_target(self):
-        if self.radio_baseline.isChecked():
+        if self.btn_baseline.isChecked():
             return "baseline", self.baseline_path
         else:
             return "optimized", self.result_path
@@ -567,7 +583,12 @@ class ApplyHomeOffsetDialog(QDialog):
         def on_finished(success, error_msg, res):
             self.set_buttons_enabled(True)
             if success:
-                if res.get("success", False):
+                if res.get("needs_reconnect", False):
+                    self.parent_app.log_msg("Re-connecting and initializing robot...")
+                    self.parent_app.connect_robot()
+                    self.parent_app.log_msg("Current pose home offset apply complete.")
+                    
+                if res.get("success", False) or res.get("needs_reconnect", False):
                     QMessageBox.information(self, "Success", f"Home offset applied from current pose ({state}).")
                     self.accept()
                 else:
@@ -1873,12 +1894,8 @@ class FullAutoWorker(QThread):
                     self.marker_calibrator.camera_config[key] = new_vals
                     self.joint_calibrator.camera_config[key] = new_vals
                     
-                    # Update J5 offset from marker calibration as a first step (if Pass 1)
-                    if pass_idx == 1:
-                        staged_pitch = unified_res.get('opt_delta_5', prev_j5) # Use prev_j5 (baseline) if opt_delta_5 is not provided
-                        self.joint_offsets_store[arm_side]["joint5"] = staged_pitch
-                        self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
-                        self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = staged_pitch
+                    # Prevent resetting J5 to 0.0 before physical sweep in Pass 1.
+                    # We keep the previously loaded offset from setting.yaml.
                     
                     self.bracket_finished_signal.emit(unified_res)
                     time.sleep(0.5)
@@ -4024,12 +4041,12 @@ class UnifiedCalibrationApp(QWidget):
             self.model,
             arm=arm,
             include_head=include_head,
-            log_cb=self.log_msg,
         )
 
-        self.log_msg("Re-connecting and initializing robot...")
-        self.connect_robot()
-        self.log_msg("Current pose home offset apply complete.")
+        # Robot reconnection should be done in the main thread to avoid GUI thread safety issues.
+        # We will signal the caller to handle the reconnection.
+        result['needs_reconnect'] = True
+        return result
         return result
 
     def run_auto_motion_step_blocking(self):
@@ -4326,24 +4343,81 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
         if solver_type == "QP Solver":
-            optimizer = QPCalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg["arm_idx"],
-                ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom=ee_to_marker_nom,
-                head_idx=head_cfg["head_idx"],
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=lambda_cam_rot,
-                use_sag=use_sag,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
-                active_arms=active_arms,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-            )
+            if optimize_head and optimize_camera:
+                self.log_msg("\n[INFO] === PASS 1: Optimizing Arm + Head (Camera fixed to 0.0) ===")
+                opt1 = QPCalibrationOptimizer(
+                    robot=self.robot,
+                    arm_idx=cfg["arm_idx"],
+                    ee_links=ee_links,
+                    mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                    head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                    ee_to_marker_nom=ee_to_marker_nom,
+                    head_idx=head_cfg["head_idx"],
+                    lambda_cam_pos=lambda_cam_pos,
+                    lambda_cam_rot=lambda_cam_rot,
+                    use_sag=use_sag,
+                    optimize_head=True,
+                    optimize_camera=False,  # PASS 1 constraint
+                    active_arms=active_arms,
+                    estimate_measurement_noise=True,
+                    apply_joint_offset_limits=apply_limits,
+                    joint_offsets_to_apply=joint_offsets,
+                )
+                q_arm1, q_head1, xi1, _, _ = opt1.optimize(q_arm_list, q_head_list, T_meas_list)
+                if q_head1 is not None:
+                    self.log_msg(f"[INFO] Pass 1 Head offset (deg): {np.rad2deg(q_head1)}")
+                
+                self.log_msg("\n[INFO] === PASS 2: Optimizing Camera Translation + Arm (Head fixed, Camera Rot constrained) ===")
+                opt2 = QPCalibrationOptimizer(
+                    robot=self.robot,
+                    arm_idx=cfg["arm_idx"],
+                    ee_links=ee_links,
+                    mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                    head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                    ee_to_marker_nom=ee_to_marker_nom,
+                    head_idx=head_cfg["head_idx"],
+                    lambda_cam_pos=lambda_cam_pos,
+                    lambda_cam_rot=1e6,  # PASS 2 constraint: lock camera rotation
+                    use_sag=use_sag,
+                    optimize_head=False, # PASS 2 constraint: head fixed
+                    optimize_camera=True,
+                    active_arms=active_arms,
+                    estimate_measurement_noise=True,
+                    apply_joint_offset_limits=apply_limits,
+                    joint_offsets_to_apply=joint_offsets,
+                )
+                # Pass 1 results as init for Pass 2.
+                q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt2.optimize(
+                    q_arm_list, q_head_list, T_meas_list,
+                    q_arm_offset_init=q_arm1,
+                    q_head_offset_init=q_head1,
+                    xi_mount_cam_init=xi1
+                )
+                optimizer = opt2
+            else:
+                optimizer = QPCalibrationOptimizer(
+                    robot=self.robot,
+                    arm_idx=cfg["arm_idx"],
+                    ee_links=ee_links,
+                    mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                    head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                    ee_to_marker_nom=ee_to_marker_nom,
+                    head_idx=head_cfg["head_idx"],
+                    lambda_cam_pos=lambda_cam_pos,
+                    lambda_cam_rot=lambda_cam_rot,
+                    use_sag=use_sag,
+                    optimize_head=optimize_head,
+                    optimize_camera=optimize_camera,
+                    active_arms=active_arms,
+                    estimate_measurement_noise=True,
+                    apply_joint_offset_limits=apply_limits,
+                    joint_offsets_to_apply=joint_offsets,
+                )
+                q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+                    q_arm_list,
+                    q_head_list,
+                    T_meas_list,
+                )
         else:
             optimizer = CalibrationOptimizer(
                 robot=self.robot,
@@ -4364,11 +4438,11 @@ class UnifiedCalibrationApp(QWidget):
                 estimate_measurement_noise=True,
             )
 
-        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
-            q_arm_list,
-            q_head_list,
-            T_meas_list,
-        )
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+                q_arm_list,
+                q_head_list,
+                T_meas_list,
+            )
         
         if len(active_arms) == 1:
             if active_arms[0] == "right":
@@ -4423,9 +4497,24 @@ class UnifiedCalibrationApp(QWidget):
 
         with open(result_path, "w") as f:
             json.dump(result_dict, f, indent=4)
+            
+        history_path = os.path.join(os.path.dirname(result_path), "calibration_history.txt")
+        try:
+            with open(history_path, "a") as f:
+                import datetime
+                f.write(f"\n--- Calibration Iteration: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} ---\n")
+                f.write(f"Result Path: {result_path}\n")
+                f.write(f"Right Arm Joint Offset (deg): {result_dict.get('right_arm_joint_offset_deg')}\n")
+                f.write(f"Left Arm Joint Offset (deg): {result_dict.get('left_arm_joint_offset_deg')}\n")
+                f.write(f"Head Joint Offset (deg): {result_dict.get('head_joint_offset_deg')}\n")
+                f.write(f"Camera xi: {result_dict.get('xi_cam')}\n")
+                f.write(f"Measurement Noise: {json.dumps(result_dict.get('measurement_noise'))}\n")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to append to history: {e}")
 
         self.last_result_path = result_path
         self.log_msg(f"Result saved to {result_path}")
+        self.log_msg(f"History appended to {history_path}")
 
     def _on_apply_joint_offset_toggled(self, checked):
         """Toggle apply joint offset flag and update status label."""
