@@ -5432,11 +5432,12 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[MOCK GT] Simulated Target Joint Offset: {gt_val:+.2f}°")
         
         curr_offset = self.joint_offsets[self.arm_side].get(offset_key, 0.0)
+        sweep_time = 20.0 if mode == "elbow" else 15.0
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
             current_offset_deg=curr_offset,
-            sweep_duration=15.0,
+            sweep_duration=sweep_time,
             save_debug=self.chk_save_debug.isChecked()
         )
         self.active_worker.log_signal.connect(self.log_msg)

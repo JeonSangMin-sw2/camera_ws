@@ -970,7 +970,6 @@ class JointCalibrator(BaseCalibrator):
             
             nominal_angle = np.arctan2(np.dot(np.cross(a_A_proj, a_B_proj), a_cand_cam), np.dot(a_A_proj, a_B_proj))
             actual_angle = np.arctan2(np.dot(np.cross(n_A_proj, n_B_proj), a_cand_cam), np.dot(n_A_proj, n_B_proj))
-            
             diff_angle = actual_angle - nominal_angle
             diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
 
