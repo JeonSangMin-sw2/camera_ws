@@ -163,7 +163,10 @@ class BaseCalibrator:
                 angle_header_name = "Joint_B"
             else:
                 angle_header_name = f"Joint_{axis_num}"
-            with open(filename, "w") as f:
+            file_exists = os.path.exists(filename)
+            with open(filename, "a") as f:
+                if file_exists:
+                    f.write("\n=== NEW ITERATION ===\n")
                 f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
                         "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
                 for q_full, pose in dataset:

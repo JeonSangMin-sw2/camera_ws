@@ -27,8 +27,12 @@ class CalibrationWizardWidget(QWidget):
         self.btn_skip.clicked.connect(self.go_next)
         self.btn_next.clicked.connect(self.go_next)
         
+        self.lbl_skip_hint = QLabel("If you have already completed this step, please click the skip button.")
+        self.lbl_skip_hint.setStyleSheet("color: red; font-weight: bold; font-size: 13px;")
+        
         self.nav_layout.addWidget(self.btn_prev)
         self.nav_layout.addStretch()
+        self.nav_layout.addWidget(self.lbl_skip_hint)
         self.nav_layout.addWidget(self.btn_skip)
         self.nav_layout.addWidget(self.btn_next)
         
@@ -384,7 +388,9 @@ class CalibrationWizardWidget(QWidget):
         else:
             self.btn_prev.setText("Previous")
         # Skip allowed on Slide 1 and Slide 3
-        self.btn_skip.setVisible(idx == 0 or idx == 2)
+        show_skip = (idx == 0 or idx == 2)
+        self.btn_skip.setVisible(show_skip)
+        self.lbl_skip_hint.setVisible(show_skip)
         
         enabled = self.step_completed[idx]
         self.btn_next.setEnabled(enabled)

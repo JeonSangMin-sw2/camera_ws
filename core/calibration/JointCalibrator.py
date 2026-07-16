@@ -38,9 +38,8 @@ class DebugLogger:
                 
     def save(self):
         try:
-            if os.path.exists(self.file_path):
-                return
-            with open(self.file_path, "w", encoding="utf-8") as f:
+            with open(self.file_path, "a", encoding="utf-8") as f:
+                f.write("\n=== NEW ITERATION ===\n")
                 f.write("\n".join(self.buffer) + "\n")
         except Exception:
             pass
@@ -59,6 +58,22 @@ class JointCalibrator(BaseCalibrator):
         result_txt_dir = CONFIG_PATHS["txt_dir"]
         os.makedirs(result_txt_dir, exist_ok=True)
         debug_file_path = os.path.join(result_txt_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
+        
+        # 처음 시작(pass 1)일 때는 덮어쓰기 위해 기존 파일들 삭제
+        if pass_idx == 1:
+            if os.path.exists(debug_file_path):
+                try: os.remove(debug_file_path)
+                except: pass
+                
+            jcfg = self.JOINT_CONFIGS.get(mode, {})
+            for key_type, j_key in [("joint_A", "sweep_joint_A"), ("joint_B", "sweep_joint_B")]:
+                axis = jcfg.get(j_key)
+                if axis is not None:
+                    fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{key_type}_axis_{axis}.txt")
+                    if os.path.exists(fname):
+                        try: os.remove(fname)
+                        except: pass
+
         logger = DebugLogger(log_callback, debug_file_path)
         original_log = log_callback
         log_callback = logger.log

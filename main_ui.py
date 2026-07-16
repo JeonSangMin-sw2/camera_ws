@@ -3433,7 +3433,7 @@ class UnifiedCalibrationApp(QWidget):
                     self.log_msg("[INFO] Automatically switched Step 2 Mode to 'sim' because camera is not connected.")
 
                 self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version}).")
-                self.btn_connect.setText("DISCONNECT")
+                self.btn_connect.setText("CONNECTED")
                 self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 11px;")
                 self.btn_connect.setEnabled(True)
             else:
