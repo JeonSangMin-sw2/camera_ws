@@ -580,9 +580,8 @@ class ApplyHomeOffsetDialog(QDialog):
     def set_buttons_enabled(self, enabled):
         self.btn_move_zero.setEnabled(enabled)
         self.btn_move_check.setEnabled(enabled)
-        self.btn_rollback.setEnabled(enabled)
+        self.btn_apply.setEnabled(enabled)
         if self.result_path is not None and os.path.exists(self.result_path):
-            self.btn_apply_opt.setEnabled(enabled)
             self.radio_opt.setEnabled(enabled)
         self.radio_baseline.setEnabled(enabled)
 
@@ -4316,14 +4315,12 @@ class UnifiedCalibrationApp(QWidget):
                 "right": {
                     "joint3": self.joint_offsets_store["right"].get("joint3", 0.0),
                     "joint5": self.joint_offsets_store["right"].get("joint5", 0.0),
-                    # TEMP: skip joint 6 bounds for QP test
-                    # "joint6": self.joint_offsets_store["right"].get("joint6", 0.0),
+                    "joint6": self.joint_offsets_store["right"].get("joint6", 0.0),
                 },
                 "left": {
                     "joint3": self.joint_offsets_store["left"].get("joint3", 0.0),
                     "joint5": self.joint_offsets_store["left"].get("joint5", 0.0),
-                    # TEMP: skip joint 6 bounds for QP test
-                    # "joint6": self.joint_offsets_store["left"].get("joint6", 0.0),
+                    "joint6": self.joint_offsets_store["left"].get("joint6", 0.0),
                 }
             }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")

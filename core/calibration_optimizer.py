@@ -447,13 +447,15 @@ class QPCalibrationOptimizer:
 
                 v1_r6 = (-r_j6 - 0.001) * D2R
                 v2_r6 = (-r_j6 + 0.001) * D2R
-                q_lower[6] = min(v1_r6, v2_r6)
-                q_upper[6] = max(v1_r6, v2_r6)
+                # TEMP: Skip setting bounds for Joint 6 (QP test)
+                # q_lower[6] = min(v1_r6, v2_r6)
+                # q_upper[6] = max(v1_r6, v2_r6)
 
                 v1_l6 = (-l_j6 - 0.001) * D2R
                 v2_l6 = (-l_j6 + 0.001) * D2R
-                q_lower[13] = min(v1_l6, v2_l6)
-                q_upper[13] = max(v1_l6, v2_l6)
+                # TEMP: Skip setting bounds for Joint 6 (QP test)
+                # q_lower[13] = min(v1_l6, v2_l6)
+                # q_upper[13] = max(v1_l6, v2_l6)
 
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)
