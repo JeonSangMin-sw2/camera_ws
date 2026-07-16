@@ -18,10 +18,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 class BaseCalibrator:
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 10.0},
-        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
-        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
-        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 15.0, "sweep_range_B": 15.0},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
+        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
+        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
+        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
     }
     MARKER_CONFIGS = {
         "axis_4": {"joint_i": 4, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},

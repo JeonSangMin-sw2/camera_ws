@@ -8,7 +8,7 @@ import rby1_sdk as rby
 from core.calibration_core import get_both_arm_config, get_head_config
 
 def main():
-    dataset_path = '/home/rainbow/camera_ws/result/result_real/result_step2/dataset_20260716_153458.npz'
+    dataset_path = '/home/rainbow/camera_ws/result/result_real/result_step2/dataset_20260716_205134.npz'
     data = np.load(dataset_path, allow_pickle=True)
     q_arm_list = data['q_arm']
     q_head_list = data['q_head'] if 'q_head' in data else None

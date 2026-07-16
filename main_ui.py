@@ -1673,8 +1673,8 @@ class FullAutoWorker(QThread):
                         calibrator.joint_offsets[arm_side]["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
 
                     # --- Step 1: Marker Bracket Calibration ---
-                    if pass_idx == 1:
-                        self.log_msg.emit(f"[FULL AUTO 1/2] Starting Marker Bracket Calibration for {arm_side} arm...")
+                    if True:
+                        self.log_msg.emit(f"[FULL AUTO 1/2] Starting Marker Bracket Calibration for {arm_side} arm (Pass {pass_idx}/2)...")
                         if is_v13:
                             # 1. Marker Bracket Sweeps (Axis 4, 6, 5)
                             self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
@@ -1815,18 +1815,7 @@ class FullAutoWorker(QThread):
                             res_5['axis_mode'] = 5
                             res_5['axis'] = res_5['axis_opt']
                             if self.stop_event.is_set(): return
-                    else:
-                        self.log_msg.emit(f"[INFO] Pass 2: Reusing marker sweep datasets from Pass 1.")
-                        # Revert calibrator joint offsets to Pass 1 state since the datasets were captured with Pass 1 offsets
-                        for calibrator in [self.joint_calibrator, self.marker_calibrator]:
-                            calibrator.joint_offsets[arm_side]["wrist_pitch"] = prev_j5
-                            if is_v13:
-                                calibrator.joint_offsets[arm_side]["wrist_roll"] = prev_j6
-                                calibrator.joint_offsets[arm_side]["wrist_yaw2"] = 0.0
-                            else:
-                                calibrator.joint_offsets[arm_side]["wrist_roll"] = 0.0
-                                calibrator.joint_offsets[arm_side]["wrist_yaw2"] = prev_j6
-                            calibrator.joint_offsets[arm_side]["elbow"] = prev_j3
+
 
                     # 2. Calibrate J6 Wrist Roll/Yaw 2
                     self.log_msg.emit(f"\n[FULL AUTO] Calibrating J6 ({'Wrist Roll' if is_v13 else 'Wrist Yaw 2'}) first...")
@@ -1870,7 +1859,7 @@ class FullAutoWorker(QThread):
 
                     # 3. Compute Marker Bracket (with J6 locked)
                     self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration (J6 locked)...")
-                    staged_pitch = prev_j5 if pass_idx == 2 else self.joint_offsets_store[arm_side]["joint5"]
+                    staged_pitch = self.joint_offsets_store[arm_side]["joint5"]
                     unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
                         res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll, calib_pitch_deg=staged_pitch
                     )
@@ -4323,6 +4312,13 @@ class UnifiedCalibrationApp(QWidget):
             ee_links = cfg["ee_links"]
             ee_to_marker_nom = cfg["ee_to_marker_nom"]
 
+        # Override ee_to_marker_nom with actual calibrated values from memory
+        for side in active_arms:
+            key = f"Tf_to_marker_{side}"
+            if key in self.marker_calibrator.camera_config:
+                ee_to_marker_nom[side] = self.marker_calibrator.camera_config[key]
+                self.log_msg(f"[INFO] Using calibrated marker bracket values for {side}: {ee_to_marker_nom[side]}")
+
         head_cfg = get_head_config(self.model)
 
         apply_limits = getattr(self, "apply_joint_offset_flag", False)
@@ -4344,80 +4340,34 @@ class UnifiedCalibrationApp(QWidget):
 
         if solver_type == "QP Solver":
             if optimize_head and optimize_camera:
-                self.log_msg("\n[INFO] === PASS 1: Optimizing Arm + Head (Camera fixed to 0.0) ===")
-                opt1 = QPCalibrationOptimizer(
-                    robot=self.robot,
-                    arm_idx=cfg["arm_idx"],
-                    ee_links=ee_links,
-                    mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                    head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                    ee_to_marker_nom=ee_to_marker_nom,
-                    head_idx=head_cfg["head_idx"],
-                    lambda_cam_pos=lambda_cam_pos,
-                    lambda_cam_rot=lambda_cam_rot,
-                    use_sag=use_sag,
-                    optimize_head=True,
-                    optimize_camera=False,  # PASS 1 constraint
-                    active_arms=active_arms,
-                    estimate_measurement_noise=True,
-                    apply_joint_offset_limits=apply_limits,
-                    joint_offsets_to_apply=joint_offsets,
-                )
-                q_arm1, q_head1, xi1, _, _ = opt1.optimize(q_arm_list, q_head_list, T_meas_list)
-                if q_head1 is not None:
-                    self.log_msg(f"[INFO] Pass 1 Head offset (deg): {np.rad2deg(q_head1)}")
-                
-                self.log_msg("\n[INFO] === PASS 2: Optimizing Camera Translation + Arm (Head fixed, Camera Rot constrained) ===")
-                opt2 = QPCalibrationOptimizer(
-                    robot=self.robot,
-                    arm_idx=cfg["arm_idx"],
-                    ee_links=ee_links,
-                    mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                    head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                    ee_to_marker_nom=ee_to_marker_nom,
-                    head_idx=head_cfg["head_idx"],
-                    lambda_cam_pos=lambda_cam_pos,
-                    lambda_cam_rot=1e6,  # PASS 2 constraint: lock camera rotation
-                    use_sag=use_sag,
-                    optimize_head=False, # PASS 2 constraint: head fixed
-                    optimize_camera=True,
-                    active_arms=active_arms,
-                    estimate_measurement_noise=True,
-                    apply_joint_offset_limits=apply_limits,
-                    joint_offsets_to_apply=joint_offsets,
-                )
-                # Pass 1 results as init for Pass 2.
-                q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt2.optimize(
-                    q_arm_list, q_head_list, T_meas_list,
-                    q_arm_offset_init=q_arm1,
-                    q_head_offset_init=q_head1,
-                    xi_mount_cam_init=xi1
-                )
-                optimizer = opt2
+                self.log_msg("\n[INFO] === 1-PASS QP: Optimizing Arm + Head + Camera Trans (Camera Rot locked) ===")
+                actual_lambda_cam_rot = 1e6
             else:
-                optimizer = QPCalibrationOptimizer(
-                    robot=self.robot,
-                    arm_idx=cfg["arm_idx"],
-                    ee_links=ee_links,
-                    mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                    head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                    ee_to_marker_nom=ee_to_marker_nom,
-                    head_idx=head_cfg["head_idx"],
-                    lambda_cam_pos=lambda_cam_pos,
-                    lambda_cam_rot=lambda_cam_rot,
-                    use_sag=use_sag,
-                    optimize_head=optimize_head,
-                    optimize_camera=optimize_camera,
-                    active_arms=active_arms,
-                    estimate_measurement_noise=True,
-                    apply_joint_offset_limits=apply_limits,
-                    joint_offsets_to_apply=joint_offsets,
-                )
-                q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
-                    q_arm_list,
-                    q_head_list,
-                    T_meas_list,
-                )
+                actual_lambda_cam_rot = lambda_cam_rot
+
+            optimizer = QPCalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                ee_links=ee_links,
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom=ee_to_marker_nom,
+                head_idx=head_cfg["head_idx"],
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=actual_lambda_cam_rot,
+                use_sag=use_sag,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                active_arms=active_arms,
+                estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+            )
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+                q_arm_list,
+                q_head_list,
+                T_meas_list,
+            )
         else:
             optimizer = CalibrationOptimizer(
                 robot=self.robot,
