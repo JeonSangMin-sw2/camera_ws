@@ -14,7 +14,7 @@ import json
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
-                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy, QRadioButton, QStackedWidget)
+                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy, QRadioButton, QStackedWidget, QButtonGroup)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
 import matplotlib
