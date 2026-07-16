@@ -13,13 +13,13 @@ camera:
   width: 1280
 joint_offset:
   left:
-    joint3: -0.7016393250198902
-    joint5: 2.976005748097781
-    joint6: -3.49950753092668
+    joint3: 0.0
+    joint5: 0.0
+    joint6: 0.0
   right:
-    joint3: -0.4971625175208523
-    joint5: -5.367180225497985
-    joint6: -2.349746586714213
+    joint3: 0.0
+    joint5: 0.0
+    joint6: 0.0
 thermal_compensation:
   enabled: false
   baseline_temp: 32.0

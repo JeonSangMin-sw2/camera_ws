@@ -108,6 +108,8 @@ class JointCalibrator(BaseCalibrator):
             prev_error = None
             prev_step_correction = 0.0
             direction_multiplier = 1.0
+            dynamic_damping = 1.0
+            prev_step_correction = 0.0
             
             for i in range(1, max_iterations + 1):
                 # Update self.joint_offsets with staged_offset for proper FK offset subtraction in this iteration
@@ -173,8 +175,15 @@ class JointCalibrator(BaseCalibrator):
                 
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
-                damping = 1.0 if i == 1 else 0.9 # Use 1.0 for first step, then reduce to 0.9 to prevent oscillation
-                step_correction = direction_multiplier * raw_optimal_offset * damping
+                
+                # Dynamic damping: halve the damping factor if the correction direction flips
+                # This squashes noise-floor oscillations rapidly
+                if i > 1 and raw_optimal_offset * prev_step_correction < 0:
+                    dynamic_damping *= 0.7
+                elif i == 1:
+                    dynamic_damping = 1.0
+                    
+                step_correction = direction_multiplier * raw_optimal_offset * dynamic_damping
                 
                 # Calculate relative step delta for convergence check
                 if mode in ("wrist_roll_v13", "wrist_yaw2"):
@@ -992,7 +1001,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
             optimal_offset_deg = 0.0
         else:
-            if mode in ("elbow", "wrist_pitch"):
+            if mode == "elbow":
                 # Robust Center-Distance Method for parallel joints
                 # The normal vector of a small arc is highly sensitive to vibrations.
                 # However, the distance between the rotation centers is extremely robust and proportional to the angle error.
@@ -1003,22 +1012,34 @@ class JointCalibrator(BaseCalibrator):
                 T_torso_to_cam = np.linalg.inv(T_t5_to_head @ T_mount_to_cam)
                 
                 arm_side_str = "left" if arm_side == "left" else "right"
-                T_cand_torso = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint - 1}")
-                p_cand_cam = (T_torso_to_cam @ T_cand_torso)[:3, 3] * 1000.0  # mm
+                
+                # Get the true axis of the candidate joint using the exact same T_torso_to_cam frame
+                T_cand_parent = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint - 1}")
+                a_cand_t5 = T_cand_parent[:3, :3] @ a_cand_local
+                true_a_cand_cam = T_torso_to_cam[:3, :3] @ a_cand_t5
+                if np.linalg.norm(true_a_cand_cam) > 1e-6:
+                    true_a_cand_cam /= np.linalg.norm(true_a_cand_cam)
+                
+                # Get the true position of the pivot (child link, e.g. link_3 for elbow)
+                T_cand_child = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint}")
+                p_cand_cam = (T_torso_to_cam @ T_cand_child)[:3, 3] * 1000.0  # mm
                 
                 vec_elbow_to_cA = c_A_c - p_cand_cam
                 
                 # Cross direction gives the expected displacement direction for a positive physical offset
-                dir_vec = np.cross(a_cand_cam, vec_elbow_to_cA)
+                dir_vec = np.cross(true_a_cand_cam, vec_elbow_to_cA)
                 L2 = np.sum(dir_vec**2)
                 
                 if L2 > 1.0:
                     proj = np.dot(diff_centers, dir_vec)
                     sin_theta = np.clip(proj / L2, -1.0, 1.0)
-                    optimal_offset_deg = float(np.degrees(np.arcsin(sin_theta)))
+                    # We return the negative of the physical error as the compensation offset
+                    optimal_offset_deg = -float(np.degrees(np.arcsin(sin_theta)))
                 else:
                     optimal_offset_deg = 0.0
                     
+            elif mode == "wrist_pitch":
+                optimal_offset_deg = - (angle_between_normals * sign)
             elif mode not in ("wrist_roll_v13", "wrist_yaw2"):
                 optimal_offset_deg = -np.degrees(diff_angle)
 
