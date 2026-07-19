@@ -1333,7 +1333,7 @@ class MarkerCalibrationWorker(QThread):
                         torso=[0.0]*6,
                         right_arm=first_starting_pose if self.arm_side == "right" else None,
                         left_arm=first_starting_pose if self.arm_side == "left" else None,
-                        head=[0, 0],
+                        head=None,
                         minimum_time=5.0,
                         apply_offsets=False
                     )
@@ -1398,7 +1398,7 @@ class MarkerCalibrationWorker(QThread):
                     torso=[0.0]*6,
                     right_arm=first_starting_pose if self.arm_side == "right" else None,
                     left_arm=first_starting_pose if self.arm_side == "left" else None,
-                    head=[0, 0],
+                    head=None,
                     minimum_time=5.0,
                     apply_offsets=False
                 )
@@ -1552,14 +1552,22 @@ class SimulatedMarkerTransform:
             q_actual[arm_idx[5]] += np.radians(j5_gt)
             q_actual[arm_idx[3]] += np.radians(j3_gt)
                     
+            # Apply simulated head joint offsets to head kinematics to match real-robot uncalibrated state
+            q_actual_head = np.array(q)
+            head_idx = model.head_idx if hasattr(model, 'head_idx') else []
+            if len(head_idx) >= 2:
+                head_gt = BaseCalibrator.MOCK_GT_OFFSETS.get("head", {"pan": 0.0, "tilt": 0.0})
+                q_actual_head[head_idx[0]] += np.radians(head_gt.get("pan", 0.0))
+                q_actual_head[head_idx[1]] += np.radians(head_gt.get("tilt", 0.0))
+                    
             T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual, ee_name, "link_torso_5")
             
             try:
-                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head_2", "link_torso_5")
+                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual_head, "link_head_2", "link_torso_5")
             except Exception:
                 try:
                     # Try alternative link name for v1.2 head camera mount
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q, "link_head", "link_torso_5")
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual_head, "link_head", "link_torso_5")
                 except Exception:
                     T_t5_to_head = np.eye(4)
             
@@ -1700,10 +1708,10 @@ class FullAutoWorker(QThread):
                                 first_starting_pose = list(state.position[arm_idx])
                                 if arm_side == "right":
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                                 else:
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                             else:
                                 self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
                                 time.sleep(1.0)
@@ -1727,10 +1735,10 @@ class FullAutoWorker(QThread):
                                 first_starting_pose = list(state.position[arm_idx])
                                 if arm_side == "right":
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                                 else:
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                             else:
                                 self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
                                 time.sleep(1.0)
@@ -1770,10 +1778,10 @@ class FullAutoWorker(QThread):
                                 first_starting_pose = list(state.position[arm_idx])
                                 if arm_side == "right":
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                                 else:
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                             else:
                                 self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
                                 time.sleep(1.0)
@@ -1797,10 +1805,10 @@ class FullAutoWorker(QThread):
                                 first_starting_pose = list(state.position[arm_idx])
                                 if arm_side == "right":
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                                 else:
                                     self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=[0, 0], minimum_time=5.0, apply_offsets=False)
+                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
                             else:
                                 self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
                                 time.sleep(1.0)
@@ -2440,6 +2448,7 @@ class UnifiedCalibrationApp(QWidget):
         self.chk_servo_head = QCheckBox("Head")
         self.chk_servo_head.setChecked(True)
         self.chk_servo_head.setStyleSheet("color: #cccccc;")
+        self.chk_servo_head.toggled.connect(self.on_head_checkbox_changed)
         connect_head_row.addWidget(self.chk_servo_head)
         conn_head_layout.addLayout(connect_head_row)
         
@@ -3262,6 +3271,20 @@ class UnifiedCalibrationApp(QWidget):
             except Exception:
                 pass
 
+    def on_head_checkbox_changed(self, checked):
+        if not hasattr(self, 'robot') or not self.robot:
+            self.include_head_motion = checked
+            return
+        if len(self.model.head_idx) == 0:
+            if checked:
+                self.chk_servo_head.blockSignals(True)
+                self.chk_servo_head.setChecked(False)
+                self.chk_servo_head.blockSignals(False)
+            self.include_head_motion = False
+            return
+        self.include_head_motion = checked
+        self.log_msg(f"[INFO] Head motion/optimization option: {checked}")
+
     def connect_robot(self):
         from core.calibration.CalibratorBase import BaseCalibrator
 
@@ -3550,6 +3573,8 @@ class UnifiedCalibrationApp(QWidget):
             self.status_label.setStyleSheet("color: #ff1744;")
 
     def poll_camera_status(self):
+        if self.ui_only or self.marker_st is None:
+            return
         # Camera Tab이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
         if self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1:
             return
@@ -4595,7 +4620,7 @@ class UnifiedCalibrationApp(QWidget):
             mode = self.step2_mode_sel.currentText()
             active_arms = ["right", "left"]
             optimize_head = self.include_head_motion
-            optimize_camera = True
+            optimize_camera = False
             
             lambda_cam_pos = 1.0
             lambda_cam_rot = 1.0
@@ -5056,6 +5081,8 @@ class UnifiedCalibrationApp(QWidget):
     def on_full_auto_ready_finished(self):
         self.set_controls_enabled(True)
         error_msg = getattr(self.active_worker, 'error_msg', None) if self.active_worker else None
+        if self.active_worker is not None:
+            self.active_worker.wait()
         self.active_worker = None
         
         # Restart poll_timer if appropriate
@@ -5124,7 +5151,7 @@ class UnifiedCalibrationApp(QWidget):
                 result_path,
                 baseline_path,
                 self.arm_side,
-                include_head=True
+                include_head=self.include_head_motion
             )
             dialog.exec()
         except Exception as e:
@@ -5190,7 +5217,7 @@ class UnifiedCalibrationApp(QWidget):
             self.robot,
             self.robot.model() if (self.robot and not self.is_mock) else None,
             self.model_input.currentText().strip() if hasattr(self, 'model_input') else "a",
-            include_head=True
+            include_head=self.include_head_motion
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.finished_signal.connect(self.on_home_offset_reset_finished)
@@ -5199,6 +5226,8 @@ class UnifiedCalibrationApp(QWidget):
     def on_home_offset_reset_finished(self, result):
         self.set_controls_enabled(True)
         self.btn_home_reset.setEnabled(True)
+        if self.active_worker is not None:
+            self.active_worker.wait()
         self.active_worker = None
         
         if result.get("success", False):
@@ -5324,6 +5353,8 @@ class UnifiedCalibrationApp(QWidget):
             was_stopped = self.full_auto_stop_event.is_set()
             
         error_msg = getattr(self.active_worker, 'error_msg', None) if self.active_worker else None
+        if self.active_worker is not None:
+            self.active_worker.wait()
         self.active_worker = None
         self.log_msg("[INFO] Full Auto sequential calibration ended.")
         
@@ -5493,7 +5524,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[MOCK GT] Simulated Target Joint Offset: {gt_val:+.2f}°")
         
         curr_offset = self.joint_offsets[self.arm_side].get(offset_key, 0.0)
-        sweep_time = 20.0 if mode == "elbow" else 15.0
+        sweep_time = 20.0 if mode in ["elbow", "wrist_yaw2", "wrist_roll_v13"] else 15.0
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 

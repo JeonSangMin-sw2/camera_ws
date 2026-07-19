@@ -15,7 +15,7 @@ from core.calibration.mock_robot import get_mock_robot
 from core.calibration.CalibratorBase import BaseCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
 from core.calibration.MarkerCalibrator import MarkerCalibrator
-from additional_calib_ui import FullAutoWorker, SimulatedMarkerTransform
+from main_ui import FullAutoWorker, SimulatedMarkerTransform
 
 def test_full_auto_version(version_num):
     print(f"\n======================================")

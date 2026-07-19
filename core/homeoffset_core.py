@@ -131,6 +131,12 @@ def save_home_reset_baseline_json(
 
 
 def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=5):
+    if head is not None:
+        model = robot.model()
+        has_head = hasattr(model, 'head_idx') and len(model.head_idx) > 0
+        if not has_head:
+            head = None
+
     rc = rby.BodyComponentBasedCommandBuilder()
 
     if right_arm is not None:

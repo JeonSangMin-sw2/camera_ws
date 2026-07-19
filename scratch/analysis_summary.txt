@@ -1,0 +1,38 @@
+=== STEP 1 SWEEP DATA DIAGNOSTICS ===
+[sweep_points_left_marker_axis_4.txt]
+  - Points Count: 106, Outliers (>1.5mm): 0 (0.0%)
+  - Fitted Radius: 179.75 mm
+  - RMSE Noise: 0.0515 mm, Max Dev: 0.1856 mm
+[sweep_points_left_marker_axis_5.txt]
+  - Points Count: 106, Outliers (>1.5mm): 0 (0.0%)
+  - Fitted Radius: 174.45 mm
+  - RMSE Noise: 0.0231 mm, Max Dev: 0.0552 mm
+[sweep_points_left_marker_axis_6.txt]
+  - Points Count: 116, Outliers (>1.5mm): 0 (0.0%)
+  - Fitted Radius: 53.33 mm
+  - RMSE Noise: 0.1548 mm, Max Dev: 0.4553 mm
+[sweep_points_right_marker_axis_4.txt]
+  - Points Count: 172, Outliers (>1.5mm): 0 (0.0%)
+  - Fitted Radius: 181.55 mm
+  - RMSE Noise: 0.0383 mm, Max Dev: 0.1145 mm
+[sweep_points_right_marker_axis_5.txt]
+  - Points Count: 168, Outliers (>1.5mm): 0 (0.0%)
+  - Fitted Radius: 173.66 mm
+  - RMSE Noise: 0.0557 mm, Max Dev: 0.2682 mm
+[sweep_points_right_marker_axis_6.txt]
+  - Points Count: 171, Outliers (>1.5mm): 0 (0.0%)
+  - Fitted Radius: 53.96 mm
+  - RMSE Noise: 0.1197 mm, Max Dev: 0.4260 mm
+=== STEP 2 COUPLING & OBSERVABILITY ANALYSIS ===
+Condition Number (All 22 Params) : 2438.74
+Condition Number (Joint Only)     : 82.61
+Condition Number (Camera Only)    : 1.28
+
+Highly Coupled Parameter Pairs (|Correlation| > 0.8):
+
+  - Head_Tilt <--> Cam_rx : +0.9991
+  - Head_Tilt <--> Cam_ty : -0.9946
+  - Head_Tilt <--> Cam_tz : -0.9844
+  - Cam_rx <--> Cam_ty : -0.9948
+  - Cam_rx <--> Cam_tz : -0.9896
+  - Cam_ty <--> Cam_tz : +0.9813

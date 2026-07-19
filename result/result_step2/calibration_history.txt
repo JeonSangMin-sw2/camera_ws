@@ -14,3 +14,51 @@ Left Arm Joint Offset (deg): [-0.6857213790238977, 3.3098278644164664e-08, -2.99
 Head Joint Offset (deg): [-0.06939895112860216, -0.3504391754931689]
 Camera xi: [-0.00011193883780461934, 8.587525317084006e-05, -0.0006781383036074248, 0.0004943702907054045, -0.11481163270859929, -0.060661254107489536]
 Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03304801200039004, "measurement_noise_rot_std_deg": 1.8935116089200463, "measurement_noise_pos_std_m": 0.0009999999999981812, "measurement_noise_pos_std_mm": 0.9999999999981811, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-07-16 20:51:49 ---
+Result Path: /home/nvidia/camera_ws/result/result_step2/result_20260716_205136.json
+Right Arm Joint Offset (deg): [2.3574911901061646, 3.1436782092076556, -0.00459025651676518, 2.0717671567982054, -3.9030226841567264, 5.1001974537719486, -0.390824006921472]
+Left Arm Joint Offset (deg): [1.9891477365027912, -2.769792333509047, -0.47628159249530705, 2.1122700947941375, 3.3490171152246693, 2.4460220988181423, -0.6303013032854581]
+Head Joint Offset (deg): [0.32545392305471377, 2.431820951823324]
+Camera xi: [-0.0038167473396124112, -0.0006387573524587202, -0.0010503157638160655, 0.0017062836493399, -0.10232871767478967, -0.07331427687858363]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03490656007275138, "measurement_noise_rot_std_deg": 1.9999985694885258, "measurement_noise_pos_std_m": 0.0009999995231628417, "measurement_noise_pos_std_mm": 0.9999995231628417, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-07-16 20:55:20 ---
+Result Path: /home/nvidia/camera_ws/result/result_step2/result_20260716_205505.json
+Right Arm Joint Offset (deg): [2.3574911901061646, 3.1436782092076556, -0.00459025651676518, 2.0717671567982054, -3.9030226841567264, 5.1001974537719486, -0.390824006921472]
+Left Arm Joint Offset (deg): [1.9891477365027912, -2.769792333509047, -0.47628159249530705, 2.1122700947941375, 3.3490171152246693, 2.4460220988181423, -0.6303013032854581]
+Head Joint Offset (deg): [0.32545392305471377, 2.431820951823324]
+Camera xi: [-0.0038167473396124112, -0.0006387573524587202, -0.0010503157638160655, 0.0017062836493399, -0.10232871767478967, -0.07331427687858363]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03490656007275138, "measurement_noise_rot_std_deg": 1.9999985694885258, "measurement_noise_pos_std_m": 0.0009999995231628417, "measurement_noise_pos_std_mm": 0.9999995231628417, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-07-16 20:56:38 ---
+Result Path: /home/nvidia/camera_ws/result/result_step2/result_20260716_205625.json
+Right Arm Joint Offset (deg): [2.3574911901061646, 3.1436782092076556, -0.00459025651676518, 2.0717671567982054, -3.9030226841567264, 5.1001974537719486, -0.390824006921472]
+Left Arm Joint Offset (deg): [1.9891477365027912, -2.769792333509047, -0.47628159249530705, 2.1122700947941375, 3.3490171152246693, 2.4460220988181423, -0.6303013032854581]
+Head Joint Offset (deg): [0.32545392305471377, 2.431820951823324]
+Camera xi: [-0.0038167473396124112, -0.0006387573524587202, -0.0010503157638160655, 0.0017062836493399, -0.10232871767478967, -0.07331427687858363]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03490656007275138, "measurement_noise_rot_std_deg": 1.9999985694885258, "measurement_noise_pos_std_m": 0.0009999995231628417, "measurement_noise_pos_std_mm": 0.9999995231628417, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-07-16 21:01:19 ---
+Result Path: /home/nvidia/camera_ws/result/result_step2/result_20260716_210104.json
+Right Arm Joint Offset (deg): [2.3574911901061646, 3.1436782092076556, -0.00459025651676518, 2.0717671567982054, -3.9030226841567264, 5.1001974537719486, -0.390824006921472]
+Left Arm Joint Offset (deg): [1.9891477365027912, -2.769792333509047, -0.47628159249530705, 2.1122700947941375, 3.3490171152246693, 2.4460220988181423, -0.6303013032854581]
+Head Joint Offset (deg): [0.32545392305471377, 2.431820951823324]
+Camera xi: [-0.0038167473396124112, -0.0006387573524587202, -0.0010503157638160655, 0.0017062836493399, -0.10232871767478967, -0.07331427687858363]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03490656007275138, "measurement_noise_rot_std_deg": 1.9999985694885258, "measurement_noise_pos_std_m": 0.0009999995231628417, "measurement_noise_pos_std_mm": 0.9999995231628417, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-07-16 21:03:43 ---
+Result Path: /home/nvidia/camera_ws/result/result_step2/result_20260716_210328.json
+Right Arm Joint Offset (deg): [2.587841209010868, 2.8980633453137226, -0.15759281758245863, 2.0717671561377773, -4.336831335909503, 5.10019745246289, 0.000999986061983932]
+Left Arm Joint Offset (deg): [1.7969029244168497, -3.116853272369277, -0.45888296099739156, 2.1122700955487814, 2.6976917457677403, 2.4460221006753042, -0.0010000150342602955]
+Head Joint Offset (deg): [0.14031360498633982, 2.3354473672205085]
+Camera xi: [-0.003825907840399843, -0.0006821768253704813, -0.0005916832783888172, 0.0033952695038283547, -0.10251045269156413, -0.07344942524796672]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03490656007275138, "measurement_noise_rot_std_deg": 1.9999985694885258, "measurement_noise_pos_std_m": 0.0009999995231628417, "measurement_noise_pos_std_mm": 0.9999995231628417, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-07-20 00:09:30 ---
+Result Path: /home/jsm/camera_ws/result/result_step2/result_20260720_000929.json
+Right Arm Joint Offset (deg): [0.3736531034482998, 2.4162793453860067, 1.0275584230989572, 0.4977899911197421, -1.3782399369161111, 5.459598379162618, 2.3495644863445464]
+Left Arm Joint Offset (deg): [-0.5255234959161574, -1.613379862780458, -0.9128409790699757, 0.6993098445411847, 0.9423065099920602, -2.9392722149359645, 3.4980751494743214]
+Head Joint Offset (deg): [-0.05028451214115773, -0.3709754513610413]
+Camera xi: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0013415987685033693, "measurement_noise_rot_std_deg": 0.07686794723519182, "measurement_noise_pos_std_m": 8.898717014131597e-05, "measurement_noise_pos_std_mm": 0.08898717014131598, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}

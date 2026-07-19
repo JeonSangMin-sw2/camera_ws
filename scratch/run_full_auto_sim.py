@@ -1,12 +1,12 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import QCoreApplication
-
-sys.path.append(os.path.abspath(os.path.dirname(__file__)))
-from main_ui import UnifiedCalibrationApp, SimulatedMarkerTransform
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import QCoreApplication
 
 app = QApplication(sys.argv)
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+from main_ui import UnifiedCalibrationApp, SimulatedMarkerTransform
 class MockRobot:
     pass
 
@@ -22,9 +22,9 @@ def log_print(msg):
             print(msg)
 
 mw.log_msg = log_print
-mw.robot_version_combo.setCurrentText("1.2")
+mw.robot_version = "1.2"
 mw.start_full_auto()
 
-if mw.full_auto_worker:
-    mw.full_auto_worker.finished_signal.connect(app.quit)
+if mw.active_worker:
+    mw.active_worker.finished_signal.connect(app.quit)
     app.exec_()
