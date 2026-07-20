@@ -7,11 +7,10 @@
 ============================================================
 
 
-[ITERATION 1/6] Sweeping physically with staged offset 2.9383°...
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
 
 ==================================================
    STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
-   [Baseline Shift (Current Applied Offset): 2.9383°]
 ==================================================
 [DEBUG] Saved Axis 4 debug points to sweep_points_left_joint_A_axis_4.txt
 [DEBUG] Saved Axis 6 debug points to sweep_points_left_joint_B_axis_6.txt
@@ -19,17 +18,73 @@
 ==================================================
    SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
 ==================================================
-  * Camera Circle Normals Angle (Reference): 0.0771 deg
-  * Circle Size Error (abs: r_A - r_B)     : 0.0009 mm
-  * Estimated Circle Center Distance       : 0.1895 mm
-  * Calculated Offset Correction           : 0.077058 deg
+  * Camera Circle Normals Angle (Reference): 2.9997 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.9351 mm
+  * Estimated Circle Center Distance       : 9.2173 mm
+  * Calculated Offset Correction           : 2.999712 deg
 ==================================================
-  * Angle Error (Deviation)     : 0.0771°
-  * Circle Size Error (r_A-r_B) : 0.0009 mm
-  * Center Distance Error       : 0.1895 mm
-  * Max Fitting Error Metric    : 0.1895 mm
+  * Angle Error (Deviation)     : 2.9997°
+  * Circle Size Error (r_A-r_B) : 0.9351 mm
+  * Center Distance Error       : 9.2173 mm
+  * Max Fitting Error Metric    : 9.2173 mm
+  * Updated Absolute Offset     : 2.9997°
+
+[ITERATION 2/6] Sweeping physically with staged offset 2.9997°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 2.9997°]
+==================================================
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.0104 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.0085 mm
+  * Estimated Circle Center Distance       : 0.0087 mm
+  * Calculated Offset Correction           : 0.010365 deg
+==================================================
+  * Angle Error (Deviation)     : 0.0104°
+  * Circle Size Error (r_A-r_B) : 0.0085 mm
+  * Center Distance Error       : 0.0087 mm
+  * Max Fitting Error Metric    : 0.0087 mm
 
 [SUCCESS] Calibration CONVERGED successfully:
-  * Step Correction: 0.0771° < 0.1° (reached resolution limit)
-  * Recommended Absolute Offset: 2.9383°
-[SUCCESS] Saved combined calibration comparison plot to: /home/jsm/camera_ws/result/result_img/circle_fit_left_wrist_pitch_joint_calib.png
+  * Step Correction: 0.0104° < 0.1° (reached resolution limit)
+  * Recommended Absolute Offset: 2.9997°
+[SUCCESS] Saved combined calibration comparison plot to: /home/rainbow/camera_ws/result/result_img/circle_fit_left_wrist_pitch_joint_calib.png
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: WRIST_PITCH
+============================================================
+
+
+[ITERATION 1/6] Sweeping physically with staged offset 2.9997°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 2.9997°]
+==================================================
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_joint_A_axis_4.txt
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_joint_B_axis_6.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.0735 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.0072 mm
+  * Estimated Circle Center Distance       : 0.0072 mm
+  * Calculated Offset Correction           : 0.073475 deg
+==================================================
+  * Angle Error (Deviation)     : 0.0735°
+  * Circle Size Error (r_A-r_B) : 0.0072 mm
+  * Center Distance Error       : 0.0072 mm
+  * Max Fitting Error Metric    : 0.0072 mm
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Step Correction: 0.0735° < 0.1° (reached resolution limit)
+  * Recommended Absolute Offset: 2.9997°
+[SUCCESS] Saved combined calibration comparison plot to: /home/rainbow/camera_ws/result/result_img/circle_fit_left_wrist_pitch_joint_calib.png

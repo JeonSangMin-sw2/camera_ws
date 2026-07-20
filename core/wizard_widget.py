@@ -247,6 +247,10 @@ class CalibrationWizardWidget(QWidget):
         btn_start_full.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 14px; padding: 6px;")
         btn_start_full.clicked.connect(self.start_step4)
         
+        btn_apply4 = QPushButton("Apply Brackets")
+        btn_apply4.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 14px; padding: 6px;")
+        btn_apply4.clicked.connect(self.apply_brackets_clicked)
+        
         btn_stop4 = QPushButton("Stop Motion")
         btn_stop4.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 14px; padding: 6px;")
         btn_stop4.clicked.connect(self.parent_app.stop_full_auto)
@@ -254,6 +258,7 @@ class CalibrationWizardWidget(QWidget):
         btn_layout4.addStretch()
         btn_layout4.addWidget(btn_feed4)
         btn_layout4.addWidget(btn_start_full)
+        btn_layout4.addWidget(btn_apply4)
         btn_layout4.addWidget(btn_stop4)
         btn_layout4.addStretch()
         l4.addLayout(btn_layout4)
@@ -532,4 +537,7 @@ class CalibrationWizardWidget(QWidget):
             self.mark_step_completed(4, True, f"Done ({self.step5_elapsed//60:02d}:{self.step5_elapsed%60:02d})")
         else:
             self.mark_step_completed(4, False, err_msg)
+
+    def apply_brackets_clicked(self):
+        self.parent_app.apply_bracket_design_values(silent=False)
 

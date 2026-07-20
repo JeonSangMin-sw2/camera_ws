@@ -181,7 +181,7 @@ class RealSenseCamera:
                     sensor.set_option(rs.option.enable_auto_exposure, 0)
                 if sensor.supports(rs.option.exposure):
                     try:
-                        sensor.set_option(rs.option.exposure, 8000) # 8ms (모션 블러 방지와 밝기 밸런스)
+                        sensor.set_option(rs.option.exposure, 6000) # 6ms (모션 블러 방지와 밝기 밸런스)
                     except Exception as e:
                         print(f"Warning: Failed to set exposure on sensor {sensor.get_info(rs.camera_info.name)}: {e}")
                 if sensor.supports(rs.option.gain):

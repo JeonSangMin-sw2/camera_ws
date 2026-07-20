@@ -3272,16 +3272,6 @@ class UnifiedCalibrationApp(QWidget):
                 pass
 
     def on_head_checkbox_changed(self, checked):
-        if not hasattr(self, 'robot') or not self.robot:
-            self.include_head_motion = checked
-            return
-        if len(self.model.head_idx) == 0:
-            if checked:
-                self.chk_servo_head.blockSignals(True)
-                self.chk_servo_head.setChecked(False)
-                self.chk_servo_head.blockSignals(False)
-            self.include_head_motion = False
-            return
         self.include_head_motion = checked
         self.log_msg(f"[INFO] Head motion/optimization option: {checked}")
 
@@ -3402,17 +3392,6 @@ class UnifiedCalibrationApp(QWidget):
                 self.dyn_model = self.robot.get_dynamics()
                 self.marker_calibrator.robot = self.robot
                 self.joint_calibrator.robot = self.robot
-                
-                # Check for head presence
-                if len(self.model.head_idx) == 0:
-                    if hasattr(self, 'chk_servo_head'):
-                        self.chk_servo_head.setChecked(False)
-                        self.chk_servo_head.setEnabled(False)
-                    self.include_head_motion = False
-                    self.log_msg("[INFO] No head joints detected. Head motion disabled (Torso base).")
-                else:
-                    if hasattr(self, 'chk_servo_head'):
-                        self.chk_servo_head.setEnabled(True)
                 
                 # Determine version classification automatically
                 detected_version = "1.2"
@@ -4089,8 +4068,14 @@ class UnifiedCalibrationApp(QWidget):
         if self.include_head_motion and self.auto_base_head_q is None:
             head_cfg = get_head_config(self.model)
             if head_cfg["head_idx"] is not None:
-                self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
-                self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+                state = self.robot.get_state()
+                if state is not None and getattr(state, 'position', None) is not None:
+                    q_full = np.array(state.position)
+                    self.auto_base_head_q = q_full[head_cfg["head_idx"]].copy()
+                    self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+                else:
+                    self.auto_base_head_q = None
+                    self.include_head_motion = False
             else:
                 self.auto_base_head_q = None
                 self.include_head_motion = False
@@ -4277,7 +4262,10 @@ class UnifiedCalibrationApp(QWidget):
         # In sim mode bypass camera and return dummy marker data
         if self.step2_mode_sel.currentText() == "sim":
             state = self.robot.get_state()
-            q_full = state.position.copy()
+            if state is None or getattr(state, 'position', None) is None:
+                self.log_msg("[ERROR] Sim mode: Robot state position is None.")
+                return None, None, None
+            q_full = np.array(state.position)
             q_arm = q_full[cfg["arm_idx"]].copy()
             q_head = q_full[head_idx].copy() if head_idx is not None else None
             # MOCK_GT_OFFSETS 및 기구학 모델(FK)을 반영한 현실적인 가상 마커 포즈 생성
@@ -4569,8 +4557,13 @@ class UnifiedCalibrationApp(QWidget):
                 if self.include_head_motion:
                     head_cfg = get_head_config(self.model)
                     if head_cfg["head_idx"] is not None:
-                        self.auto_base_head_q = self.robot.get_state().position[head_cfg["head_idx"]].copy()
-                        self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+                        state = self.robot.get_state()
+                        if state is not None and getattr(state, 'position', None) is not None:
+                            q_full = np.array(state.position)
+                            self.auto_base_head_q = q_full[head_cfg["head_idx"]].copy()
+                            self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
+                        else:
+                            self.auto_base_head_q = None
                     else:
                         self.auto_base_head_q = None
                         self.include_head_motion = False
@@ -5151,7 +5144,7 @@ class UnifiedCalibrationApp(QWidget):
                 result_path,
                 baseline_path,
                 self.arm_side,
-                include_head=self.include_head_motion
+                include_head=True
             )
             dialog.exec()
         except Exception as e:
@@ -5217,7 +5210,7 @@ class UnifiedCalibrationApp(QWidget):
             self.robot,
             self.robot.model() if (self.robot and not self.is_mock) else None,
             self.model_input.currentText().strip() if hasattr(self, 'model_input') else "a",
-            include_head=self.include_head_motion
+            include_head=True
         )
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.finished_signal.connect(self.on_home_offset_reset_finished)
