@@ -577,7 +577,8 @@ class ApplyHomeOffsetDialog(QDialog):
             self.parent_app,
             "apply",
             arm=self.current_apply_arm,
-            include_head=self.include_head
+            include_head=self.include_head,
+            json_path=self.result_path if state == "optimized" else None
         )
         self.worker.log_signal.connect(self.parent_app.log_msg)
         def on_finished(success, error_msg, res):
@@ -1061,7 +1062,8 @@ class Step2ApplyHomeOffsetWorker(QThread):
             elif self.task_type == "apply":
                 res = self.app.apply_current_pose_home_offset(
                     self.kwargs["arm"],
-                    self.kwargs["include_head"]
+                    self.kwargs["include_head"],
+                    json_path=self.kwargs.get("json_path")
                 )
                 self.finished_signal.emit(True, "", res)
         except Exception as e:
@@ -4027,7 +4029,7 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("Preview move complete. Inspect the robot pose before applying.")
         return result
 
-    def apply_current_pose_home_offset(self, arm, include_head):
+    def apply_current_pose_home_offset(self, arm, include_head, json_path=None):
         self.ensure_home_offset_robot()
         result = reset_current_pose_home_offsets(
             self.robot,
@@ -4036,10 +4038,37 @@ class UnifiedCalibrationApp(QWidget):
             include_head=include_head,
         )
 
+        # If camera was optimized, save the new camera pose to setting.yaml
+        if json_path is not None and os.path.exists(json_path):
+            try:
+                import json
+                with open(json_path, "r") as f:
+                    data = json.load(f)
+                
+                mount_to_cam_new = data.get("mount_to_cam_new")
+                head_base_to_cam_new = data.get("head_base_to_cam_new")
+                
+                if mount_to_cam_new or head_base_to_cam_new:
+                    config_path = CONFIG_PATHS["setting_yaml"]
+                    if os.path.exists(config_path):
+                        with open(config_path, "r") as f:
+                            lines = f.readlines()
+                        
+                        if mount_to_cam_new:
+                            self.log_msg(f"[APPLY] Saving optimized mount_to_cam to setting.yaml: {mount_to_cam_new}")
+                            self._update_camera_key_in_lines(lines, "mount_to_cam", mount_to_cam_new)
+                        if head_base_to_cam_new:
+                            self.log_msg(f"[APPLY] Saving optimized head_base_to_cam to setting.yaml: {head_base_to_cam_new}")
+                            self._update_camera_key_in_lines(lines, "head_base_to_cam", head_base_to_cam_new)
+                            
+                        with open(config_path, "w") as f:
+                            f.writelines(lines)
+            except Exception as e:
+                self.log_msg(f"[ERROR] Failed to save optimized camera pose to setting.yaml: {e}")
+
         # Robot reconnection should be done in the main thread to avoid GUI thread safety issues.
         # We will signal the caller to handle the reconnection.
         result['needs_reconnect'] = True
-        return result
         return result
 
     def run_auto_motion_step_blocking(self):
@@ -4449,6 +4478,10 @@ class UnifiedCalibrationApp(QWidget):
             "xi_cam": np.array(xi_cam).tolist(),
             "measurement_noise": optimizer.noise_estimator.as_dict(),
         }
+        if mount_to_cam_new is not None:
+            result_dict["mount_to_cam_new"] = mount_to_cam_new
+        if head_base_to_cam_new is not None:
+            result_dict["head_base_to_cam_new"] = head_base_to_cam_new
 
         if self.last_home_reset_path is not None and Path(self.last_home_reset_path).exists():
             result_dict["home_reset_baseline_path"] = str(self.last_home_reset_path)
@@ -4613,7 +4646,7 @@ class UnifiedCalibrationApp(QWidget):
             mode = self.step2_mode_sel.currentText()
             active_arms = ["right", "left"]
             optimize_head = self.include_head_motion
-            optimize_camera = False
+            optimize_camera = True
             
             lambda_cam_pos = 1.0
             lambda_cam_rot = 1.0
@@ -4902,6 +4935,45 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to load setting.yaml: {e}")
 
+    def _update_camera_key_in_lines(self, lines_list, key_str, new_vals_list):
+        camera_idx = -1
+        for idx, line in enumerate(lines_list):
+            if line.strip().startswith("camera:"):
+                camera_idx = idx
+                break
+        
+        new_val_str = f"[{new_vals_list[0]:.5f}, {new_vals_list[1]:.5f}, {new_vals_list[2]:.5f}, {new_vals_list[3]:.2f}, {new_vals_list[4]:.2f}, {new_vals_list[5]:.2f}]"
+        key_found = False
+        if camera_idx != -1:
+            i = camera_idx + 1
+            while i < len(lines_list):
+                line = lines_list[i]
+                stripped = line.strip()
+                if not stripped:
+                    i += 1
+                    continue
+                if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+                    break
+                
+                if stripped.startswith(f"{key_str}:"):
+                    comment = ""
+                    if "#" in line:
+                        comment_idx = line.find("#")
+                        comment = " " + line[comment_idx:].rstrip()
+                    
+                    indent = len(line) - len(line.lstrip())
+                    lines_list[i] = " " * indent + f"{key_str}: {new_val_str}{comment}\n"
+                    key_found = True
+                    break
+                i += 1
+        
+        if not key_found:
+            if camera_idx == -1:
+                lines_list.append("camera:\n")
+                lines_list.append(f"  {key_str}: {new_val_str}\n")
+            else:
+                lines_list.insert(camera_idx + 1, f"  {key_str}: {new_val_str}\n")
+
     def apply_bracket_design_values(self, silent=False):
         config_path = CONFIG_PATHS["setting_yaml"]
         try:
@@ -4929,47 +5001,8 @@ class UnifiedCalibrationApp(QWidget):
                 with open(config_path, "r") as f:
                     lines = f.readlines()
             
-            def update_key_in_lines(lines_list, key_str, new_vals_list):
-                camera_idx = -1
-                for idx, line in enumerate(lines_list):
-                    if line.strip().startswith("camera:"):
-                        camera_idx = idx
-                        break
-                
-                new_val_str = f"[{new_vals_list[0]:.5f}, {new_vals_list[1]:.5f}, {new_vals_list[2]:.5f}, {new_vals_list[3]:.2f}, {new_vals_list[4]:.2f}, {new_vals_list[5]:.2f}]"
-                key_found = False
-                if camera_idx != -1:
-                    i = camera_idx + 1
-                    while i < len(lines_list):
-                        line = lines_list[i]
-                        stripped = line.strip()
-                        if not stripped:
-                            i += 1
-                            continue
-                        if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
-                            break
-                        
-                        if stripped.startswith(f"{key_str}:"):
-                            comment = ""
-                            if "#" in line:
-                                comment_idx = line.find("#")
-                                comment = " " + line[comment_idx:].rstrip()
-                            
-                            indent = len(line) - len(line.lstrip())
-                            lines_list[i] = " " * indent + f"{key_str}: {new_val_str}{comment}\n"
-                            key_found = True
-                            break
-                        i += 1
-                
-                if not key_found:
-                    if camera_idx == -1:
-                        lines_list.append("camera:\n")
-                        lines_list.append(f"  {key_str}: {new_val_str}\n")
-                    else:
-                        lines_list.insert(camera_idx + 1, f"  {key_str}: {new_val_str}\n")
-            
-            update_key_in_lines(lines, "Tf_to_marker_left", [l_x, l_y, l_z, l_roll, l_pitch, l_yaw])
-            update_key_in_lines(lines, "Tf_to_marker_right", [r_x, r_y, r_z, r_roll, r_pitch, r_yaw])
+            self._update_camera_key_in_lines(lines, "Tf_to_marker_left", [l_x, l_y, l_z, l_roll, l_pitch, l_yaw])
+            self._update_camera_key_in_lines(lines, "Tf_to_marker_right", [r_x, r_y, r_z, r_roll, r_pitch, r_yaw])
             
             with open(config_path, "w") as f:
                 f.writelines(lines)
