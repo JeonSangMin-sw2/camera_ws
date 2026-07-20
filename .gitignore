@@ -5,5 +5,4 @@ __pycache__/
 *.pyc
 rby1_camera_utils.egg-info/
 core/rby1_camera_utils.egg-info/
-core/calibration/result_img/
-core/calibration/result_txt/
+result/
