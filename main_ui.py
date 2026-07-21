@@ -586,6 +586,9 @@ class ApplyHomeOffsetDialog(QDialog):
             if success:
                 if res.get("needs_reconnect", False):
                     self.parent_app.log_msg("Re-connecting and initializing robot...")
+                    if self.parent_app.robot:
+                        self.parent_app.connect_robot()
+                        QApplication.processEvents()
                     self.parent_app.connect_robot()
                     self.parent_app.log_msg("Current pose home offset apply complete.")
                     
@@ -4746,6 +4749,9 @@ class UnifiedCalibrationApp(QWidget):
                     self.btn_step2_calculate.setText("3) Calculate")
                     self.btn_step2_calculate.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
 
+                if hasattr(self, 'wizard_widget') and self.wizard_widget is not None and self.wizard_widget.isVisible():
+                    self.wizard_widget.stop_step5(success, error_msg if not success else "")
+
                 if success:
                     self.log_msg("Optimization finished successfully.")
                     QMessageBox.information(self, "Step 2 Calculation", "Optimization finished successfully!\nCheck the logs and Result Output for details.")
@@ -5362,6 +5368,23 @@ class UnifiedCalibrationApp(QWidget):
             
         self.log_text.clear()
         self.log_msg("[INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...")
+        
+        # Reset all in-memory joint offsets to 0.0 so Full Auto starts clean
+        for arm in ["right", "left"]:
+            if hasattr(self, 'joint_offsets_store') and arm in self.joint_offsets_store:
+                for k in self.joint_offsets_store[arm]:
+                    self.joint_offsets_store[arm][k] = 0.0
+            if hasattr(self, 'joint_offsets') and arm in self.joint_offsets:
+                for k in self.joint_offsets[arm]:
+                    self.joint_offsets[arm][k] = 0.0
+
+        if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+            self.joint_calibrator.joint_offsets = self.joint_offsets
+        if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+            self.marker_calibrator.joint_offsets = self.joint_offsets
+
+        self.update_applied_offset_label()
+        self.log_msg("[FULL AUTO] Initial joint offsets reset to 0.0 before starting calibration.")
         if self.ui_only:
             self.log_msg("[MOCK GT] Simulated Ground-Truth Offsets:")
             is_v13 = self.get_robot_version() == "1.3"

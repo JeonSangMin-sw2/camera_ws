@@ -906,15 +906,25 @@ class CalibrationWizardWidget(QWidget):
         self.step5_timer.start(1000)
         self.parent_app.step2_auto_motion()
         if hasattr(self.parent_app, 'auto_motion_thread') and self.parent_app.auto_motion_thread:
-            self.parent_app.auto_motion_thread.finished_signal.connect(self.stop_step5)
+            self.parent_app.auto_motion_thread.finished_signal.connect(self.on_step5_motion_finished)
         else:
             self.stop_step5(False, "Worker not started")
+
+    def on_step5_motion_finished(self, success=True, err_msg=""):
+        if success:
+            self.lbl_step5_status.setText("Status: Motion complete. Running optimization calculation...")
+            self.lbl_step5_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
+        else:
+            self.stop_step5(False, err_msg)
             
     def update_step5_time(self):
         self.step5_elapsed += 1
         m = self.step5_elapsed // 60
         s = self.step5_elapsed % 60
-        self.lbl_step5_status.setText(f"Status: Auto Motion In Progress ({m:02d}:{s:02d})")
+        if "Running optimization" in self.lbl_step5_status.text():
+            self.lbl_step5_status.setText(f"Status: Running optimization calculation ({m:02d}:{s:02d})")
+        else:
+            self.lbl_step5_status.setText(f"Status: Auto Motion In Progress ({m:02d}:{s:02d})")
         
     def stop_step5(self, success=True, err_msg=""):
         self.step5_timer.stop()
