@@ -4640,6 +4640,17 @@ class UnifiedCalibrationApp(QWidget):
 
     def step2_calculate(self):
         self.log_msg("[Step2] Calculate requested.")
+        
+        # Check if calculation is already running
+        if hasattr(self, 'calc_worker') and self.calc_worker is not None and self.calc_worker.isRunning():
+            self.log_msg("[Step2] [WARNING] Optimization calculation is ALREADY running!")
+            QMessageBox.information(
+                self,
+                "Calculation In Progress",
+                "Optimization calculation is already running in the background.\n\nPlease wait for the current calculation to complete."
+            )
+            return
+
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
@@ -4707,6 +4718,14 @@ class UnifiedCalibrationApp(QWidget):
                             
             dataset_path, result_path = self.build_output_paths()
             
+            # Disable calculate button and update UI status
+            if hasattr(self, 'btn_step2_calculate') and self.btn_step2_calculate is not None:
+                self.btn_step2_calculate.setEnabled(False)
+                self.btn_step2_calculate.setText("Calculating...")
+                self.btn_step2_calculate.setStyleSheet("background-color: #f57c00; color: white; font-weight: bold;")
+
+            self.log_msg("[Step2] Optimization calculation started in background thread...")
+
             self.calc_worker = Step2CalculateWorker(
                 self,
                 active_arms,
@@ -4720,17 +4739,30 @@ class UnifiedCalibrationApp(QWidget):
                 lambda_cam_rot
             )
             self.calc_worker.log_signal.connect(self.log_msg)
+            
             def on_finished(success, error_msg):
+                if hasattr(self, 'btn_step2_calculate') and self.btn_step2_calculate is not None:
+                    self.btn_step2_calculate.setEnabled(True)
+                    self.btn_step2_calculate.setText("3) Calculate")
+                    self.btn_step2_calculate.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+
                 if success:
                     self.log_msg("Optimization finished successfully.")
                     QMessageBox.information(self, "Step 2 Calculation", "Optimization finished successfully!\nCheck the logs and Result Output for details.")
                 else:
                     self.log_msg(f"[Error] Optimization failed: {error_msg}")
                     QMessageBox.warning(self, "Step 2 Calculation Failed", f"Optimization failed:\n{error_msg}")
+
             self.calc_worker.finished_signal.connect(on_finished)
             self.calc_worker.start()
             
         except Exception as e:
+            if hasattr(self, 'btn_step2_calculate') and self.btn_step2_calculate is not None:
+                self.btn_step2_calculate.setEnabled(True)
+                self.btn_step2_calculate.setText("3) Calculate")
+                self.btn_step2_calculate.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+            QMessageBox.critical(self, "Calculate Error", str(e))
+            self.log_msg(f"Calculate failed: {e}")
             QMessageBox.critical(self, "Calculate Error", str(e))
             self.log_msg(f"Calculate failed: {e}")
 
@@ -5056,6 +5088,10 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_marker_start.setEnabled(enabled)
         if hasattr(self, 'btn_marker_result'):
             self.btn_marker_result.setEnabled(enabled)
+            
+        if hasattr(self, 'btn_step2_calculate') and self.btn_step2_calculate is not None:
+            is_calculating = hasattr(self, 'calc_worker') and self.calc_worker is not None and self.calc_worker.isRunning()
+            self.btn_step2_calculate.setEnabled(enabled and not is_calculating)
         
         self.btn_int_capture.setEnabled(enabled)
         self.btn_int_calibrate.setEnabled(enabled)
