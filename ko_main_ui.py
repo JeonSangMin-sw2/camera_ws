@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import sys
 import os
 # os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
@@ -27,7 +28,7 @@ from pathlib import Path
 from marker_detection import Marker_Detection, Marker_Transform
 from calibration.Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
 from calibration.IntrinsicsCalibrator import IntrinsicsCalibrator
-from core.wizard_widget import CalibrationWizardWidget
+from core.wizard_widget_ko import CalibrationWizardWidgetKO as CalibrationWizardWidget
 from homeoffset_core import (
     reset_current_pose_home_offsets,
     save_home_reset_baseline_json,
@@ -227,11 +228,11 @@ class IndicatorWidget(QWidget):
 class CameraFeedDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Camera Live Feed")
+        self.setWindowTitle("카메라 실시간 피드")
         self.resize(640, 480)
         
         layout = QVBoxLayout(self)
-        self.lbl_feed = QLabel("Waiting for camera frame...")
+        self.lbl_feed = QLabel("카메라 프레임 대기 중...")
         self.lbl_feed.setAlignment(Qt.AlignCenter)
         self.lbl_feed.setStyleSheet("background-color: black; color: white; border: 1px solid #2d2d2d; border-radius: 4px;")
         self.lbl_feed.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
@@ -245,7 +246,7 @@ class CameraFeedDialog(QDialog):
 class PlotViewerDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Calibration Plot Viewer")
+        self.setWindowTitle("캘리브레이션 플롯 뷰어")
         self.resize(950, 750)
         self.setStyleSheet(DARK_STYLESHEET)
         
@@ -281,7 +282,7 @@ class PlotViewerDialog(QDialog):
             }
         """)
         
-        self.lbl_title = QLabel("No Plot Loaded")
+        self.lbl_title = QLabel("로드된 플롯 없음")
         self.lbl_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.lbl_title.setAlignment(Qt.AlignCenter)
         self.lbl_title.setStyleSheet("""
@@ -321,7 +322,7 @@ class PlotViewerDialog(QDialog):
         nav_layout.addWidget(self.lbl_title, 1)
         nav_layout.addWidget(self.btn_next)
         
-        self.plot_label = QLabel("No plots to display")
+        self.plot_label = QLabel("표시할 플롯이 없습니다")
         self.plot_label.setAlignment(Qt.AlignCenter)
         self.plot_label.setStyleSheet("background-color: #1a1a1a; color: #888888; border: 2px solid #2d2d2d; border-radius: 8px;")
         self.plot_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
@@ -341,7 +342,7 @@ class PlotViewerDialog(QDialog):
 class ZeroPoseCheckDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Zero Pose Check")
+        self.setWindowTitle("제로 포즈 검사")
         self.resize(760, 800)
         self.setStyleSheet(DARK_STYLESHEET)
         
@@ -350,12 +351,12 @@ class ZeroPoseCheckDialog(QDialog):
         layout.setSpacing(10)
         
         msg = (
-            "The robot has moved to zero pose.\n\n"
-            "Please compare the actual robot posture with the reference image.\n\n"
-            "- If the posture matches the reference, you can proceed with data collection.\n"
-            "- If the posture does not match and the two target joints appear outside the recommended range,\n"
-            "  use direct teaching to move the robot to the recommended posture,\n"
-            "  perform reset first, and then start data collection."
+            "로봇이 제로 포즈(Zero Pose)로 이동했습니다.\n\n"
+            "실제 로봇의 자세를 아래 참조 이미지와 비교해 주세요.\n\n"
+            "- 자세가 참조 이미지와 일치하면 데이터 수집을 진행할 수 있습니다.\n"
+            "- 자세가 일치하지 않고 두 대상 조인트가 권장 범위를 벗어난 것으로 보이면,\n"
+            "  직접 교시(Direct Teaching)를 사용하여 로봇을 권장 자세로 이동시킨 후,\n"
+            "  먼저 영점 초기화를 수행한 다음 데이터 수집을 시작하십시오."
         )
         msg_lbl = QLabel(msg)
         msg_lbl.setWordWrap(True)
@@ -381,7 +382,7 @@ class ZeroPoseCheckDialog(QDialog):
 class ApplyHomeOffsetDialog(QDialog):
     def __init__(self, parent, result_path, baseline_path, arm, include_head, compare_summary=None):
         super().__init__(parent)
-        self.setWindowTitle("Apply Home Offset")
+        self.setWindowTitle("홈 오프셋 적용")
         self.resize(900, 600)
         self.setStyleSheet(DARK_STYLESHEET)
         
@@ -402,12 +403,12 @@ class ApplyHomeOffsetDialog(QDialog):
         layout.setSpacing(10)
         
         msg = (
-            "Compare the original baseline zero and the optimized zero before applying.\n\n"
-            "1. Select Baseline or Optimized state.\n"
-            "2. Move to Zero to inspect the zero pose before calibration reset.\n"
-            "3. Move to Check Position to move the robot to the custom check pose.\n"
-            "4. Apply the pose you want to keep using Rollback or Apply Optimized Result.\n\n"
-            "Make sure the workspace is clear before each move."
+            "적용하기 전 기존 베이스라인 영점과 최적화된 영점을 비교하십시오.\n\n"
+            "1. 베이스라인(Baseline) 또는 최적화(Optimized) 상태를 선택합니다.\n"
+            "2. 'Move to Zero'를 눌러 보정 리셋 전 영점 포즈를 확인합니다.\n"
+            "3. 'Move to Check'를 눌러 로봇을 검사 포즈로 이동시킵니다.\n"
+            "4. 유지를 원하는 포즈를 선택 후 롤백 또는 최적화 결과 적용을 진행합니다.\n\n"
+            "이동 전 작업 공간에 장애물이 없는지 반드시 확인하십시오."
         )
         msg_lbl = QLabel(msg)
         msg_lbl.setWordWrap(True)
@@ -424,8 +425,8 @@ class ApplyHomeOffsetDialog(QDialog):
         state_layout = QHBoxLayout()
         self.btn_group = QButtonGroup(self)
         
-        self.btn_baseline = QPushButton("BASELINE\n(Rollback)")
-        self.btn_opt = QPushButton("OPTIMIZED\n(Apply)")
+        self.btn_baseline = QPushButton("베이스라인 영점\n(Baseline / 롤백)")
+        self.btn_opt = QPushButton("최적화 영점\n(Optimized / 적용)")
         
         btn_style = """
         QPushButton {
@@ -464,11 +465,11 @@ class ApplyHomeOffsetDialog(QDialog):
         
         # Movement Buttons
         move_layout = QHBoxLayout()
-        self.btn_move_zero = QPushButton("Move to Zero")
+        self.btn_move_zero = QPushButton("제로 포즈로 이동")
         self.btn_move_zero.clicked.connect(self.on_move_zero)
         move_layout.addWidget(self.btn_move_zero)
         
-        self.btn_move_check = QPushButton("Move to Check")
+        self.btn_move_check = QPushButton("검사 포즈로 이동")
         self.btn_move_check.clicked.connect(self.on_move_check)
         move_layout.addWidget(self.btn_move_check)
         layout.addLayout(move_layout)
@@ -476,7 +477,7 @@ class ApplyHomeOffsetDialog(QDialog):
         # Action buttons row
         btn_layout = QHBoxLayout()
         
-        self.btn_apply = QPushButton("Apply Selected Offset")
+        self.btn_apply = QPushButton("선택한 오프셋 적용")
         self.btn_apply.setStyleSheet("background-color: #d84315; color: white; font-weight: bold; font-size: 16px; padding: 10px;")
         self.btn_apply.clicked.connect(self.on_apply_selected)
         
@@ -485,7 +486,7 @@ class ApplyHomeOffsetDialog(QDialog):
             
         btn_layout.addWidget(self.btn_apply)
         
-        btn_close = QPushButton("Close")
+        btn_close = QPushButton("닫기")
         btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(btn_close)
         
@@ -514,8 +515,8 @@ class ApplyHomeOffsetDialog(QDialog):
         # Add confirmation popup
         confirm = QMessageBox.question(
             self, 
-            "Confirm Apply", 
-            f"Are you sure you want to apply the '{state.upper()}' offsets?\n\nThis will write to the robot's configuration.",
+            "적용 확인", 
+            f"정말로 '{state.upper()}' 오프셋을 적용하시겠습니까?\n\n이 작업은 로봇의 설정 메모리에 적용값을 기록합니다.",
             QMessageBox.Yes | QMessageBox.No, 
             QMessageBox.No
         )
@@ -635,7 +636,7 @@ from PySide6.QtGui import QFont, QPixmap
 class CheckCalibrationStateDialog(QDialog):
     def __init__(self, parent):
         super().__init__(parent)
-        self.setWindowTitle("Check Calibration State")
+        self.setWindowTitle("캘리브레이션 상태 검사")
         self.resize(450, 300)
         self.setStyleSheet(DARK_STYLESHEET)
         
@@ -648,42 +649,42 @@ class CheckCalibrationStateDialog(QDialog):
         layout.setSpacing(10)
         
         grid = QGridLayout()
-        grid.addWidget(QLabel("X Position (m):"), 0, 0)
+        grid.addWidget(QLabel("X 위치 (m):"), 0, 0)
         self.x_input = QLineEdit("0.35")
         self.x_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         grid.addWidget(self.x_input, 0, 1)
         
-        grid.addWidget(QLabel("Y Position (m):"), 1, 0)
+        grid.addWidget(QLabel("Y 위치 (m):"), 1, 0)
         self.y_input = QLineEdit("0.0")
         self.y_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         grid.addWidget(self.y_input, 1, 1)
         
-        grid.addWidget(QLabel("Z Position (m):"), 2, 0)
+        grid.addWidget(QLabel("Z 위치 (m):"), 2, 0)
         self.z_input = QLineEdit("0.0")
         self.z_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         grid.addWidget(self.z_input, 2, 1)
         
-        grid.addWidget(QLabel("Y Offset (m):"), 3, 0)
+        grid.addWidget(QLabel("Y 오프셋 (m):"), 3, 0)
         self.offset_input = QLineEdit("0.175")
         self.offset_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         grid.addWidget(self.offset_input, 3, 1)
         
         layout.addLayout(grid)
         
-        self.lbl_status = QLabel("Status: Ready")
+        self.lbl_status = QLabel("상태: 준비됨")
         self.lbl_status.setStyleSheet("color: #2979ff; font-weight: bold;")
         layout.addWidget(self.lbl_status)
         
         btn_layout = QHBoxLayout()
-        self.btn_move = QPushButton("Move")
+        self.btn_move = QPushButton("이동")
         self.btn_move.clicked.connect(self.on_move)
         btn_layout.addWidget(self.btn_move)
         
-        self.btn_draw = QPushButton("Draw Square")
+        self.btn_draw = QPushButton("사각형 그리기")
         self.btn_draw.clicked.connect(self.on_draw_square)
         btn_layout.addWidget(self.btn_draw)
         
-        btn_close = QPushButton("Close")
+        btn_close = QPushButton("닫기")
         btn_close.clicked.connect(self.reject)
         btn_layout.addWidget(btn_close)
         
@@ -701,11 +702,11 @@ class CheckCalibrationStateDialog(QDialog):
             z = float(self.z_input.text())
             offset = float(self.offset_input.text())
         except ValueError:
-            QMessageBox.critical(self, "Input Error", "Please enter valid floating-point numbers.")
+            QMessageBox.critical(self, "Input Error", "올바른 소수점 숫자를 입력해 주세요.")
             return
 
         if not self.parent_app.robot:
-            QMessageBox.critical(self, "Error", "Robot is not connected.")
+            QMessageBox.critical(self, "Error", "로봇이 연결되어 있지 않습니다.")
             return
 
         self.lbl_status.setText("Status: Moving...")
@@ -748,7 +749,7 @@ class CheckCalibrationStateDialog(QDialog):
             return
 
         if not self.parent_app.robot:
-            QMessageBox.critical(self, "Error", "Robot is not connected.")
+            QMessageBox.critical(self, "Error", "로봇이 연결되어 있지 않습니다.")
             return
 
         try:
@@ -789,7 +790,7 @@ class CheckCalibrationStateDialog(QDialog):
         self._worker = worker
         worker.start()
 
-# --- Common Worker Threads ---
+# --- Common 워커 스레드s ---
 
 class MoveToReadyWorker(QThread):
     log_signal = Signal(str)
@@ -2953,13 +2954,13 @@ class UnifiedCalibrationApp(QWidget):
         camera_tab.setLayout(camera_tab_layout)
         
         # ==========================================
-        # Overview Tab
+        # 오버뷰 탭
         # ==========================================
         overview_tab = QWidget()
         overview_layout = QVBoxLayout()
         overview_layout.setContentsMargins(20, 20, 20, 20)
         
-        self.overview_title = QLabel("Calibration Process Overview")
+        self.overview_title = QLabel("보정 프로세스 개요 (Calibration Overview)")
         self.overview_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
         self.overview_title.setAlignment(Qt.AlignCenter)
         overview_layout.addWidget(self.overview_title)
@@ -2985,7 +2986,7 @@ class UnifiedCalibrationApp(QWidget):
         self.overview_img.setStyleSheet("border: 2px solid #555; background-color: #222; border-radius: 8px;")
         overview_layout.addWidget(self.overview_img, stretch=1)
         
-        self.btn_start_wizard = QPushButton("Start Wizard")
+        self.btn_start_wizard = QPushButton("위자드 시작 (Start Wizard)")
         self.btn_start_wizard.setStyleSheet("background-color: #d84315; color: white; font-weight: bold; font-size: 18px; padding: 10px;")
         self.btn_start_wizard.setFixedWidth(400)
         self.btn_start_wizard.clicked.connect(self.show_wizard_ui)
@@ -3337,11 +3338,11 @@ class UnifiedCalibrationApp(QWidget):
             addr = self.ip_input.text().strip()
             model = self.model_input.currentText().strip()
             
-            # Read head checkbox state (like calibration_ui's servo_head)
+            # 헤드 체크박스 상태 읽기 (like calibration_ui's servo_head)
             head_enabled = self.chk_servo_head.isChecked() if hasattr(self, 'chk_servo_head') else True
             self.include_head_motion = head_enabled
             
-            # Update connection button to loading state
+            # 연결 버튼 상태를 로딩 중으로 업데이트
             self.btn_connect.setText("CONNECTING...")
             self.btn_connect.setStyleSheet("background-color: #ffb74d; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
             self.btn_connect.setEnabled(False)
@@ -3349,7 +3350,7 @@ class UnifiedCalibrationApp(QWidget):
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
             
-            # 1. Create and connect robot (with auto-retry safety guard)
+            # 1. 로봇 생성 및 연결 시도 (with auto-retry safety guard)
             robot = rby.create_robot(addr, model)
             connected = robot.connect()
             if not connected:
@@ -3361,7 +3362,7 @@ class UnifiedCalibrationApp(QWidget):
                 raise ConnectionError(f"Failed to connect robot at {addr}")
             time.sleep(1)
 
-            # 2. Safety check: Verify actual connected robot model matches expected model
+            # 2. 안전 검사: 연결된 실제 로봇 모델이 선택된 모델과 일치하는지 검증
             try:
                 robot_info = robot.get_robot_info()
                 actual_model = robot_info.robot_model_name.lower()
@@ -3812,7 +3813,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[INFO] Robot is not connected. Connecting before home offset operation...")
             self.connect_robot()
         if self.robot is None or self.model is None:
-            raise RuntimeError("Robot is not connected.")
+            raise RuntimeError("로봇이 연결되어 있지 않습니다.")
 
     def resolve_input_path(self, raw_path):
         input_path = Path(raw_path).expanduser()
@@ -4116,7 +4117,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def run_auto_motion_step_blocking(self):
         if self.robot is None or self.model is None:
-            raise RuntimeError("Robot is not connected.")
+            raise RuntimeError("로봇이 연결되어 있지 않습니다.")
 
         pose_target = self.get_auto_pose_target_count()
         if self.head_move_count >= pose_target:
@@ -4326,7 +4327,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def capture_one_sample(self):
         if self.robot is None:
-            raise RuntimeError("Robot is not connected.")
+            raise RuntimeError("로봇이 연결되어 있지 않습니다.")
 
         cfg = get_both_arm_config(self.model, version=self.get_robot_version())
         head_idx = self.get_capture_head_idx()
@@ -4386,7 +4387,7 @@ class UnifiedCalibrationApp(QWidget):
         use_sag=False,
     ):
         if self.model is None:
-            raise RuntimeError("Robot is not connected.")
+            raise RuntimeError("로봇이 연결되어 있지 않습니다.")
 
         if len(active_arms) == 1:
             cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
@@ -5310,7 +5311,7 @@ class UnifiedCalibrationApp(QWidget):
 
     def home_offset_reset(self) -> bool:
         if not self.ui_only and not self.robot:
-            QMessageBox.critical(self, "Error", "Robot is not connected.")
+            QMessageBox.critical(self, "Error", "로봇이 연결되어 있지 않습니다.")
             return False
 
         msg = (

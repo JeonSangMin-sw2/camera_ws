@@ -41,7 +41,7 @@ If you need to calibrate the camera's intrinsic parameters, you must use a check
 
 ### 1. Clone the Repository
 ```bash
-git clone https://github.com/JeonSangMin-sw2/camera_ws.git
+git clone https://github.com/RainbowRobotics/rby1-calibration.git
 cd camera_ws
 ```
 

@@ -493,8 +493,8 @@ def reset_current_pose_home_offsets(
         time.sleep(2.0)
 
         if log_cb is not None:
-            log_cb("Powering off 48V power...")
-        robot.power_off("48v")
+            log_cb("Powering off overall power (.*)...")
+        robot.power_off(".*")
         time.sleep(1.5)
 
     return {
