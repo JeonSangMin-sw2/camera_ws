@@ -210,7 +210,7 @@ class CalibrationWizardWidget(QWidget):
         self.stacked_widget.addWidget(slide2)
         
         # Slide 3: Home Offset Reset
-        slide3, self.lbl_step3_status = self.create_slide_with_status(
+        slide3, self.lbl_step3_status, self.btn_step3_reset = self.create_slide_with_status(
             "3. Home Offset Reset", 
             "Reset the current home offset to baseline before starting calibration.",
             "Reset Home Offset", self.step3_reset, "#c62828"
@@ -247,9 +247,9 @@ class CalibrationWizardWidget(QWidget):
         btn_start_full.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 14px; padding: 6px;")
         btn_start_full.clicked.connect(self.start_step4)
         
-        btn_apply4 = QPushButton("Apply Brackets")
+        btn_apply4 = QPushButton("Apply")
         btn_apply4.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 14px; padding: 6px;")
-        btn_apply4.clicked.connect(self.apply_brackets_clicked)
+        btn_apply4.clicked.connect(self.parent_app.apply_full_auto_results)
         
         btn_stop4 = QPushButton("Stop Motion")
         btn_stop4.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 14px; padding: 6px;")
@@ -313,7 +313,7 @@ class CalibrationWizardWidget(QWidget):
         self.stacked_widget.addWidget(slide5)
         
         # Slide 6: Apply Home Offset
-        slide6, self.lbl_step6_status = self.create_slide_with_status(
+        slide6, self.lbl_step6_status, self.btn_step6_apply = self.create_slide_with_status(
             "6. Apply Home Offset", 
             "Review and apply the calculated optimized home offset.",
             "Apply Home Offset", self.parent_app.apply_home_offset, "#1976d2"
@@ -347,7 +347,7 @@ class CalibrationWizardWidget(QWidget):
         b.clicked.connect(btn_callback)
         l.addWidget(b, alignment=Qt.AlignCenter)
         
-        return w, lbl_status
+        return w, lbl_status, b
 
     def mark_step_completed(self, step_idx, success=True, msg=""):
         self.step_completed[step_idx] = success
@@ -466,11 +466,27 @@ class CalibrationWizardWidget(QWidget):
 
     # Step 3: Home Offset Reset
     def step3_reset(self):
-        self.parent_app.home_offset_reset()
-        if self.parent_app.robot is not None:
-            self.mark_step_completed(2, True, "Home Offset Reset")
+        if self.parent_app.home_offset_reset():
+            self.lbl_step3_status.setText("Status: Reset in progress...")
+            self.lbl_step3_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
+            self.set_wizard_busy(True)
         else:
-            self.mark_step_completed(2, False, "Robot Not Connected")
+            if not self.parent_app.robot:
+                self.mark_step_completed(2, False, "Robot Not Connected")
+            else:
+                self.lbl_step3_status.setText("Status: Reset cancelled")
+                self.lbl_step3_status.setStyleSheet("color: #aaaaaa; font-weight: bold; font-size: 16px;")
+
+    def set_wizard_busy(self, busy):
+        self.btn_prev.setEnabled(not busy)
+        self.btn_skip.setEnabled(not busy)
+        if busy:
+            self.btn_next.setEnabled(False)
+            self.btn_next.setStyleSheet("background-color: #444444; color: #888888; " + self.nav_style)
+        else:
+            self.update_navigation(self.stacked_widget.currentIndex())
+        if hasattr(self, 'btn_step3_reset'):
+            self.btn_step3_reset.setEnabled(not busy)
 
     # Step 4: Full Auto
     def start_step4(self):
@@ -538,6 +554,4 @@ class CalibrationWizardWidget(QWidget):
         else:
             self.mark_step_completed(4, False, err_msg)
 
-    def apply_brackets_clicked(self):
-        self.parent_app.apply_bracket_design_values(silent=False)
 

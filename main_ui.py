@@ -5184,10 +5184,10 @@ class UnifiedCalibrationApp(QWidget):
             QMessageBox.critical(self, "Apply Home Offset Error", str(e))
             self.log_msg(f"[ERROR] Apply home offset failed: {e}")
 
-    def home_offset_reset(self):
+    def home_offset_reset(self) -> bool:
         if not self.ui_only and not self.robot:
             QMessageBox.critical(self, "Error", "Robot is not connected.")
-            return
+            return False
 
         msg = (
             "Warning: Home Offset Reset will physically redefine the zero offset positions of your robot joints.\n\n"
@@ -5233,7 +5233,7 @@ class UnifiedCalibrationApp(QWidget):
         layout.addLayout(btn_layout)
 
         if dialog.exec() != QDialog.Accepted:
-            return
+            return False
 
         self.set_controls_enabled(False)
         self.btn_home_reset.setEnabled(False)
@@ -5248,6 +5248,7 @@ class UnifiedCalibrationApp(QWidget):
         self.active_worker.log_signal.connect(self.log_msg)
         self.active_worker.finished_signal.connect(self.on_home_offset_reset_finished)
         self.active_worker.start()
+        return True
 
     def on_home_offset_reset_finished(self, result):
         self.set_controls_enabled(True)
@@ -5256,6 +5257,8 @@ class UnifiedCalibrationApp(QWidget):
             self.active_worker.wait()
         self.active_worker = None
         
+        success = False
+        error_msg = ""
         if result.get("success", False):
             self.log_msg("Re-connecting and initializing robot...")
             if self.robot:
@@ -5264,8 +5267,18 @@ class UnifiedCalibrationApp(QWidget):
             self.connect_robot() # Connects again
             self.log_msg("Home Offset Reset complete!")
             QMessageBox.information(self, "Success", "Home Offset Reset, Power, and Servo Initialization completed successfully!")
+            success = True
         else:
-            QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {result.get('error', '')}")
+            error_msg = result.get("error", "Some joints failed to reset")
+            QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {error_msg}")
+            success = False
+
+        if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+            self.wizard_widget.set_wizard_busy(False)
+            if success:
+                self.wizard_widget.mark_step_completed(2, True, "Home Offset Reset complete")
+            else:
+                self.wizard_widget.mark_step_completed(2, False, error_msg)
 
     def clear_old_plots(self):
         self.generated_plots = []
