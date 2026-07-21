@@ -4425,7 +4425,7 @@ class UnifiedCalibrationApp(QWidget):
 
         if solver_type == "QP Solver":
             if optimize_head and optimize_camera:
-                self.log_msg("\n[INFO] === 1-PASS QP: Optimizing Arm + Head + Camera Trans (Camera Rot locked) ===")
+                self.log_msg("\n[INFO] === 2-PASS QP Refinement: Optimizing Arm + Head + Camera Trans (Camera Rot locked) ===")
                 actual_lambda_cam_rot = 1e6
             else:
                 actual_lambda_cam_rot = lambda_cam_rot
@@ -4448,10 +4448,21 @@ class UnifiedCalibrationApp(QWidget):
                 apply_joint_offset_limits=apply_limits,
                 joint_offsets_to_apply=joint_offsets,
             )
+            # Pass 1: Initial optimization pass
             q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
                 q_arm_list,
                 q_head_list,
                 T_meas_list,
+            )
+            # Pass 2: Refinement pass using Pass 1 results as initial guess for tight convergence
+            self.log_msg("[INFO] Running 2nd Pass QP Refinement for sub-millimeter precision...")
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+                q_arm_list,
+                q_head_list,
+                T_meas_list,
+                q_arm_offset_init=q_arm_offset,
+                q_head_offset_init=q_head_offset,
+                xi_mount_cam_init=xi_cam,
             )
         else:
             optimizer = CalibrationOptimizer(
@@ -5298,7 +5309,7 @@ class UnifiedCalibrationApp(QWidget):
                 self,
                 result_path,
                 baseline_path,
-                self.arm_side,
+                "both",
                 include_head=True
             )
             self.apply_offset_dialog.show()
@@ -5308,56 +5319,57 @@ class UnifiedCalibrationApp(QWidget):
             QMessageBox.critical(self, "Apply Home Offset Error", str(e))
             self.log_msg(f"[ERROR] Apply home offset failed: {e}")
 
-    def home_offset_reset(self) -> bool:
+    def home_offset_reset(self, confirm_dialog=True) -> bool:
         if not self.ui_only and not self.robot:
             QMessageBox.critical(self, "Error", "Robot is not connected.")
             return False
 
-        msg = (
-            "Warning: Home Offset Reset will physically redefine the zero offset positions of your robot joints.\n\n"
-            "Steps:\n"
-            "1. Manually teach/move BOTH arms close to their home pose using direct teaching.\n"
-            "2. Ensure the head is also centered/aligned if you want to reset head offsets.\n"
-            "3. Click OK to start the process.\n\n"
-            "During this, the control manager will disable, 48v power will cycle, and the robot connection will automatically restart."
-        )
-        dialog = QDialog(self)
-        dialog.setWindowTitle("Confirm Home Offset Reset")
-        dialog.setStyleSheet(DARK_STYLESHEET)
-        layout = QVBoxLayout(dialog)
+        if confirm_dialog:
+            msg = (
+                "Warning: Home Offset Reset will physically redefine the zero offset positions of your robot joints.\n\n"
+                "Steps:\n"
+                "1. Manually teach/move BOTH arms close to their home pose using direct teaching.\n"
+                "2. Ensure the head is also centered/aligned if you want to reset head offsets.\n"
+                "3. Click OK to start the process.\n\n"
+                "During this, the control manager will disable, 48v power will cycle, and the robot connection will automatically restart."
+            )
+            dialog = QDialog(self)
+            dialog.setWindowTitle("Confirm Home Offset Reset")
+            dialog.setStyleSheet(DARK_STYLESHEET)
+            layout = QVBoxLayout(dialog)
 
-        # Image
-        img_label = QLabel()
-        pixmap = QPixmap("img/home_offset_position.png")
-        if not pixmap.isNull():
-            img_label.setPixmap(pixmap.scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img_label.setText("[img/home_offset_position.png not found]")
-        img_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(img_label)
+            # Image
+            img_label = QLabel()
+            pixmap = QPixmap("img/home_offset_position.png")
+            if not pixmap.isNull():
+                img_label.setPixmap(pixmap.scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                img_label.setText("[img/home_offset_position.png not found]")
+            img_label.setAlignment(Qt.AlignCenter)
+            layout.addWidget(img_label)
 
-        # Text
-        msg_label = QLabel(msg)
-        msg_label.setStyleSheet("font-size: 14px; color: white;")
-        layout.addWidget(msg_label)
+            # Text
+            msg_label = QLabel(msg)
+            msg_label.setStyleSheet("font-size: 14px; color: white;")
+            layout.addWidget(msg_label)
 
-        # Buttons
-        btn_layout = QHBoxLayout()
-        btn_ok = QPushButton("OK")
-        btn_ok.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; padding: 5px;")
-        btn_cancel = QPushButton("Cancel")
-        btn_cancel.setStyleSheet("background-color: #555; color: white; padding: 5px;")
-        
-        btn_ok.clicked.connect(dialog.accept)
-        btn_cancel.clicked.connect(dialog.reject)
-        
-        btn_layout.addStretch()
-        btn_layout.addWidget(btn_ok)
-        btn_layout.addWidget(btn_cancel)
-        layout.addLayout(btn_layout)
+            # Buttons
+            btn_layout = QHBoxLayout()
+            btn_ok = QPushButton("OK")
+            btn_ok.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; padding: 5px;")
+            btn_cancel = QPushButton("Cancel")
+            btn_cancel.setStyleSheet("background-color: #555; color: white; padding: 5px;")
+            
+            btn_ok.clicked.connect(dialog.accept)
+            btn_cancel.clicked.connect(dialog.reject)
+            
+            btn_layout.addStretch()
+            btn_layout.addWidget(btn_ok)
+            btn_layout.addWidget(btn_cancel)
+            layout.addLayout(btn_layout)
 
-        if dialog.exec() != QDialog.Accepted:
-            return False
+            if dialog.exec() != QDialog.Accepted:
+                return False
 
         self.set_controls_enabled(False)
         self.btn_home_reset.setEnabled(False)
@@ -5437,6 +5449,9 @@ class UnifiedCalibrationApp(QWidget):
             self.apply_bracket_design_values(silent=True)
             self.log_msg("[APPLY] Full auto results (Joints & Brackets) applied successfully.")
             QMessageBox.information(self, "Apply Complete", "All full auto calibration results have been applied successfully.")
+            
+            if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+                self.wizard_widget.on_step4_applied()
             
 
     def start_full_auto(self):

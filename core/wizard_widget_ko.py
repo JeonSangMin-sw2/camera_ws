@@ -165,16 +165,29 @@ class CalibrationWizardWidgetKO(QWidget):
         t1_3.setAlignment(Qt.AlignCenter)
         l1_3.addWidget(t1_3)
         
-        img1_3 = QLabel()
-        pix1_3 = QPixmap("img/CHARUCOBOARD.png")
-        if not pix1_3.isNull():
-            img1_3.setPixmap(pix1_3.scaled(700, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img1_3.setText("[img/CHARUCOBOARD.png 찾을 수 없음]")
-        img1_3.setAlignment(Qt.AlignCenter)
-        l1_3.addWidget(img1_3)
+        img_row1_3 = QHBoxLayout()
         
-        d1_3 = QLabel("카메라 렌즈 왜곡은 추적 정밀도에 영향을 줄 수 있습니다. 필요에 따라 내부 파라미터를 보정하세요.")
+        img1_3_left = QLabel()
+        pix1_3_left = QPixmap("img/CHARUCOBOARD.png")
+        if not pix1_3_left.isNull():
+            img1_3_left.setPixmap(pix1_3_left.scaled(380, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img1_3_left.setText("[img/CHARUCOBOARD.png 찾을 수 없음]")
+        img1_3_left.setAlignment(Qt.AlignCenter)
+        img_row1_3.addWidget(img1_3_left)
+
+        img1_3_right = QLabel()
+        pix1_3_right = QPixmap("img/camera_intrinsics.png")
+        if not pix1_3_right.isNull():
+            img1_3_right.setPixmap(pix1_3_right.scaled(380, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img1_3_right.setText("[img/camera_intrinsics.png 찾을 수 없음]")
+        img1_3_right.setAlignment(Qt.AlignCenter)
+        img_row1_3.addWidget(img1_3_right)
+
+        l1_3.addLayout(img_row1_3)
+        
+        d1_3 = QLabel("카메라 렌즈 왜곡은 추적 정밀도에 영향을 줄 수 있습니다. 필요에 따라 내부 파라미터를 보정하세요.\n\n이미 사용중인 카메라 내부 파라미터 가 있는 경우, 다음으로 넘어가시길 바랍니다.")
         d1_3.setStyleSheet("font-size: 16px; color: #dddddd; font-weight: bold;")
         d1_3.setAlignment(Qt.AlignCenter)
         l1_3.addWidget(d1_3)
@@ -931,7 +944,19 @@ class CalibrationWizardWidgetKO(QWidget):
             self.mark_step_completed(4, False, "로봇 연결 실패")
 
     def step3_reset(self):
-        if self.parent_app.home_offset_reset():
+        reply = QMessageBox.question(
+            self,
+            "홈 오프셋 리셋 확인",
+            "진행하시겠습니까?",
+            QMessageBox.Ok | QMessageBox.Cancel,
+            QMessageBox.Cancel
+        )
+        if reply != QMessageBox.Ok:
+            self.lbl_step7_status.setText("상태: 영점 초기화 취소됨")
+            self.lbl_step7_status.setStyleSheet("color: #aaaaaa; font-weight: bold; font-size: 16px;")
+            return
+
+        if self.parent_app.home_offset_reset(confirm_dialog=False):
             self.lbl_step7_status.setText("상태: 영점 초기화 진행 중...")
             self.lbl_step7_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
             self.set_wizard_busy(True)
@@ -970,6 +995,21 @@ class CalibrationWizardWidgetKO(QWidget):
         s = self.step4_elapsed % 60
         self.lbl_step4_status.setText(f"상태: 풀 오토 진행 중 ({m:02d}:{s:02d})")
 
+    def get_calibrated_joint_summary_ko(self):
+        store = getattr(self.parent_app, 'joint_offsets_store', {})
+        r_store = store.get("right", {})
+        l_store = store.get("left", {})
+        
+        r_j6 = r_store.get("joint6", 0.0)
+        r_j5 = r_store.get("joint5", 0.0)
+        r_j3 = r_store.get("joint3", 0.0)
+        
+        l_j6 = l_store.get("joint6", 0.0)
+        l_j5 = l_store.get("joint5", 0.0)
+        l_j3 = l_store.get("joint3", 0.0)
+        
+        return f"[오른팔] J6={r_j6:+.2f}°, J5={r_j5:+.2f}°, J3={r_j3:+.2f}° | [왼팔] J6={l_j6:+.2f}°, J5={l_j5:+.2f}°, J3={l_j3:+.2f}°"
+
     def stop_step4(self):
         self.step4_timer.stop()
         was_stopped = False
@@ -979,12 +1019,20 @@ class CalibrationWizardWidgetKO(QWidget):
         error_msg = getattr(self.parent_app.active_worker, "error_msg", None) if hasattr(self.parent_app, "active_worker") and self.parent_app.active_worker else None
         
         if not was_stopped and not error_msg:
-            self.mark_step_completed(8, True, f"완료 ({self.step4_elapsed//60:02d}:{self.step4_elapsed%60:02d})")
+            summary = self.get_calibrated_joint_summary_ko()
+            self.lbl_step4_status.setText(f"상태: 계산 완료! 보정 결과: {summary}\n⚠️ 다음 단계 이동을 위해 반드시 '적용 (Apply)' 버튼을 눌러주세요.")
+            self.lbl_step4_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 15px;")
+            self.step_completed[8] = False
+            self.update_navigation(self.stacked_widget.currentIndex())
         else:
             if was_stopped:
                 self.mark_step_completed(8, False, "사용자에 의해 취소됨")
             else:
                 self.mark_step_completed(8, False, error_msg or "알 수 없는 오류")
+
+    def on_step4_applied(self):
+        summary = self.get_calibrated_joint_summary_ko()
+        self.mark_step_completed(8, True, f"적용 완료! {summary}")
 
     def start_step5_init(self):
         self.parent_app.step2_init_pose()

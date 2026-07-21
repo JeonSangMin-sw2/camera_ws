@@ -1,4 +1,5 @@
 .venv/
+*.zip
 *.npz
 *.json
 __pycache__/
