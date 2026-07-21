@@ -2939,10 +2939,10 @@ class UnifiedCalibrationApp(QWidget):
         overview_layout = QVBoxLayout()
         overview_layout.setContentsMargins(20, 20, 20, 20)
         
-        overview_title = QLabel("Calibration Process Overview")
-        overview_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        overview_title.setAlignment(Qt.AlignCenter)
-        overview_layout.addWidget(overview_title)
+        self.overview_title = QLabel("Calibration Process Overview")
+        self.overview_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
+        self.overview_title.setAlignment(Qt.AlignCenter)
+        overview_layout.addWidget(self.overview_title)
         
         self.overview_img = QLabel()
         process_pix = QPixmap("img/process.png")
@@ -3525,6 +3525,8 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_monitor.setStyleSheet("")
 
     def show_wizard_ui(self):
+        if hasattr(self, 'overview_title') and self.overview_title:
+            self.overview_title.setVisible(False)
         self.overview_img.setVisible(False)
         self.btn_start_wizard.setVisible(False)
         self.wizard_widget.setVisible(True)
@@ -5276,9 +5278,9 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
             self.wizard_widget.set_wizard_busy(False)
             if success:
-                self.wizard_widget.mark_step_completed(2, True, "Home Offset Reset complete")
+                self.wizard_widget.mark_step_completed(3, True, "Home Offset Reset complete")
             else:
-                self.wizard_widget.mark_step_completed(2, False, error_msg)
+                self.wizard_widget.mark_step_completed(3, False, error_msg)
 
     def clear_old_plots(self):
         self.generated_plots = []
@@ -6162,8 +6164,9 @@ class UnifiedCalibrationApp(QWidget):
             self.current_guide_idx = min(num_steps, len(self.captured_images))
 
     def run_intrinsics_calibration(self):
-        if len(self.captured_images) < 5:
-            self.log_msg("[ERROR] Need at least 5 frames to run calibration!")
+        if len(self.captured_images) < 16:
+            self.log_msg("[ERROR] Need all 16 valid frames to run calibration!")
+            QMessageBox.warning(self, "Insufficient Data", f"Cannot run calibration: Only {len(self.captured_images)} / 16 frames collected.\nPlease capture all 16 frames first.")
             return
             
         self.log_msg(f"\n[INTRINSICS] Running calibration on {len(self.captured_images)} images. Please wait...")
@@ -6197,11 +6200,19 @@ class UnifiedCalibrationApp(QWidget):
             self.show_intrinsics_verification()
         else:
             self.log_msg("[ERROR] Calibration failed. Check images and board settings.")
+            QMessageBox.critical(self, "Calibration Failed", "Calibration failed! Check board visibility and image quality.")
 
     def save_intrinsics_calibration(self):
-        if self.intrinsics_calibrator.cameraMatrix is None:
-            self.log_msg("[ERROR] No calibration data to save!")
+        if len(self.captured_images) < 16:
+            self.log_msg("[ERROR] Need all 16 frames to save parameters!")
+            QMessageBox.warning(self, "Cannot Save", f"Cannot save parameters: Only {len(self.captured_images)} / 16 frames collected.")
             return
+
+        if self.intrinsics_calibrator.cameraMatrix is None or float(self.intrinsics_calibrator.rms_error) <= 0.0:
+            self.log_msg("[ERROR] No valid calibration data to save!")
+            QMessageBox.warning(self, "Cannot Save", "Calibration has not been successfully executed yet.")
+            return
+
         try:
             data = {
                 "camera_matrix": self.intrinsics_calibrator.cameraMatrix.tolist(),
