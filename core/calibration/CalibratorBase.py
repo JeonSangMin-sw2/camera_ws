@@ -1278,7 +1278,22 @@ class BaseCalibrator:
                 return None
 
             if self.robot:
-                q_full_captured = np.array(self.robot.get_state().position)
+                q_full_captured = None
+                for retry in range(3):
+                    try:
+                        state_obj = self.robot.get_state()
+                        if state_obj is not None and getattr(state_obj, 'position', None) is not None:
+                            q_full_captured = np.array(state_obj.position)
+                            break
+                    except Exception as e:
+                        if retry == 2:
+                            self.logger.warning(f"get_state() failed after 3 retries: {e}")
+                        time.sleep(0.005)
+                if q_full_captured is None:
+                    if len(dataset) > 0:
+                        q_full_captured = dataset[-1][0].copy()
+                    else:
+                        q_full_captured = np.zeros(20)
             else:
                 q_full_captured = np.zeros(20)
 
@@ -1309,7 +1324,7 @@ class BaseCalibrator:
                         dataset.append((q_full_captured, pose_mat))
 
             if is_camera_mock:
-                time.sleep(0.002)
+                time.sleep(0.033)
             else:
                 time.sleep(0.01)
 

@@ -4512,6 +4512,7 @@ class UnifiedCalibrationApp(QWidget):
                 q_head_offset_init=q_head_offset,
                 xi_mount_cam_init=xi_cam,
             )
+            optimizer = optimizer_st3
         else:
             optimizer = CalibrationOptimizer(
                 robot=self.robot,
