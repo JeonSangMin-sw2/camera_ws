@@ -157,9 +157,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         half_ang = config.angle_step_deg / 2.0
         full_ang = config.angle_step_deg
 
-        # 1. Joint steps for joint 0, 1, and 4
+        # 1. Joint steps for joint 0, 1, 2, and 4
         joint_offsets = [-half_ang, -full_ang, half_ang, full_ang]
-        for joint_idx in [0, 1, 4]:
+        for joint_idx in [0, 1, 2, 4]:
             for offset in joint_offsets:
                 plan.append({
                     "type": "joint",
@@ -428,10 +428,17 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
         j_idx = motion_plan_step["joint_idx"]
         offset_deg = motion_plan_step["offset_deg"]
 
-        if "right" in active_arms:
-            q_right_target[j_idx] += np.deg2rad(offset_deg)
-        if "left" in active_arms:
-            q_left_target[j_idx] += np.deg2rad(offset_deg)
+        if j_idx == 2:
+            # Joint 2 (Shoulder Yaw): Opposing rotation to keep both markers in camera FOV
+            if "right" in active_arms:
+                q_right_target[j_idx] += np.deg2rad(offset_deg)
+            if "left" in active_arms:
+                q_left_target[j_idx] += np.deg2rad(-offset_deg)
+        else:
+            if "right" in active_arms:
+                q_right_target[j_idx] += np.deg2rad(offset_deg)
+            if "left" in active_arms:
+                q_left_target[j_idx] += np.deg2rad(offset_deg)
 
         head_q = None
         if j_idx == 0 and include_head_motion:
