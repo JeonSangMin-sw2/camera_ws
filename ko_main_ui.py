@@ -3557,7 +3557,28 @@ class UnifiedCalibrationApp(QWidget):
 
     def _on_marker_problem_requested(self, arm_side, evt, res):
         dlg = MarkerRecognitionProblemDialog(self, is_ko=True)
-        res['resolved'] = (dlg.exec() == QDialog.Accepted)
+        resolved = (dlg.exec() == QDialog.Accepted)
+        res['resolved'] = resolved
+        if resolved and self.robot:
+            try:
+                state = self.robot.get_state()
+                model = self.robot.model()
+                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                taught_pose = list(state.position[arm_idx])
+                if not hasattr(self, 'user_taught_ready_poses'):
+                    self.user_taught_ready_poses = {}
+                self.user_taught_ready_poses[arm_side] = taught_pose
+                if hasattr(self, 'marker_calibrator'):
+                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses'):
+                        self.marker_calibrator.user_taught_ready_poses = {}
+                    self.marker_calibrator.user_taught_ready_poses[arm_side] = taught_pose
+                if hasattr(self, 'joint_calibrator'):
+                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses'):
+                        self.joint_calibrator.user_taught_ready_poses = {}
+                    self.joint_calibrator.user_taught_ready_poses[arm_side] = taught_pose
+                self.log_msg(f"[INFO] 사용자 수동 위치 교시 포즈가 유지됩니다 ({arm_side.upper()} 팔). 이후 Pass 2 스위프에서도 동일 포즈가 적용됩니다.")
+            except Exception as e:
+                self.log_msg(f"[WARN] 수동 위치 교시 포즈 저장 실패: {e}")
         evt.set()
 
     def prompt_marker_problem_teaching(self, arm_side):

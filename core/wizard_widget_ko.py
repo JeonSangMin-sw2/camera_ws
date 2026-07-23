@@ -1012,6 +1012,9 @@ class CalibrationWizardWidgetKO(QWidget):
 
     def stop_step4(self):
         self.step4_timer.stop()
+        m = self.step4_elapsed // 60
+        s = self.step4_elapsed % 60
+        time_str = f"{m:02d}:{s:02d}"
         was_stopped = False
         if hasattr(self.parent_app, "full_auto_stop_event") and self.parent_app.full_auto_stop_event is not None:
             was_stopped = self.parent_app.full_auto_stop_event.is_set()
@@ -1020,8 +1023,13 @@ class CalibrationWizardWidgetKO(QWidget):
         
         if not was_stopped and not error_msg:
             summary = self.get_calibrated_joint_summary_ko()
-            self.lbl_step4_status.setText(f"상태: 계산 완료! 보정 결과: {summary}\n⚠️ 다음 단계 이동을 위해 반드시 '적용 (Apply)' 버튼을 눌러주세요.")
-            self.lbl_step4_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 15px;")
+            self.lbl_step4_status.setText(
+                f"상태: 성공 - Full Auto 완료! (소요 시간: {time_str})\n"
+                f"보정 결과: {summary}\n"
+                f"⚠️ 다음 단계 이동을 위해 아래 '적용 (Apply)' 버튼을 눌러주세요."
+            )
+            self.lbl_step4_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 15px;")
+            self.lbl_step4_status.setWordWrap(True)
             self.step_completed[8] = False
             self.update_navigation(self.stacked_widget.currentIndex())
         else:

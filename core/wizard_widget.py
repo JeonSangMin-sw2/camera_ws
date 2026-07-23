@@ -1044,8 +1044,13 @@ class CalibrationWizardWidget(QWidget):
         
         if not was_stopped and not error_msg:
             summary = self.get_calibrated_joint_summary_en()
-            self.lbl_step4_status.setText(f"Status: Full Auto Complete (Elapsed Time: {time_str})!\nOffsets: {summary}\n⚠️ You MUST click 'Apply' to proceed to the Next step.")
-            self.lbl_step4_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 15px;")
+            self.lbl_step4_status.setText(
+                f"Status: Success - Full Auto Complete! (Elapsed Time: {time_str})\n"
+                f"Offsets: {summary}\n"
+                f"⚠️ Click 'Apply' button below to apply offsets and proceed."
+            )
+            self.lbl_step4_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 15px;")
+            self.lbl_step4_status.setWordWrap(True)
             self.step_completed[8] = False
             self.update_navigation(self.stacked_widget.currentIndex())
         else:

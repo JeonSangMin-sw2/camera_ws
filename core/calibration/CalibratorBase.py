@@ -1007,12 +1007,22 @@ class BaseCalibrator:
             else:
                 ready_mode = "wrist_pitch"
             
-        if arm_side == "right":
-            right_arm = self.get_ready_pose(version_key, type_key, ready_mode, "right")
-            left_arm = None
+        if hasattr(self, 'user_taught_ready_poses') and arm_side in self.user_taught_ready_poses and self.user_taught_ready_poses[arm_side] is not None:
+            if log_callback:
+                log_callback(f"[INFO] Preserved user-taught ready pose detected for {arm_side} arm. Using taught posture.")
+            if arm_side == "right":
+                right_arm = self.user_taught_ready_poses[arm_side]
+                left_arm = None
+            else:
+                right_arm = None
+                left_arm = self.user_taught_ready_poses[arm_side]
         else:
-            right_arm = None
-            left_arm = self.get_ready_pose(version_key, type_key, ready_mode, "left")
+            if arm_side == "right":
+                right_arm = self.get_ready_pose(version_key, type_key, ready_mode, "right")
+                left_arm = None
+            else:
+                right_arm = None
+                left_arm = self.get_ready_pose(version_key, type_key, ready_mode, "left")
 
         success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=None, minimum_time=5.0)
         if success and log_callback:

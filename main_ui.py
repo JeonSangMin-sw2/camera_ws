@@ -3556,7 +3556,28 @@ class UnifiedCalibrationApp(QWidget):
 
     def _on_marker_problem_requested(self, arm_side, evt, res):
         dlg = MarkerRecognitionProblemDialog(self, is_ko=getattr(self, 'is_ko_ui', False))
-        res['resolved'] = (dlg.exec() == QDialog.Accepted)
+        resolved = (dlg.exec() == QDialog.Accepted)
+        res['resolved'] = resolved
+        if resolved and self.robot:
+            try:
+                state = self.robot.get_state()
+                model = self.robot.model()
+                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                taught_pose = list(state.position[arm_idx])
+                if not hasattr(self, 'user_taught_ready_poses'):
+                    self.user_taught_ready_poses = {}
+                self.user_taught_ready_poses[arm_side] = taught_pose
+                if hasattr(self, 'marker_calibrator'):
+                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses'):
+                        self.marker_calibrator.user_taught_ready_poses = {}
+                    self.marker_calibrator.user_taught_ready_poses[arm_side] = taught_pose
+                if hasattr(self, 'joint_calibrator'):
+                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses'):
+                        self.joint_calibrator.user_taught_ready_poses = {}
+                    self.joint_calibrator.user_taught_ready_poses[arm_side] = taught_pose
+                self.log_msg(f"[INFO] Preserved user-taught ready pose for {arm_side} arm across subsequent sweeps.")
+            except Exception as e:
+                self.log_msg(f"[WARN] Failed to preserve user-taught ready pose: {e}")
         evt.set()
 
     def prompt_marker_problem_teaching(self, arm_side):
