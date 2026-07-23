@@ -3395,6 +3395,58 @@ class UnifiedCalibrationApp(QWidget):
         else:
             print(msg)
 
+    def _update_ui_slot(self, action):
+        if action == "head_pose":
+            self.update_head_pose_status()
+        elif action == "samples":
+            self.update_step2_est_samples()
+        elif action == "sample_counts":
+            self.update_sample_counts()
+
+    def log_msg(self, msg):
+        from PySide6.QtCore import QThread
+        from PySide6.QtWidgets import QApplication
+        if QThread.currentThread() == QApplication.instance().thread():
+            self._log_msg_slot(msg)
+        else:
+            self.log_signal_safe.emit(msg)
+
+    def _write_step2_log(self, msg):
+        import os
+        from core.paths import CONFIG_PATHS
+        log_file = os.path.join(CONFIG_PATHS["txt_dir"], "step2_capture_log.txt")
+        try:
+            os.makedirs(CONFIG_PATHS["txt_dir"], exist_ok=True)
+            with open(log_file, "a") as f:
+                f.write(msg + "\n")
+        except Exception as e:
+            self.log_msg(f"Failed to write step2 log: {e}")
+
+    def safe_cancel_control(self):
+        # 동일 gRPC 커넥션에 대한 동시 gRPC 호출로 인한 C++ SDK Segfault 방지
+        if self.robot is None:
+            return
+        if self.is_mock:
+            self.log_msg("[STOP] (Mock Mode) Cancel control called.")
+            return
+
+        try:
+            import rby1_sdk as rby
+            addr = self.ip_input.text().strip()
+            model = self.model_input.currentText().strip().lower()
+            temp_robot = rby.create_robot(addr, model)
+            if temp_robot.connect():
+                temp_robot.cancel_control()
+                temp_robot.disconnect()
+                self.log_msg("[INFO] Control cancelled safely via temporary connection.")
+            else:
+                self.robot.cancel_control()
+        except Exception as e:
+            try:
+                self.robot.cancel_control()
+            except Exception:
+                pass
+
     def on_head_checkbox_changed(self, checked):
         self.include_head_motion = checked
         self.sync_connection_settings('main')
