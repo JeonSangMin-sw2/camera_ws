@@ -2254,11 +2254,14 @@ class FullAutoWorker(QThread):
 class UnifiedCalibrationApp(QWidget):
     log_signal_safe = Signal(str)
     update_ui_signal_safe = Signal(str)
+    marker_problem_signal = Signal(str, object, object)
 
     def __init__(self, marker_st, robot, arm_side="right", ui_only=False):
         super().__init__()
+        self.is_ko_ui = True
         self.log_signal_safe.connect(self._log_msg_slot)
         self.update_ui_signal_safe.connect(self._update_ui_slot)
+        self.marker_problem_signal.connect(self._on_marker_problem_requested)
 
         self.marker_st = marker_st
         self.robot = robot
@@ -3497,18 +3500,16 @@ class UnifiedCalibrationApp(QWidget):
                 self.chk_servo_head.setChecked(self.wizard_widget.wizard_chk_head.isChecked())
                 self.chk_servo_head.blockSignals(False)
 
+    def _on_marker_problem_requested(self, arm_side, evt, res):
+        dlg = MarkerRecognitionProblemDialog(self, is_ko=True)
+        res['resolved'] = (dlg.exec() == QDialog.Accepted)
+        evt.set()
+
     def prompt_marker_problem_teaching(self, arm_side):
         import threading
-        from PySide6.QtCore import QMetaObject, Qt
-        from PySide6.QtWidgets import QDialog
-        # assuming MarkerRecognitionProblemDialog is imported or available
         evt = threading.Event()
         res = {'resolved': False}
-        def _show():
-            dlg = MarkerRecognitionProblemDialog(self, is_ko=True)
-            res['resolved'] = (dlg.exec() == QDialog.Accepted)
-            evt.set()
-        QMetaObject.invokeMethod(self, _show, Qt.QueuedConnection)
+        self.marker_problem_signal.emit(arm_side, evt, res)
         evt.wait()
         return res['resolved']
 
