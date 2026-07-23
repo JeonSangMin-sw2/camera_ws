@@ -193,14 +193,14 @@ class JointCalibrator(BaseCalibrator):
                     step_correction_delta = step_correction
 
                 # Convergence check:
-                # step correction delta < 0.1° to handle bracket RPY noise
-                converged_criteria = (abs(step_correction_delta) < 0.1)
+                # step correction delta < 0.08° to handle bracket RPY noise
+                converged_criteria = (abs(step_correction_delta) < 0.08)
                 
                 if converged_criteria:
                     converged = True
                     if log_callback:
                         log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.1° (reached resolution limit)")
+                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.08° (reached resolution limit)")
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
                 
@@ -230,7 +230,7 @@ class JointCalibrator(BaseCalibrator):
             if not converged and len(staged_offsets_history) >= 3:
                 avg_offset = float(np.mean(staged_offsets_history[-3:]))
                 if log_callback:
-                    log_callback(f"\n[INFO] Joint {mode} did not meet 0.1° convergence tolerance due to measurement noise floor.")
+                    log_callback(f"\n[INFO] Joint {mode} did not meet 0.08° convergence tolerance due to measurement noise floor.")
                     log_callback(f"       Damping fallback: Averaged last 3 offsets ({', '.join(f'{v:.4f}°' for v in staged_offsets_history[-3:])}) -> {avg_offset:.4f}°")
                 staged_offset = avg_offset
 
@@ -972,9 +972,16 @@ class JointCalibrator(BaseCalibrator):
                     raw_diff_deg = np.degrees(diff_angle)
                     
                     # Compensate for the initial nominal ready pose angle of J7 (index 6)
-                    ver_key = "v1.3" if self.is_v13() else "v1.2"
-                    ready_pose_nom = self.get_ready_pose(ver_key, "joint", "wrist_roll_v13" if self.is_v13() else "wrist_yaw2", arm_side)
-                    j7_ready_pose_deg = np.degrees(ready_pose_nom[6])
+                    # We take J7 angle from dataset_B and subtract any current staged offset to get the true nominal initial pose
+                    q_full_B_first = dataset_B[0][0]
+                    j7_current_pos_deg = np.degrees(q_full_B_first[arm_idx[6]])
+                    
+                    staged_j7_offset_deg = 0.0
+                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
+                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+                        staged_j7_offset_deg = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
+                    
+                    j7_ready_pose_deg = j7_current_pos_deg - staged_j7_offset_deg
                     
                     # Due to kinematics, the apparent marker rotation is the negative of the actual J7 rotation:
                     # raw_diff_deg = - (j7_ready_pose_deg + physical_offset)
