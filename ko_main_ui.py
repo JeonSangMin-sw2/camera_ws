@@ -677,18 +677,19 @@ class ApplyHomeOffsetDialog(QDialog):
     def on_apply_selected(self):
         state, path = self.get_current_target()
         
-        # Add confirmation popup
         confirm = QMessageBox.question(
             self, 
             "적용 확인", 
-            f"정말로 '{state.upper()}' 오프셋을 적용하시겠습니까?\n\n이 작업은 로봇의 설정 메모리에 적용값을 기록합니다.",
+            f"정말로 '{state.upper()}' 오프셋을 적용하시겠습니까?\n\n"
+            f"로봇이 먼저 선택한 '{state.upper()}' 상태의 제로 포즈(Zero Pose)로 이동한 후, 홈 오프셋을 리셋(적용)합니다.\n"
+            f"로봇 주변의 작업 공간이 안전하게 확보되었는지 확인하세요.",
             QMessageBox.Yes | QMessageBox.No, 
             QMessageBox.No
         )
         
         if confirm == QMessageBox.Yes:
             self.on_apply(state)
-        
+
     def get_current_target(self):
         if self.btn_baseline.isChecked():
             return "baseline", self.baseline_path
@@ -748,42 +749,71 @@ class ApplyHomeOffsetDialog(QDialog):
         self.worker.start()
 
     def on_apply(self, state):
-        msg = (
-            f"This will redefine the selected joints' home offset using the robot's CURRENT pose as the new {state}.\n\n"
-            "Only continue if the robot is currently at the zero pose you want to keep."
-        )
-        if QMessageBox.question(self, f"Apply {state.capitalize()} Pose", msg, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+        state, path = self.get_current_target()
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(self, "경고", f"{state} JSON 파일을 찾을 수 없습니다.")
             return
-        
+
         self.set_buttons_enabled(False)
-        self.worker = Step2ApplyHomeOffsetWorker(
+        self.parent_app.log_msg(f"[INFO] 홈 오프셋을 적용하기 위해 먼저 로봇을 '{state.upper()}' 제로 포즈로 이동시킵니다...")
+        
+        # Step 1: Move to Zero Pose first
+        self.worker_move = Step2ApplyHomeOffsetWorker(
             self.parent_app,
-            "apply",
-            arm=self.current_apply_arm,
-            include_head=self.include_head,
-            json_path=self.result_path if state == "optimized" else None
+            "move_zero",
+            json_path=path,
+            label=f"{state.capitalize()} Zero",
+            arm=self.arm,
+            include_head=self.include_head
         )
-        self.worker.log_signal.connect(self.parent_app.log_msg)
-        def on_finished(success, error_msg, res):
-            self.set_buttons_enabled(True)
-            if success:
-                if res.get("needs_reconnect", False):
-                    self.parent_app.log_msg("Re-connecting and initializing robot...")
-                    if self.parent_app.robot:
+        self.worker_move.log_signal.connect(self.parent_app.log_msg)
+
+        def on_move_finished(success, error_msg, res):
+            if not success:
+                self.set_buttons_enabled(True)
+                QMessageBox.critical(self, "제로 포즈 이동 오류", f"홈 오프셋 적용 전 제로 포즈 이동 실패: {error_msg}")
+                return
+            
+            if "arm" in res:
+                self.current_apply_arm = res["arm"]
+
+            self.parent_app.log_msg(f"[INFO] '{state.upper()}' 제로 포즈 도착 완료. 홈 오프셋 리셋(적용)을 실행합니다...")
+
+            # Step 2: Apply Home Offset from the Zero Pose
+            self.worker_apply = Step2ApplyHomeOffsetWorker(
+                self.parent_app,
+                "apply",
+                arm=self.current_apply_arm,
+                include_head=self.include_head,
+                json_path=self.result_path if state == "optimized" else None
+            )
+            self.worker_apply.log_signal.connect(self.parent_app.log_msg)
+
+            def on_apply_finished(app_success, app_error_msg, app_res):
+                self.set_buttons_enabled(True)
+                if app_success:
+                    if app_res.get("needs_reconnect", False):
+                        self.parent_app.log_msg("로봇 재연결 및 초기화 중...")
+                        if self.parent_app.robot:
+                            self.parent_app.connect_robot()
+                            from PySide6.QtWidgets import QApplication
+                            QApplication.processEvents()
                         self.parent_app.connect_robot()
-                        QApplication.processEvents()
-                    self.parent_app.connect_robot()
-                    self.parent_app.log_msg("Current pose home offset apply complete.")
-                    
-                if res.get("success", False) or res.get("needs_reconnect", False):
-                    QMessageBox.information(self, "Success", f"Home offset applied from current pose ({state}).")
-                    self.accept()
+                        self.parent_app.log_msg("홈 오프셋 적용 완료.")
+                        
+                    if app_res.get("success", False) or app_res.get("needs_reconnect", False):
+                        QMessageBox.information(self, "성공", f"로봇이 제로 포즈로 이동 후 '{state.upper()}' 홈 오프셋이 성공적으로 적용되었습니다.")
+                        self.accept()
+                    else:
+                        QMessageBox.warning(self, "경고", "홈 오프셋 리셋 작업이 완료되었으나 일부 관절 실패가 발생했습니다. 로그를 확인하세요.")
                 else:
-                    QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Please check the logs.")
-            else:
-                QMessageBox.critical(self, "Apply Pose Error", error_msg)
-        self.worker.finished_signal.connect(on_finished)
-        self.worker.start()
+                    QMessageBox.critical(self, "홈 오프셋 적용 오류", app_error_msg)
+
+            self.worker_apply.finished_signal.connect(on_apply_finished)
+            self.worker_apply.start()
+
+        self.worker_move.finished_signal.connect(on_move_finished)
+        self.worker_move.start()
 
     def set_buttons_enabled(self, enabled):
         self.btn_move_zero.setEnabled(enabled)

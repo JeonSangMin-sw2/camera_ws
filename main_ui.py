@@ -676,18 +676,19 @@ class ApplyHomeOffsetDialog(QDialog):
     def on_apply_selected(self):
         state, path = self.get_current_target()
         
-        # Add confirmation popup
         confirm = QMessageBox.question(
             self, 
             "Confirm Apply", 
-            f"Are you sure you want to apply the '{state.upper()}' offsets?\n\nThis will write to the robot's configuration.",
+            f"Are you sure you want to apply the '{state.upper()}' offsets?\n\n"
+            f"The robot will first move to the Zero Pose of '{state.upper()}', and then reset/apply the home offset.\n"
+            f"Please ensure the workspace around the robot is clear.",
             QMessageBox.Yes | QMessageBox.No, 
             QMessageBox.No
         )
         
         if confirm == QMessageBox.Yes:
             self.on_apply(state)
-        
+
     def get_current_target(self):
         if self.btn_baseline.isChecked():
             return "baseline", self.baseline_path
@@ -747,42 +748,71 @@ class ApplyHomeOffsetDialog(QDialog):
         self.worker.start()
 
     def on_apply(self, state):
-        msg = (
-            f"This will redefine the selected joints' home offset using the robot's CURRENT pose as the new {state}.\n\n"
-            "Only continue if the robot is currently at the zero pose you want to keep."
-        )
-        if QMessageBox.question(self, f"Apply {state.capitalize()} Pose", msg, QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+        state, path = self.get_current_target()
+        if not path or not os.path.exists(path):
+            QMessageBox.warning(self, "Warning", f"No {state} JSON found.")
             return
-        
+
         self.set_buttons_enabled(False)
-        self.worker = Step2ApplyHomeOffsetWorker(
+        self.parent_app.log_msg(f"[INFO] Moving robot to '{state.upper()}' Zero Pose before applying home offset...")
+        
+        # Step 1: Move to Zero Pose first
+        self.worker_move = Step2ApplyHomeOffsetWorker(
             self.parent_app,
-            "apply",
-            arm=self.current_apply_arm,
-            include_head=self.include_head,
-            json_path=self.result_path if state == "optimized" else None
+            "move_zero",
+            json_path=path,
+            label=f"{state.capitalize()} Zero",
+            arm=self.arm,
+            include_head=self.include_head
         )
-        self.worker.log_signal.connect(self.parent_app.log_msg)
-        def on_finished(success, error_msg, res):
-            self.set_buttons_enabled(True)
-            if success:
-                if res.get("needs_reconnect", False):
-                    self.parent_app.log_msg("Re-connecting and initializing robot...")
-                    if self.parent_app.robot:
+        self.worker_move.log_signal.connect(self.parent_app.log_msg)
+
+        def on_move_finished(success, error_msg, res):
+            if not success:
+                self.set_buttons_enabled(True)
+                QMessageBox.critical(self, "Zero Pose Move Error", f"Failed to move to zero pose before applying: {error_msg}")
+                return
+            
+            if "arm" in res:
+                self.current_apply_arm = res["arm"]
+
+            self.parent_app.log_msg(f"[INFO] Arrived at '{state.upper()}' Zero Pose. Now resetting and applying home offset...")
+
+            # Step 2: Apply Home Offset from the Zero Pose
+            self.worker_apply = Step2ApplyHomeOffsetWorker(
+                self.parent_app,
+                "apply",
+                arm=self.current_apply_arm,
+                include_head=self.include_head,
+                json_path=self.result_path if state == "optimized" else None
+            )
+            self.worker_apply.log_signal.connect(self.parent_app.log_msg)
+
+            def on_apply_finished(app_success, app_error_msg, app_res):
+                self.set_buttons_enabled(True)
+                if app_success:
+                    if app_res.get("needs_reconnect", False):
+                        self.parent_app.log_msg("Re-connecting and initializing robot...")
+                        if self.parent_app.robot:
+                            self.parent_app.connect_robot()
+                            from PySide6.QtWidgets import QApplication
+                            QApplication.processEvents()
                         self.parent_app.connect_robot()
-                        QApplication.processEvents()
-                    self.parent_app.connect_robot()
-                    self.parent_app.log_msg("Current pose home offset apply complete.")
-                    
-                if res.get("success", False) or res.get("needs_reconnect", False):
-                    QMessageBox.information(self, "Success", f"Home offset applied from current pose ({state}).")
-                    self.accept()
+                        self.parent_app.log_msg("Current pose home offset apply complete.")
+                        
+                    if app_res.get("success", False) or app_res.get("needs_reconnect", False):
+                        QMessageBox.information(self, "Success", f"Robot moved to Zero Pose and '{state.upper()}' home offset applied successfully.")
+                        self.accept()
+                    else:
+                        QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Please check the logs.")
                 else:
-                    QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Please check the logs.")
-            else:
-                QMessageBox.critical(self, "Apply Pose Error", error_msg)
-        self.worker.finished_signal.connect(on_finished)
-        self.worker.start()
+                    QMessageBox.critical(self, "Apply Pose Error", app_error_msg)
+
+            self.worker_apply.finished_signal.connect(on_apply_finished)
+            self.worker_apply.start()
+
+        self.worker_move.finished_signal.connect(on_move_finished)
+        self.worker_move.start()
 
     def set_buttons_enabled(self, enabled):
         self.btn_move_zero.setEnabled(enabled)
