@@ -382,141 +382,166 @@ class MarkerRecognitionProblemDialog(QDialog):
     def __init__(self, parent=None, is_ko=False):
         super().__init__(parent)
         self.is_ko = is_ko
+        self.parent_app = parent
         self.setWindowTitle("마커 인식 오류 및 수동 위치 교시 가이드" if is_ko else "Marker Recognition Problem & Teaching Guidance")
-        self.resize(800, 700)
+        self.resize(1060, 760)
         self.setStyleSheet(DARK_STYLESHEET)
         
-        self.stacked_widget = QStackedWidget()
-        
-        # --- Page 1: Problem Detection & Feed check ---
-        page1 = QWidget()
-        p1_layout = QVBoxLayout(page1)
-        p1_layout.setSpacing(14)
-        
-        lbl_p1_title = QLabel("⚠️ 마커가 카메라 화각에서 감지되지 않았습니다!" if is_ko else "⚠️ Marker is not detected in camera view!")
-        lbl_p1_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ff5252;")
-        lbl_p1_title.setWordWrap(True)
-        lbl_p1_title.setAlignment(Qt.AlignCenter)
-        p1_layout.addWidget(lbl_p1_title)
-        
-        img_p1 = QLabel()
-        pix_p1 = QPixmap("img/marker_problem_before.png")
-        if not pix_p1.isNull():
-            img_p1.setPixmap(pix_p1.scaled(680, 320, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img_p1.setText("[img/marker_problem_before.png]")
-        img_p1.setAlignment(Qt.AlignCenter)
-        p1_layout.addWidget(img_p1)
-        
-        lbl_p1_desc = QLabel(
-            "카메라가 레디 자세에서 마커를 인식하지 못했습니다.\n\n"
-            "1. '카메라 피드 열기' 버튼을 눌러 카메라 화면에서 마커가 보이는지 확인하세요.\n"
-            "2. 확인 후 '수동 위치 교시 진행 (다음)' 버튼을 클릭하세요."
-            if is_ko else
-            "The camera could not detect the calibration marker in the ready pose.\n\n"
-            "1. Click 'Open Camera Feed' to view the live camera feed and check marker placement.\n"
-            "2. Click 'Proceed to Manual Teaching (Next)' after checking."
-        )
-        lbl_p1_desc.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: bold;")
-        lbl_p1_desc.setWordWrap(True)
-        lbl_p1_desc.setAlignment(Qt.AlignCenter)
-        p1_layout.addWidget(lbl_p1_desc)
-        
-        p1_btn_layout = QHBoxLayout()
-        btn_feed = QPushButton("카메라 피드 열기" if is_ko else "Open Camera Feed")
-        btn_feed.setMinimumHeight(45)
-        btn_feed.setStyleSheet("background-color: #ff9800; color: #000000; font-size: 15px; font-weight: bold; border-radius: 6px;")
-        if parent and hasattr(parent, 'toggle_camera_feed_dialog'):
-            btn_feed.clicked.connect(parent.toggle_camera_feed_dialog)
-            
-        btn_next = QPushButton("수동 위치 교시 진행 (다음) ➔" if is_ko else "Proceed to Manual Teaching (Next) ➔")
-        btn_next.setMinimumHeight(45)
-        btn_next.setStyleSheet("background-color: #1976d2; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
-        btn_next.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
-        
-        btn_cancel1 = QPushButton("캘리브레이션 취소" if is_ko else "Cancel Calibration")
-        btn_cancel1.setMinimumHeight(45)
-        btn_cancel1.setStyleSheet("background-color: #555555; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
-        btn_cancel1.clicked.connect(self.reject)
-        
-        p1_btn_layout.addWidget(btn_feed)
-        p1_btn_layout.addWidget(btn_next)
-        p1_btn_layout.addWidget(btn_cancel1)
-        p1_layout.addLayout(p1_btn_layout)
-        
-        self.stacked_widget.addWidget(page1)
-        
-        # --- Page 2: Manual Teaching & Position Reset Guidance ---
-        page2 = QWidget()
-        p2_layout = QVBoxLayout(page2)
-        p2_layout.setSpacing(14)
-        
-        lbl_p2_title = QLabel("⚠️ 수동 위치 교시 및 카메라 시야 확보 안내" if is_ko else "⚠️ Manual Teaching & Camera View Alignment")
-        lbl_p2_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffeb3b;")
-        lbl_p2_title.setWordWrap(True)
-        lbl_p2_title.setAlignment(Qt.AlignCenter)
-        p2_layout.addWidget(lbl_p2_title)
-        
-        img_row_p2 = QHBoxLayout()
-        img_p2_a = QLabel()
-        pix_p2_a = QPixmap("img/marker_problem_teaching.png")
-        if not pix_p2_a.isNull():
-            img_p2_a.setPixmap(pix_p2_a.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img_p2_a.setText("[img/marker_problem_teaching.png]")
-        img_p2_a.setAlignment(Qt.AlignCenter)
-        img_row_p2.addWidget(img_p2_a)
-        
-        img_p2_b = QLabel()
-        pix_p2_b = QPixmap("img/marker_problem_after.png")
-        if not pix_p2_b.isNull():
-            img_p2_b.setPixmap(pix_p2_b.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img_p2_b.setText("[img/marker_problem_after.png]")
-        img_p2_b.setAlignment(Qt.AlignCenter)
-        img_row_p2.addWidget(img_p2_b)
-        p2_layout.addLayout(img_row_p2)
-        
-        lbl_p2_desc = QLabel(
-            "1. 로봇 팔/헤드의 직접 교시 버튼(Teaching Button)을 눌러 위치를 이동시키세요.\n"
-            "2. 카메라 피드를 확인하며 마커가 카메라 화면 정중앙에 올 때까지 맞춰주세요.\n"
-            "3. 위치 조정을 마치면 아래 '티칭 완료 (캘리브레이션 재개)' 버튼을 클릭하세요.\n"
-            "   (현재 교시한 자세가 새로운 0° 기준점이 되어 캘리브레이션 모션을 계속 수행합니다.)"
-            if is_ko else
-            "1. Press the direct teaching button on the robot arm/head to unlock joints.\n"
-            "2. Manually adjust the posture so that the marker is fully visible in the camera feed.\n"
-            "3. Once aligned, click 'Teaching Done (Resume Calibration)' below.\n"
-            "   (The current taught posture will be set as the new 0° baseline for calibration sweeps.)"
-        )
-        lbl_p2_desc.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: bold;")
-        lbl_p2_desc.setWordWrap(True)
-        p2_layout.addWidget(lbl_p2_desc)
-        
-        p2_btn_layout = QHBoxLayout()
-        btn_prev2 = QPushButton("◀ 이전" if is_ko else "◀ Prev")
-        btn_prev2.setMinimumHeight(45)
-        btn_prev2.setStyleSheet("background-color: #555555; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
-        btn_prev2.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
-        
-        btn_confirm = QPushButton("티칭 완료 (캘리브레이션 재개) ✔" if is_ko else "Teaching Done (Resume Calibration) ✔")
-        btn_confirm.setMinimumHeight(45)
-        btn_confirm.setStyleSheet("background-color: #2e7d32; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
-        btn_confirm.clicked.connect(self.accept)
-        
-        btn_cancel2 = QPushButton("취소" if is_ko else "Cancel")
-        btn_cancel2.setMinimumHeight(45)
-        btn_cancel2.setStyleSheet("background-color: #c62828; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
-        btn_cancel2.clicked.connect(self.reject)
-        
-        p2_btn_layout.addWidget(btn_prev2)
-        p2_btn_layout.addWidget(btn_confirm)
-        p2_btn_layout.addWidget(btn_cancel2)
-        p2_layout.addLayout(p2_btn_layout)
-        
-        self.stacked_widget.addWidget(page2)
-        
         main_layout = QVBoxLayout(self)
-        main_layout.addWidget(self.stacked_widget)
+        main_layout.setSpacing(12)
+        
+        # 1. Title Header
+        lbl_title = QLabel("⚠️ 마커 미인식: 수동 위치 교시 및 카메라 시야 확보 안내" if is_ko else "⚠️ Marker Unrecognized: Manual Teaching & View Alignment")
+        lbl_title.setStyleSheet("font-size: 22px; font-weight: bold; color: #ffeb3b;")
+        lbl_title.setWordWrap(True)
+        lbl_title.setAlignment(Qt.AlignCenter)
+        main_layout.addWidget(lbl_title)
+        
+        # 2. Body Layout: Left Guidance Box | Right Live Camera Feed
+        body_layout = QHBoxLayout()
+        body_layout.setSpacing(15)
+        
+        # --- Left Box: Guidance Images & Instructions ---
+        left_box = QGroupBox("수동 위치 교시 절차" if is_ko else "Manual Teaching Steps")
+        left_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 15px; }")
+        left_layout = QVBoxLayout(left_box)
+        left_layout.setSpacing(10)
+        
+        img_row = QHBoxLayout()
+        img_row.setSpacing(8)
+        
+        imgs_info = [
+            ("img/marker_problem_before.png", "1. 미인식 발생" if is_ko else "1. Unrecognized"),
+            ("img/marker_problem_teaching.png", "2. 교시 버튼 누름" if is_ko else "2. Press Teaching"),
+            ("img/marker_problem_after.png", "3. 마커 정면 조향" if is_ko else "3. Align Marker")
+        ]
+        
+        for img_path, cap in imgs_info:
+            v_box = QVBoxLayout()
+            lbl_img = QLabel()
+            pix = QPixmap(img_path)
+            if not pix.isNull():
+                lbl_img.setPixmap(pix.scaled(150, 130, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            else:
+                lbl_img.setText(f"[{img_path}]")
+            lbl_img.setAlignment(Qt.AlignCenter)
+            
+            lbl_cap = QLabel(cap)
+            lbl_cap.setAlignment(Qt.AlignCenter)
+            lbl_cap.setStyleSheet("font-size: 13px; font-weight: bold; color: #00e676;")
+            
+            v_box.addWidget(lbl_img)
+            v_box.addWidget(lbl_cap)
+            img_row.addLayout(v_box)
+            
+        left_layout.addLayout(img_row)
+        
+        desc_text = (
+            "<b>1. 티칭 버튼 누르기:</b> 로봇 팔/헤드의 직접 교시 버튼(Teaching Button)을 누르세요.<br><br>"
+            "<b>2. 마커 방향 조정:</b> 우측 실시간 카메라 화면을 보면서 마커가 화각 중앙에 정면으로 오도록 이동시키세요.<br><br>"
+            "<b>3. 캘리브레이션 재개:</b> 정렬을 마치면 아래 [티칭 완료] 버튼을 누르세요.<br>"
+            "<span style='color: #ffca28; font-size: 13px;'>* 조정한 현재 위치에서 보정 대상 관절만 0°로 정렬 후 스위프를 계속 진행합니다.</span>"
+            if is_ko else
+            "<b>1. Press Teaching Button:</b> Press the direct teaching button on the robot arm/head.<br><br>"
+            "<b>2. Align Marker:</b> Watching the live camera feed on the right, position the marker in the center of the camera view.<br><br>"
+            "<b>3. Resume Calibration:</b> Click [Teaching Done] below once aligned.<br>"
+            "<span style='color: #ffca28; font-size: 13px;'>* Resumes calibration by aligning only the target calibration joint to 0° from adjusted posture.</span>"
+        )
+        lbl_desc = QLabel(desc_text)
+        lbl_desc.setStyleSheet("font-size: 14px; color: #ffffff; line-height: 1.5;")
+        lbl_desc.setWordWrap(True)
+        left_layout.addWidget(lbl_desc)
+        body_layout.addWidget(left_box, stretch=5)
+        
+        # --- Right Box: Embedded Real-time Live Feed ---
+        right_box = QGroupBox("실시간 카메라 피드 (Live Feed)" if is_ko else "Live Camera Feed")
+        right_box.setStyleSheet("QGroupBox::title { color: #00e676; font-weight: bold; font-size: 15px; }")
+        right_layout = QVBoxLayout(right_box)
+        right_layout.setSpacing(10)
+        
+        self.lbl_live_feed = QLabel("Camera Feed Loading..." if is_ko else "Camera Feed Loading...")
+        self.lbl_live_feed.setAlignment(Qt.AlignCenter)
+        self.lbl_live_feed.setStyleSheet("background-color: #000000; color: #888888; border: 1px solid #444444; border-radius: 4px;")
+        self.lbl_live_feed.setMinimumSize(420, 320)
+        right_layout.addWidget(self.lbl_live_feed)
+        
+        btn_ext_feed = QPushButton("📷 카메라 피드 별도 창 열기" if is_ko else "📷 Open Separate Camera Feed Window")
+        btn_ext_feed.setMinimumHeight(40)
+        btn_ext_feed.setStyleSheet("background-color: #ff9800; color: #000000; font-size: 14px; font-weight: bold; border-radius: 4px;")
+        btn_ext_feed.clicked.connect(self._open_external_camera_feed)
+        right_layout.addWidget(btn_ext_feed)
+        
+        body_layout.addWidget(right_box, stretch=4)
+        main_layout.addLayout(body_layout)
+        
+        # 3. Action Buttons
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        
+        btn_done = QPushButton("✅ 티칭 완료 (캘리브레이션 재개)" if is_ko else "✅ Teaching Done (Resume Calibration)")
+        btn_done.setMinimumHeight(52)
+        btn_done.setStyleSheet("background-color: #2e7d32; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
+        btn_done.clicked.connect(self.accept)
+        
+        btn_cancel = QPushButton("❌ 캘리브레이션 취소" if is_ko else "❌ Cancel Calibration")
+        btn_cancel.setMinimumHeight(52)
+        btn_cancel.setStyleSheet("background-color: #c62828; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
+        btn_cancel.clicked.connect(self.reject)
+        
+        btn_layout.addWidget(btn_done, stretch=2)
+        btn_layout.addWidget(btn_cancel, stretch=1)
+        main_layout.addLayout(btn_layout)
+        
+        # 4. Timer for embedded live camera feed (~30 fps)
+        self.feed_timer = QTimer(self)
+        self.feed_timer.timeout.connect(self._update_live_feed)
+        self.feed_timer.start(33)
+
+    def _update_live_feed(self):
+        if not self.parent_app or getattr(self.parent_app, 'ui_only', True) or getattr(self.parent_app, 'marker_st', None) is None:
+            img = np.zeros((360, 640, 3), dtype=np.uint8)
+            cv2.putText(img, "UI-ONLY MODE (SIMULATOR)", (110, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (150, 150, 150), 2)
+        else:
+            try:
+                self.parent_app.marker_st.camera.capture_image()
+                img = self.parent_app.marker_st.camera.get_color_image()
+            except Exception:
+                img = None
+            if img is None:
+                img = np.zeros((360, 640, 3), dtype=np.uint8)
+                cv2.putText(img, "No Camera Frame", (180, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
+
+        h, w, ch = img.shape
+        display_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        qimg = QImage(display_img.data, w, h, ch * w, QImage.Format_RGB888)
+        pix = QPixmap.fromImage(qimg)
+        w_lbl = max(20, self.lbl_live_feed.width())
+        h_lbl = max(20, self.lbl_live_feed.height())
+        self.lbl_live_feed.setPixmap(pix.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
+
+    def _open_external_camera_feed(self):
+        if self.parent_app and hasattr(self.parent_app, 'toggle_camera_feed_dialog'):
+            self.parent_app.toggle_camera_feed_dialog()
+            if hasattr(self.parent_app, 'feed_dialog') and self.parent_app.feed_dialog:
+                self.parent_app.feed_dialog.setWindowFlags(self.parent_app.feed_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
+                self.parent_app.feed_dialog.show()
+                self.parent_app.feed_dialog.raise_()
+                self.parent_app.feed_dialog.activateWindow()
+
+    def closeEvent(self, event):
+        if hasattr(self, 'feed_timer'):
+            self.feed_timer.stop()
+        super().closeEvent(event)
+
+    def accept(self):
+        if hasattr(self, 'feed_timer'):
+            self.feed_timer.stop()
+        super().accept()
+
+    def reject(self):
+        if hasattr(self, 'feed_timer'):
+            self.feed_timer.stop()
+        super().reject()
 
 class ApplyHomeOffsetDialog(QDialog):
     def __init__(self, parent, result_path, baseline_path, arm, include_head, compare_summary=None):
