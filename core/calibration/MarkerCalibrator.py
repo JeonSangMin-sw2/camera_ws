@@ -119,8 +119,14 @@ class MarkerCalibrator(BaseCalibrator):
             initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if not initial_check:
                 if log_callback: log_callback("[ERROR] Marker is not visible in ready pose.")
-                if status_callback: status_callback(False)
-                return None
+                if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                    if log_callback: log_callback("[INFO] Prompting user for manual teaching due to marker visibility error...")
+                    resolved = self.marker_problem_callback(arm_side)
+                    if resolved:
+                        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+                if not initial_check:
+                    if status_callback: status_callback(False)
+                    return None
             if status_callback: status_callback(True)
         else:
             if status_callback: status_callback(True)

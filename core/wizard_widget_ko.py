@@ -212,7 +212,8 @@ class CalibrationWizardWidgetKO(QWidget):
         header1.addWidget(t1)
         
         self.lbl_skip_hint1 = QLabel("이미 진행했다면 다음(Next) 혹은 스킵(Skip) 버튼을 눌러 다음 단계를 진행하십시오.")
-        self.lbl_skip_hint1.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 16px;")
+        self.lbl_skip_hint1.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
+        self.lbl_skip_hint1.setWordWrap(True)
         self.lbl_skip_hint1.setAlignment(Qt.AlignCenter)
         header1.addWidget(self.lbl_skip_hint1)
         slide1_layout.addLayout(header1)
@@ -464,7 +465,8 @@ class CalibrationWizardWidgetKO(QWidget):
             d3_2_layout.addWidget(lbl)
             
         warn3_2 = QLabel("⚠️ 경고: 양팔의 직접 교시 버튼을 절대로 동시에 누르지 마십시오!")
-        warn3_2.setStyleSheet("font-size: 16px; color: #ff5252; font-weight: bold;")
+        warn3_2.setStyleSheet("font-size: 20px; color: #ff5252; font-weight: bold;")
+        warn3_2.setWordWrap(True)
         warn3_2.setAlignment(Qt.AlignCenter)
         d3_2_layout.addWidget(warn3_2)
         
@@ -484,7 +486,8 @@ class CalibrationWizardWidgetKO(QWidget):
         l3_3.addWidget(t3_3)
         
         self.lbl_skip_hint7 = QLabel("이미 진행했다면 다음(Next) 혹은 스킵(Skip) 버튼을 눌러 다음 단계를 진행하십시오.")
-        self.lbl_skip_hint7.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 16px;")
+        self.lbl_skip_hint7.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
+        self.lbl_skip_hint7.setWordWrap(True)
         self.lbl_skip_hint7.setAlignment(Qt.AlignCenter)
         l3_3.addWidget(self.lbl_skip_hint7)
         
@@ -512,17 +515,14 @@ class CalibrationWizardWidgetKO(QWidget):
         inst3_3_layout.setSpacing(10)
         
         posture_texts = [
-            "1. Shoulder Roll(어깨 회전)을 몸 안쪽으로 넣어주세요.",
-            "2. Elbow(팔꿈치)를 물리적으로 닿을 때까지 뒤로 펼쳐주세요.",
-            "3. Wrist Pitch(손목)는 선택 사항이며, 회전시킬 경우 10도 정도로만 살짝 틀어주세요.",
-            "4. 1~3번이 완료되면 아래 '홈 오프셋 리셋' 버튼을 눌러 영점을 초기화하세요."
+            ("1. Shoulder Roll(어깨 회전)을 몸 안쪽으로 넣어주세요.", "font-size: 15px; color: #ffffff; font-weight: bold;"),
+            ("   ⚠️ 주의: Shoulder Roll을 회전시키되, 어깨(Shoulder)가 물리적으로 완전히 닿지 않도록 주의하세요!", "font-size: 18px; color: #ff5252; font-weight: bold;"),
+            ("2. Elbow(팔꿈치)를 물리적으로 닿을 때까지 뒤로 펼쳐주세요.", "font-size: 15px; color: #ffffff; font-weight: bold;"),
+            ("3. 1~2번이 완료되면 아래 '홈 오프셋 리셋' 버튼을 눌러 영점을 초기화하세요.", "font-size: 15px; color: #ffeb3b; font-weight: bold;")
         ]
-        for p_txt in posture_texts:
+        for p_txt, p_style in posture_texts:
             lbl_p = QLabel(p_txt)
-            if p_txt.startswith("4."):
-                lbl_p.setStyleSheet("font-size: 16px; color: #ffeb3b; font-weight: bold;")
-            else:
-                lbl_p.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: bold;")
+            lbl_p.setStyleSheet(p_style)
             lbl_p.setWordWrap(True)
             inst3_3_layout.addWidget(lbl_p)
             

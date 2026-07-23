@@ -212,7 +212,8 @@ class CalibrationWizardWidget(QWidget):
         header1.addWidget(t1)
         
         self.lbl_skip_hint1 = QLabel("If you have already completed this step, please click the Next or Skip button to proceed.")
-        self.lbl_skip_hint1.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 16px;")
+        self.lbl_skip_hint1.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
+        self.lbl_skip_hint1.setWordWrap(True)
         self.lbl_skip_hint1.setAlignment(Qt.AlignCenter)
         header1.addWidget(self.lbl_skip_hint1)
         slide1_layout.addLayout(header1)
@@ -464,7 +465,8 @@ class CalibrationWizardWidget(QWidget):
             d3_2_layout.addWidget(lbl)
             
         warn3_2 = QLabel("⚠️ WARNING: NEVER press the teaching buttons on both arms simultaneously!")
-        warn3_2.setStyleSheet("font-size: 16px; color: #ff5252; font-weight: bold;")
+        warn3_2.setStyleSheet("font-size: 20px; color: #ff5252; font-weight: bold;")
+        warn3_2.setWordWrap(True)
         warn3_2.setAlignment(Qt.AlignCenter)
         d3_2_layout.addWidget(warn3_2)
         
@@ -484,7 +486,8 @@ class CalibrationWizardWidget(QWidget):
         l3_3.addWidget(t3_3)
         
         self.lbl_skip_hint7 = QLabel("If you have already completed this step, please click the Next or Skip button to proceed.")
-        self.lbl_skip_hint7.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 16px;")
+        self.lbl_skip_hint7.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
+        self.lbl_skip_hint7.setWordWrap(True)
         self.lbl_skip_hint7.setAlignment(Qt.AlignCenter)
         l3_3.addWidget(self.lbl_skip_hint7)
         
@@ -512,17 +515,14 @@ class CalibrationWizardWidget(QWidget):
         inst3_3_layout.setSpacing(10)
         
         posture_texts = [
-            "1. Rotate Shoulder Roll inwards towards the body.",
-            "2. Push Elbow fully backwards until physically contacted / stopped.",
-            "3. Wrist Pitch is optional (mainly used to verify calibration). If rotated, tilt backwards by ~10° only.",
-            "4. Once steps 1~3 are complete, click the 'Reset Home Offset' button below to reset the joint zero points."
+            ("1. Rotate Shoulder Roll inwards towards the body.", "font-size: 15px; color: #ffffff; font-weight: bold;"),
+            ("   ⚠️ WARNING: Ensure shoulder roll is rotated, but be careful NOT to let the shoulder touch physically / fully contact!", "font-size: 18px; color: #ff5252; font-weight: bold;"),
+            ("2. Push Elbow fully backwards until physically contacted / stopped.", "font-size: 15px; color: #ffffff; font-weight: bold;"),
+            ("3. Once steps 1~2 are complete, click the 'Reset Home Offset' button below to reset the joint zero points.", "font-size: 15px; color: #ffeb3b; font-weight: bold;")
         ]
-        for p_txt in posture_texts:
+        for p_txt, p_style in posture_texts:
             lbl_p = QLabel(p_txt)
-            if p_txt.startswith("4."):
-                lbl_p.setStyleSheet("font-size: 16px; color: #ffeb3b; font-weight: bold;")
-            else:
-                lbl_p.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: bold;")
+            lbl_p.setStyleSheet(p_style)
             lbl_p.setWordWrap(True)
             inst3_3_layout.addWidget(lbl_p)
             
@@ -1033,6 +1033,9 @@ class CalibrationWizardWidget(QWidget):
 
     def stop_step4(self):
         self.step4_timer.stop()
+        m = self.step4_elapsed // 60
+        s = self.step4_elapsed % 60
+        time_str = f"{m:02d}:{s:02d}"
         was_stopped = False
         if hasattr(self.parent_app, "full_auto_stop_event") and self.parent_app.full_auto_stop_event is not None:
             was_stopped = self.parent_app.full_auto_stop_event.is_set()
@@ -1041,7 +1044,7 @@ class CalibrationWizardWidget(QWidget):
         
         if not was_stopped and not error_msg:
             summary = self.get_calibrated_joint_summary_en()
-            self.lbl_step4_status.setText(f"Status: Full Auto Complete! Offsets: {summary}\n⚠️ You MUST click 'Apply' to proceed to the Next step.")
+            self.lbl_step4_status.setText(f"Status: Full Auto Complete (Elapsed Time: {time_str})!\nOffsets: {summary}\n⚠️ You MUST click 'Apply' to proceed to the Next step.")
             self.lbl_step4_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 15px;")
             self.step_completed[8] = False
             self.update_navigation(self.stacked_widget.currentIndex())

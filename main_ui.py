@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout,
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
                              QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy, QRadioButton, QStackedWidget, QButtonGroup)
-from PySide6.QtCore import Qt, QTimer, QThread, Signal
+from PySide6.QtCore import Qt, QTimer, QThread, Signal, QMetaObject
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
 import matplotlib
 matplotlib.use('Agg')
@@ -377,6 +377,146 @@ class ZeroPoseCheckDialog(QDialog):
         layout.addWidget(btn)
         
         self.setLayout(layout)
+
+class MarkerRecognitionProblemDialog(QDialog):
+    def __init__(self, parent=None, is_ko=False):
+        super().__init__(parent)
+        self.is_ko = is_ko
+        self.setWindowTitle("마커 인식 오류 및 수동 위치 교시 가이드" if is_ko else "Marker Recognition Problem & Teaching Guidance")
+        self.resize(800, 700)
+        self.setStyleSheet(DARK_STYLESHEET)
+        
+        self.stacked_widget = QStackedWidget()
+        
+        # --- Page 1: Problem Detection & Feed check ---
+        page1 = QWidget()
+        p1_layout = QVBoxLayout(page1)
+        p1_layout.setSpacing(14)
+        
+        lbl_p1_title = QLabel("⚠️ 마커가 카메라 화각에서 감지되지 않았습니다!" if is_ko else "⚠️ Marker is not detected in camera view!")
+        lbl_p1_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ff5252;")
+        lbl_p1_title.setWordWrap(True)
+        lbl_p1_title.setAlignment(Qt.AlignCenter)
+        p1_layout.addWidget(lbl_p1_title)
+        
+        img_p1 = QLabel()
+        pix_p1 = QPixmap("img/marker_problem_before.png")
+        if not pix_p1.isNull():
+            img_p1.setPixmap(pix_p1.scaled(680, 320, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_p1.setText("[img/marker_problem_before.png]")
+        img_p1.setAlignment(Qt.AlignCenter)
+        p1_layout.addWidget(img_p1)
+        
+        lbl_p1_desc = QLabel(
+            "카메라가 레디 자세에서 마커를 인식하지 못했습니다.\n\n"
+            "1. '카메라 피드 열기' 버튼을 눌러 카메라 화면에서 마커가 보이는지 확인하세요.\n"
+            "2. 확인 후 '수동 위치 교시 진행 (다음)' 버튼을 클릭하세요."
+            if is_ko else
+            "The camera could not detect the calibration marker in the ready pose.\n\n"
+            "1. Click 'Open Camera Feed' to view the live camera feed and check marker placement.\n"
+            "2. Click 'Proceed to Manual Teaching (Next)' after checking."
+        )
+        lbl_p1_desc.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: bold;")
+        lbl_p1_desc.setWordWrap(True)
+        lbl_p1_desc.setAlignment(Qt.AlignCenter)
+        p1_layout.addWidget(lbl_p1_desc)
+        
+        p1_btn_layout = QHBoxLayout()
+        btn_feed = QPushButton("카메라 피드 열기" if is_ko else "Open Camera Feed")
+        btn_feed.setMinimumHeight(45)
+        btn_feed.setStyleSheet("background-color: #ff9800; color: #000000; font-size: 15px; font-weight: bold; border-radius: 6px;")
+        if parent and hasattr(parent, 'toggle_camera_feed_dialog'):
+            btn_feed.clicked.connect(parent.toggle_camera_feed_dialog)
+            
+        btn_next = QPushButton("수동 위치 교시 진행 (다음) ➔" if is_ko else "Proceed to Manual Teaching (Next) ➔")
+        btn_next.setMinimumHeight(45)
+        btn_next.setStyleSheet("background-color: #1976d2; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
+        btn_next.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(1))
+        
+        btn_cancel1 = QPushButton("캘리브레이션 취소" if is_ko else "Cancel Calibration")
+        btn_cancel1.setMinimumHeight(45)
+        btn_cancel1.setStyleSheet("background-color: #555555; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
+        btn_cancel1.clicked.connect(self.reject)
+        
+        p1_btn_layout.addWidget(btn_feed)
+        p1_btn_layout.addWidget(btn_next)
+        p1_btn_layout.addWidget(btn_cancel1)
+        p1_layout.addLayout(p1_btn_layout)
+        
+        self.stacked_widget.addWidget(page1)
+        
+        # --- Page 2: Manual Teaching & Position Reset Guidance ---
+        page2 = QWidget()
+        p2_layout = QVBoxLayout(page2)
+        p2_layout.setSpacing(14)
+        
+        lbl_p2_title = QLabel("⚠️ 수동 위치 교시 및 카메라 시야 확보 안내" if is_ko else "⚠️ Manual Teaching & Camera View Alignment")
+        lbl_p2_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffeb3b;")
+        lbl_p2_title.setWordWrap(True)
+        lbl_p2_title.setAlignment(Qt.AlignCenter)
+        p2_layout.addWidget(lbl_p2_title)
+        
+        img_row_p2 = QHBoxLayout()
+        img_p2_a = QLabel()
+        pix_p2_a = QPixmap("img/marker_problem_teaching.png")
+        if not pix_p2_a.isNull():
+            img_p2_a.setPixmap(pix_p2_a.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_p2_a.setText("[img/marker_problem_teaching.png]")
+        img_p2_a.setAlignment(Qt.AlignCenter)
+        img_row_p2.addWidget(img_p2_a)
+        
+        img_p2_b = QLabel()
+        pix_p2_b = QPixmap("img/marker_problem_after.png")
+        if not pix_p2_b.isNull():
+            img_p2_b.setPixmap(pix_p2_b.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_p2_b.setText("[img/marker_problem_after.png]")
+        img_p2_b.setAlignment(Qt.AlignCenter)
+        img_row_p2.addWidget(img_p2_b)
+        p2_layout.addLayout(img_row_p2)
+        
+        lbl_p2_desc = QLabel(
+            "1. 로봇 팔/헤드의 직접 교시 버튼(Teaching Button)을 눌러 위치를 이동시키세요.\n"
+            "2. 카메라 피드를 확인하며 마커가 카메라 화면 정중앙에 올 때까지 맞춰주세요.\n"
+            "3. 위치 조정을 마치면 아래 '티칭 완료 (캘리브레이션 재개)' 버튼을 클릭하세요.\n"
+            "   (현재 교시한 자세가 새로운 0° 기준점이 되어 캘리브레이션 모션을 계속 수행합니다.)"
+            if is_ko else
+            "1. Press the direct teaching button on the robot arm/head to unlock joints.\n"
+            "2. Manually adjust the posture so that the marker is fully visible in the camera feed.\n"
+            "3. Once aligned, click 'Teaching Done (Resume Calibration)' below.\n"
+            "   (The current taught posture will be set as the new 0° baseline for calibration sweeps.)"
+        )
+        lbl_p2_desc.setStyleSheet("font-size: 16px; color: #ffffff; font-weight: bold;")
+        lbl_p2_desc.setWordWrap(True)
+        p2_layout.addWidget(lbl_p2_desc)
+        
+        p2_btn_layout = QHBoxLayout()
+        btn_prev2 = QPushButton("◀ 이전" if is_ko else "◀ Prev")
+        btn_prev2.setMinimumHeight(45)
+        btn_prev2.setStyleSheet("background-color: #555555; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
+        btn_prev2.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(0))
+        
+        btn_confirm = QPushButton("티칭 완료 (캘리브레이션 재개) ✔" if is_ko else "Teaching Done (Resume Calibration) ✔")
+        btn_confirm.setMinimumHeight(45)
+        btn_confirm.setStyleSheet("background-color: #2e7d32; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
+        btn_confirm.clicked.connect(self.accept)
+        
+        btn_cancel2 = QPushButton("취소" if is_ko else "Cancel")
+        btn_cancel2.setMinimumHeight(45)
+        btn_cancel2.setStyleSheet("background-color: #c62828; color: #ffffff; font-size: 15px; font-weight: bold; border-radius: 6px;")
+        btn_cancel2.clicked.connect(self.reject)
+        
+        p2_btn_layout.addWidget(btn_prev2)
+        p2_btn_layout.addWidget(btn_confirm)
+        p2_btn_layout.addWidget(btn_cancel2)
+        p2_layout.addLayout(p2_btn_layout)
+        
+        self.stacked_widget.addWidget(page2)
+        
+        main_layout = QVBoxLayout(self)
+        main_layout.addWidget(self.stacked_widget)
 
 class ApplyHomeOffsetDialog(QDialog):
     def __init__(self, parent, result_path, baseline_path, arm, include_head, compare_summary=None):
@@ -2281,6 +2421,8 @@ class UnifiedCalibrationApp(QWidget):
         }
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
+        self.marker_calibrator.marker_problem_callback = self.prompt_marker_problem_teaching
+        self.joint_calibrator.marker_problem_callback = self.prompt_marker_problem_teaching
 
     def save_offsets_to_yaml(self):
         config_path = CONFIG_PATHS["setting_yaml"]
@@ -3306,7 +3448,65 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_head_checkbox_changed(self, checked):
         self.include_head_motion = checked
+        self.sync_connection_settings('main')
         self.log_msg(f"[INFO] Head motion/optimization option: {checked}")
+
+    def update_robot_connection_status(self):
+        is_connected = self.robot is not None
+        if is_connected:
+            self.btn_connect.setText("CONNECTED")
+            self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+            self.btn_connect.setEnabled(True)
+            if hasattr(self, 'wizard_widget') and self.wizard_widget:
+                self.wizard_widget.btn_wizard_connect.setText("CONNECTED")
+                self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px;")
+                self.wizard_widget.lbl_step2_status.setText("Status: Robot Connected" if not getattr(self, 'is_ko_ui', False) else "상태: 성공 - 로봇 연결 완료")
+                self.wizard_widget.lbl_step2_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
+                self.wizard_widget.mark_step_completed(4, True, "Connected")
+        else:
+            self.btn_connect.setText("CONNECT")
+            self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+            self.btn_connect.setEnabled(True)
+            if hasattr(self, 'wizard_widget') and self.wizard_widget:
+                self.wizard_widget.btn_wizard_connect.setText("CONNECT (로봇 연결)" if getattr(self, 'is_ko_ui', False) else "CONNECT")
+                self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
+                self.wizard_widget.lbl_step2_status.setText("Status: Disconnected" if not getattr(self, 'is_ko_ui', False) else "상태: 연결 해제됨")
+                self.wizard_widget.lbl_step2_status.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
+                self.wizard_widget.mark_step_completed(4, False, "Disconnected")
+
+    def sync_connection_settings(self, source='main'):
+        if not hasattr(self, 'wizard_widget') or not self.wizard_widget:
+            return
+        if source == 'main':
+            if hasattr(self, 'ip_input') and hasattr(self.wizard_widget, 'wizard_ip_input'):
+                self.wizard_widget.wizard_ip_input.blockSignals(True)
+                self.wizard_widget.wizard_ip_input.setText(self.ip_input.text().strip())
+                self.wizard_widget.wizard_ip_input.blockSignals(False)
+            if hasattr(self, 'chk_servo_head') and hasattr(self.wizard_widget, 'wizard_chk_head'):
+                self.wizard_widget.wizard_chk_head.blockSignals(True)
+                self.wizard_widget.wizard_chk_head.setChecked(self.chk_servo_head.isChecked())
+                self.wizard_widget.wizard_chk_head.blockSignals(False)
+        elif source == 'wizard':
+            if hasattr(self, 'ip_input') and hasattr(self.wizard_widget, 'wizard_ip_input'):
+                self.ip_input.blockSignals(True)
+                self.ip_input.setText(self.wizard_widget.wizard_ip_input.text().strip())
+                self.ip_input.blockSignals(False)
+            if hasattr(self, 'chk_servo_head') and hasattr(self.wizard_widget, 'wizard_chk_head'):
+                self.chk_servo_head.blockSignals(True)
+                self.chk_servo_head.setChecked(self.wizard_widget.wizard_chk_head.isChecked())
+                self.chk_servo_head.blockSignals(False)
+
+    def prompt_marker_problem_teaching(self, arm_side):
+        import threading
+        evt = threading.Event()
+        res = {'resolved': False}
+        def _show():
+            dlg = MarkerRecognitionProblemDialog(self, is_ko=getattr(self, 'is_ko_ui', False))
+            res['resolved'] = (dlg.exec() == QDialog.Accepted)
+            evt.set()
+        QMetaObject.invokeMethod(self, _show, Qt.QueuedConnection)
+        evt.wait()
+        return res['resolved']
 
     def connect_robot(self):
         from core.calibration.CalibratorBase import BaseCalibrator
@@ -3326,14 +3526,14 @@ class UnifiedCalibrationApp(QWidget):
             self.update_joint_modes()
             self.load_offsets_from_yaml()
             self.update_applied_offset_label()
-            self.btn_connect.setText("CONNECT")
-            self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+            self.update_robot_connection_status()
             if hasattr(self, 'chk_servo_head'):
                 self.chk_servo_head.setEnabled(True)
             self.log_msg("[INFO] Robot disconnected.")
             return
 
         try:
+            self.sync_connection_settings('main')
             addr = self.ip_input.text().strip()
             model = self.model_input.currentText().strip()
             
@@ -3502,21 +3702,15 @@ class UnifiedCalibrationApp(QWidget):
                     self.log_msg("[INFO] Automatically switched Step 2 Mode to 'sim' because camera is not connected.")
 
                 self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version}).")
-                self.btn_connect.setText("CONNECTED")
-                self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 11px;")
-                self.btn_connect.setEnabled(True)
+                self.update_robot_connection_status()
             else:
                 self.log_msg("[ERROR] Robot initialization failed. Check IP.")
-                self.btn_connect.setText("CONNECT")
-                self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
-                self.btn_connect.setEnabled(True)
+                self.update_robot_connection_status()
         except Exception as e:
             import traceback
             traceback.print_exc()
             self.log_msg(f"[ERROR] Connection failure: {e}")
-            self.btn_connect.setText("CONNECT")
-            self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
-            self.btn_connect.setEnabled(True)
+            self.update_robot_connection_status()
 
     def on_arm_side_changed(self, text):
         new_side = "left" if "Left" in text else "right"
@@ -4613,6 +4807,33 @@ class UnifiedCalibrationApp(QWidget):
         self.last_result_path = result_path
         self.log_msg(f"Result saved to {result_path}")
         self.log_msg(f"History appended to {history_path}")
+
+        # Baseline Comparison Output
+        baseline_file = "config/home_reset_baseline.json"
+        if os.path.exists(baseline_file):
+            try:
+                with open(baseline_file, "r") as bf:
+                    b_data = json.load(bf)
+                self.log_msg("\n=========================================================")
+                self.log_msg("  BASE LINE COMPARISON (config/home_reset_baseline.json)")
+                self.log_msg("=========================================================")
+                if right_arm_offset is not None and "right_arm_joint_offset_deg" in b_data:
+                    calc_r = np.rad2deg(right_arm_offset)
+                    base_r = np.array(b_data["right_arm_joint_offset_deg"])
+                    diff_r = np.abs(calc_r - base_r)
+                    self.log_msg(" [RIGHT ARM]")
+                    for i in range(len(calc_r)):
+                        self.log_msg(f"   J{i}: Calc = {calc_r[i]:+8.4f}° | Baseline = {base_r[i]:+8.4f}° | Diff = {diff_r[i]:6.4f}°")
+                if left_arm_offset is not None and "left_arm_joint_offset_deg" in b_data:
+                    calc_l = np.rad2deg(left_arm_offset)
+                    base_l = np.array(b_data["left_arm_joint_offset_deg"])
+                    diff_l = np.abs(calc_l - base_l)
+                    self.log_msg(" [LEFT ARM]")
+                    for i in range(len(calc_l)):
+                        self.log_msg(f"   J{i}: Calc = {calc_l[i]:+8.4f}° | Baseline = {base_l[i]:+8.4f}° | Diff = {diff_l[i]:6.4f}°")
+                self.log_msg("=========================================================\n")
+            except Exception as e:
+                self.log_msg(f"[WARN] Failed to compare with baseline: {e}")
 
     def _on_apply_joint_offset_toggled(self, checked):
         """Toggle apply joint offset flag and update status label."""
