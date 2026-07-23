@@ -4475,6 +4475,7 @@ class UnifiedCalibrationApp(QWidget):
             self.auto_config.position_step_m = float(self.step2_pos_step.text())
             self.auto_config.step_x_m = float(self.step2_step_x.text())
             self.auto_config.max_x = float(self.step2_max_x.text())
+            self.auto_config.max_loops = 2
         except Exception as e:
             self.log_msg(f"Failed to read auto config: {e}. Using current values.")
 

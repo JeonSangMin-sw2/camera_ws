@@ -11,9 +11,10 @@ class AutoCollectionConfig:
     position_step_m: float = 0.03
     step_x_m: float = 0.03
     max_x: float = 0.5
-    move_time: float = 2.4
-    settle_time: float = 0.6
-    hold_time: float = 0.5
+    max_loops: int = 2
+    move_time: float = 1.8
+    settle_time: float = 0.4
+    hold_time: float = 0.4
     priority: int = 10
 
 def rot_x(rad):
@@ -113,7 +114,7 @@ def reset_motion_state():
 
 def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"]):
     """
-    현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다.
+    현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다. (최대 2루프, 약 76개 포즈로 제한)
     """
     reset_motion_state()
     state = robot.get_state()
@@ -149,10 +150,14 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     T_curr_right = T_base_right.copy()
     T_curr_left = T_base_left.copy()
     
-    while True:
+    loop_count = 0
+    max_loops = getattr(config, 'max_loops', 2)
+
+    while loop_count < max_loops:
         curr_x = T_curr_right[0, 3]
         if curr_x > config.max_x:
             break
+        loop_count += 1
             
         half_ang = config.angle_step_deg / 2.0
         full_ang = config.angle_step_deg

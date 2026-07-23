@@ -971,10 +971,10 @@ class JointCalibrator(BaseCalibrator):
                     diff_angle = np.arctan2(np.dot(n5_proj, ref_x), np.dot(n5_proj, ref_y))
                     raw_diff_deg = np.degrees(diff_angle)
                     
-                    # Compensate for the initial ready pose angle of J7 (index 6)
-                    # We must take the J7 angle from dataset_B (the J5 sweep), because during dataset_A (the J6 sweep), J7 is moving.
-                    q_full_B_first = dataset_B[0][0]
-                    j7_ready_pose_deg = np.degrees(q_full_B_first[arm_idx[6]])
+                    # Compensate for the initial nominal ready pose angle of J7 (index 6)
+                    ver_key = "v1.3" if self.is_v13() else "v1.2"
+                    ready_pose_nom = self.get_ready_pose(ver_key, "joint", "wrist_roll_v13" if self.is_v13() else "wrist_yaw2", arm_side)
+                    j7_ready_pose_deg = np.degrees(ready_pose_nom[6])
                     
                     # Due to kinematics, the apparent marker rotation is the negative of the actual J7 rotation:
                     # raw_diff_deg = - (j7_ready_pose_deg + physical_offset)
@@ -983,7 +983,7 @@ class JointCalibrator(BaseCalibrator):
                     optimal_offset_deg = raw_diff_deg + j7_ready_pose_deg
                     
                     if log_callback:
-                        log_callback(f"[INFO] {mode}: J7 ready pose={j7_ready_pose_deg:.2f}°, raw_diff={raw_diff_deg:.2f}°, optimal_offset={optimal_offset_deg:.2f}°")
+                        log_callback(f"[INFO] {mode}: J7 nominal ready pose={j7_ready_pose_deg:.2f}°, raw_diff={raw_diff_deg:.2f}°, optimal_offset={optimal_offset_deg:.2f}°")
             except Exception as e:
                 import traceback
                 if log_callback:
