@@ -985,7 +985,7 @@ class JointCalibrator(BaseCalibrator):
                     raw_diff_deg = np.degrees(diff_angle)
                     
                     # Compensate for the initial nominal ready pose angle of J7 (index 6)
-                    j7_ready_pose_deg = np.degrees(ready_pose_nom[arm_idx[6]])
+                    j7_ready_pose_deg = np.degrees(ready_pose_nom[6])
                     optimal_offset_deg = raw_diff_deg + j7_ready_pose_deg
                     
                     if log_callback:
