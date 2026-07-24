@@ -995,12 +995,9 @@ class JointCalibrator(BaseCalibrator):
                         staged_j7_offset_deg = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
                     
                     j7_ready_pose_deg = j7_current_pos_deg - staged_j7_offset_deg
-                    
-                    # Due to kinematics, the apparent marker rotation is the negative of the actual J7 rotation:
-                    # raw_diff_deg = - (j7_ready_pose_deg + physical_offset)
-                    # physical_offset = - raw_diff_deg - j7_ready_pose_deg
-                    # We must return the compensation offset (correction), which is the negative of the physical offset:
-                    optimal_offset_deg = raw_diff_deg + j7_ready_pose_deg
+                    # For absolute recommended offset, we simply add raw_diff_deg to the actual J7 position (which already contains any applied offset).
+                    # This ensures optimal_offset_deg is always the total physical offset relative to nominal ready pose.
+                    optimal_offset_deg = raw_diff_deg + j7_current_pos_deg
                     
                     if log_callback:
                         log_callback(f"[INFO] {mode}: J7 nominal ready pose={j7_ready_pose_deg:.2f}°, raw_diff={raw_diff_deg:.2f}°, optimal_offset={optimal_offset_deg:.2f}°")
