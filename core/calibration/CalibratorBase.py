@@ -83,20 +83,19 @@ class BaseCalibrator:
         # Active joint home offsets to apply to commanded trajectories
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
         self.user_taught_ready_poses = {}
-        self.user_taught_ready_poses_mode = {}
         self.stop_requested = False
 
-    def clear_user_taught_ready_poses(self, arm_side=None):
-        if hasattr(self, 'user_taught_ready_poses') and self.user_taught_ready_poses is not None:
-            if arm_side:
-                self.user_taught_ready_poses[arm_side] = None
+    def clear_user_taught_ready_poses(self, arm_side=None, mode=None):
+        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+            if arm_side and mode:
+                norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
+                if arm_side in self.user_taught_ready_poses and isinstance(self.user_taught_ready_poses[arm_side], dict):
+                    self.user_taught_ready_poses[arm_side].pop(norm_mode, None)
+            elif arm_side:
+                if arm_side in self.user_taught_ready_poses and isinstance(self.user_taught_ready_poses[arm_side], dict):
+                    self.user_taught_ready_poses[arm_side].clear()
             else:
                 self.user_taught_ready_poses.clear()
-        if hasattr(self, 'user_taught_ready_poses_mode') and self.user_taught_ready_poses_mode is not None:
-            if arm_side:
-                self.user_taught_ready_poses_mode[arm_side] = None
-            else:
-                self.user_taught_ready_poses_mode.clear()
 
     def load_ready_poses(self):
         config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
@@ -1021,19 +1020,22 @@ class BaseCalibrator:
             else:
                 ready_mode = "wrist_pitch"
             
-        taught_mode = getattr(self, 'user_taught_ready_poses_mode', {}).get(arm_side)
-        if (hasattr(self, 'user_taught_ready_poses') and 
-            arm_side in self.user_taught_ready_poses and 
-            self.user_taught_ready_poses[arm_side] is not None and
-            taught_mode == mode):
+        norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
+        taught_pose = None
+        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+            arm_dict = self.user_taught_ready_poses.get(arm_side)
+            if isinstance(arm_dict, dict):
+                taught_pose = arm_dict.get(norm_mode)
+
+        if taught_pose is not None:
             if log_callback:
-                log_callback(f"[INFO] Preserved user-taught ready pose detected for {arm_side} arm ({mode}). Using taught posture.")
+                log_callback(f"[INFO] Preserved user-taught ready pose detected for {arm_side} arm ({norm_mode}). Using taught posture.")
             if arm_side == "right":
-                right_arm = self.user_taught_ready_poses[arm_side]
+                right_arm = taught_pose
                 left_arm = None
             else:
                 right_arm = None
-                left_arm = self.user_taught_ready_poses[arm_side]
+                left_arm = taught_pose
         else:
             if arm_side == "right":
                 right_arm = self.get_ready_pose(version_key, type_key, ready_mode, "right")
@@ -1371,9 +1373,12 @@ class BaseCalibrator:
             if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
                 resolved = self.marker_problem_callback(arm_side)
                 if resolved:
-                    if log_callback: log_callback(f"[INFO] User resolved posture adjustment. Retrying {label} sweep...")
-                    if hasattr(self, 'user_taught_ready_poses') and arm_side in self.user_taught_ready_poses and self.user_taught_ready_poses[arm_side] is not None:
-                        q_center = self.user_taught_ready_poses[arm_side]
+                    sweep_mode = kwargs.get('mode', "marker" if "Marker" in label else "joint")
+                    norm_mode = "wrist_pitch" if sweep_mode == "wrist_pitch_v13" else ("wrist_roll" if sweep_mode == "wrist_roll_v13" else sweep_mode)
+                    if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+                        arm_dict = self.user_taught_ready_poses.get(arm_side)
+                        if isinstance(arm_dict, dict) and arm_dict.get(norm_mode) is not None:
+                            q_center = arm_dict.get(norm_mode)
                     return self.perform_single_joint_sweep(
                         arm_side, sweep_joint, q_center, start_deg, end_deg, sweep_duration,
                         q_head=q_head, label=label, log_callback=log_callback, **kwargs

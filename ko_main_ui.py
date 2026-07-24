@@ -2245,6 +2245,8 @@ class FullAutoWorker(QThread):
             import traceback
             self.log_msg.emit(traceback.format_exc())
         finally:
+            if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+                self.joint_calibrator.clear_user_taught_ready_poses()
             self.finished_signal.emit()
 
 
@@ -3498,16 +3500,21 @@ class UnifiedCalibrationApp(QWidget):
                 self.chk_servo_head.setChecked(self.wizard_widget.wizard_chk_head.isChecked())
                 self.chk_servo_head.blockSignals(False)
 
-    def clear_user_taught_ready_poses(self, arm_side=None):
-        if hasattr(self, 'user_taught_ready_poses') and self.user_taught_ready_poses is not None:
-            if arm_side:
-                self.user_taught_ready_poses[arm_side] = None
+    def clear_user_taught_ready_poses(self, arm_side=None, mode=None):
+        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+            if arm_side and mode:
+                norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
+                if arm_side in self.user_taught_ready_poses and isinstance(self.user_taught_ready_poses[arm_side], dict):
+                    self.user_taught_ready_poses[arm_side].pop(norm_mode, None)
+            elif arm_side:
+                if arm_side in self.user_taught_ready_poses and isinstance(self.user_taught_ready_poses[arm_side], dict):
+                    self.user_taught_ready_poses[arm_side].clear()
             else:
                 self.user_taught_ready_poses.clear()
         if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
-            self.marker_calibrator.clear_user_taught_ready_poses(arm_side)
+            self.marker_calibrator.clear_user_taught_ready_poses(arm_side, mode)
         if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
-            self.joint_calibrator.clear_user_taught_ready_poses(arm_side)
+            self.joint_calibrator.clear_user_taught_ready_poses(arm_side, mode)
 
     def _on_marker_problem_requested(self, arm_side, evt, res):
         dlg = MarkerRecognitionProblemDialog(self, is_ko=True)
@@ -3524,29 +3531,49 @@ class UnifiedCalibrationApp(QWidget):
                 arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
                 taught_pose = list(state.position[arm_idx])
                 active_mode = getattr(self, 'current_calib_mode', 'marker')
-                if not hasattr(self, 'user_taught_ready_poses') or self.user_taught_ready_poses is None:
-                    self.user_taught_ready_poses = {}
-                if not hasattr(self, 'user_taught_ready_poses_mode') or self.user_taught_ready_poses_mode is None:
-                    self.user_taught_ready_poses_mode = {}
-                self.user_taught_ready_poses[arm_side] = taught_pose
-                self.user_taught_ready_poses_mode[arm_side] = active_mode
+                norm_mode = "wrist_pitch" if active_mode == "wrist_pitch_v13" else ("wrist_roll" if active_mode == "wrist_roll_v13" else active_mode)
+
+                version_key = "v1.3" if (hasattr(self, 'marker_calibrator') and self.marker_calibrator and self.marker_calibrator.is_v13()) else "v1.2"
+                if norm_mode == "marker":
+                    type_key = "marker"
+                    ready_mode = None
+                else:
+                    type_key = "joint"
+                    if norm_mode == "wrist_pitch":
+                        ready_mode = "wrist_pitch"
+                    elif norm_mode in ("wrist_roll", "wrist_yaw2"):
+                        ready_mode = "wrist_roll_v13" if version_key == "v1.3" else "wrist_yaw2"
+                    elif norm_mode == "elbow":
+                        ready_mode = "elbow"
+                    else:
+                        ready_mode = "wrist_pitch"
 
                 if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
-                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses') or self.marker_calibrator.user_taught_ready_poses is None:
-                        self.marker_calibrator.user_taught_ready_poses = {}
-                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses_mode') or self.marker_calibrator.user_taught_ready_poses_mode is None:
-                        self.marker_calibrator.user_taught_ready_poses_mode = {}
-                    self.marker_calibrator.user_taught_ready_poses[arm_side] = taught_pose
-                    self.marker_calibrator.user_taught_ready_poses_mode[arm_side] = active_mode
+                    try:
+                        nom_pose = self.marker_calibrator.get_ready_pose(version_key, type_key, ready_mode, arm_side)
+                        if norm_mode == "elbow":
+                            taught_pose[3] = nom_pose[3]
+                        elif norm_mode == "wrist_pitch":
+                            taught_pose[5] = nom_pose[5]
+                        elif norm_mode in ("marker", "wrist_roll", "wrist_yaw2"):
+                            taught_pose[5] = nom_pose[5]
+                    except Exception as e:
+                        self.log_msg(f"[WARN] 표준 목표 관절 각도 강제 설정 실패: {e}")
+
+                if not hasattr(self, 'user_taught_ready_poses') or not isinstance(self.user_taught_ready_poses, dict):
+                    self.user_taught_ready_poses = {}
+                if arm_side not in self.user_taught_ready_poses or not isinstance(self.user_taught_ready_poses[arm_side], dict):
+                    self.user_taught_ready_poses[arm_side] = {}
+
+                self.user_taught_ready_poses[arm_side][norm_mode] = taught_pose
+
+                if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+                    self.marker_calibrator.user_taught_ready_poses = self.user_taught_ready_poses
 
                 if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
-                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses') or self.joint_calibrator.user_taught_ready_poses is None:
-                        self.joint_calibrator.user_taught_ready_poses = {}
-                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses_mode') or self.joint_calibrator.user_taught_ready_poses_mode is None:
-                        self.joint_calibrator.user_taught_ready_poses_mode = {}
-                    self.joint_calibrator.user_taught_ready_poses[arm_side] = taught_pose
-                    self.joint_calibrator.user_taught_ready_poses_mode[arm_side] = active_mode
-                self.log_msg(f"[INFO] 사용자 수동 위치 교시 포즈가 유지됩니다 ({arm_side.upper()} 팔, {active_mode}).")
+                    self.joint_calibrator.user_taught_ready_poses = self.user_taught_ready_poses
+
+                self.log_msg(f"[INFO] 사용자 수동 위치 교시 포즈가 유지됩니다 ({arm_side.upper()} 팔, {norm_mode}).")
             except Exception as e:
                 self.log_msg(f"[WARN] 수동 위치 교시 포즈 저장 실패: {e}")
         evt.set()
