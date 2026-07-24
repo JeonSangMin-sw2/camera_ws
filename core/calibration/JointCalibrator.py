@@ -285,6 +285,7 @@ class JointCalibrator(BaseCalibrator):
             
             return final_output
         finally:
+            self.clear_user_taught_ready_poses(arm_side)
             logger.save()
 
 

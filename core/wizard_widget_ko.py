@@ -1,10 +1,67 @@
 # -*- coding: utf-8 -*-
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QStackedWidget, QGroupBox, QCheckBox, QLineEdit, QMessageBox
+    QStackedWidget, QGroupBox, QCheckBox, QLineEdit, QMessageBox, QDialog
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap
+
+class HowToMoveArmsDialog(QDialog):
+    def __init__(self, parent=None, is_ko=True):
+        super().__init__(parent)
+        self.setWindowTitle("팔 이동 방법 (Direct Teaching)" if is_ko else "How to Move Arms (Direct Teaching)")
+        self.resize(750, 520)
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #ffffff; }
+            QLabel { color: #ffffff; font-size: 14px; }
+            QGroupBox { border: 2px solid #2d2d2d; border-radius: 8px; margin-top: 15px; font-weight: bold; font-size: 15px; color: #00e5ff; padding: 10px; }
+            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 15px; padding: 0 5px; }
+            QPushButton { background-color: #1565c0; color: white; font-weight: bold; font-size: 14px; padding: 8px 16px; border-radius: 6px; }
+            QPushButton:hover { background-color: #1e88e5; }
+        """)
+        
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+        
+        lbl_title = QLabel("직접 교시 버튼 사용 안내" if is_ko else "Direct Teaching Button Usage")
+        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffeb3b;")
+        lbl_title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(lbl_title)
+        
+        img_lbl = QLabel()
+        pix = QPixmap("img/teaching_button.png")
+        if not pix.isNull():
+            img_lbl.setPixmap(pix.scaled(550, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_lbl.setText("[img/teaching_button.png]")
+        img_lbl.setAlignment(Qt.AlignCenter)
+        layout.addWidget(img_lbl)
+        
+        box = QGroupBox("직접 교시 사용 안내" if is_ko else "Direct Teaching Steps")
+        box_layout = QVBoxLayout(box)
+        box_layout.setSpacing(8)
+        
+        insts = [
+            "1. 각 팔의 직접 교시 버튼을 눌러 수동으로 주요 관절 위치를 설정합니다." if is_ko else "1. Press the direct teaching button on each arm to manually adjust key joint postures.",
+            "2. 중요: 보정값이 반대 방향으로 계산되어 오작동을 일으키지 않도록, 지정된 주요 관절을 수작업으로 옮겨주어야 합니다." if is_ko else "2. Important: Manually move target joints so calibration offsets are calculated in the correct direction."
+        ]
+        for txt in insts:
+            lbl = QLabel(txt)
+            lbl.setStyleSheet("font-size: 14px; color: #dddddd; font-weight: bold;")
+            lbl.setWordWrap(True)
+            box_layout.addWidget(lbl)
+            
+        warn_lbl = QLabel("⚠️ 경고: 양팔의 직접 교시 버튼을 절대로 동시에 누르지 마십시오!" if is_ko else "⚠️ Warning: NEVER press teaching buttons on both arms simultaneously!")
+        warn_lbl.setStyleSheet("font-size: 16px; color: #ff5252; font-weight: bold;")
+        warn_lbl.setWordWrap(True)
+        warn_lbl.setAlignment(Qt.AlignCenter)
+        box_layout.addWidget(warn_lbl)
+        
+        layout.addWidget(box)
+        
+        btn_close = QPushButton("확인 (Close)" if is_ko else "Close")
+        btn_close.clicked.connect(self.accept)
+        layout.addWidget(btn_close, alignment=Qt.AlignCenter)
 
 class CalibrationWizardWidgetKO(QWidget):
     def __init__(self, parent):
@@ -160,7 +217,7 @@ class CalibrationWizardWidgetKO(QWidget):
         l1_3.setSpacing(14)
         l1_3.setAlignment(Qt.AlignCenter)
         
-        t1_3 = QLabel("1-3. 카메라 내부 파라미터 확인")
+        t1_3 = QLabel("1-3. 카메라 내부 파라미터 확인(선택사항)")
         t1_3.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
         t1_3.setAlignment(Qt.AlignCenter)
         l1_3.addWidget(t1_3)
@@ -427,96 +484,58 @@ class CalibrationWizardWidgetKO(QWidget):
         self.stacked_widget.addWidget(slide3_1)
 
         # -----------------------------------------
-        # Slide 6: 3-2. 직접 교시 버튼 사용 안내
+        # -----------------------------------------
+        # Slide 6: 3-2. 홈 오프셋 설정 포즈 맞추기
         # -----------------------------------------
         slide3_2 = QWidget()
         l3_2 = QVBoxLayout(slide3_2)
-        l3_2.setSpacing(14)
-        l3_2.setAlignment(Qt.AlignCenter)
+        l3_2.setSpacing(10)
         
-        t3_2 = QLabel("3-2. 직접 교시 버튼 사용 안내")
+        t3_2 = QLabel("3-2. 홈 오프셋 설정 포즈 맞추기")
         t3_2.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
         t3_2.setAlignment(Qt.AlignCenter)
         l3_2.addWidget(t3_2)
-        
-        img3_2 = QLabel()
-        pix3_2 = QPixmap("img/teaching_button.png")
-        if not pix3_2.isNull():
-            img3_2.setPixmap(pix3_2.scaled(550, 280, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img3_2.setText("[img/teaching_button.png 찾을 수 없음]")
-        img3_2.setAlignment(Qt.AlignCenter)
-        l3_2.addWidget(img3_2)
-        
-        d3_2_box = QGroupBox("직접 교시 사용 안내")
-        d3_2_box.setStyleSheet("QGroupBox::title { color: #00e5ff; font-weight: bold; font-size: 16px;}")
-        d3_2_box.setFixedWidth(750)
-        d3_2_layout = QVBoxLayout(d3_2_box)
-        d3_2_layout.setSpacing(8)
-        
-        inst3_2 = [
-            "1. 각 팔의 직접 교시 버튼을 눌러 수동으로 주요 관절 위치를 설정합니다.",
-            "2. 중요: 보정값이 반대 방향으로 계산되어 오작동을 일으키지 않도록, 지정된 주요 관절을 수작업으로 옮겨주어야 합니다."
-        ]
-        for txt in inst3_2:
-            lbl = QLabel(txt)
-            lbl.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
-            lbl.setWordWrap(True)
-            d3_2_layout.addWidget(lbl)
-            
-        warn3_2 = QLabel("⚠️ 경고: 양팔의 직접 교시 버튼을 절대로 동시에 누르지 마십시오!")
-        warn3_2.setStyleSheet("font-size: 20px; color: #ff5252; font-weight: bold;")
-        warn3_2.setWordWrap(True)
-        warn3_2.setAlignment(Qt.AlignCenter)
-        d3_2_layout.addWidget(warn3_2)
-        
-        l3_2.addWidget(d3_2_box, alignment=Qt.AlignCenter)
-        self.stacked_widget.addWidget(slide3_2)
-
-        # -----------------------------------------
-        # Slide 7: 3-3. 홈 오프셋 설정 포즈 맞추기
-        # -----------------------------------------
-        slide3_3 = QWidget()
-        l3_3 = QVBoxLayout(slide3_3)
-        l3_3.setSpacing(10)
-        
-        t3_3 = QLabel("3-3. 홈 오프셋 설정 포즈 맞추기")
-        t3_3.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        t3_3.setAlignment(Qt.AlignCenter)
-        l3_3.addWidget(t3_3)
         
         self.lbl_skip_hint7 = QLabel("이미 진행했다면 다음(Next) 혹은 스킵(Skip) 버튼을 눌러 다음 단계를 진행하십시오.")
         self.lbl_skip_hint7.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
         self.lbl_skip_hint7.setWordWrap(True)
         self.lbl_skip_hint7.setAlignment(Qt.AlignCenter)
-        l3_3.addWidget(self.lbl_skip_hint7)
+        l3_2.addWidget(self.lbl_skip_hint7)
         
         self.lbl_step7_status = QLabel("상태: 대기 중")
         self.lbl_step7_status.setAlignment(Qt.AlignCenter)
         self.lbl_step7_status.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
-        l3_3.addWidget(self.lbl_step7_status)
+        l3_2.addWidget(self.lbl_step7_status)
         
         # 2열 배치
-        row3_3 = QHBoxLayout()
-        row3_3.setSpacing(15)
+        row3_2 = QHBoxLayout()
+        row3_2.setSpacing(15)
         
-        img3_3 = QLabel()
-        pix3_3 = QPixmap("img/home_offset_position.png")
-        if not pix3_3.isNull():
-            img3_3.setPixmap(pix3_3.scaled(550, 340, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        img3_2 = QLabel()
+        pix3_2 = QPixmap("img/home_offset_position.png")
+        if not pix3_2.isNull():
+            img3_2.setPixmap(pix3_2.scaled(550, 340, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
-            img3_3.setText("[img/home_offset_position.png 찾을 수 없음]")
-        img3_3.setAlignment(Qt.AlignCenter)
-        row3_3.addWidget(img3_3)
+            img3_2.setText("[img/home_offset_position.png 찾을 수 없음]")
+        img3_2.setAlignment(Qt.AlignCenter)
+        row3_2.addWidget(img3_2)
         
-        inst3_3_box = QGroupBox("수동 위치 교시 가이드라인")
-        inst3_3_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
-        inst3_3_layout = QVBoxLayout(inst3_3_box)
-        inst3_3_layout.setSpacing(10)
+        right_col = QVBoxLayout()
+        right_col.setSpacing(10)
+        
+        self.btn_how_to_move = QPushButton("how to move arms?")
+        self.btn_how_to_move.setMinimumHeight(45)
+        self.btn_how_to_move.setStyleSheet("background-color: #0288d1; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
+        self.btn_how_to_move.clicked.connect(self.show_how_to_move_arms_dialog)
+        right_col.addWidget(self.btn_how_to_move, alignment=Qt.AlignRight)
+        
+        inst3_2_box = QGroupBox("수동 위치 교시 가이드라인")
+        inst3_2_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        inst3_2_layout = QVBoxLayout(inst3_2_box)
+        inst3_2_layout.setSpacing(10)
         
         posture_texts = [
             ("1. Shoulder Roll(어깨 회전)을 몸 안쪽으로 넣어주세요.", "font-size: 15px; color: #ffffff; font-weight: bold;"),
-            ("   ⚠️ 주의: Shoulder Roll을 회전시키되, 어깨(Shoulder)가 물리적으로 완전히 닿지 않도록 주의하세요!", "font-size: 18px; color: #ff5252; font-weight: bold;"),
             ("2. Elbow(팔꿈치)를 물리적으로 닿을 때까지 뒤로 펼쳐주세요.", "font-size: 15px; color: #ffffff; font-weight: bold;"),
             ("3. 1~2번이 완료되면 아래 '홈 오프셋 리셋' 버튼을 눌러 영점을 초기화하세요.", "font-size: 15px; color: #ffeb3b; font-weight: bold;")
         ]
@@ -524,19 +543,20 @@ class CalibrationWizardWidgetKO(QWidget):
             lbl_p = QLabel(p_txt)
             lbl_p.setStyleSheet(p_style)
             lbl_p.setWordWrap(True)
-            inst3_3_layout.addWidget(lbl_p)
+            inst3_2_layout.addWidget(lbl_p)
             
-        row3_3.addWidget(inst3_3_box)
-        l3_3.addLayout(row3_3)
+        right_col.addWidget(inst3_2_box)
+        row3_2.addLayout(right_col)
+        l3_2.addLayout(row3_2)
         
         self.btn_step3_reset = QPushButton("홈 오프셋 리셋")
         self.btn_step3_reset.setFixedWidth(240)
         self.btn_step3_reset.setMinimumHeight(45)
         self.btn_step3_reset.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_step3_reset.clicked.connect(self.step3_reset)
-        l3_3.addWidget(self.btn_step3_reset, alignment=Qt.AlignCenter)
+        l3_2.addWidget(self.btn_step3_reset, alignment=Qt.AlignCenter)
         
-        self.stacked_widget.addWidget(slide3_3)
+        self.stacked_widget.addWidget(slide3_2)
         
         # -----------------------------------------
         # Slide 8: 풀 오토 캘리브레이션 (Step 1)
@@ -769,8 +789,15 @@ class CalibrationWizardWidgetKO(QWidget):
         
         self.stacked_widget.addWidget(slide6)
 
+    def show_how_to_move_arms_dialog(self):
+        dlg = HowToMoveArmsDialog(self, is_ko=True)
+        dlg.exec()
+
     def mark_step_completed(self, step_idx, success=True, msg=""):
-        self.step_completed[step_idx] = success
+        if step_idx < len(self.step_completed):
+            self.step_completed[step_idx] = success
+        if (step_idx == 7 or step_idx == 6) and len(self.step_completed) > 6:
+            self.step_completed[6] = success
         self.update_navigation(self.stacked_widget.currentIndex())
         
         lbl_name = None
@@ -780,7 +807,7 @@ class CalibrationWizardWidgetKO(QWidget):
             lbl_name = "lbl_step2_status"
         elif step_idx == 5:
             lbl_name = "lbl_step3_1_status"
-        elif step_idx == 7:
+        elif step_idx in (6, 7):
             lbl_name = "lbl_step7_status"
         elif step_idx == 8:
             lbl_name = "lbl_step4_status"
@@ -858,13 +885,13 @@ class CalibrationWizardWidgetKO(QWidget):
         else:
             self.btn_prev.setText("이전")
             
-        show_skip = (idx == 3 or idx == 7)
+        show_skip = (idx == 3 or idx == 6)
         self.btn_skip.setVisible(show_skip)
         
         if hasattr(self, 'lbl_skip_hint1'):
             self.lbl_skip_hint1.setVisible(idx == 3)
         if hasattr(self, 'lbl_skip_hint7'):
-            self.lbl_skip_hint7.setVisible(idx == 7)
+            self.lbl_skip_hint7.setVisible(idx == 6)
         
         enabled = self.step_completed[idx]
         self.btn_next.setEnabled(enabled)

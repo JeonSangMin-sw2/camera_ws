@@ -464,14 +464,6 @@ class MarkerRecognitionProblemDialog(QDialog):
         self.lbl_live_feed.setAlignment(Qt.AlignCenter)
         self.lbl_live_feed.setStyleSheet("background-color: #000000; color: #888888; border: 1px solid #444444; border-radius: 4px;")
         self.lbl_live_feed.setMinimumSize(420, 320)
-        right_layout.addWidget(self.lbl_live_feed)
-        
-        btn_ext_feed = QPushButton("📷 카메라 피드 별도 창 열기" if is_ko else "📷 Open Separate Camera Feed Window")
-        btn_ext_feed.setMinimumHeight(40)
-        btn_ext_feed.setStyleSheet("background-color: #ff9800; color: #000000; font-size: 14px; font-weight: bold; border-radius: 4px;")
-        btn_ext_feed.clicked.connect(self._open_external_camera_feed)
-        right_layout.addWidget(btn_ext_feed)
-        
         body_layout.addWidget(right_box, stretch=4)
         main_layout.addLayout(body_layout)
         
@@ -519,15 +511,6 @@ class MarkerRecognitionProblemDialog(QDialog):
         w_lbl = max(20, self.lbl_live_feed.width())
         h_lbl = max(20, self.lbl_live_feed.height())
         self.lbl_live_feed.setPixmap(pix.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
-
-    def _open_external_camera_feed(self):
-        if self.parent_app and hasattr(self.parent_app, 'toggle_camera_feed_dialog'):
-            self.parent_app.toggle_camera_feed_dialog()
-            if hasattr(self.parent_app, 'feed_dialog') and self.parent_app.feed_dialog:
-                self.parent_app.feed_dialog.setWindowFlags(self.parent_app.feed_dialog.windowFlags() | Qt.WindowStaysOnTopHint)
-                self.parent_app.feed_dialog.show()
-                self.parent_app.feed_dialog.raise_()
-                self.parent_app.feed_dialog.activateWindow()
 
     def closeEvent(self, event):
         if hasattr(self, 'feed_timer'):
@@ -3555,7 +3538,24 @@ class UnifiedCalibrationApp(QWidget):
                 self.chk_servo_head.setChecked(self.wizard_widget.wizard_chk_head.isChecked())
                 self.chk_servo_head.blockSignals(False)
 
+    def clear_user_taught_ready_poses(self, arm_side=None):
+        if hasattr(self, 'user_taught_ready_poses') and self.user_taught_ready_poses is not None:
+            if arm_side:
+                self.user_taught_ready_poses[arm_side] = None
+            else:
+                self.user_taught_ready_poses.clear()
+        if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+            self.marker_calibrator.clear_user_taught_ready_poses(arm_side)
+        if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+            self.joint_calibrator.clear_user_taught_ready_poses(arm_side)
+
     def _on_marker_problem_requested(self, arm_side, evt, res):
+        if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:
+            try:
+                self.feed_dialog.close()
+            except Exception:
+                pass
+            self.feed_dialog = None
         dlg = MarkerRecognitionProblemDialog(self, is_ko=True)
         resolved = (dlg.exec() == QDialog.Accepted)
         res['resolved'] = resolved
@@ -3565,15 +3565,15 @@ class UnifiedCalibrationApp(QWidget):
                 model = self.robot.model()
                 arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
                 taught_pose = list(state.position[arm_idx])
-                if not hasattr(self, 'user_taught_ready_poses'):
+                if not hasattr(self, 'user_taught_ready_poses') or self.user_taught_ready_poses is None:
                     self.user_taught_ready_poses = {}
                 self.user_taught_ready_poses[arm_side] = taught_pose
-                if hasattr(self, 'marker_calibrator'):
-                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses'):
+                if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses') or self.marker_calibrator.user_taught_ready_poses is None:
                         self.marker_calibrator.user_taught_ready_poses = {}
                     self.marker_calibrator.user_taught_ready_poses[arm_side] = taught_pose
-                if hasattr(self, 'joint_calibrator'):
-                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses'):
+                if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses') or self.joint_calibrator.user_taught_ready_poses is None:
                         self.joint_calibrator.user_taught_ready_poses = {}
                     self.joint_calibrator.user_taught_ready_poses[arm_side] = taught_pose
                 self.log_msg(f"[INFO] 사용자 수동 위치 교시 포즈가 유지됩니다 ({arm_side.upper()} 팔). 이후 Pass 2 스위프에서도 동일 포즈가 적용됩니다.")

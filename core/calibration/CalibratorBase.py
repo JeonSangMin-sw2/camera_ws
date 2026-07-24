@@ -82,7 +82,15 @@ class BaseCalibrator:
         
         # Active joint home offsets to apply to commanded trajectories
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        self.user_taught_ready_poses = {}
         self.stop_requested = False
+
+    def clear_user_taught_ready_poses(self, arm_side=None):
+        if hasattr(self, 'user_taught_ready_poses'):
+            if arm_side:
+                self.user_taught_ready_poses[arm_side] = None
+            else:
+                self.user_taught_ready_poses.clear()
 
     def load_ready_poses(self):
         config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
@@ -1344,7 +1352,14 @@ class BaseCalibrator:
             return None
 
         if len(dataset) < 10:
-            if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label}. Calibration failed.")
+            if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label} ({len(dataset)} points). Returning to ready pose and prompting posture adjustment...")
+            try:
+                sweep_mode = "marker" if "Marker" in label else "joint"
+                self.perform_move_to_ready_pose(arm_side, mode=sweep_mode, log_callback=log_callback)
+            except Exception as e:
+                if log_callback: log_callback(f"[WARN] Failed to return to ready pose: {e}")
+            if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                self.marker_problem_callback(arm_side)
             return None
 
         logging.info(f"    -> Swept {len(dataset)} dense raw coordinate frames during {label} motion.")
