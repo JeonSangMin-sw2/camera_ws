@@ -985,21 +985,7 @@ class JointCalibrator(BaseCalibrator):
                     raw_diff_deg = np.degrees(diff_angle)
                     
                     # Compensate for the initial nominal ready pose angle of J7 (index 6)
-                    # We take J7 angle from dataset_B and subtract any current staged offset to get the true nominal initial pose
-                    q_full_B_first = dataset_B[0][0]
-                    j7_current_pos_deg = np.degrees(q_full_B_first[arm_idx[6]])
-                    
-                    staged_j7_offset_deg = 0.0
-                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                        staged_j7_offset_deg = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
-                    
-                    j7_ready_pose_deg = j7_current_pos_deg - staged_j7_offset_deg
-                    
-                    # Due to kinematics, the apparent marker rotation is the negative of the actual J7 rotation:
-                    # raw_diff_deg = - (j7_ready_pose_deg + physical_offset)
-                    # physical_offset = - raw_diff_deg - j7_ready_pose_deg
-                    # We must return the compensation offset (correction), which is the negative of the physical offset:
+                    j7_ready_pose_deg = np.degrees(ready_pose_nom[arm_idx[6]])
                     optimal_offset_deg = raw_diff_deg + j7_ready_pose_deg
                     
                     if log_callback:
