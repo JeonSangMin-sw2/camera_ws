@@ -207,16 +207,8 @@ class MarkerCalibrator(BaseCalibrator):
             is_v13 = self.is_v13()
             for q_full, pose_cam_to_marker in zip(captured_q_full, captured_poses):
                 try:
-                    # q_physical = q_full - joint_offset (apply joint offsets to reconstruct actual physical angle)
+                    # Use raw q_full directly for absolute physical forward kinematics
                     q_mod = np.array(q_full)
-                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                        q_mod[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
-                        q_mod[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
-                        if is_v13:
-                            q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
-                        else:
-                            q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
                     
                     T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
                     T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
@@ -369,16 +361,8 @@ class MarkerCalibrator(BaseCalibrator):
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
         for q_full, T_cam_to_marker in zip(q_full_6, poses_6):
-            # q_physical = q_full - joint_offset (apply joint offsets to reconstruct actual physical angle)
+            # Use raw q_full directly for absolute physical forward kinematics
             q_mod = np.array(q_full)
-            if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                q_mod[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
-                q_mod[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
-                if is_v13:
-                    q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
-                else:
-                    q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
             
             T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
             T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
@@ -697,11 +681,7 @@ class MarkerCalibrator(BaseCalibrator):
                 else:
                     theta_6 = 0.0
 
-            # Correct J6 joint offset if available
-            if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
-                theta_6 -= np.radians(offset_val)
+            pass
 
             if marker_data_4 is not None:
                 # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
@@ -730,11 +710,7 @@ class MarkerCalibrator(BaseCalibrator):
                     else:
                         theta_6_4 = 0.0
 
-                # Correct J6 joint offset if available
-                if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                    offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                    offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
-                    theta_6_4 -= np.radians(offset_val)
+                pass
 
                 z_col = n6_marker_actual
                 
