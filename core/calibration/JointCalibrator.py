@@ -667,9 +667,13 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
-        ver_key = "v1.3" if self.is_v13() else "v1.2"
-        ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
-        q_cand = list(initial_joint_pos)
+        norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
+        ref_pose = None
+        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+            arm_dict = self.user_taught_ready_poses.get(arm_side)
+            if isinstance(arm_dict, dict):
+                ref_pose = arm_dict.get(norm_mode, arm_dict.get("marker"))
+        q_cand = list(ref_pose) if ref_pose is not None else list(initial_joint_pos)
         q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
 
         # Determine sweep ranges from JOINT_CONFIGS
@@ -695,6 +699,15 @@ class JointCalibrator(BaseCalibrator):
             time.sleep(0.01)
 
         # 2. PHYSICAL SWEEP JOINT B
+        norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
+        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+            arm_dict = self.user_taught_ready_poses.get(arm_side)
+            if isinstance(arm_dict, dict):
+                ref_pose = arm_dict.get(norm_mode, arm_dict.get("marker"))
+                if ref_pose is not None:
+                    q_cand = list(ref_pose)
+                    q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
+
         logging.info(f"\n--- Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
         dataset_B = self.perform_single_joint_sweep(
             arm_side, sweep_joint_B, q_cand, -range_B, range_B, sweep_duration,

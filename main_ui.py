@@ -3481,7 +3481,13 @@ class UnifiedCalibrationApp(QWidget):
                 model = self.robot.model()
                 arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
                 taught_pose = list(state.position[arm_idx])
-                active_mode = getattr(self.marker_calibrator, 'current_calib_mode', getattr(self, 'current_calib_mode', 'marker'))
+                active_mode = "marker"
+                if hasattr(self, 'joint_calibrator') and self.joint_calibrator and getattr(self.joint_calibrator, 'current_calib_mode', None):
+                    active_mode = self.joint_calibrator.current_calib_mode
+                elif hasattr(self, 'marker_calibrator') and self.marker_calibrator and getattr(self.marker_calibrator, 'current_calib_mode', None):
+                    active_mode = self.marker_calibrator.current_calib_mode
+                elif getattr(self, 'current_calib_mode', None):
+                    active_mode = self.current_calib_mode
                 norm_mode = "wrist_pitch" if active_mode == "wrist_pitch_v13" else ("wrist_roll" if active_mode == "wrist_roll_v13" else active_mode)
 
                 version_key = "v1.3" if (hasattr(self, 'marker_calibrator') and self.marker_calibrator and self.marker_calibrator.is_v13()) else "v1.2"
