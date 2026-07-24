@@ -987,6 +987,7 @@ class BaseCalibrator:
             if log_callback: log_callback("[ERROR] Robot not connected.")
             return False
 
+        self.current_calib_mode = mode
         if log_callback: log_callback(f"[INFO] Moving {arm_side} arm to {mode} Ready Pose...")
         torso = [0, 0, 0, 0, 0, 0]
         
