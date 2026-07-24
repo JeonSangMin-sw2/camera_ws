@@ -667,6 +667,8 @@ class JointCalibrator(BaseCalibrator):
         ee_name = f"ee_{arm_side}"
 
         # Arm cand baseline pose (shifted by current offset)
+        ver_key = "v1.3" if self.is_v13() else "v1.2"
+        ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
         norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
         ref_pose = None
         if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
