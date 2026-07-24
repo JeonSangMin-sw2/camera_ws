@@ -463,6 +463,8 @@ class MarkerRecognitionProblemDialog(QDialog):
         self.lbl_live_feed.setAlignment(Qt.AlignCenter)
         self.lbl_live_feed.setStyleSheet("background-color: #000000; color: #888888; border: 1px solid #444444; border-radius: 4px;")
         self.lbl_live_feed.setMinimumSize(420, 320)
+        right_layout.addWidget(self.lbl_live_feed)
+        
         body_layout.addWidget(right_box, stretch=4)
         main_layout.addLayout(body_layout)
         
@@ -483,48 +485,6 @@ class MarkerRecognitionProblemDialog(QDialog):
         btn_layout.addWidget(btn_done, stretch=2)
         btn_layout.addWidget(btn_cancel, stretch=1)
         main_layout.addLayout(btn_layout)
-        
-        # 4. Timer for embedded live camera feed (~30 fps)
-        self.feed_timer = QTimer(self)
-        self.feed_timer.timeout.connect(self._update_live_feed)
-        self.feed_timer.start(33)
-
-    def _update_live_feed(self):
-        if not self.parent_app or getattr(self.parent_app, 'ui_only', True) or getattr(self.parent_app, 'marker_st', None) is None:
-            img = np.zeros((360, 640, 3), dtype=np.uint8)
-            cv2.putText(img, "UI-ONLY MODE (SIMULATOR)", (110, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (150, 150, 150), 2)
-        else:
-            try:
-                self.parent_app.marker_st.camera.capture_image()
-                img = self.parent_app.marker_st.camera.get_color_image()
-            except Exception:
-                img = None
-            if img is None:
-                img = np.zeros((360, 640, 3), dtype=np.uint8)
-                cv2.putText(img, "No Camera Frame", (180, 190), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 0, 255), 2)
-
-        h, w, ch = img.shape
-        display_img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        qimg = QImage(display_img.data, w, h, ch * w, QImage.Format_RGB888)
-        pix = QPixmap.fromImage(qimg)
-        w_lbl = max(20, self.lbl_live_feed.width())
-        h_lbl = max(20, self.lbl_live_feed.height())
-        self.lbl_live_feed.setPixmap(pix.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
-
-    def closeEvent(self, event):
-        if hasattr(self, 'feed_timer'):
-            self.feed_timer.stop()
-        super().closeEvent(event)
-
-    def accept(self):
-        if hasattr(self, 'feed_timer'):
-            self.feed_timer.stop()
-        super().accept()
-
-    def reject(self):
-        if hasattr(self, 'feed_timer'):
-            self.feed_timer.stop()
-        super().reject()
 
 class ApplyHomeOffsetDialog(QDialog):
     def __init__(self, parent, result_path, baseline_path, arm, include_head, compare_summary=None):
@@ -3549,14 +3509,12 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator.clear_user_taught_ready_poses(arm_side)
 
     def _on_marker_problem_requested(self, arm_side, evt, res):
-        if hasattr(self, 'feed_dialog') and self.feed_dialog is not None:
-            try:
-                self.feed_dialog.close()
-            except Exception:
-                pass
-            self.feed_dialog = None
         dlg = MarkerRecognitionProblemDialog(self, is_ko=getattr(self, 'is_ko_ui', False))
+        self.marker_problem_dlg = dlg
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
         resolved = (dlg.exec() == QDialog.Accepted)
+        self.marker_problem_dlg = None
+        self.on_left_tab_changed(self.left_tabs.currentIndex())
         res['resolved'] = resolved
         if resolved and self.robot:
             try:
@@ -3919,6 +3877,11 @@ class UnifiedCalibrationApp(QWidget):
         except Exception:
             pass
 
+    def is_any_camera_dialog_visible(self):
+        feed_vis = (hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible())
+        prob_vis = (hasattr(self, 'marker_problem_dlg') and self.marker_problem_dlg is not None)
+        return feed_vis or prob_vis
+
     def _on_step1_subtab_changed(self, index):
         """Handle sub-tab switching within Step 1 (Main=0, Camera=1)."""
         if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
@@ -3926,7 +3889,7 @@ class UnifiedCalibrationApp(QWidget):
         # Only act if Step 1 is the active top-level tab
         if self.left_tabs.currentIndex() != 1:
             return
-        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        dialog_visible = self.is_any_camera_dialog_visible()
         if index == 1 or dialog_visible:  # Camera sub-tab
             if self.poll_timer.isActive():
                 self.poll_timer.stop()
@@ -3945,7 +3908,7 @@ class UnifiedCalibrationApp(QWidget):
         # Reparent shared widgets between Step 1 and Step 2
         self._reparent_shared_widgets(index)
 
-        dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        dialog_visible = self.is_any_camera_dialog_visible()
 
         if index == 1:  # Step 1 tab
             # Delegate to sub-tab handler
@@ -6561,11 +6524,12 @@ class UnifiedCalibrationApp(QWidget):
                 self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
 
     def update_video_frame(self):
-        # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자가 열려있을 때 업데이트
+        # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자 또는 마커 미인식 대화상자가 열려있을 때 업데이트
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
+        prob_dlg_visible = hasattr(self, 'marker_problem_dlg') and self.marker_problem_dlg is not None
         camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
         wizard_slide1_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
-        if not camera_tab_active and not dialog_visible and not wizard_slide1_active:
+        if not camera_tab_active and not dialog_visible and not wizard_slide1_active and not prob_dlg_visible:
             return
 
         if not self.ui_only and self.marker_st is not None:
@@ -6633,6 +6597,10 @@ class UnifiedCalibrationApp(QWidget):
             w_lbl = max(20, self.feed_dialog.lbl_feed.width())
             h_lbl = max(20, self.feed_dialog.lbl_feed.height())
             self.feed_dialog.lbl_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
+        if prob_dlg_visible and hasattr(self.marker_problem_dlg, 'lbl_live_feed'):
+            w_lbl = max(20, self.marker_problem_dlg.lbl_live_feed.width())
+            h_lbl = max(20, self.marker_problem_dlg.lbl_live_feed.height())
+            self.marker_problem_dlg.lbl_live_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
         camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
