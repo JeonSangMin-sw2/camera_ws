@@ -633,7 +633,8 @@ class JointCalibrator(BaseCalibrator):
         is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
 
         if not is_camera_mock:
-            # Pre-check marker visibility
+            # Pre-check marker visibility after settling delay
+            time.sleep(1.0)
             initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
             if not initial_check:
                 if log_callback: log_callback("[ERROR] Marker is not visible.")
@@ -641,6 +642,8 @@ class JointCalibrator(BaseCalibrator):
                     if log_callback: log_callback("[INFO] Prompting user for manual teaching due to marker visibility error...")
                     resolved = self.marker_problem_callback(arm_side)
                     if resolved:
+                        self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
+                        time.sleep(1.0)
                         initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
                 if not initial_check:
                     if status_callback: status_callback(False)
@@ -674,7 +677,7 @@ class JointCalibrator(BaseCalibrator):
         if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
             arm_dict = self.user_taught_ready_poses.get(arm_side)
             if isinstance(arm_dict, dict):
-                ref_pose = arm_dict.get(norm_mode, arm_dict.get("marker"))
+                ref_pose = arm_dict.get(norm_mode)
         q_cand = list(ref_pose) if ref_pose is not None else list(initial_joint_pos)
         q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
 
@@ -705,7 +708,7 @@ class JointCalibrator(BaseCalibrator):
         if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
             arm_dict = self.user_taught_ready_poses.get(arm_side)
             if isinstance(arm_dict, dict):
-                ref_pose = arm_dict.get(norm_mode, arm_dict.get("marker"))
+                ref_pose = arm_dict.get(norm_mode)
                 if ref_pose is not None:
                     q_cand = list(ref_pose)
                     q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
