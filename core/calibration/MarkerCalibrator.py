@@ -241,7 +241,7 @@ class MarkerCalibrator(BaseCalibrator):
                 )
             return res
         finally:
-            self.clear_user_taught_ready_poses(arm_side)
+            pass
 
     def get_link_length(self, arm_side):
         try:

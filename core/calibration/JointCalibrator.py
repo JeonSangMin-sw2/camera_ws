@@ -79,7 +79,6 @@ class JointCalibrator(BaseCalibrator):
         log_callback = logger.log
 
         try:
-            self.clear_user_taught_ready_poses(arm_side)
             self.last_staged_offset = None
             self.last_diff_angle = None
             if original_log:
