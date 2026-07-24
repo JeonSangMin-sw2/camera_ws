@@ -1860,21 +1860,9 @@ class FullAutoWorker(QThread):
                             res_4['axis'] = res_4['axis_opt']
                             if self.stop_event.is_set(): return
                             
-                            if not is_mock_run:
-                                self.log_msg.emit(f"[FULL AUTO] Returning to Initial Starting Pose...")
-                                model = self.marker_calibrator.robot.model()
-                                state = self.marker_calibrator.robot.get_state()
-                                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                                first_starting_pose = list(state.position[arm_idx])
-                                if arm_side == "right":
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                                else:
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                            else:
-                                self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
-                                time.sleep(1.0)
+                            self.log_msg.emit(f"[FULL AUTO] Returning to Marker Ready Pose...")
+                            if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to return to marker ready pose on {arm_side} arm")
                             if self.stop_event.is_set(): return
 
                             self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
@@ -1887,21 +1875,9 @@ class FullAutoWorker(QThread):
                             res_6['axis'] = res_6['axis_opt']
                             if self.stop_event.is_set(): return
                             
-                            if not is_mock_run:
-                                self.log_msg.emit(f"[FULL AUTO] Returning to Initial Starting Pose...")
-                                model = self.marker_calibrator.robot.model()
-                                state = self.marker_calibrator.robot.get_state()
-                                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                                first_starting_pose = list(state.position[arm_idx])
-                                if arm_side == "right":
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                                else:
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                            else:
-                                self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
-                                time.sleep(1.0)
+                            self.log_msg.emit(f"[FULL AUTO] Returning to Marker Ready Pose...")
+                            if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to return to marker ready pose on {arm_side} arm")
                             if self.stop_event.is_set(): return
 
                             self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
@@ -1930,23 +1906,11 @@ class FullAutoWorker(QThread):
                             res_4['axis'] = res_4['axis_opt']
                             if self.stop_event.is_set(): return
                             
-                            if not is_mock_run:
-                                self.log_msg.emit(f"[FULL AUTO] Returning to Initial Starting Pose...")
-                                model = self.marker_calibrator.robot.model()
-                                state = self.marker_calibrator.robot.get_state()
-                                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                                first_starting_pose = list(state.position[arm_idx])
-                                if arm_side == "right":
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                                else:
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                            else:
-                                self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
-                                time.sleep(1.0)
+                            self.log_msg.emit(f"[FULL AUTO] Returning to Marker Ready Pose...")
+                            if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to return to marker ready pose on {arm_side} arm")
                             if self.stop_event.is_set(): return
-                            
+
                             self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
                             res_6 = self.marker_calibrator.perform_calibration_sweep(
                                 arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
@@ -1957,21 +1921,9 @@ class FullAutoWorker(QThread):
                             res_6['axis'] = res_6['axis_opt']
                             if self.stop_event.is_set(): return
                             
-                            if not is_mock_run:
-                                self.log_msg.emit(f"[FULL AUTO] Returning to Initial Starting Pose...")
-                                model = self.marker_calibrator.robot.model()
-                                state = self.marker_calibrator.robot.get_state()
-                                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                                first_starting_pose = list(state.position[arm_idx])
-                                if arm_side == "right":
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                                else:
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                                    self.marker_calibrator.movej(self.marker_calibrator.robot, torso=[0.0]*6, left_arm=first_starting_pose, head=None, minimum_time=5.0, apply_offsets=False)
-                            else:
-                                self.log_msg.emit("[FULL AUTO] [MOCK] Returning to Initial Starting Pose...")
-                                time.sleep(1.0)
+                            self.log_msg.emit(f"[FULL AUTO] Returning to Marker Ready Pose...")
+                            if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to return to marker ready pose on {arm_side} arm")
                             if self.stop_event.is_set(): return
                             
                             self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
