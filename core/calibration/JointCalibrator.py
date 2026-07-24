@@ -702,18 +702,13 @@ class JointCalibrator(BaseCalibrator):
             q_head=None, label="Joint B", log_callback=log_callback,
             current_offset_deg=current_offset_deg, cand_joint=cand_joint, mode=mode
         )
-        if dataset_B is None:
-            return None
+        if dataset_A:
+            initial_joint_pos = list(dataset_A[0][0][arm_idx])
 
-        if getattr(self, 'stop_requested', False):
-            return None
-
-        # Return arm to original ready pose (head=None)
-        logging.info("[INFO] Sweep finished. Returning arm to initial pose...")
-        if arm_side == "left":
-            ok = self.movej(self.robot, left_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
-        else:
-            ok = self.movej(self.robot, right_arm=initial_joint_pos, head=None, minimum_time=2.5, apply_offsets=False)
+        # Return arm to ready pose (preserving user-taught pose if available)
+        logging.info("[INFO] Sweep finished. Returning arm to ready pose...")
+        sweep_mode = mode if mode else "joint"
+        ok = self.perform_move_to_ready_pose(arm_side, mode=sweep_mode, log_callback=log_callback)
 
         if not ok or getattr(self, 'stop_requested', False):
             if log_callback: log_callback("[ERROR] Failed to return arm to initial pose or stop was requested.")
