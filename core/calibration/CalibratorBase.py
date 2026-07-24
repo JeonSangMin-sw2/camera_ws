@@ -83,14 +83,20 @@ class BaseCalibrator:
         # Active joint home offsets to apply to commanded trajectories
         self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
         self.user_taught_ready_poses = {}
+        self.user_taught_ready_poses_mode = {}
         self.stop_requested = False
 
     def clear_user_taught_ready_poses(self, arm_side=None):
-        if hasattr(self, 'user_taught_ready_poses'):
+        if hasattr(self, 'user_taught_ready_poses') and self.user_taught_ready_poses is not None:
             if arm_side:
                 self.user_taught_ready_poses[arm_side] = None
             else:
                 self.user_taught_ready_poses.clear()
+        if hasattr(self, 'user_taught_ready_poses_mode') and self.user_taught_ready_poses_mode is not None:
+            if arm_side:
+                self.user_taught_ready_poses_mode[arm_side] = None
+            else:
+                self.user_taught_ready_poses_mode.clear()
 
     def load_ready_poses(self):
         config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
@@ -1015,9 +1021,13 @@ class BaseCalibrator:
             else:
                 ready_mode = "wrist_pitch"
             
-        if hasattr(self, 'user_taught_ready_poses') and arm_side in self.user_taught_ready_poses and self.user_taught_ready_poses[arm_side] is not None:
+        taught_mode = getattr(self, 'user_taught_ready_poses_mode', {}).get(arm_side)
+        if (hasattr(self, 'user_taught_ready_poses') and 
+            arm_side in self.user_taught_ready_poses and 
+            self.user_taught_ready_poses[arm_side] is not None and
+            taught_mode == mode):
             if log_callback:
-                log_callback(f"[INFO] Preserved user-taught ready pose detected for {arm_side} arm. Using taught posture.")
+                log_callback(f"[INFO] Preserved user-taught ready pose detected for {arm_side} arm ({mode}). Using taught posture.")
             if arm_side == "right":
                 right_arm = self.user_taught_ready_poses[arm_side]
                 left_arm = None
@@ -1354,12 +1364,20 @@ class BaseCalibrator:
         if len(dataset) < 10:
             if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label} ({len(dataset)} points). Returning to ready pose and prompting posture adjustment...")
             try:
-                sweep_mode = "marker" if "Marker" in label else "joint"
+                sweep_mode = kwargs.get('mode', "marker" if "Marker" in label else "joint")
                 self.perform_move_to_ready_pose(arm_side, mode=sweep_mode, log_callback=log_callback)
             except Exception as e:
                 if log_callback: log_callback(f"[WARN] Failed to return to ready pose: {e}")
             if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
-                self.marker_problem_callback(arm_side)
+                resolved = self.marker_problem_callback(arm_side)
+                if resolved:
+                    if log_callback: log_callback(f"[INFO] User resolved posture adjustment. Retrying {label} sweep...")
+                    if hasattr(self, 'user_taught_ready_poses') and arm_side in self.user_taught_ready_poses and self.user_taught_ready_poses[arm_side] is not None:
+                        q_center = self.user_taught_ready_poses[arm_side]
+                    return self.perform_single_joint_sweep(
+                        arm_side, sweep_joint, q_center, start_deg, end_deg, sweep_duration,
+                        q_head=q_head, label=label, log_callback=log_callback, **kwargs
+                    )
             return None
 
         logging.info(f"    -> Swept {len(dataset)} dense raw coordinate frames during {label} motion.")

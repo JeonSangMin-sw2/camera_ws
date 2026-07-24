@@ -3523,18 +3523,30 @@ class UnifiedCalibrationApp(QWidget):
                 model = self.robot.model()
                 arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
                 taught_pose = list(state.position[arm_idx])
+                active_mode = getattr(self, 'current_calib_mode', 'marker')
                 if not hasattr(self, 'user_taught_ready_poses') or self.user_taught_ready_poses is None:
                     self.user_taught_ready_poses = {}
+                if not hasattr(self, 'user_taught_ready_poses_mode') or self.user_taught_ready_poses_mode is None:
+                    self.user_taught_ready_poses_mode = {}
                 self.user_taught_ready_poses[arm_side] = taught_pose
+                self.user_taught_ready_poses_mode[arm_side] = active_mode
+
                 if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
                     if not hasattr(self.marker_calibrator, 'user_taught_ready_poses') or self.marker_calibrator.user_taught_ready_poses is None:
                         self.marker_calibrator.user_taught_ready_poses = {}
+                    if not hasattr(self.marker_calibrator, 'user_taught_ready_poses_mode') or self.marker_calibrator.user_taught_ready_poses_mode is None:
+                        self.marker_calibrator.user_taught_ready_poses_mode = {}
                     self.marker_calibrator.user_taught_ready_poses[arm_side] = taught_pose
+                    self.marker_calibrator.user_taught_ready_poses_mode[arm_side] = active_mode
+
                 if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
                     if not hasattr(self.joint_calibrator, 'user_taught_ready_poses') or self.joint_calibrator.user_taught_ready_poses is None:
                         self.joint_calibrator.user_taught_ready_poses = {}
+                    if not hasattr(self.joint_calibrator, 'user_taught_ready_poses_mode') or self.joint_calibrator.user_taught_ready_poses_mode is None:
+                        self.joint_calibrator.user_taught_ready_poses_mode = {}
                     self.joint_calibrator.user_taught_ready_poses[arm_side] = taught_pose
-                self.log_msg(f"[INFO] 사용자 수동 위치 교시 포즈가 유지됩니다 ({arm_side.upper()} 팔). 이후 Pass 2 스위프에서도 동일 포즈가 적용됩니다.")
+                    self.joint_calibrator.user_taught_ready_poses_mode[arm_side] = active_mode
+                self.log_msg(f"[INFO] 사용자 수동 위치 교시 포즈가 유지됩니다 ({arm_side.upper()} 팔, {active_mode}).")
             except Exception as e:
                 self.log_msg(f"[WARN] 수동 위치 교시 포즈 저장 실패: {e}")
         evt.set()

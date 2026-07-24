@@ -79,6 +79,7 @@ class JointCalibrator(BaseCalibrator):
         log_callback = logger.log
 
         try:
+            self.clear_user_taught_ready_poses(arm_side)
             self.last_staged_offset = None
             self.last_diff_angle = None
             if original_log:
@@ -682,7 +683,7 @@ class JointCalibrator(BaseCalibrator):
         dataset_A = self.perform_single_joint_sweep(
             arm_side, sweep_joint_A, q_cand, -range_A, range_A, sweep_duration,
             q_head=None, label="Joint A", log_callback=log_callback,
-            current_offset_deg=current_offset_deg, cand_joint=cand_joint
+            current_offset_deg=current_offset_deg, cand_joint=cand_joint, mode=mode
         )
         if dataset_A is None:
             return None
@@ -700,7 +701,7 @@ class JointCalibrator(BaseCalibrator):
         dataset_B = self.perform_single_joint_sweep(
             arm_side, sweep_joint_B, q_cand, -range_B, range_B, sweep_duration,
             q_head=None, label="Joint B", log_callback=log_callback,
-            current_offset_deg=current_offset_deg, cand_joint=cand_joint
+            current_offset_deg=current_offset_deg, cand_joint=cand_joint, mode=mode
         )
         if dataset_B is None:
             return None

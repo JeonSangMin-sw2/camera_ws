@@ -165,7 +165,7 @@ class MarkerCalibrator(BaseCalibrator):
 
             dataset = self.perform_single_joint_sweep(
                 arm_side, joint_i, initial_joint_pos, start_deg, end_deg, 15.0,
-                q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback
+                q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback, mode="marker"
             )
             if dataset is None:
                 return None
@@ -185,7 +185,7 @@ class MarkerCalibrator(BaseCalibrator):
                 if log_callback: log_callback("[ERROR] Failed to return to initial ready pose or stop was requested.")
                 return None
 
-            if len(captured_poses) < 10:
+            if len(captured_poses) < 20:
                 if log_callback: log_callback("[ERROR] Too few valid marker poses (<10). Prompting posture adjustment...")
                 if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
                     self.marker_problem_callback(arm_side)
