@@ -3484,6 +3484,33 @@ class UnifiedCalibrationApp(QWidget):
                 active_mode = getattr(self.marker_calibrator, 'current_calib_mode', getattr(self, 'current_calib_mode', 'marker'))
                 norm_mode = "wrist_pitch" if active_mode == "wrist_pitch_v13" else ("wrist_roll" if active_mode == "wrist_roll_v13" else active_mode)
 
+                version_key = "v1.3" if (hasattr(self, 'marker_calibrator') and self.marker_calibrator and self.marker_calibrator.is_v13()) else "v1.2"
+                if norm_mode == "marker":
+                    type_key = "marker"
+                    ready_mode = None
+                else:
+                    type_key = "joint"
+                    if norm_mode == "wrist_pitch":
+                        ready_mode = "wrist_pitch"
+                    elif norm_mode in ("wrist_roll", "wrist_yaw2"):
+                        ready_mode = "wrist_roll_v13" if version_key == "v1.3" else "wrist_yaw2"
+                    elif norm_mode == "elbow":
+                        ready_mode = "elbow"
+                    else:
+                        ready_mode = "wrist_pitch"
+
+                if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+                    try:
+                        nom_pose = self.marker_calibrator.get_ready_pose(version_key, type_key, ready_mode, arm_side)
+                        if norm_mode == "elbow":
+                            taught_pose[3] = nom_pose[3]
+                        elif norm_mode == "wrist_pitch":
+                            taught_pose[5] = nom_pose[5]
+                        elif norm_mode in ("marker", "wrist_roll", "wrist_yaw2"):
+                            taught_pose[5] = nom_pose[5]
+                    except Exception as e:
+                        self.log_msg(f"[WARN] Could not enforce nominal target angle on taught pose: {e}")
+
                 if not hasattr(self, 'user_taught_ready_poses') or not isinstance(self.user_taught_ready_poses, dict):
                     self.user_taught_ready_poses = {}
                 if arm_side not in self.user_taught_ready_poses or not isinstance(self.user_taught_ready_poses[arm_side], dict):
