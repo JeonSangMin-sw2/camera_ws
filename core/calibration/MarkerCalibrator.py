@@ -165,7 +165,7 @@ class MarkerCalibrator(BaseCalibrator):
                 q_head_start = q_head_0
 
             dataset = self.perform_single_joint_sweep(
-                arm_side, joint_i, initial_joint_pos, start_deg, end_deg, 15.0,
+                arm_side, joint_i, initial_joint_pos, start_deg, end_deg, 10.0,
                 q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback, mode="marker"
             )
             if dataset is None:
@@ -178,12 +178,8 @@ class MarkerCalibrator(BaseCalibrator):
             captured_angles = [np.degrees(q_full[arm_idx[joint_i]] - initial_joint_pos[joint_i]) for q_full, _ in dataset]
             captured_q_full = [q_full for q_full, _ in dataset]
 
-            # Return arm and head to ready pose (preserving user-taught pose if available)
-            if log_callback: log_callback("\n[INFO] Sweep complete. Returning to ready pose...")
-            ok = self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
-
-            if not ok or getattr(self, 'stop_requested', False):
-                if log_callback: log_callback("[ERROR] Failed to return to initial ready pose or stop was requested.")
+            if getattr(self, 'stop_requested', False):
+                if log_callback: log_callback("[INFO] Stop requested during marker sweep.")
                 return None
 
             if len(captured_poses) < 20:

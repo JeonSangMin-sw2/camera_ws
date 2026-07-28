@@ -17,16 +17,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 
 class BaseCalibrator:
     JOINT_CONFIGS = {
-        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 25.0, "sweep_range_B": 20.0},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
-        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 25.0, "sweep_range_B": 20.0},
-        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 20.0},
-        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
+        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
+        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
+        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
+        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 15.0, "sweep_range_B": 15.0},
     }
     MARKER_CONFIGS = {
         "axis_4": {"joint_i": 4, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
-        "axis_5": {"joint_i": 5, "start_deg": -25.0, "end_deg": 25.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
-        "axis_6": {"joint_i": 6, "start_deg": -25.0, "end_deg": 25.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
+        "axis_5": {"joint_i": 5, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
+        "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
     MOCK_GT_OFFSETS = {
         "right": {
@@ -1272,16 +1272,16 @@ class BaseCalibrator:
         # 1. Move to start position
         logging.info(f"[INFO] Moving {label} to start sweep position...")
         if arm_side == "left":
-            ok = self.movej(self.robot, left_arm=q_start, head=q_head, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, left_arm=q_start, head=q_head, minimum_time=1.2, apply_offsets=False)
         else:
-            ok = self.movej(self.robot, right_arm=q_start, head=q_head, minimum_time=2.5, apply_offsets=False)
+            ok = self.movej(self.robot, right_arm=q_start, head=q_head, minimum_time=1.2, apply_offsets=False)
 
         if not ok or getattr(self, 'stop_requested', False):
             if log_callback: log_callback(f"[ERROR] Failed to move {label} to start pose or stop requested.")
             return None
 
         if self.robot:
-            time.sleep(1.0)
+            time.sleep(0.5)
         else:
             time.sleep(0.01)
 

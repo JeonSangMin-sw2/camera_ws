@@ -49,7 +49,7 @@ class JointCalibrator(BaseCalibrator):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
-    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
+    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -180,7 +180,7 @@ class JointCalibrator(BaseCalibrator):
                 # Dynamic damping: halve the damping factor if the correction direction flips
                 # This squashes noise-floor oscillations rapidly
                 if i > 1 and raw_optimal_offset * prev_step_correction < 0:
-                    dynamic_damping *= 0.7
+                    dynamic_damping *= 0.8
                 elif i == 1:
                     dynamic_damping = 1.0
                     
@@ -193,14 +193,14 @@ class JointCalibrator(BaseCalibrator):
                     step_correction_delta = step_correction
 
                 # Convergence check:
-                # step correction delta < 0.08° to handle bracket RPY noise
-                converged_criteria = (abs(step_correction_delta) < 0.08)
+                # step correction delta < 0.06° to handle bracket RPY noise
+                converged_criteria = (abs(step_correction_delta) < 0.06)
                 
                 if converged_criteria:
                     converged = True
                     if log_callback:
                         log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.08° (reached resolution limit)")
+                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.06° (reached resolution limit)")
                         log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                     break
                 
@@ -230,7 +230,7 @@ class JointCalibrator(BaseCalibrator):
             if not converged and len(staged_offsets_history) >= 3:
                 avg_offset = float(np.mean(staged_offsets_history[-3:]))
                 if log_callback:
-                    log_callback(f"\n[INFO] Joint {mode} did not meet 0.08° convergence tolerance due to measurement noise floor.")
+                    log_callback(f"\n[INFO] Joint {mode} did not meet 0.06° convergence tolerance due to measurement noise floor.")
                     log_callback(f"       Damping fallback: Averaged last 3 offsets ({', '.join(f'{v:.4f}°' for v in staged_offsets_history[-3:])}) -> {avg_offset:.4f}°")
                 staged_offset = avg_offset
 
@@ -616,7 +616,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=20.0, use_angle_based_fitting=None, save_debug=False):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False):
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -699,7 +699,7 @@ class JointCalibrator(BaseCalibrator):
             return None
             
         if self.robot:
-            time.sleep(1.0)
+            time.sleep(0.5)
         else:
             time.sleep(0.01)
 
@@ -722,13 +722,8 @@ class JointCalibrator(BaseCalibrator):
         if dataset_A:
             initial_joint_pos = list(dataset_A[0][0][arm_idx])
 
-        # Return arm to ready pose (preserving user-taught pose if available)
-        logging.info("[INFO] Sweep finished. Returning arm to ready pose...")
-        sweep_mode = mode if mode else "joint"
-        ok = self.perform_move_to_ready_pose(arm_side, mode=sweep_mode, log_callback=log_callback)
-
-        if not ok or getattr(self, 'stop_requested', False):
-            if log_callback: log_callback("[ERROR] Failed to return arm to initial pose or stop was requested.")
+        if getattr(self, 'stop_requested', False):
+            if log_callback: log_callback("[INFO] Stop requested during sweep.")
             return None
 
         # Save FULL captured continuous sweep points to debug txt files before downsampling

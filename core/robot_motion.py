@@ -114,12 +114,14 @@ def reset_motion_state():
 
 def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"]):
     """
-    현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다. (최대 2루프, 약 76개 포즈로 제한)
+    현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다. (최대 2루프, 총 82개 포즈로 구성)
     """
     reset_motion_state()
+    if robot is None:
+        raise RuntimeError("Robot is not connected.")
     state = robot.get_state()
     if state is None or getattr(state, 'position', None) is None:
-        raise RuntimeError("Robot state position is None. Please check connection.")
+        raise RuntimeError("Failed to get robot joint states.")
     q_full = np.array(state.position)
     _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
     _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
@@ -147,8 +149,8 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     p_marker_0 = get_marker_midpoint(T_base_right, T_base_left)
     
     plan = []
-    T_curr_right = T_base_right.copy()
-    T_curr_left = T_base_left.copy()
+    T_curr_right = T_base_right.copy() if T_base_right is not None else None
+    T_curr_left = T_base_left.copy() if T_base_left is not None else None
     
     loop_count = 0
     max_loops = getattr(config, 'max_loops', 2)
@@ -170,14 +172,14 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                     "type": "joint",
                     "joint_idx": joint_idx,
                     "offset_deg": offset,
-                    "T_right": T_curr_right.copy(),
-                    "T_left": T_curr_left.copy(),
+                    "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+                    "T_left": T_curr_left.copy() if T_curr_left is not None else None,
                     "desc": f"Joint {joint_idx} Offset: {offset:.1f}deg"
                 })
         plan.append({
             "type": "restore_baseline",
-            "T_right": T_curr_right.copy(),
-            "T_left": T_curr_left.copy(),
+            "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+            "T_left": T_curr_left.copy() if T_curr_left is not None else None,
             "desc": "Restore Baseline Pose"
         })
 
@@ -265,10 +267,10 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10):
 
     # Step 2: Cartesian Checking Pose (go_to_calibration_checking_pose 기준, offset=0.2)
     # Raising Z-axis to 0.2m (down 20cm from previous 0.4m) and rotating 6th axis (wrist) by 180 degrees (@ rot_z(180))
-    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -0.15, 0.25])
+    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -0.15, 0.3])
     T_right[:3, :3] = T_right[:3, :3] @ rot_z(180*D2R)
     
-    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, 0.15, 0.25])
+    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, 0.15, 0.3])
     T_left[:3, :3] = T_left[:3, :3] @ rot_z(180*D2R)
 
     body2 = rby.BodyComponentBasedCommandBuilder()
@@ -400,13 +402,15 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
         model = robot.model()
         dyn_model = robot.get_dynamics()
 
-        # Save baseline configurations if not already saved
+        # Save baseline configurations independently if not already saved
         if _motion_state["q_right_baseline"] is None:
             _motion_state["q_right_baseline"] = q_full[model.right_arm_idx[:7]].copy()
             _motion_state["q_left_baseline"] = q_full[model.left_arm_idx[:7]].copy()
+
+        if include_head_motion and _motion_state["q_head_baseline"] is None:
             head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
             _motion_state["q_head_baseline"] = q_full[head_idx].copy() if head_idx is not None else None
-            _motion_state["q_head_0"] = _motion_state["q_head_baseline"].copy() if head_idx is not None else None
+            _motion_state["q_head_0"] = _motion_state["q_head_baseline"].copy() if _motion_state["q_head_baseline"] is not None else None
 
             _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
             _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
