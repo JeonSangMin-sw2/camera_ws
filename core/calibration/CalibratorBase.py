@@ -124,6 +124,18 @@ class BaseCalibrator:
         """Returns True only for model-m v1.3 robots."""
         return self.get_robot_version() == "1.3"
 
+    def is_head_active(self) -> bool:
+        if getattr(self, 'include_head_motion', None) is False:
+            return False
+        if getattr(self, 'head_enabled', None) is False:
+            return False
+        if hasattr(self, 'app') and getattr(self.app, 'include_head_motion', None) is False:
+            return False
+        if hasattr(self, 'app') and hasattr(self.app, 'chk_servo_head') and not self.app.chk_servo_head.isChecked():
+            return False
+        model = getattr(self.robot, 'model', lambda: None)() if hasattr(self, 'robot') and self.robot else None
+        return model is not None and hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2
+
     def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
         if not self.ready_poses:
             raise RuntimeError("Ready poses are not loaded or the configuration file is empty.")
@@ -139,7 +151,16 @@ class BaseCalibrator:
                 val = val["check_calib"][f"{arm_side}_arm"]
             else:
                 val = val["marker"][f"{arm_side}_arm"]
-            return np.deg2rad(val)
+            val_arr = np.array(val, dtype=np.float64).copy()
+            # If Head is disabled or robot has no 2-DOF head (fixed chest camera), lower Shoulder Pitch (Joint 0) by 15 deg
+            # to ensure markers stay within the fixed camera FOV instead of rising above it.
+            if not self.is_head_active() and len(val_arr) >= 7:
+                val_arr[0] += 20.0  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -35 deg)
+                msg = f"[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +20° ({val_arr[0]:.1f}°) for {arm_side}_arm ({type_key})"
+                print(msg)
+                logging.info(msg)
+
+            return np.deg2rad(val_arr)
         except (KeyError, TypeError) as e:
             raise KeyError(
                 f"[ERROR] Failed to get ready pose for version='{version_key}', type='{type_key}', mode='{mode_key}', arm='{arm_side}_arm'. "

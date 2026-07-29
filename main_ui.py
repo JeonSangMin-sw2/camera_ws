@@ -1119,11 +1119,12 @@ class Step2InitPoseWorker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, robot, active_arms, priority, parent=None):
+    def __init__(self, robot, active_arms, priority, include_head_motion=True, parent=None):
         super().__init__(parent)
         self.robot = robot
         self.active_arms = active_arms
         self.priority = priority
+        self.include_head_motion = include_head_motion
 
     def run(self):
         try:
@@ -1137,6 +1138,7 @@ class Step2InitPoseWorker(QThread):
                 active_arms=self.active_arms,
                 minimum_time=10.0,
                 priority=self.priority,
+                include_head_motion=self.include_head_motion,
             )
             self.finished_signal.emit(True, "")
         except Exception as e:
@@ -1719,17 +1721,22 @@ class SimulatedMarkerTransform:
                 raise KeyError(f"Mock ground-truth offsets not found for side: {side}")
             mock_gt = BaseCalibrator.MOCK_GT_OFFSETS[side]
 
-            j6_gt = mock_gt.get("joint6")
-            j5_gt = mock_gt.get("joint5_v13") if is_v13 else mock_gt.get("joint5_v12")
-            j3_gt = mock_gt.get("joint3")
-            if j6_gt is None or j5_gt is None or j3_gt is None:
-                raise ValueError(f"Missing joint mock GT values in BaseCalibrator.MOCK_GT_OFFSETS for {side}")
+            j6_gt = mock_gt.get("joint6", 0.0)
+            j5_gt = mock_gt.get("joint5_v13", 0.0) if is_v13 else mock_gt.get("joint5_v12", 0.0)
+            j4_gt = mock_gt.get("joint4", 0.0)
+            j3_gt = mock_gt.get("joint3", 0.0)
+            j2_gt = mock_gt.get("joint2", 0.0)
+            j1_gt = mock_gt.get("joint1", 0.0)
+            j0_gt = mock_gt.get("joint0", 0.0)
 
-            # Apply simulated joint offsets (ground-truth offset only) to simulate actual robot kinematics.
-            # Staged user-applied offsets are already included in q from commanded ready poses.
-            q_actual[arm_idx[6]] += np.radians(j6_gt)
-            q_actual[arm_idx[5]] += np.radians(j5_gt)
+            # Apply simulated joint offsets (ground-truth offsets for all 7 joints) to simulate actual robot kinematics.
+            q_actual[arm_idx[0]] += np.radians(j0_gt)
+            q_actual[arm_idx[1]] += np.radians(j1_gt)
+            q_actual[arm_idx[2]] += np.radians(j2_gt)
             q_actual[arm_idx[3]] += np.radians(j3_gt)
+            q_actual[arm_idx[4]] += np.radians(j4_gt)
+            q_actual[arm_idx[5]] += np.radians(j5_gt)
+            q_actual[arm_idx[6]] += np.radians(j6_gt)
                     
             # Apply simulated head joint offsets to head kinematics to match real-robot uncalibrated state
             q_actual_head = np.array(q)
@@ -3642,6 +3649,21 @@ class UnifiedCalibrationApp(QWidget):
 
     def on_head_checkbox_changed(self, checked):
         self.include_head_motion = checked
+        if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+            self.joint_calibrator.include_head_motion = checked
+        if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+            self.marker_calibrator.include_head_motion = checked
+
+        if hasattr(self, 'chk_servo_head'):
+            self.chk_servo_head.blockSignals(True)
+            self.chk_servo_head.setChecked(checked)
+            self.chk_servo_head.blockSignals(False)
+
+        if hasattr(self, 'wizard_widget') and hasattr(self.wizard_widget, 'wizard_chk_head'):
+            self.wizard_widget.wizard_chk_head.blockSignals(True)
+            self.wizard_widget.wizard_chk_head.setChecked(checked)
+            self.wizard_widget.wizard_chk_head.blockSignals(False)
+
         self.sync_connection_settings('main')
         self.log_msg(f"[INFO] Head motion/optimization option: {checked}")
 
@@ -4607,7 +4629,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.auto_motion_plan is None or self.head_move_count == 0:
             self.log_msg(f"Building motion plan based on current pose... (Angle={self.auto_config.angle_step_deg}deg, Pos={self.auto_config.position_step_m}m, StepX={self.auto_config.step_x_m}m, MaxX={self.auto_config.max_x}m)")
             self.auto_motion_plan = build_incremental_motion_plan(
-                self.robot, self.dyn_model, self.auto_config, active_arms
+                self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion
             )
             self.update_head_pose_status()
             self.update_step2_est_samples()
@@ -4677,7 +4699,7 @@ class UnifiedCalibrationApp(QWidget):
             if hasattr(self, 'step2_pos_step'): self.auto_config.position_step_m = float(self.step2_pos_step.text())
             if hasattr(self, 'step2_step_x'): self.auto_config.step_x_m = float(self.step2_step_x.text())
             if hasattr(self, 'step2_max_x'): self.auto_config.max_x = float(self.step2_max_x.text())
-            self.auto_config.max_loops = 2
+            self.auto_config.max_loops = 1
         except Exception as e:
             self.log_msg(f"Failed to read auto config: {e}. Using current values.")
 
@@ -4686,7 +4708,7 @@ class UnifiedCalibrationApp(QWidget):
             active_arms = ["right", "left"]
             try:
                 self.auto_motion_plan = build_incremental_motion_plan(
-                    self.robot, self.dyn_model, self.auto_config, active_arms
+                    self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion
                 )
             except Exception as e:
                 self.log_msg(f"[ERROR] Failed to build motion plan: {e}")
@@ -4759,20 +4781,12 @@ class UnifiedCalibrationApp(QWidget):
         q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
         T_meas_list = np.array(self.shared_T_list)
         
-        # Use dynamically active arms from GUI selection
-        active_arms = self.get_active_arms()
+        # Determine active arms based on joint dimensions
+        if q_arm_list.shape[1] == 14:
+            active_arms = ["right", "left"]
+        else:
+            active_arms = self.get_active_arms()
         optimize_head = self.include_head_motion
-        if len(active_arms) == 1:
-            if q_arm_list.shape[1] == 14:
-                if active_arms[0] == "right":
-                    q_arm_list = q_arm_list[:, :7]
-                else:
-                    q_arm_list = q_arm_list[:, 7:]
-            if T_meas_list.ndim == 4 and T_meas_list.shape[1] == 2:
-                if active_arms[0] == "right":
-                    T_meas_list = T_meas_list[:, 0]
-                else:
-                    T_meas_list = T_meas_list[:, 1]
                     
         try:
             validate_dataset(q_arm_list, q_head_list, T_meas_list, optimize_head, active_arms)
@@ -4821,11 +4835,9 @@ class UnifiedCalibrationApp(QWidget):
         if self.robot is None:
             raise RuntimeError("Robot is not connected. Camera/Sim marker capture requires a connected robot.")
 
-        active_arms = self.get_active_arms()
-        if len(active_arms) == 1:
-            arm_cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
-        else:
-            arm_cfg = get_both_arm_config(self.model, version=self.get_robot_version())
+        # Step 2 auto motion & optimization always requires dual-arm configuration (14 joints)
+        active_arms = ["right", "left"]
+        arm_cfg = get_both_arm_config(self.model, version=self.get_robot_version())
         arm_idx = arm_cfg["arm_idx"]
         head_idx = self.get_capture_head_idx()
 
@@ -4890,6 +4902,10 @@ class UnifiedCalibrationApp(QWidget):
         if self.model is None:
             raise RuntimeError("Robot is not connected.")
 
+        if len(q_arm_list.shape) == 2 and q_arm_list.shape[1] == 7 and len(active_arms) == 2:
+            self.log_msg("[WARN] q_arm_list has 7 joints but active_arms has 2 arms. Falling back active_arms to single arm ['right'].")
+            active_arms = ["right"]
+
         if len(active_arms) == 1:
             cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
             ee_links = {active_arms[0]: cfg["ee_link"]}
@@ -4911,18 +4927,14 @@ class UnifiedCalibrationApp(QWidget):
         apply_limits = getattr(self, "apply_joint_offset_flag", False)
         joint_offsets = None
         if apply_limits:
-            joint_offsets = {
-                "right": {
-                    "joint3": self.joint_offsets_store["right"].get("joint3", 0.0),
-                    "joint5": self.joint_offsets_store["right"].get("joint5", 0.0),
-                    "joint6": self.joint_offsets_store["right"].get("joint6", 0.0),
-                },
-                "left": {
-                    "joint3": self.joint_offsets_store["left"].get("joint3", 0.0),
-                    "joint5": self.joint_offsets_store["left"].get("joint5", 0.0),
-                    "joint6": self.joint_offsets_store["left"].get("joint6", 0.0),
+            joint_offsets = {}
+            for side in active_arms:
+                side_dict = self.joint_offsets_store.get(side, {})
+                joint_offsets[side] = {
+                    "joint3": side_dict.get("joint3", 0.0),
+                    "joint5": side_dict.get("joint5", 0.0),
+                    "joint6": side_dict.get("joint6", 0.0),
                 }
-            }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
         if solver_type == "QP Solver":
@@ -4986,8 +4998,8 @@ class UnifiedCalibrationApp(QWidget):
                 xi_mount_cam_init=xi_cam,
             )
 
-            # Stage 3: Final Integration & Fine Tuning (All Free, eps = 1e-9)
-            self.log_msg("[STAGE 3/3] Final Joint-Camera Fine Integration (All Free, eps=1e-9)...")
+            # Stage 3: Final Integration & Fine Tuning (All Free, eps = 1e-7)
+            self.log_msg("[STAGE 3/3] Final Joint-Camera Fine Integration (All Free, eps=1e-7)...")
             optimizer_st3 = QPCalibrationOptimizer(
                 robot=self.robot,
                 arm_idx=cfg["arm_idx"],
@@ -4996,7 +5008,7 @@ class UnifiedCalibrationApp(QWidget):
                 head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
                 ee_to_marker_nom=ee_to_marker_nom,
                 head_idx=head_cfg["head_idx"],
-                eps=1e-9,
+                eps=1e-7,
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=actual_lambda_cam_rot,
                 use_sag=use_sag,
@@ -5230,6 +5242,7 @@ class UnifiedCalibrationApp(QWidget):
             self.robot,
             active_arms,
             self.auto_config.priority if hasattr(self, 'auto_config') else 0,
+            include_head_motion=self.include_head_motion,
             parent=self
         )
         self.auto_motion_thread.log_signal.connect(self.log_msg)
@@ -5353,6 +5366,10 @@ class UnifiedCalibrationApp(QWidget):
                 q_head_list = np.array(self.shared_head_q_list) if self.shared_head_q_list else None
                 T_meas_list = np.array(self.shared_T_list)
                 
+                if q_arm_list.shape[1] == 7 and len(active_arms) == 2:
+                    active_arms = ["right"]
+                    self.log_msg("[INFO] Single-arm dataset detected (7 joints). Switching active_arms to ['right'].")
+
                 if len(active_arms) == 1:
                     if q_arm_list.shape[1] == 14:
                         if active_arms[0] == "right":
@@ -5368,6 +5385,10 @@ class UnifiedCalibrationApp(QWidget):
             elif mode == "npz":
                 npz_path = self.resolve_input_path(self.step2_path_input.text().strip())
                 q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
+
+                if q_arm_list.shape[1] == 7 and len(active_arms) == 2:
+                    active_arms = ["right"]
+                    self.log_msg("[INFO] Single-arm NPZ dataset detected (7 joints). Switching active_arms to ['right'].")
                 
                 if len(active_arms) == 1:
                     if q_arm_list.shape[1] == 14:

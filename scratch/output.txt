@@ -1,0 +1,4 @@
+Script started.
+Imported modules successfully.
+Loaded NPZ with 71 samples.
+Running optimization...

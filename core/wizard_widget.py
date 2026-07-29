@@ -535,6 +535,8 @@ class CalibrationWizardWidget(QWidget):
         self.wizard_chk_head = QCheckBox("Head")
         self.wizard_chk_head.setChecked(True)
         self.wizard_chk_head.setStyleSheet("color: #00e5ff; font-size: 15px; font-weight: bold;")
+        if hasattr(self.parent_app, 'on_head_checkbox_changed'):
+            self.wizard_chk_head.toggled.connect(self.parent_app.on_head_checkbox_changed)
         connect_row.addWidget(self.wizard_chk_head)
         conn_layout.addLayout(connect_row)
         

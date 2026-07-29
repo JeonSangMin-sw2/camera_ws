@@ -26,6 +26,7 @@ mock_robot = MockRobot()
 marker_st = SimulatedMarkerTransform(mock_robot, {}, "1.2")
 mw = UnifiedCalibrationApp(marker_st=marker_st, robot=mock_robot, ui_only=True)
 mw.step2_mode_sel.setCurrentText("sim")
+mw.apply_joint_offset_flag = True
 
 print("--- Step 1: Running Auto Motion Data Collection (sim mode) ---")
 mw.auto_ready_done = True
@@ -43,11 +44,11 @@ T_meas_list = np.array(mw.shared_T_list)
 
 print("\n--- Step 2: Running Hand-Eye Optimization ---")
 def log_print(msg):
-    if "Result saved" in msg or "RESULT" in msg or "Right arm joint offset" in msg or "Left arm joint offset" in msg or "mount_to_cam_new" in msg or "BASE LINE COMPARISON" in msg or "Diff =" in msg:
-        print(msg)
+    print(msg)
 
 mw.log_msg = log_print
 
+result_path = os.path.abspath("result/result_step2/verify_sim_gt.json")
 mw.run_optimizer(
     active_arms=["right", "left"],
     optimize_head=True,
@@ -55,7 +56,7 @@ mw.run_optimizer(
     q_arm_list=q_arm_list,
     q_head_list=q_head_list,
     T_meas_list=T_meas_list,
-    result_path="result/result_step2/verify_sim_gt.json",
+    result_path=result_path,
     lambda_cam_pos=1.0,
     lambda_cam_rot=1.0,
     solver_type="QP Solver",
