@@ -2493,7 +2493,7 @@ class UnifiedCalibrationApp(QWidget):
                 pass
         
         self.setWindowTitle("Unified Robot Calibration Suite")
-        self.resize(1050, 700)
+        self.resize(1050, 620)
         self.setStyleSheet(DARK_STYLESHEET)
         
         # 1. 200ms poll timer (탭 1, 2, 4 용)
@@ -3155,7 +3155,7 @@ class UnifiedCalibrationApp(QWidget):
         int_left = QVBoxLayout()
         self.video_label = QLabel("Camera Feed Loading...")
         self.video_label.setAlignment(Qt.AlignCenter)
-        self.video_label.setMinimumSize(640, 480)
+        self.video_label.setMinimumSize(480, 300)
         self.video_label.setStyleSheet("background-color: black; color: white; border: 2px solid #2d2d2d; border-radius: 8px;")
         int_left.addWidget(self.video_label, 3)
         
@@ -3244,37 +3244,39 @@ class UnifiedCalibrationApp(QWidget):
         overview_layout = QVBoxLayout()
         overview_layout.setContentsMargins(20, 20, 20, 20)
         
+        self.overview_container = QWidget()
+        container_layout = QVBoxLayout(self.overview_container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.addStretch(1)  # Top Stretch to push contents down to center
+        
         self.overview_title = QLabel("Calibration Process Overview")
         self.overview_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
         self.overview_title.setAlignment(Qt.AlignCenter)
-        overview_layout.addWidget(self.overview_title)
+        container_layout.addWidget(self.overview_title)
         
         self.overview_link = QLabel('GitHub Repository: <a href="https://github.com/RainbowRobotics/rby1-calibration" style="color: #00e5ff; font-weight: bold;">https://github.com/RainbowRobotics/rby1-calibration</a>')
         self.overview_link.setStyleSheet("font-size: 15px;")
         self.overview_link.setAlignment(Qt.AlignCenter)
         self.overview_link.setOpenExternalLinks(True)
-        overview_layout.addWidget(self.overview_link)
+        container_layout.addWidget(self.overview_link)
         
         self.overview_duration = QLabel("Estimated Execution Time: ~40 minutes")
         self.overview_duration.setStyleSheet("font-size: 16px; font-weight: bold; color: #00e5ff;")
         self.overview_duration.setAlignment(Qt.AlignCenter)
-        overview_layout.addWidget(self.overview_duration)
+        container_layout.addWidget(self.overview_duration)
         
-        self.overview_img = QLabel()
-        process_pix = QPixmap("img/process.png")
-        if not process_pix.isNull():
-            self.overview_img.setPixmap(process_pix.scaled(1000, 700, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            self.overview_img.setText("[img/process.png not found]")
-        self.overview_img.setAlignment(Qt.AlignCenter)
-        self.overview_img.setStyleSheet("border: 2px solid #555; background-color: #222; border-radius: 8px;")
-        overview_layout.addWidget(self.overview_img, stretch=1)
+        container_layout.addSpacing(25)  # Add spacing before the start button
         
         self.btn_start_wizard = QPushButton(tr("wizard.btn_start_wizard"))
         self.btn_start_wizard.setStyleSheet("background-color: #d84315; color: white; font-weight: bold; font-size: 18px; padding: 10px;")
         self.btn_start_wizard.setFixedWidth(200)
         self.btn_start_wizard.clicked.connect(self.show_wizard_ui)
-        overview_layout.addWidget(self.btn_start_wizard, alignment=Qt.AlignCenter)
+        container_layout.addWidget(self.btn_start_wizard, alignment=Qt.AlignCenter)
+        
+        container_layout.addStretch(1)  # Bottom Stretch to push contents up to center
+        
+        self.overview_img = None
+        overview_layout.addWidget(self.overview_container)
         
         self.wizard_widget = CalibrationWizardWidget(self)
         self.wizard_widget.setVisible(False)
@@ -3307,13 +3309,17 @@ class UnifiedCalibrationApp(QWidget):
         step2_layout = QVBoxLayout()
         step2_layout.setContentsMargins(5, 5, 5, 5)
         
-        # Step 2 columns: Left (conn_head + home_offset + Box1), Right (status + log)
+        # Step 2 Top Row for shared widgets (conn_head_box and home_offset_box)
+        self.step2_top_row = QHBoxLayout()
+        self.step2_top_row.setSpacing(10)
+        step2_layout.addLayout(self.step2_top_row)
+        
+        # Step 2 columns: Left (Config + Actions), Right (status + log)
         step2_columns = QHBoxLayout()
         
         # Step 2 Left Column
         self.step2_left_col = QVBoxLayout()
-        # Placeholders for reparented widgets — they will be moved here on tab switch
-        # conn_head_box and home_offset_box go here
+        # Placeholders for reparented widgets — Config and Actions boxes go here
         
         # Config Box (replaces Box1 — mirrors calibration_ui Config section)
         config_box = QGroupBox("Config")
@@ -3665,7 +3671,9 @@ class UnifiedCalibrationApp(QWidget):
             self.wizard_widget.wizard_chk_head.blockSignals(False)
 
         self.sync_connection_settings('main')
-        self.log_msg(f"[INFO] Head motion/optimization option: {checked}")
+        if hasattr(self, 'wizard_widget') and self.wizard_widget:
+            self.wizard_widget.sync_bracket_radio()
+        self.log_msg(f"[INFO] Additional camera bracket: {'YES' if not checked else 'NO'} (Head motion: {'ENABLED' if checked else 'DISABLED'})")
 
     def update_robot_connection_status(self):
         is_connected = self.robot is not None
@@ -3841,7 +3849,6 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_connect.setText("CONNECTING...")
             self.btn_connect.setStyleSheet("background-color: #ffb74d; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
             self.btn_connect.setEnabled(False)
-            self.log_msg(f"[INFO] 로봇 연결 시도 중... (IP: {addr})")
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
             
@@ -4054,14 +4061,18 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_monitor.setStyleSheet("")
 
     def show_wizard_ui(self):
-        if hasattr(self, 'overview_title') and self.overview_title:
-            self.overview_title.setVisible(False)
-        if hasattr(self, 'overview_link') and self.overview_link:
-            self.overview_link.setVisible(False)
-        if hasattr(self, 'overview_duration') and self.overview_duration:
-            self.overview_duration.setVisible(False)
-        self.overview_img.setVisible(False)
-        self.btn_start_wizard.setVisible(False)
+        if hasattr(self, 'overview_container') and self.overview_container:
+            self.overview_container.setVisible(False)
+        else:
+            if hasattr(self, 'overview_title') and self.overview_title:
+                self.overview_title.setVisible(False)
+            if hasattr(self, 'overview_link') and self.overview_link:
+                self.overview_link.setVisible(False)
+            if hasattr(self, 'overview_duration') and self.overview_duration:
+                self.overview_duration.setVisible(False)
+            if self.overview_img:
+                self.overview_img.setVisible(False)
+            self.btn_start_wizard.setVisible(False)
         self.wizard_widget.setVisible(True)
         self.on_left_tab_changed(self.left_tabs.currentIndex())
 
@@ -4202,15 +4213,14 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         if top_tab_index == 2:  # Switching TO Step 2
-            # Move shared widgets into Step 2 columns
-            # Left column: conn_head_box, home_offset_box at top, then box1 fills rest
-            self.step2_left_col.insertWidget(0, self.conn_head_box)
-            self.step2_left_col.insertWidget(1, self.home_offset_box)
-            # box1 stays at position 2 (already there)
+            # Move shared widgets into Step 2 layout
+            # Top row: conn_head_box, home_offset_box, status_box
+            self.step2_top_row.insertWidget(0, self.conn_head_box)
+            self.step2_top_row.insertWidget(1, self.home_offset_box)
+            self.step2_top_row.insertWidget(2, self.status_box)
 
-            # Right column: status_box, log_box
-            self.step2_right_col.insertWidget(0, self.status_box)
-            self.step2_right_col.insertWidget(1, self.log_box)
+            # Right column: log_box
+            self.step2_right_col.insertWidget(0, self.log_box)
             # Set stretch for log_box in step2
             self.step2_right_col.setStretchFactor(self.log_box, 1)
 
@@ -5154,6 +5164,99 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg("=========================================================\n")
             except Exception as e:
                 self.log_msg(f"[WARN] Failed to compare with baseline: {e}")
+
+        # Simulation Ground-Truth Comparison Output (Only runs in simulation mode)
+        is_sim = False
+        if hasattr(self, "marker_st") and self.marker_st is not None:
+            if type(self.marker_st).__name__ == "SimulatedMarkerTransform":
+                is_sim = True
+        elif hasattr(self, "step2_mode_sel") and self.step2_mode_sel.currentText() == "sim":
+            is_sim = True
+
+        if is_sim:
+            try:
+                from core.calibration.CalibratorBase import BaseCalibrator
+                mock_gt = BaseCalibrator.MOCK_GT_OFFSETS
+                is_v13 = (self.get_robot_version() == "1.3")
+                ver_key = "1.3" if is_v13 else "1.2"
+                
+                self.log_msg("\n=========================================================")
+                self.log_msg("  SIMULATION GROUND-TRUTH COMPARISON REPORT")
+                self.log_msg("=========================================================")
+                
+                # 1. Joint Offsets Comparison
+                if right_arm_offset is not None and "right" in mock_gt:
+                    r_calc = np.rad2deg(right_arm_offset)
+                    r_gt = [
+                        mock_gt["right"].get("joint0", 0.0),
+                        mock_gt["right"].get("joint1", 0.0),
+                        mock_gt["right"].get("joint2", 0.0),
+                        mock_gt["right"].get("joint3", 0.0),
+                        mock_gt["right"].get("joint4", 0.0),
+                        mock_gt["right"].get("joint5_v13" if is_v13 else "joint5_v12", 0.0),
+                        mock_gt["right"].get("joint6", 0.0),
+                    ]
+                    self.log_msg(" [RIGHT ARM JOINTS]")
+                    for i in range(7):
+                        diff = abs(r_calc[i] - r_gt[i])
+                        self.log_msg(f"   J{i}: Calc = {r_calc[i]:+8.4f}° | GT = {r_gt[i]:+8.4f}° | Error = {diff:6.4f}°")
+                        
+                if left_arm_offset is not None and "left" in mock_gt:
+                    l_calc = np.rad2deg(left_arm_offset)
+                    l_gt = [
+                        mock_gt["left"].get("joint0", 0.0),
+                        mock_gt["left"].get("joint1", 0.0),
+                        mock_gt["left"].get("joint2", 0.0),
+                        mock_gt["left"].get("joint3", 0.0),
+                        mock_gt["left"].get("joint4", 0.0),
+                        mock_gt["left"].get("joint5_v13" if is_v13 else "joint5_v12", 0.0),
+                        mock_gt["left"].get("joint6", 0.0),
+                    ]
+                    self.log_msg(" [LEFT ARM JOINTS]")
+                    for i in range(7):
+                        diff = abs(l_calc[i] - l_gt[i])
+                        self.log_msg(f"   J{i}: Calc = {l_calc[i]:+8.4f}° | GT = {l_gt[i]:+8.4f}° | Error = {diff:6.4f}°")
+                
+                # 2. Head Joint Offsets Comparison
+                if q_head_offset is not None and "head" in mock_gt:
+                    h_calc = np.rad2deg(q_head_offset)
+                    h_gt = [
+                        mock_gt["head"].get("pan", 0.0),
+                        mock_gt["head"].get("tilt", 0.0),
+                    ]
+                    self.log_msg(" [HEAD JOINTS]")
+                    self.log_msg(f"   Pan:  Calc = {h_calc[0]:+8.4f}° | GT = {h_gt[0]:+8.4f}° | Error = {abs(h_calc[0] - h_gt[0]):6.4f}°")
+                    self.log_msg(f"   Tilt: Calc = {h_calc[1]:+8.4f}° | GT = {h_gt[1]:+8.4f}° | Error = {abs(h_calc[1] - h_gt[1]):6.4f}°")
+                
+                # 3. Marker Bracket Offsets Comparison (relative to Nominal)
+                for side in ["right", "left"]:
+                    key = f"Tf_to_marker_{side}"
+                    if key in self.marker_calibrator.camera_config and side in mock_gt:
+                        calc_val = self.marker_calibrator.camera_config[key]
+                        nom_val = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][side]
+                        
+                        calc_pos_offset = np.array(calc_val[:3]) - np.array(nom_val[:3])
+                        calc_rot_offset = np.array(calc_val[3:6]) - np.array(nom_val[3:6])
+                        
+                        # Normalize rotation differences to [-180, 180]
+                        calc_rot_offset = (calc_rot_offset + 180) % 360 - 180
+                        
+                        gt_pos_offset = np.array(mock_gt[side]["bracket_pos"])
+                        gt_rot_offset = np.array(mock_gt[side]["bracket_rpy"])
+                        
+                        self.log_msg(f" [{side.upper()} ARM BRACKET OFFSETS]")
+                        # Position in mm
+                        self.log_msg(f"   Pos X (mm): Calc = {calc_pos_offset[0]*1000.0:+7.2f} | GT = {gt_pos_offset[0]*1000.0:+7.2f} | Error = {abs(calc_pos_offset[0] - gt_pos_offset[0])*1000.0:5.2f}")
+                        self.log_msg(f"   Pos Y (mm): Calc = {calc_pos_offset[1]*1000.0:+7.2f} | GT = {gt_pos_offset[1]*1000.0:+7.2f} | Error = {abs(calc_pos_offset[1] - gt_pos_offset[1])*1000.0:5.2f}")
+                        self.log_msg(f"   Pos Z (mm): Calc = {calc_pos_offset[2]*1000.0:+7.2f} | GT = {gt_pos_offset[2]*1000.0:+7.2f} | Error = {abs(calc_pos_offset[2] - gt_pos_offset[2])*1000.0:5.2f}")
+                        # Rotation in deg
+                        self.log_msg(f"   Rot R (deg): Calc = {calc_rot_offset[0]:+7.2f}° | GT = {gt_rot_offset[0]:+7.2f}° | Error = {abs(calc_rot_offset[0] - gt_rot_offset[0]):5.2f}°")
+                        self.log_msg(f"   Rot P (deg): Calc = {calc_rot_offset[1]:+7.2f}° | GT = {gt_rot_offset[1]:+7.2f}° | Error = {abs(calc_rot_offset[1] - gt_rot_offset[1]):5.2f}°")
+                        self.log_msg(f"   Rot Y (deg): Calc = {calc_rot_offset[2]:+7.2f}° | GT = {gt_rot_offset[2]:+7.2f}° | Error = {abs(calc_rot_offset[2] - gt_rot_offset[2]):5.2f}°")
+                        
+                self.log_msg("=========================================================\n")
+            except Exception as e:
+                self.log_msg(f"[WARN] Failed to print simulation GT comparison: {e}")
 
     def _on_apply_joint_offset_toggled(self, checked):
         """Toggle apply joint offset flag and update status label."""

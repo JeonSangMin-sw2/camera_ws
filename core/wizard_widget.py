@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
-    QStackedWidget, QGroupBox, QCheckBox, QLineEdit, QMessageBox, QDialog
+    QStackedWidget, QGroupBox, QCheckBox, QLineEdit, QMessageBox, QDialog,
+    QRadioButton, QButtonGroup
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap
@@ -72,6 +73,11 @@ class CalibrationWizardWidget(QWidget):
         self.layout.setContentsMargins(15, 15, 15, 15)
         self.layout.setSpacing(12)
         
+        self.lbl_wizard_title = QLabel()
+        self.lbl_wizard_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
+        self.lbl_wizard_title.setAlignment(Qt.AlignCenter)
+        self.layout.addWidget(self.lbl_wizard_title)
+        
         self.stacked_widget = QStackedWidget()
         self.layout.addWidget(self.stacked_widget, stretch=1)
         
@@ -132,16 +138,17 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'd0_box'): self.d0_box.setTitle(tr("wizard.slides.slide_0.box_title"))
         if hasattr(self, 'lbl_inst0_1'): self.lbl_inst0_1.setText(tr("wizard.slides.slide_0.inst1"))
         if hasattr(self, 'lbl_inst0_2'): self.lbl_inst0_2.setText(tr("wizard.slides.slide_0.inst2"))
-        if hasattr(self, 'lbl_inst0_3'): self.lbl_inst0_3.setText(tr("wizard.slides.slide_0.inst3"))
         
         # Slide 1
         if hasattr(self, 't1_2'): self.t1_2.setText(tr("wizard.slides.slide_1.title"))
         if hasattr(self, 'd1_2_box'): self.d1_2_box.setTitle(tr("wizard.slides.slide_1.box_title"))
         if hasattr(self, 'lbl_m1'): self.lbl_m1.setText(tr("wizard.slides.slide_1.inst1"))
         if hasattr(self, 'lbl_m2'): self.lbl_m2.setText(tr("wizard.slides.slide_1.inst2"))
+        if hasattr(self, 'lbl_m3'): self.lbl_m3.setText(tr("wizard.slides.slide_1.inst3"))
         
         # Slide 2
         if hasattr(self, 't1_3'): self.t1_3.setText(tr("wizard.slides.slide_2.title"))
+        if hasattr(self, 'lbl_intrinsics_hint'): self.lbl_intrinsics_hint.setText(tr("wizard.slides.slide_2.skip_note"))
         if hasattr(self, 'd1_3'): self.d1_3.setText(tr("wizard.slides.slide_2.inst1"))
         if hasattr(self, 'btn_go_intrinsics'): self.btn_go_intrinsics.setText(tr("wizard.slides.slide_2.btn_go"))
         
@@ -165,6 +172,9 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 't2'): self.t2.setText(tr("wizard.slides.slide_4.title"))
         if hasattr(self, 'd2'): self.d2.setText(tr("wizard.slides.slide_4.inst1"))
         if hasattr(self, 'head_desc'): self.head_desc.setText(tr("wizard.slides.slide_4.head_note"))
+        if hasattr(self, 'lbl_bracket_query'): self.lbl_bracket_query.setText(tr("wizard.slides.slide_4.additional_bracket_query"))
+        if hasattr(self, 'rdo_bracket_yes'): self.rdo_bracket_yes.setText(tr("wizard.slides.slide_4.yes"))
+        if hasattr(self, 'rdo_bracket_no'): self.rdo_bracket_no.setText(tr("wizard.slides.slide_4.no"))
         if hasattr(self, 'conn_box'): self.conn_box.setTitle(tr("wizard.slides.slide_4.box_title"))
         
         # Slide 5
@@ -212,14 +222,12 @@ class CalibrationWizardWidget(QWidget):
         l0.setAlignment(Qt.AlignCenter)
         
         self.t0 = QLabel(tr("wizard.slides.slide_0.title"))
-        self.t0.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t0.setAlignment(Qt.AlignCenter)
-        l0.addWidget(self.t0)
+        self.t0.setVisible(False)
         
         img0 = QLabel()
         pix0 = QPixmap("img/head_onoff.png")
         if not pix0.isNull():
-            img0.setPixmap(pix0.scaled(700, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            img0.setPixmap(pix0.scaled(700, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             img0.setText("[img/head_onoff.png not found]")
         img0.setAlignment(Qt.AlignCenter)
@@ -240,11 +248,6 @@ class CalibrationWizardWidget(QWidget):
         self.lbl_inst0_2.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
         self.lbl_inst0_2.setWordWrap(True)
         d0_layout.addWidget(self.lbl_inst0_2)
-
-        self.lbl_inst0_3 = QLabel(tr("wizard.slides.slide_0.inst3"))
-        self.lbl_inst0_3.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
-        self.lbl_inst0_3.setWordWrap(True)
-        d0_layout.addWidget(self.lbl_inst0_3)
             
         l0.addWidget(self.d0_box, alignment=Qt.AlignCenter)
         self.stacked_widget.addWidget(slide0)
@@ -258,14 +261,12 @@ class CalibrationWizardWidget(QWidget):
         l1_2.setAlignment(Qt.AlignCenter)
         
         self.t1_2 = QLabel(tr("wizard.slides.slide_1.title"))
-        self.t1_2.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t1_2.setAlignment(Qt.AlignCenter)
-        l1_2.addWidget(self.t1_2)
+        self.t1_2.setVisible(False)
         
         img1_2 = QLabel()
         pix1_2 = QPixmap("img/marker_connect.png")
         if not pix1_2.isNull():
-            img1_2.setPixmap(pix1_2.scaled(700, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            img1_2.setPixmap(pix1_2.scaled(700, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             img1_2.setText("[img/marker_connect.png not found]")
         img1_2.setAlignment(Qt.AlignCenter)
@@ -280,12 +281,18 @@ class CalibrationWizardWidget(QWidget):
         self.lbl_m1 = QLabel(tr("wizard.slides.slide_1.inst1"))
         self.lbl_m1.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
         self.lbl_m1.setWordWrap(True)
+        self.lbl_m1.setOpenExternalLinks(True)
         d1_2_layout.addWidget(self.lbl_m1)
         
         self.lbl_m2 = QLabel(tr("wizard.slides.slide_1.inst2"))
         self.lbl_m2.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
         self.lbl_m2.setWordWrap(True)
         d1_2_layout.addWidget(self.lbl_m2)
+        
+        self.lbl_m3 = QLabel(tr("wizard.slides.slide_1.inst3"))
+        self.lbl_m3.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
+        self.lbl_m3.setWordWrap(True)
+        d1_2_layout.addWidget(self.lbl_m3)
         
         l1_2.addWidget(self.d1_2_box, alignment=Qt.AlignCenter)
         self.stacked_widget.addWidget(slide1_2)
@@ -299,9 +306,13 @@ class CalibrationWizardWidget(QWidget):
         l1_3.setAlignment(Qt.AlignCenter)
         
         self.t1_3 = QLabel(tr("wizard.slides.slide_2.title"))
-        self.t1_3.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t1_3.setAlignment(Qt.AlignCenter)
-        l1_3.addWidget(self.t1_3)
+        self.t1_3.setVisible(False)
+        
+        self.lbl_intrinsics_hint = QLabel(tr("wizard.slides.slide_2.skip_note"))
+        self.lbl_intrinsics_hint.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 16px;")
+        self.lbl_intrinsics_hint.setWordWrap(True)
+        self.lbl_intrinsics_hint.setAlignment(Qt.AlignCenter)
+        l1_3.addWidget(self.lbl_intrinsics_hint)
         
         img_row1_3 = QHBoxLayout()
         
@@ -346,9 +357,7 @@ class CalibrationWizardWidget(QWidget):
         
         header1 = QVBoxLayout()
         self.t1 = QLabel(tr("wizard.slides.slide_3.title"))
-        self.t1.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t1.setAlignment(Qt.AlignCenter)
-        header1.addWidget(self.t1)
+        self.t1.setVisible(False)
         
         self.lbl_skip_hint1 = QLabel(tr("wizard.slides.slide_3.skip_hint"))
         self.lbl_skip_hint1.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
@@ -362,7 +371,7 @@ class CalibrationWizardWidget(QWidget):
         int_left = QVBoxLayout()
         self.wizard_video_label = QLabel("Camera Feed Loading...")
         self.wizard_video_label.setAlignment(Qt.AlignCenter)
-        self.wizard_video_label.setMinimumSize(640, 480)
+        self.wizard_video_label.setMinimumSize(480, 300)
         self.wizard_video_label.setStyleSheet("background-color: black; color: white; border: 2px solid #2d2d2d; border-radius: 8px;")
         int_left.addWidget(self.wizard_video_label, 3)
         
@@ -471,9 +480,7 @@ class CalibrationWizardWidget(QWidget):
         l2.setAlignment(Qt.AlignCenter)
         
         self.t2 = QLabel(tr("wizard.slides.slide_4.title"))
-        self.t2.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t2.setAlignment(Qt.AlignCenter)
-        l2.addWidget(self.t2)
+        self.t2.setVisible(False)
         
         self.d2 = QLabel(tr("wizard.slides.slide_4.inst1"))
         self.d2.setStyleSheet("font-size: 16px; color: #dddddd;")
@@ -486,26 +493,91 @@ class CalibrationWizardWidget(QWidget):
         self.lbl_step2_status.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
         l2.addWidget(self.lbl_step2_status)
         
-        head_box = QWidget()
-        head_layout = QVBoxLayout(head_box)
-        head_layout.setContentsMargins(0, 0, 0, 0)
+        # Question Label (Centered, Yellow, Bold)
+        self.lbl_bracket_query = QLabel(tr("wizard.slides.slide_4.additional_bracket_query"))
+        self.lbl_bracket_query.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffeb3b; margin-top: 10px; margin-bottom: 5px;")
+        self.lbl_bracket_query.setAlignment(Qt.AlignCenter)
+        l2.addWidget(self.lbl_bracket_query)
         
-        head_img_label = QLabel()
-        pix_head = QPixmap("img/head_onoff.png")
-        if not pix_head.isNull():
-            head_img_label.setPixmap(pix_head.scaled(750, 320, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # 2-Column Image + Radio Button Layout
+        bracket_layout = QHBoxLayout()
+        bracket_layout.setAlignment(Qt.AlignCenter)
+        bracket_layout.setSpacing(40)  # Generous spacing between columns
+        
+        rdo_style = """
+            QRadioButton {
+                background-color: #2a2a2a;
+                color: #ffffff;
+                border: 2px solid #444444;
+                border-radius: 6px;
+                padding: 8px 30px;
+                font-size: 15px;
+                font-weight: bold;
+            }
+            QRadioButton::indicator {
+                width: 0px;
+                height: 0px;
+            }
+            QRadioButton:checked {
+                background-color: #ff9800;
+                color: #000000;
+                border: 2px solid #ff9800;
+            }
+            QRadioButton:hover {
+                border: 2px solid #ff9800;
+            }
+        """
+        
+        # Left Column: Yes (Additional Bracket)
+        col_yes = QVBoxLayout()
+        col_yes.setAlignment(Qt.AlignCenter)
+        col_yes.setSpacing(10)
+        
+        img_yes = QLabel()
+        pix_yes = QPixmap("img/additional_head_bracket.png")
+        if not pix_yes.isNull():
+            img_yes.setPixmap(pix_yes.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
-            head_img_label.setText("[img/head_onoff.png not found]")
-        head_img_label.setAlignment(Qt.AlignCenter)
-        head_layout.addWidget(head_img_label)
+            img_yes.setText("[additional_head_bracket.png not found]")
+        img_yes.setAlignment(Qt.AlignCenter)
+        img_yes.setStyleSheet("border: 1px solid #444444; border-radius: 4px; background-color: #1e1e1e;")
+        col_yes.addWidget(img_yes)
         
-        self.head_desc = QLabel(tr("wizard.slides.slide_4.head_note"))
-        self.head_desc.setStyleSheet("font-size: 15px; color: #ffecb3; font-weight: bold;")
-        self.head_desc.setWordWrap(True)
-        self.head_desc.setAlignment(Qt.AlignCenter)
-        head_layout.addWidget(self.head_desc)
+        self.rdo_bracket_yes = QRadioButton(tr("wizard.slides.slide_4.yes"))
+        self.rdo_bracket_yes.setStyleSheet(rdo_style)
+        col_yes.addWidget(self.rdo_bracket_yes, alignment=Qt.AlignCenter)
         
-        l2.addWidget(head_box, alignment=Qt.AlignCenter)
+        # Right Column: No (Standard/Direct Mount)
+        col_no = QVBoxLayout()
+        col_no.setAlignment(Qt.AlignCenter)
+        col_no.setSpacing(10)
+        
+        img_no = QLabel()
+        pix_no = QPixmap("img/standard_head_bracket.png")
+        if not pix_no.isNull():
+            img_no.setPixmap(pix_no.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        else:
+            img_no.setText("[standard_head_bracket.png not found]")
+        img_no.setAlignment(Qt.AlignCenter)
+        img_no.setStyleSheet("border: 1px solid #444444; border-radius: 4px; background-color: #1e1e1e;")
+        col_no.addWidget(img_no)
+        
+        self.rdo_bracket_no = QRadioButton(tr("wizard.slides.slide_4.no"))
+        self.rdo_bracket_no.setStyleSheet(rdo_style)
+        col_no.addWidget(self.rdo_bracket_no, alignment=Qt.AlignCenter)
+        
+        bracket_layout.addLayout(col_yes)
+        bracket_layout.addLayout(col_no)
+        l2.addLayout(bracket_layout)
+        
+        # Group them
+        self.bracket_btn_group = QButtonGroup(self)
+        self.bracket_btn_group.addButton(self.rdo_bracket_yes)
+        self.bracket_btn_group.addButton(self.rdo_bracket_no)
+        
+        self.rdo_bracket_no.setChecked(True)
+        self.rdo_bracket_yes.toggled.connect(self.on_bracket_radio_changed)
+        self.rdo_bracket_no.toggled.connect(self.on_bracket_radio_changed)
         
         self.conn_box = QGroupBox(tr("wizard.slides.slide_4.box_title"))
         self.conn_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
@@ -534,9 +606,8 @@ class CalibrationWizardWidget(QWidget):
         
         self.wizard_chk_head = QCheckBox("Head")
         self.wizard_chk_head.setChecked(True)
-        self.wizard_chk_head.setStyleSheet("color: #00e5ff; font-size: 15px; font-weight: bold;")
-        if hasattr(self.parent_app, 'on_head_checkbox_changed'):
-            self.wizard_chk_head.toggled.connect(self.parent_app.on_head_checkbox_changed)
+        self.wizard_chk_head.setVisible(False)
+        self.wizard_chk_head.toggled.connect(self.sync_bracket_radio)
         connect_row.addWidget(self.wizard_chk_head)
         conn_layout.addLayout(connect_row)
         
@@ -554,9 +625,7 @@ class CalibrationWizardWidget(QWidget):
         l3_1.setAlignment(Qt.AlignCenter)
         
         self.t3_1 = QLabel(tr("wizard.slides.slide_5.title"))
-        self.t3_1.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t3_1.setAlignment(Qt.AlignCenter)
-        l3_1.addWidget(self.t3_1)
+        self.t3_1.setVisible(False)
         
         self.d3_1 = QLabel(tr("wizard.slides.slide_5.inst1"))
         self.d3_1.setStyleSheet("font-size: 16px; color: #dddddd; font-weight: bold;")
@@ -586,9 +655,7 @@ class CalibrationWizardWidget(QWidget):
         l3_2.setSpacing(10)
         
         self.t3_2 = QLabel(tr("wizard.slides.slide_6.title"))
-        self.t3_2.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t3_2.setAlignment(Qt.AlignCenter)
-        l3_2.addWidget(self.t3_2)
+        self.t3_2.setVisible(False)
         
         self.lbl_skip_hint7 = QLabel(tr("wizard.slides.slide_6.skip_hint"))
         self.lbl_skip_hint7.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 20px;")
@@ -607,7 +674,7 @@ class CalibrationWizardWidget(QWidget):
         img3_2 = QLabel()
         pix3_2 = QPixmap("img/home_offset_position.png")
         if not pix3_2.isNull():
-            img3_2.setPixmap(pix3_2.scaled(550, 340, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            img3_2.setPixmap(pix3_2.scaled(550, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             img3_2.setText("[img/home_offset_position.png not found]")
         img3_2.setAlignment(Qt.AlignCenter)
@@ -664,9 +731,7 @@ class CalibrationWizardWidget(QWidget):
         l4.setSpacing(16)
         
         self.t4 = QLabel(tr("wizard.slides.slide_7.title"))
-        self.t4.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t4.setAlignment(Qt.AlignCenter)
-        l4.addWidget(self.t4)
+        self.t4.setVisible(False)
         
         d4_layout = QVBoxLayout()
         self.d4_step1 = QLabel(tr("wizard.slides.slide_7.desc"))
@@ -737,9 +802,7 @@ class CalibrationWizardWidget(QWidget):
         l6.setSpacing(12)
         
         self.t6 = QLabel(tr("wizard.slides.slide_8.title"))
-        self.t6.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
-        self.t6.setAlignment(Qt.AlignCenter)
-        l6.addWidget(self.t6)
+        self.t6.setVisible(False)
         
         self.d6 = QLabel(tr("wizard.slides.slide_8.desc"))
         self.d6.setStyleSheet("font-size: 16px; color: #dddddd;")
@@ -758,7 +821,7 @@ class CalibrationWizardWidget(QWidget):
         img_apply = QLabel()
         pix_apply = QPixmap("img/apply_offset.png")
         if not pix_apply.isNull():
-            img_apply.setPixmap(pix_apply.scaled(520, 290, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+            img_apply.setPixmap(pix_apply.scaled(520, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
             img_apply.setText("[img/apply_offset.png not found]")
         img_apply.setAlignment(Qt.AlignCenter)
@@ -855,14 +918,18 @@ class CalibrationWizardWidget(QWidget):
         elif idx > 0:
             self.stacked_widget.setCurrentIndex(idx - 1)
         else:
-            if hasattr(self.parent_app, 'overview_title') and self.parent_app.overview_title:
-                self.parent_app.overview_title.setVisible(True)
-            if hasattr(self.parent_app, 'overview_link') and self.parent_app.overview_link:
-                self.parent_app.overview_link.setVisible(True)
-            if hasattr(self.parent_app, 'overview_duration') and self.parent_app.overview_duration:
-                self.parent_app.overview_duration.setVisible(True)
-            self.parent_app.btn_start_wizard.setVisible(True)
-            self.parent_app.overview_img.setVisible(True)
+            if hasattr(self.parent_app, 'overview_container') and self.parent_app.overview_container:
+                self.parent_app.overview_container.setVisible(True)
+            else:
+                if hasattr(self.parent_app, 'overview_title') and self.parent_app.overview_title:
+                    self.parent_app.overview_title.setVisible(True)
+                if hasattr(self.parent_app, 'overview_link') and self.parent_app.overview_link:
+                    self.parent_app.overview_link.setVisible(True)
+                if hasattr(self.parent_app, 'overview_duration') and self.parent_app.overview_duration:
+                    self.parent_app.overview_duration.setVisible(True)
+                self.parent_app.btn_start_wizard.setVisible(True)
+                if hasattr(self.parent_app, 'overview_img') and self.parent_app.overview_img:
+                    self.parent_app.overview_img.setVisible(True)
             self.setVisible(False)
             
     def go_next(self):
@@ -876,25 +943,42 @@ class CalibrationWizardWidget(QWidget):
                 self.update_navigation(idx + 1)
         else:
             self.parent_app.log_msg("Calibration Wizard Finished.")
-            if hasattr(self.parent_app, 'overview_title') and self.parent_app.overview_title:
-                self.parent_app.overview_title.setVisible(True)
-            if hasattr(self.parent_app, 'overview_link') and self.parent_app.overview_link:
-                self.parent_app.overview_link.setVisible(True)
-            if hasattr(self.parent_app, 'overview_duration') and self.parent_app.overview_duration:
-                self.parent_app.overview_duration.setVisible(True)
-            self.parent_app.btn_start_wizard.setVisible(True)
-            self.parent_app.overview_img.setVisible(True)
+            if hasattr(self.parent_app, 'overview_container') and self.parent_app.overview_container:
+                self.parent_app.overview_container.setVisible(True)
+            else:
+                if hasattr(self.parent_app, 'overview_title') and self.parent_app.overview_title:
+                    self.parent_app.overview_title.setVisible(True)
+                if hasattr(self.parent_app, 'overview_link') and self.parent_app.overview_link:
+                    self.parent_app.overview_link.setVisible(True)
+                if hasattr(self.parent_app, 'overview_duration') and self.parent_app.overview_duration:
+                    self.parent_app.overview_duration.setVisible(True)
+                self.parent_app.btn_start_wizard.setVisible(True)
+                if hasattr(self.parent_app, 'overview_img') and self.parent_app.overview_img:
+                    self.parent_app.overview_img.setVisible(True)
             self.setVisible(False)
             self.stacked_widget.setCurrentIndex(0)
             
     def update_navigation(self, idx):
         if hasattr(self, "parent_app") and hasattr(self.parent_app, "on_left_tab_changed"):
             self.parent_app.on_left_tab_changed(self.parent_app.left_tabs.currentIndex())
+        
+        # Update shared top title dynamically to prevent title layout shifts
+        title_keys = [
+            "wizard.slides.slide_0.title",
+            "wizard.slides.slide_1.title",
+            "wizard.slides.slide_2.title",
+            "wizard.slides.slide_3.title",
+            "wizard.slides.slide_4.title",
+            "wizard.slides.slide_5.title",
+            "wizard.slides.slide_6.title",
+            "wizard.slides.slide_7.title",
+            "wizard.slides.slide_8.title",
+        ]
+        if hasattr(self, 'lbl_wizard_title') and idx < len(title_keys):
+            self.lbl_wizard_title.setText(tr(title_keys[idx]))
+            
         self.btn_prev.setVisible(True)
-        if idx == 0:
-            self.btn_prev.setText(tr("wizard.btn_back_overview"))
-        else:
-            self.btn_prev.setText(tr("wizard.btn_prev"))
+        self.btn_prev.setText(tr("wizard.btn_prev"))
             
         show_skip = (idx == 3 or idx == 6)
         self.btn_skip.setVisible(show_skip)
@@ -983,6 +1067,25 @@ class CalibrationWizardWidget(QWidget):
             self.btn_wizard_connect.setText("CONNECT")
             self.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
             self.mark_step_completed(4, False, "Connection Failed")
+
+    def sync_bracket_radio(self):
+        is_head = self.wizard_chk_head.isChecked()
+        self.rdo_bracket_yes.blockSignals(True)
+        self.rdo_bracket_no.blockSignals(True)
+        self.rdo_bracket_yes.setChecked(not is_head)
+        self.rdo_bracket_no.setChecked(is_head)
+        self.rdo_bracket_yes.blockSignals(False)
+        self.rdo_bracket_no.blockSignals(False)
+
+    def on_bracket_radio_changed(self):
+        if not self.sender().isChecked():
+            return
+        is_yes = self.rdo_bracket_yes.isChecked()
+        self.wizard_chk_head.blockSignals(True)
+        self.wizard_chk_head.setChecked(not is_yes)
+        self.wizard_chk_head.blockSignals(False)
+        if hasattr(self.parent_app, 'on_head_checkbox_changed'):
+            self.parent_app.on_head_checkbox_changed(not is_yes)
 
     # Step 3: Home Offset Reset
     def step3_reset(self):

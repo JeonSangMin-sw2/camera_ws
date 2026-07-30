@@ -31,7 +31,7 @@ The Intel RealSense D405 camera must be securely mounted to the bracket facing d
 
 ![Camera Bracket](img/camera_bracket.png)
 
-#### 3. Camera Intrinsics Calibration (카메라 내부 파라미터 보정)
+#### 3. Camera Intrinsics Calibration
 If you need to calibrate the camera's intrinsic parameters, you must use a checkerboard (Charuco board). 
 ![Charuco Board](img/CHARUCOBOARD.png)
 
@@ -49,6 +49,10 @@ cd camera_ws
 Since many libraries are required for calibration, it is highly recommended to create and use a virtual environment before installation.
 
 ```bash
+# if you didn't install venv, type this command
+
+sudo apt install python3.10-venv
+
 # Create and activate a virtual environment
 python3 -m venv .venv 
 source .venv/bin/activate
