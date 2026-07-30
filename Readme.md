@@ -10,6 +10,10 @@ This is a camera calibration tool for the robot to calibrate joint offsets and c
 - **Camera**: Intel RealSense D405 (Resolution: 1280x720, 30 FPS)
 - **Markers**: AprilTag (Plate Marker: Size 80mm. ID: Left (7), Right (8))
 
+> [!NOTE]
+> if you'll test in RBY1 Simulator, pleasse install docker for RBY1 Simulator.
+> <https://hub.docker.com/r/rainbowroboticsofficial/rby1-sim>
+
 ### Hardware Configuration
 
 #### 1. Marker Installation

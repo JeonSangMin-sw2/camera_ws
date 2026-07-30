@@ -5234,9 +5234,15 @@ class UnifiedCalibrationApp(QWidget):
                     if key in self.marker_calibrator.camera_config and side in mock_gt:
                         calc_val = self.marker_calibrator.camera_config[key]
                         nom_val = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][side]
+                        T_nom = BaseCalibrator.make_transform(nom_val)
+                        T_cal = BaseCalibrator.make_transform(calc_val)
                         
-                        calc_pos_offset = np.array(calc_val[:3]) - np.array(nom_val[:3])
-                        calc_rot_offset = np.array(calc_val[3:6]) - np.array(nom_val[3:6])
+                        # T_bracket_calc represents the actual translation/rotation of the bracket relative to flange
+                        T_bracket_calc = T_cal @ np.linalg.inv(T_nom)
+                        calc_pos_offset = T_bracket_calc[:3, 3]
+                        
+                        from scipy.spatial.transform import Rotation as R_scipy
+                        calc_rot_offset = R_scipy.from_matrix(T_bracket_calc[:3, :3]).as_euler('ZYX', degrees=True)[::-1]
                         
                         # Normalize rotation differences to [-180, 180]
                         calc_rot_offset = (calc_rot_offset + 180) % 360 - 180
