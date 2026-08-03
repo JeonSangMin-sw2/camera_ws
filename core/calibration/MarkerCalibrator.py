@@ -103,7 +103,7 @@ class MarkerCalibrator(BaseCalibrator):
             time.sleep(0.5)
         return True
 
-    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False):
+    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False, initial_joint_pos=None):
         try:
             if getattr(self, 'stop_requested', False):
                 return None
@@ -139,7 +139,8 @@ class MarkerCalibrator(BaseCalibrator):
             state = self.robot.get_state()
             model = self.robot.model()
             arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-            initial_joint_pos = list(state.position[arm_idx])
+            if initial_joint_pos is None:
+                initial_joint_pos = list(state.position[arm_idx])
 
             # Sweep configuration from MARKER_CONFIGS
             axis_str = str(axis_mode).lower()

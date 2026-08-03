@@ -1478,7 +1478,8 @@ class MarkerCalibrationWorker(QThread):
                     log_callback=self.log_signal.emit,
                     status_callback=self.status_signal.emit,
                     use_head_tracking=self.use_head_tracking,
-                    save_debug=self.save_debug
+                    save_debug=self.save_debug,
+                    initial_joint_pos=first_starting_pose
                 )
                 if not res_4:
                     self.log_signal.emit("[ERROR] Stage 1 (Axis 4) sweep failed. Aborting.")
@@ -1486,45 +1487,6 @@ class MarkerCalibrationWorker(QThread):
                     return
                 res_4['axis_mode'] = 4
                 res_4['axis'] = res_4['axis_opt']
-                
-                if getattr(self.calibrator, 'stop_requested', False):
-                    self.finished_signal.emit(None)
-                    return
-                
-                time.sleep(1.0)
-                
-                # Move back to initial starting pose
-                if not is_mock_run:
-                    self.log_signal.emit("\n" + "="*50)
-                    self.log_signal.emit("   [Stage 2/3] Returning to Initial Starting Pose...")
-                    self.log_signal.emit("="*50 + "\n")
-                    
-                    if self.arm_side == "right":
-                        success_other = self.calibrator.movej(self.calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                    else:
-                        success_other = self.calibrator.movej(self.calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                    
-                    if not success_other:
-                        self.log_signal.emit("[ERROR] Failed to move inactive arm to zero pose.")
-                        self.finished_signal.emit(None)
-                        return
-                    
-                    success = self.calibrator.movej(
-                        self.calibrator.robot,
-                        torso=[0.0]*6,
-                        right_arm=first_starting_pose if self.arm_side == "right" else None,
-                        left_arm=first_starting_pose if self.arm_side == "left" else None,
-                        head=None,
-                        minimum_time=5.0,
-                        apply_offsets=False
-                    )
-                    if not success:
-                        self.log_signal.emit("[ERROR] Failed to return to initial starting pose. Aborting.")
-                        self.finished_signal.emit(None)
-                        return
-                else:
-                    self.log_signal.emit("\n[MOCK] Returning to Initial Starting Pose...")
-                    time.sleep(1.0)
                 
                 if getattr(self.calibrator, 'stop_requested', False):
                     self.finished_signal.emit(None)
@@ -1542,7 +1504,8 @@ class MarkerCalibrationWorker(QThread):
                 log_callback=self.log_signal.emit, 
                 status_callback=self.status_signal.emit,
                 use_head_tracking=self.use_head_tracking,
-                save_debug=self.save_debug
+                save_debug=self.save_debug,
+                initial_joint_pos=first_starting_pose
             )
             if not res_6:
                 self.log_signal.emit("[ERROR] Stage 6 sweep failed. Aborting.")
@@ -1557,45 +1520,6 @@ class MarkerCalibrationWorker(QThread):
                 return
                 
             time.sleep(1.0)
-
-            # Move back to initial starting pose before Axis 5 sweep
-            if not is_mock_run:
-                self.log_signal.emit("\n" + "="*50)
-                self.log_signal.emit("   [Stage 3/3] Returning to Initial Starting Pose...")
-                self.log_signal.emit("="*50 + "\n")
-                
-                if self.arm_side == "right":
-                    success_other = self.calibrator.movej(self.calibrator.robot, torso=[0.0]*6, left_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                else:
-                    success_other = self.calibrator.movej(self.calibrator.robot, torso=[0.0]*6, right_arm=[0.0]*7, head=None, minimum_time=3.0, apply_offsets=False)
-                
-                if not success_other:
-                    self.log_signal.emit("[ERROR] Failed to move inactive arm to zero pose.")
-                    self.finished_signal.emit(None)
-                    return
-                
-                success = self.calibrator.movej(
-                    self.calibrator.robot,
-                    torso=[0.0]*6,
-                    right_arm=first_starting_pose if self.arm_side == "right" else None,
-                    left_arm=first_starting_pose if self.arm_side == "left" else None,
-                    head=None,
-                    minimum_time=5.0,
-                    apply_offsets=False
-                )
-                if not success:
-                    self.log_signal.emit("[ERROR] Failed to return to initial starting pose. Aborting.")
-                    self.finished_signal.emit(None)
-                    return
-            else:
-                self.log_signal.emit("\n[MOCK] Returning to Initial Starting Pose...")
-                time.sleep(1.0)
-            
-            if getattr(self.calibrator, 'stop_requested', False):
-                self.finished_signal.emit(None)
-                return
-            
-            time.sleep(1.0)
             
             # Stage 3/3 Axis 5 Sweep
             self.log_signal.emit("\n" + "="*50)
@@ -1607,7 +1531,8 @@ class MarkerCalibrationWorker(QThread):
                 log_callback=self.log_signal.emit, 
                 status_callback=self.status_signal.emit,
                 use_head_tracking=self.use_head_tracking,
-                save_debug=self.save_debug
+                save_debug=self.save_debug,
+                initial_joint_pos=first_starting_pose
             )
             if not res_5:
                 self.log_signal.emit("[ERROR] Stage 5 sweep failed. Aborting.")
@@ -1870,16 +1795,24 @@ class FullAutoWorker(QThread):
                     if is_v13:
                         # === v1.3 CALIBRATION SEQUENCE ===
                         # 1. Marker Bracket Sweeps (Axis 4, 6, 5)
-                        self.log_msg.emit(f"[FULL AUTO 1/2] Starting Marker Bracket Calibration for {arm_side} arm (Pass {pass_idx}/2)...")
+                        self.log_msg.emit(f"[FULL AUTO 1/2] Starting Marker Bracket Calibration for {arm_side} arm (Pass {pass_idx}/Pass 2)...")
                         self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
                         if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
                         if self.stop_event.is_set(): return
                         
+                        if not is_mock_run:
+                            state = self.joint_calibrator.robot.get_state()
+                            model = self.joint_calibrator.robot.model()
+                            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                            first_starting_pose = list(state.position[arm_idx])
+                        else:
+                            first_starting_pose = [0.0]*7
+
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 4...")
                         res_4 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 4, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
                         )
                         if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
                         res_4['axis_mode'] = 4
@@ -1889,7 +1822,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
                         res_6 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
                         )
                         if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
                         res_6['axis_mode'] = 6
@@ -1899,7 +1832,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
                         res_5 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 5, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
                         )
                         if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
                         res_5['axis_mode'] = 5
@@ -2117,10 +2050,18 @@ class FullAutoWorker(QThread):
                             raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
                         if self.stop_event.is_set(): return
                         
+                        if not is_mock_run:
+                            state = self.joint_calibrator.robot.get_state()
+                            model = self.joint_calibrator.robot.model()
+                            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                            first_starting_pose = list(state.position[arm_idx])
+                        else:
+                            first_starting_pose = [0.0]*7
+
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 4...")
                         res_4 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 4, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
                         )
                         if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
                         res_4['axis_mode'] = 4
@@ -2130,7 +2071,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
                         res_6 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
                         )
                         if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
                         res_6['axis_mode'] = 6
@@ -2140,7 +2081,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
                         res_5 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 5, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
                         )
                         if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
                         res_5['axis_mode'] = 5
@@ -6268,6 +6209,7 @@ class UnifiedCalibrationApp(QWidget):
             was_stopped = self.full_auto_stop_event.is_set()
             
         error_msg = getattr(self.active_worker, 'error_msg', None) if self.active_worker else None
+        self.last_full_auto_error = error_msg
         if self.active_worker is not None:
             self.active_worker.wait()
         self.active_worker = None

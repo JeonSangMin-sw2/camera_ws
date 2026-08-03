@@ -1159,7 +1159,7 @@ class CalibrationWizardWidget(QWidget):
         was_stopped = False
         if hasattr(self.parent_app, "full_auto_stop_event") and self.parent_app.full_auto_stop_event is not None:
             was_stopped = self.parent_app.full_auto_stop_event.is_set()
-        error_msg = getattr(self.parent_app.active_worker, "error_msg", None) if hasattr(self.parent_app, "active_worker") and self.parent_app.active_worker else None
+        error_msg = getattr(self.parent_app, "last_full_auto_error", None)
 
         if not was_stopped and not error_msg:
             m = self.unified_elapsed // 60
