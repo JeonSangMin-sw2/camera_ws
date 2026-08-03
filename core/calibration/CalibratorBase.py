@@ -25,7 +25,7 @@ class BaseCalibrator:
     }
     MARKER_CONFIGS = {
         "axis_4": {"joint_i": 4, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
-        "axis_5": {"joint_i": 5, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
+        "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -30.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
         "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
     MOCK_GT_OFFSETS = {
