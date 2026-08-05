@@ -1089,16 +1089,17 @@ class BaseCalibrator:
             fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
             def plot_column(res, col_idx, stage_name):
-                pts_a = res['pts_a_cam']
-                pts_b = res['pts_b_cam']
-                c_A = res['c_A']
-                c_B = res['c_B']
-                n_A = res['n_A']
-                n_B = res['n_B']
-                r_A = res['r_A']
-                r_B = res['r_B']
-                angle_error = res['angle_between_normals']
-                center_dist = res['center_dist']
+                plot_data = res.get('_plot_data', res)
+                pts_a = plot_data['pts_a_cam']
+                pts_b = plot_data['pts_b_cam']
+                c_A = plot_data['c_A']
+                c_B = plot_data['c_B']
+                n_A = plot_data['n_A']
+                n_B = plot_data['n_B']
+                r_A = plot_data['r_A']
+                r_B = plot_data['r_B']
+                angle_error = plot_data['angle_between_normals']
+                center_dist = plot_data['center_dist']
 
                 # Compute local frames algebraically from normals (Z axes)
                 def get_local_vectors(n):

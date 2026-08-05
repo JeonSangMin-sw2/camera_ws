@@ -4044,6 +4044,9 @@ class UnifiedCalibrationApp(QWidget):
                 if self.ui_only:
                     self.step2_mode_sel.setCurrentText("sim")
                     self.log_msg("[INFO] Automatically switched Step 2 Mode to 'sim' because camera is not connected.")
+                else:
+                    self.step2_mode_sel.setCurrentText("live")
+                    self.log_msg("[INFO] Automatically switched Step 2 Mode to 'live' because camera and robot are connected.")
 
                 self.log_msg(f"[INFO] Robot successfully connected and initialized (Classified Version: {detected_version}).")
                 self.update_robot_connection_status()
