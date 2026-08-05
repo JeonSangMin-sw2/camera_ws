@@ -162,7 +162,7 @@ class MarkerCalibrator(BaseCalibrator):
             dyn_model = self.robot.get_dynamics()
             
             q_head_start = None
-            if use_head_tracking and head_idx is not None and q_head_0 is not None:
+            if use_head_tracking and self.is_head_active() and head_idx is not None and q_head_0 is not None:
                 q_head_start = q_head_0
 
             dataset = self.perform_single_joint_sweep(
