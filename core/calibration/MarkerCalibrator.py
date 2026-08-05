@@ -459,13 +459,13 @@ class MarkerCalibrator(BaseCalibrator):
             -yaw_limit, -pitch_limit, -roll_limit,
             d5_init - d5_half, d6_init - d6_half,
             x_nom_m - 0.050, y_min_val, -0.250,
-            L_nom_m - 0.080
+            L_nom_m - 0.0005
         ])
         x_max = np.array([
             yaw_limit, pitch_limit, roll_limit,
             d5_init + d5_half, d6_init + d6_half,
             x_nom_m + 0.050, y_max_val, 0.010,
-            L_nom_m + 0.080
+            L_nom_m + 0.0005
         ])
         x_state = np.clip(x_state, x_min, x_max)
         x_target = np.clip(x_target, x_min, x_max)

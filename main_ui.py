@@ -6217,26 +6217,7 @@ class UnifiedCalibrationApp(QWidget):
             self.save_offsets_to_yaml()
             self.update_applied_offset_label()
 
-            # Zero out baseline json if it exists to prevent accidental unsafe rollback later
-            baseline_path = os.path.join(current_dir, "config", "home_reset_baseline.json")
-            if os.path.exists(baseline_path):
-                try:
-                    import json
-                    with open(baseline_path, "r") as f:
-                        data = json.load(f)
-                    if "right_arm_joint_offset_deg" in data:
-                        data["right_arm_joint_offset_deg"] = [0.0] * len(data["right_arm_joint_offset_deg"])
-                    if "left_arm_joint_offset_deg" in data:
-                        data["left_arm_joint_offset_deg"] = [0.0] * len(data["left_arm_joint_offset_deg"])
-                    if "head_joint_offset_deg" in data and data["head_joint_offset_deg"] is not None:
-                        data["head_joint_offset_deg"] = [0.0] * len(data["head_joint_offset_deg"])
-                    if "joint_offset_deg" in data:
-                        data["joint_offset_deg"] = [0.0] * len(data["joint_offset_deg"])
-                    with open(baseline_path, "w") as f:
-                        json.dump(data, f, indent=4)
-                    self.log_msg(f"[INFO] Zeroed out baseline json: {baseline_path}")
-                except Exception as e:
-                    self.log_msg(f"[WARN] Failed to zero out baseline json: {e}")
+
 
             self.log_msg("Re-connecting and initializing robot...")
             if self.robot:
@@ -6257,6 +6238,8 @@ class UnifiedCalibrationApp(QWidget):
                 self.wizard_widget.mark_step_completed(7, True, "Home Offset Reset complete")
             else:
                 self.wizard_widget.mark_step_completed(7, False, error_msg)
+
+
 
     def clear_old_plots(self):
         self.generated_plots = []
