@@ -1,42 +1,43 @@
-
-[ITERATION 6/6] Sweeping physically with staged offset 2.1302°...
-   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
-
-[SUCCESS] Calibration CONVERGED successfully:
-  * Step Correction: -0.0403° < 0.06° (reached resolution limit)
-  * Recommended Absolute Offset: 2.1302°
-[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_joint_calib.png
-[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_joint_calib.png
-[INFO] Full Auto: Finished joint calibration for RIGHT wrist_pitch. Staged: 2.1302° (click APPLY OFFSET to save).
-[FULL AUTO 2/3] Performing Marker Bracket Sweeps for v1.2 right arm (Pass 1/2)...
-[FULL AUTO] Moving right arm to ready pose...
-[INFO] Moving right arm to marker Ready Pose...
-[INFO] Moving inactive arm to zero pose first...
-[INFO] Moving active arm, torso, and head to ready pose...
-[INFO] Ready Pose Reached.
-[FULL AUTO] Sweeping Axis 4...
+to sweep_points_right_marker_axis_4.txt
+[FULL AUTO] Sweeping Axis 6...
 
 ==================================================
-   STARTING 4 CONTINUOUS MARKER SWEEP
+   STARTING 6 CONTINUOUS MARKER SWEEP
 ==================================================
-[ERROR] Failed to move Marker Axis 4 to start pose or stop requested.
-[ERROR] Full Auto sequential calibration failed: Axis 4 marker sweep failed on right arm
+[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+[FULL AUTO] Sweeping Axis 5...
 
+==================================================
+   STARTING 5 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
 
+[FULL AUTO] Computing unified marker bracket calibration for v1.2...
+[INFO] Full Auto: Finished bracket calibration for RIGHT arm. Values staged in UI (click APPLY BRACKETS to save).
 
-ration=12.0s)...
-2026-08-05 16:24:46,070 [INFO]     -> Swept 172 dense raw coordinate frames during Joint B motion.
-2026-08-05 16:24:46,071 [INFO] Swept 182 dense raw coordinate frames during Joint A motion... downsampled to 182 for optimization.
-2026-08-05 16:24:46,072 [INFO] Swept 172 dense raw coordinate frames during Joint B motion... downsampled to 172 for optimization.
-[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +20° (-35.0°) for right_arm (joint)
-2026-08-05 16:24:46,076 [INFO] [READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +20° (-35.0°) for right_arm (joint)
-[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +20° (-70.0°) for right_arm (marker)
-2026-08-05 16:24:53,091 [INFO] [READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +20° (-70.0°) for right_arm (marker)
-2026-08-05 16:25:00,483 [INFO] [INFO] Moving Marker Axis 4 to start sweep position...
-[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.Unknown
-2026-08-05 16:25:00,485 [ERROR] Failed to conduct movej. Finish code: FinishCode.Unknown
+[FULL AUTO] Calibrating J6 (Wrist Yaw 2) under locked bracket...
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
 
-Traceback (most recent call last):
-  File "/home/nvidia/camera_ws/main_ui.py", line 2114, in run
-    if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
-RuntimeError: Axis 4 marker sweep failed on right arm
+[ITERATION 1/6] Sweeping physically with staged offset 0.5641°...
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_yaw2: J7 nominal ready pose=0.01°, raw_diff=0.13°, optimal_offset=0.70°
+
+[ITERATION 2/6] Sweeping physically with staged offset 0.6995°...
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_yaw2: J7 nominal ready pose=0.00°, raw_diff=-0.19°, optimal_offset=0.52°
+
+[ITERATION 3/6] Sweeping physically with staged offset 0.5186°...
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_yaw2: J7 nominal ready pose=0.00°, raw_diff=0.24°, optimal_offset=0.77°
+
+[ITERATION 4/6] Sweeping physically with staged offset 0.6122°...
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_yaw2: J7 nominal ready pose=0.00°, raw_diff=0.23°, optimal_offset=0.84°
+
+[ITERATION 5/6] Sweeping physically with staged offset 0.6756°...
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_yaw2: J7 nominal ready pose=0.00°, raw_diff=-0.32°, optimal_offset=0.36°
+
+[ITERATION 6/6] Sweeping physically with staged offset 0.2887°...
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_yaw2: J7 nominal ready pose=0.01°, raw_diff=0.45°, optimal_offset=0.74°
