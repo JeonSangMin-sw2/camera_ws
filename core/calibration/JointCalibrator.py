@@ -126,6 +126,12 @@ class JointCalibrator(BaseCalibrator):
                     if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
                     return None
                     
+                if i > 1:
+                    # Move back to ready pose to reset joint angles and prevent cumulative drift
+                    if not self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback):
+                        if log_callback: log_callback(f"[ERROR] Failed to move back to ready pose at iteration {i}. Aborting.")
+                        return None
+
                 if log_callback:
                     log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
                 
