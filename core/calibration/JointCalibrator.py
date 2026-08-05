@@ -87,6 +87,16 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"   Target Arm: {arm_side.upper()} | Joint Target: {mode.upper()}")
                 log_callback("="*60 + "\n")
                 
+            first_starting_pose = None
+            if self.robot:
+                try:
+                    state = self.robot.get_state()
+                    model = self.robot.model()
+                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                    first_starting_pose = list(state.position[arm_idx])
+                except Exception:
+                    pass
+
             # save_debug는 첫 번째 sweep(원본 데이터)에서만 저장
             _sweep_count = [0]
             def run_single_sweep(offset):
@@ -95,7 +105,8 @@ class JointCalibrator(BaseCalibrator):
                 return self.perform_calibration_sweep_continuous(
                     arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                     current_offset_deg=offset, sweep_duration=sweep_duration,
-                    use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save
+                    use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save,
+                    first_starting_pose=first_starting_pose
                 )
                 
             max_iterations = 6
@@ -125,12 +136,6 @@ class JointCalibrator(BaseCalibrator):
                 if getattr(self, 'stop_requested', False):
                     if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
                     return None
-                    
-                if i > 1:
-                    # Move back to ready pose to reset joint angles and prevent cumulative drift
-                    if not self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback):
-                        if log_callback: log_callback(f"[ERROR] Failed to move back to ready pose at iteration {i}. Aborting.")
-                        return None
 
                 if log_callback:
                     log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
@@ -622,7 +627,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None):
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -664,7 +669,10 @@ class JointCalibrator(BaseCalibrator):
         state = self.robot.get_state()
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-        initial_joint_pos = list(state.position[arm_idx])
+        if first_starting_pose is not None:
+            initial_joint_pos = list(first_starting_pose)
+        else:
+            initial_joint_pos = list(state.position[arm_idx])
 
         # Define joint parameters from JOINT_CONFIGS
         jcfg = self.JOINT_CONFIGS[mode]

@@ -759,7 +759,48 @@ class ApplyHomeOffsetDialog(QDialog):
                         self.parent_app.log_msg("Current pose home offset apply complete.")
                         
                     if app_res.get("success", False) or app_res.get("needs_reconnect", False):
-                        QMessageBox.information(self, "Success", f"Robot moved to Zero Pose and '{state.upper()}' home offset applied successfully.")
+                        # Reset software joint offsets to 0.0 for the applied arm(s) since they are now physically absorbed
+                        for arm in ["left", "right"]:
+                            if self.current_apply_arm == "both" or self.current_apply_arm == arm:
+                                self.parent_app.joint_offsets_store[arm]["joint3"] = 0.0
+                                self.parent_app.joint_offsets_store[arm]["joint5"] = 0.0
+                                self.parent_app.joint_offsets_store[arm]["joint6"] = 0.0
+                                
+                                self.parent_app.joint_offsets[arm]["wrist_pitch"] = 0.0
+                                self.parent_app.joint_offsets[arm]["wrist_roll"] = 0.0
+                                self.parent_app.joint_offsets[arm]["wrist_yaw2"] = 0.0
+                                self.parent_app.joint_offsets[arm]["elbow"] = 0.0
+
+                        # Save zeroed offsets to setting.yaml and update GUI
+                        self.parent_app.save_offsets_to_yaml()
+                        self.parent_app.update_applied_offset_label()
+
+                        # Zero out baseline json if it exists to prevent accidental unsafe rollback later
+                        if self.baseline_path and os.path.exists(self.baseline_path):
+                            try:
+                                import json
+                                with open(self.baseline_path, "r") as f:
+                                    data = json.load(f)
+                                
+                                if "right_arm_joint_offset_deg" in data and (self.current_apply_arm == "both" or self.current_apply_arm == "right"):
+                                    data["right_arm_joint_offset_deg"] = [0.0] * len(data["right_arm_joint_offset_deg"])
+                                if "left_arm_joint_offset_deg" in data and (self.current_apply_arm == "both" or self.current_apply_arm == "left"):
+                                    data["left_arm_joint_offset_deg"] = [0.0] * len(data["left_arm_joint_offset_deg"])
+                                if "head_joint_offset_deg" in data and data["head_joint_offset_deg"] is not None and self.include_head:
+                                    data["head_joint_offset_deg"] = [0.0] * len(data["head_joint_offset_deg"])
+                                
+                                if "right_arm_joint_offset_deg" in data and "left_arm_joint_offset_deg" in data:
+                                    data["joint_offset_deg"] = data["right_arm_joint_offset_deg"] + data["left_arm_joint_offset_deg"]
+                                elif "joint_offset_deg" in data:
+                                    data["joint_offset_deg"] = [0.0] * len(data["joint_offset_deg"])
+                                    
+                                with open(self.baseline_path, "w") as f:
+                                    json.dump(data, f, indent=4)
+                                self.parent_app.log_msg(f"[INFO] Zeroed out applied arm offsets in baseline json: {self.baseline_path}")
+                            except Exception as e:
+                                self.parent_app.log_msg(f"[WARN] Failed to zero out baseline json: {e}")
+
+                        QMessageBox.information(self, "Success", f"Robot moved to Zero Pose and '{state.upper()}' home offset applied successfully. Software joint offsets have been reset to 0.0.")
                         self.accept()
                     else:
                         QMessageBox.warning(self, "Warning", "Home offset apply finished, but some joints failed to reset. Please check the logs.")
@@ -1235,7 +1276,8 @@ class Step2ApplyHomeOffsetWorker(QThread):
                     self.kwargs["json_path"],
                     self.kwargs["label"],
                     self.kwargs["arm"],
-                    self.kwargs["include_head"]
+                    self.kwargs["include_head"],
+                    skip_init_pose=self.kwargs.get("skip_init_pose", False)
                 )
                 self.finished_signal.emit(True, "", res)
             elif self.task_type == "apply":
@@ -4165,6 +4207,9 @@ class UnifiedCalibrationApp(QWidget):
         if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
             return
 
+        if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+            self.wizard_widget.check_pose_init_done = False
+
         # Reparent shared widgets between Step 1 and Step 2
         self._reparent_shared_widgets(index)
 
@@ -4447,7 +4492,7 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("Preview move complete. Inspect the robot pose before applying.")
         return result
 
-    def move_to_check_position_candidate_path(self, json_path, label, arm, include_head):
+    def move_to_check_position_candidate_path(self, json_path, label, arm, include_head, skip_init_pose=False):
         self.ensure_home_offset_robot()
         
         # Load offsets from json
@@ -4497,23 +4542,26 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg(f"[WARNING] Failed to parse ready_poses.yaml: {e}")
                 
         # 1. Move to 1st ready pose (like check_calibration_state)
-        active_arms = []
-        if arm in ("right", "both"):
-            active_arms.append("right")
-        if arm in ("left", "both"):
-            active_arms.append("left")
-            
-        self.log_msg(f"\n[Check Position] Step 1: Moving to Joint Ready Pose...")
-        ok = movej(
-            self.robot,
-            torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
-            right_arm=np.deg2rad([-45, -30, 0, -90, 0, 45, 0]) if "right" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
-            left_arm=np.deg2rad([-45, 30, 0, -90, 0, 45, 0]) if "left" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
-            minimum_time=5
-        )
-        if not ok:
-            raise RuntimeError("Failed to move robot to Step 1 Ready Pose")
-        time.sleep(2.0)
+        if not skip_init_pose:
+            active_arms = []
+            if arm in ("right", "both"):
+                active_arms.append("right")
+            if arm in ("left", "both"):
+                active_arms.append("left")
+                
+            self.log_msg(f"\n[Check Position] Step 1: Moving to Joint Ready Pose...")
+            ok = movej(
+                self.robot,
+                torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+                right_arm=np.deg2rad([-45, -30, 0, -90, 0, 45, 0]) if "right" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+                left_arm=np.deg2rad([-45, 30, 0, -90, 0, 45, 0]) if "left" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+                minimum_time=5
+            )
+            if not ok:
+                raise RuntimeError("Failed to move robot to Step 1 Ready Pose")
+            time.sleep(2.0)
+        else:
+            self.log_msg("[Check Position] Step 1: Skipping Ready Pose move (already initialized in check session)")
         
         # 2. Move to Check Position with offsets added
         self.log_msg(f"[Check Position] Step 2: Moving to Check Pose with Offsets...")
@@ -6099,13 +6147,49 @@ class UnifiedCalibrationApp(QWidget):
         success = False
         error_msg = ""
         if result.get("success", False):
+            # Reset software joint offsets to 0.0 for both arms since they are now physically absorbed
+            for arm in ["left", "right"]:
+                self.joint_offsets_store[arm]["joint3"] = 0.0
+                self.joint_offsets_store[arm]["joint5"] = 0.0
+                self.joint_offsets_store[arm]["joint6"] = 0.0
+                
+                self.joint_offsets[arm]["wrist_pitch"] = 0.0
+                self.joint_offsets[arm]["wrist_roll"] = 0.0
+                self.joint_offsets[arm]["wrist_yaw2"] = 0.0
+                self.joint_offsets[arm]["elbow"] = 0.0
+
+            # Save zeroed offsets to setting.yaml and update GUI
+            self.save_offsets_to_yaml()
+            self.update_applied_offset_label()
+
+            # Zero out baseline json if it exists to prevent accidental unsafe rollback later
+            baseline_path = os.path.join(current_dir, "config", "home_reset_baseline.json")
+            if os.path.exists(baseline_path):
+                try:
+                    import json
+                    with open(baseline_path, "r") as f:
+                        data = json.load(f)
+                    if "right_arm_joint_offset_deg" in data:
+                        data["right_arm_joint_offset_deg"] = [0.0] * len(data["right_arm_joint_offset_deg"])
+                    if "left_arm_joint_offset_deg" in data:
+                        data["left_arm_joint_offset_deg"] = [0.0] * len(data["left_arm_joint_offset_deg"])
+                    if "head_joint_offset_deg" in data and data["head_joint_offset_deg"] is not None:
+                        data["head_joint_offset_deg"] = [0.0] * len(data["head_joint_offset_deg"])
+                    if "joint_offset_deg" in data:
+                        data["joint_offset_deg"] = [0.0] * len(data["joint_offset_deg"])
+                    with open(baseline_path, "w") as f:
+                        json.dump(data, f, indent=4)
+                    self.log_msg(f"[INFO] Zeroed out baseline json: {baseline_path}")
+                except Exception as e:
+                    self.log_msg(f"[WARN] Failed to zero out baseline json: {e}")
+
             self.log_msg("Re-connecting and initializing robot...")
             if self.robot:
                 self.connect_robot() # Disconnects first
                 QApplication.processEvents()
             self.connect_robot() # Connects again
             self.log_msg("Home Offset Reset complete!")
-            QMessageBox.information(self, "Success", "Home Offset Reset, Power, and Servo Initialization completed successfully!")
+            QMessageBox.information(self, "Success", "Home Offset Reset, Power, and Servo Initialization completed successfully! Software joint offsets have been reset to 0.0.")
             success = True
         else:
             error_msg = result.get("error", "Some joints failed to reset")
