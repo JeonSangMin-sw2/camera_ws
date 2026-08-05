@@ -155,8 +155,8 @@ class BaseCalibrator:
             # If Head is disabled or robot has no 2-DOF head (fixed chest camera), lower Shoulder Pitch (Joint 0) by 15 deg
             # to ensure markers stay within the fixed camera FOV instead of rising above it.
             if not self.is_head_active() and len(val_arr) >= 7:
-                val_arr[0] += 20.0  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -35 deg)
-                msg = f"[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +20° ({val_arr[0]:.1f}°) for {arm_side}_arm ({type_key})"
+                val_arr[0] += 15.0  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -40 deg)
+                msg = f"[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +15° ({val_arr[0]:.1f}°) for {arm_side}_arm ({type_key})"
                 print(msg)
                 logging.info(msg)
 
