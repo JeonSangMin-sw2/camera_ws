@@ -294,7 +294,12 @@ class BaseCalibrator:
 
         # Check if both arms' servos are ON
         try:
-            is_servo_ok = robot.is_servo_on(".*")
+            include_head = getattr(self, 'include_head_motion', True)
+            if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
+                include_head = self.app.include_head_motion
+            
+            pattern = ".*" if include_head else "^(?!head_joint_).*$"
+            is_servo_ok = robot.is_servo_on(pattern)
         except Exception as e:
             logging.warning(f"Failed to check servo status: {e}")
             is_servo_ok = False
@@ -341,7 +346,11 @@ class BaseCalibrator:
                     logging.warning(f"Failed to disable control manager: {e}")
             
             logging.info("Turning servos on...")
-            if not robot.servo_on(".*"):
+            include_head = getattr(self, 'include_head_motion', True)
+            if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
+                include_head = self.app.include_head_motion
+            pattern = ".*" if include_head else "^(?!head_joint_).*$"
+            if not robot.servo_on(pattern):
                 logging.error("Failed to turn servos on.")
             else:
                 time.sleep(0.5)

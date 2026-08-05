@@ -1304,7 +1304,7 @@ class CalibrationWizardWidget(QWidget):
             json_path=path,
             label=f"{state.capitalize()} Check Position",
             arm="both",
-            include_head=self.parent_app.include_head,
+            include_head=self.parent_app.include_head_motion,
             skip_init_pose=self.check_pose_init_done
         )
         self.wizard_worker.log_signal.connect(self.parent_app.log_msg)
@@ -1372,7 +1372,7 @@ class CalibrationWizardWidget(QWidget):
             json_path=path,
             label=f"{state.capitalize()} Zero",
             arm="both",
-            include_head=self.parent_app.include_head
+            include_head=self.parent_app.include_head_motion
         )
         self.wizard_worker_move.log_signal.connect(self.parent_app.log_msg)
 
@@ -1393,7 +1393,7 @@ class CalibrationWizardWidget(QWidget):
                 self.parent_app,
                 "apply",
                 arm=arm_to_apply,
-                include_head=self.parent_app.include_head,
+                include_head=self.parent_app.include_head_motion,
                 json_path=result_path if state == "optimized" else None
             )
             self.wizard_worker_apply.log_signal.connect(self.parent_app.log_msg)
@@ -1438,7 +1438,7 @@ class CalibrationWizardWidget(QWidget):
                                     data["right_arm_joint_offset_deg"] = [0.0] * len(data["right_arm_joint_offset_deg"])
                                 if "left_arm_joint_offset_deg" in data and (arm_to_apply == "both" or arm_to_apply == "left"):
                                     data["left_arm_joint_offset_deg"] = [0.0] * len(data["left_arm_joint_offset_deg"])
-                                if "head_joint_offset_deg" in data and data["head_joint_offset_deg"] is not None and self.parent_app.include_head:
+                                if "head_joint_offset_deg" in data and data["head_joint_offset_deg"] is not None and self.parent_app.include_head_motion:
                                     data["head_joint_offset_deg"] = [0.0] * len(data["head_joint_offset_deg"])
                                 
                                 if "right_arm_joint_offset_deg" in data and "left_arm_joint_offset_deg" in data:

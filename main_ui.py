@@ -1197,6 +1197,7 @@ class Step2AutoMotionWorker(QThread):
     def run(self):
         try:
             pose_target = self.app.get_auto_pose_target_count()
+            consecutive_failures = 0
             while self.app.head_move_count < pose_target:
                 if self.app.auto_stop_requested:
                     self.log_signal.emit("Auto Motion stopped by user.")
@@ -1207,7 +1208,12 @@ class Step2AutoMotionWorker(QThread):
                     if self.app.auto_stop_requested:
                         self.log_signal.emit("Auto Motion stopped by user.")
                         break
-                    self.log_signal.emit("Step capture failed and skipped. Continuing sequence...")
+                    consecutive_failures += 1
+                    self.log_signal.emit(f"[WARNING] Step capture failed ({consecutive_failures}/3). Skipping this pose...")
+                    if consecutive_failures >= 3:
+                        raise RuntimeError("Marker not detected 3 consecutive times. Calibration aborted.")
+                else:
+                    consecutive_failures = 0
 
                 self.sample_signal.emit(self.app.head_move_count)
                 time.sleep(0.2)
@@ -3912,9 +3918,10 @@ class UnifiedCalibrationApp(QWidget):
 
             # 3. Turn on power if not already ON
             try:
-                if not robot.is_power_on(".*"):
-                    self.log_msg("[INFO] Power is not ON. Turning overall power on...")
-                    if not robot.power_on(".*"):
+                power_pattern = ".*" if self.include_head_motion else "^(?!head_joint_).*$"
+                if not robot.is_power_on(power_pattern):
+                    self.log_msg(f"[INFO] Power is not ON. Turning power ({power_pattern}) on...")
+                    if not robot.power_on(power_pattern):
                         raise RuntimeError("Failed to turn power on.")
                     time.sleep(1)
                 else:
@@ -3924,9 +3931,10 @@ class UnifiedCalibrationApp(QWidget):
 
             # 4. Turn on servos if not already ON
             try:
-                if not robot.is_servo_on(".*"):
-                    self.log_msg("[INFO] Turning servos on...")
-                    if not robot.servo_on(".*"):
+                servo_pattern = ".*" if self.include_head_motion else "^(?!head_joint_).*$"
+                if not robot.is_servo_on(servo_pattern):
+                    self.log_msg(f"[INFO] Turning servos ({servo_pattern}) on...")
+                    if not robot.servo_on(servo_pattern):
                         raise RuntimeError("Failed to turn servos on.")
                     time.sleep(1)
                 else:
@@ -4720,10 +4728,54 @@ class UnifiedCalibrationApp(QWidget):
 
         q_arm, q_head, T_meas = self.capture_one_sample(motion_plan_step=motion_plan_step)
         if q_arm is None:
-            self.head_move_count += 1
-            self.update_head_pose_status()
-            self.log_msg("Capture failed after motion. This pose is skipped.")
-            return False
+            if self.head_move_count == 0 and self.step2_mode_sel.currentText() == "live" and not self.ui_only:
+                self.log_msg("[WARNING] Marker not detected at the initial ready pose. Prompting posture adjustment...")
+                self.current_calib_mode = "marker"
+                
+                # Check right arm
+                right_check = self.marker_st.get_marker_transform(sampling_time=1.5, side="right")
+                if right_check is None:
+                    self.log_msg("[INFO] Right arm marker not visible. Showing teaching dialog...")
+                    resolved = self.prompt_marker_problem_teaching("right")
+                    if not resolved:
+                        self.log_msg("[ERROR] Posture teaching canceled by user.")
+                        self.head_move_count += 1
+                        self.update_head_pose_status()
+                        return False
+                
+                # Check left arm
+                left_check = self.marker_st.get_marker_transform(sampling_time=1.5, side="left")
+                if left_check is None:
+                    self.log_msg("[INFO] Left arm marker not visible. Showing teaching dialog...")
+                    resolved = self.prompt_marker_problem_teaching("left")
+                    if not resolved:
+                        self.log_msg("[ERROR] Posture teaching canceled by user.")
+                        self.head_move_count += 1
+                        self.update_head_pose_status()
+                        return False
+
+                # Re-verify visibility after adjustment
+                self.log_msg("[INFO] Re-verifying marker visibility at the new posture...")
+                q_arm, q_head, T_meas = self.capture_one_sample(motion_plan_step=motion_plan_step)
+                if q_arm is None:
+                    self.log_msg("[ERROR] Marker still not detected after teaching adjustment.")
+                    self.head_move_count += 1
+                    self.update_head_pose_status()
+                    return False
+                
+                # Re-build motion plan starting from the new taught ready pose
+                self.log_msg("[INFO] Posture adjustment successful. Re-building motion plan from current pose...")
+                active_arms = ["right", "left"]
+                self.auto_motion_plan = build_incremental_motion_plan(
+                    self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion
+                )
+                self.update_head_pose_status()
+                self.update_step2_est_samples()
+            else:
+                self.head_move_count += 1
+                self.update_head_pose_status()
+                self.log_msg("Capture failed after motion. This pose is skipped.")
+                return False
 
         self.shared_arm_q_list.append(q_arm)
         if self.include_head_motion and q_head is not None:
