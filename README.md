@@ -521,3 +521,19 @@ History appended to /home/nvidia/camera_ws/result/result_step2/calibration_histo
 =========================================================
 
 Optimization finished successfully.
+
+
+
+
+[60] |dx|=1.240e-07, |err|=6.479e+00
+[61] |dx|=1.069e-07, |err|=6.479e+00
+[62] |dx|=9.134e-08, |err|=6.479e+00
+Converged.
+Traceback (most recent call last):
+  File "/home/nvidia/camera_ws/core/wizard_widget.py", line 881, in <lambda>
+    self.btn_rollback_preview.clicked.connect(lambda: self.wizard_move_check("baseline"))
+  File "/home/nvidia/camera_ws/core/wizard_widget.py", line 1307, in wizard_move_check
+    include_head=self.parent_app.include_head,
+AttributeError: 'UnifiedCalibrationApp' object has no attribute 'include_head'
+
+
