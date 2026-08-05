@@ -3681,68 +3681,116 @@ class UnifiedCalibrationApp(QWidget):
         dlg = MarkerRecognitionProblemDialog(self, is_ko=getattr(self, 'is_ko_ui', False))
         self.marker_problem_dlg = dlg
         self.on_left_tab_changed(self.left_tabs.currentIndex())
-        resolved = (dlg.exec() == QDialog.Accepted)
+        
+        is_ko_ui = getattr(self, 'is_ko_ui', False)
+        
+        while True:
+            resolved = (dlg.exec() == QDialog.Accepted)
+            if not resolved:
+                res['resolved'] = False
+                break
+                
+            if self.robot:
+                try:
+                    state = self.robot.get_state()
+                    model = self.robot.model()
+                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                    taught_pose = list(state.position[arm_idx])
+                    active_mode = "marker"
+                    if hasattr(self, 'joint_calibrator') and self.joint_calibrator and getattr(self.joint_calibrator, 'current_calib_mode', None):
+                        active_mode = self.joint_calibrator.current_calib_mode
+                    elif hasattr(self, 'marker_calibrator') and self.marker_calibrator and getattr(self.marker_calibrator, 'current_calib_mode', None):
+                        active_mode = self.marker_calibrator.current_calib_mode
+                    elif getattr(self, 'current_calib_mode', None):
+                        active_mode = self.current_calib_mode
+                    norm_mode = "wrist_pitch" if active_mode == "wrist_pitch_v13" else ("wrist_roll" if active_mode == "wrist_roll_v13" else active_mode)
+
+                    version_key = "v1.3" if (hasattr(self, 'marker_calibrator') and self.marker_calibrator and self.marker_calibrator.is_v13()) else "v1.2"
+                    if norm_mode == "marker":
+                        type_key = "marker"
+                        ready_mode = None
+                    else:
+                        type_key = "joint"
+                        if norm_mode == "wrist_pitch":
+                            ready_mode = "wrist_pitch"
+                        elif norm_mode in ("wrist_roll", "wrist_yaw2"):
+                            ready_mode = "wrist_roll_v13" if version_key == "v1.3" else "wrist_yaw2"
+                        elif norm_mode == "elbow":
+                            ready_mode = "elbow"
+                        else:
+                            ready_mode = "wrist_pitch"
+
+                    if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+                        try:
+                            nom_pose = self.marker_calibrator.get_ready_pose(version_key, type_key, ready_mode, arm_side)
+                            if norm_mode == "elbow":
+                                taught_pose[3] = nom_pose[3]
+                            elif norm_mode == "wrist_pitch":
+                                taught_pose[5] = nom_pose[5]
+                            elif norm_mode in ("marker", "wrist_roll", "wrist_yaw2"):
+                                taught_pose[5] = nom_pose[5]
+                        except Exception as e:
+                            self.log_msg(f"[WARN] Could not enforce nominal target angle on taught pose: {e}")
+
+                    # Check if the joint values are valid within the robot's operating range
+                    dyn_model = self.robot.get_dynamics()
+                    state_lim = dyn_model.make_state([f"ee_{arm_side}"], model.robot_joint_names)
+                    q_lower_all = np.array(dyn_model.get_limit_q_lower(state_lim))
+                    q_upper_all = np.array(dyn_model.get_limit_q_upper(state_lim))
+                    
+                    invalid_joints = []
+                    for i in range(7):
+                        j_val = taught_pose[i]
+                        g_idx = arm_idx[i]
+                        low_lim = q_lower_all[g_idx]
+                        upp_lim = q_upper_all[g_idx]
+                        if j_val < low_lim or j_val > upp_lim:
+                            invalid_joints.append((i, np.degrees(j_val), np.degrees(low_lim), np.degrees(upp_lim)))
+                            
+                    if len(invalid_joints) > 0:
+                        err_lines = []
+                        for i, val, low, upp in invalid_joints:
+                            if is_ko_ui:
+                                err_lines.append(f"- 관절 {i+1}: 현재 {val:.2f}°, 제한 범위 [{low:.1f}°, {upp:.1f}°]")
+                            else:
+                                err_lines.append(f"- Joint {i+1}: Current {val:.2f}°, Limits [{low:.1f}°, {upp:.1f}°]")
+                        
+                        if is_ko_ui:
+                            title = "관절 가동 범위 초과"
+                            msg = "수동으로 조정한 로봇의 자세가 가동 범위를 벗어났습니다. 다시 자세를 조정해주세요.\n\n" + "\n".join(err_lines)
+                        else:
+                            title = "Joint Limit Exceeded"
+                            msg = "The manually adjusted robot posture exceeds the joint limits. Please adjust the posture again.\n\n" + "\n".join(err_lines)
+                            
+                        self.show_message_box(title, msg, QMessageBox.Warning)
+                        continue  # Keep the teaching guide dialog open for readjustment
+
+                    res['resolved'] = True
+                    if not hasattr(self, 'user_taught_ready_poses') or not isinstance(self.user_taught_ready_poses, dict):
+                        self.user_taught_ready_poses = {}
+                    if arm_side not in self.user_taught_ready_poses or not isinstance(self.user_taught_ready_poses[arm_side], dict):
+                        self.user_taught_ready_poses[arm_side] = {}
+
+                    self.user_taught_ready_poses[arm_side][norm_mode] = taught_pose
+
+                    if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+                        self.marker_calibrator.user_taught_ready_poses = self.user_taught_ready_poses
+
+                    if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+                        self.joint_calibrator.user_taught_ready_poses = self.user_taught_ready_poses
+
+                    self.log_msg(f"[INFO] Preserved user-taught ready pose for {arm_side} arm ({norm_mode}).")
+                    break
+                except Exception as e:
+                    self.log_msg(f"[WARN] Failed to preserve user-taught ready pose: {e}")
+                    res['resolved'] = True
+                    break
+            else:
+                res['resolved'] = True
+                break
+
         self.marker_problem_dlg = None
         self.on_left_tab_changed(self.left_tabs.currentIndex())
-        res['resolved'] = resolved
-        if resolved and self.robot:
-            try:
-                state = self.robot.get_state()
-                model = self.robot.model()
-                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                taught_pose = list(state.position[arm_idx])
-                active_mode = "marker"
-                if hasattr(self, 'joint_calibrator') and self.joint_calibrator and getattr(self.joint_calibrator, 'current_calib_mode', None):
-                    active_mode = self.joint_calibrator.current_calib_mode
-                elif hasattr(self, 'marker_calibrator') and self.marker_calibrator and getattr(self.marker_calibrator, 'current_calib_mode', None):
-                    active_mode = self.marker_calibrator.current_calib_mode
-                elif getattr(self, 'current_calib_mode', None):
-                    active_mode = self.current_calib_mode
-                norm_mode = "wrist_pitch" if active_mode == "wrist_pitch_v13" else ("wrist_roll" if active_mode == "wrist_roll_v13" else active_mode)
-
-                version_key = "v1.3" if (hasattr(self, 'marker_calibrator') and self.marker_calibrator and self.marker_calibrator.is_v13()) else "v1.2"
-                if norm_mode == "marker":
-                    type_key = "marker"
-                    ready_mode = None
-                else:
-                    type_key = "joint"
-                    if norm_mode == "wrist_pitch":
-                        ready_mode = "wrist_pitch"
-                    elif norm_mode in ("wrist_roll", "wrist_yaw2"):
-                        ready_mode = "wrist_roll_v13" if version_key == "v1.3" else "wrist_yaw2"
-                    elif norm_mode == "elbow":
-                        ready_mode = "elbow"
-                    else:
-                        ready_mode = "wrist_pitch"
-
-                if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
-                    try:
-                        nom_pose = self.marker_calibrator.get_ready_pose(version_key, type_key, ready_mode, arm_side)
-                        if norm_mode == "elbow":
-                            taught_pose[3] = nom_pose[3]
-                        elif norm_mode == "wrist_pitch":
-                            taught_pose[5] = nom_pose[5]
-                        elif norm_mode in ("marker", "wrist_roll", "wrist_yaw2"):
-                            taught_pose[5] = nom_pose[5]
-                    except Exception as e:
-                        self.log_msg(f"[WARN] Could not enforce nominal target angle on taught pose: {e}")
-
-                if not hasattr(self, 'user_taught_ready_poses') or not isinstance(self.user_taught_ready_poses, dict):
-                    self.user_taught_ready_poses = {}
-                if arm_side not in self.user_taught_ready_poses or not isinstance(self.user_taught_ready_poses[arm_side], dict):
-                    self.user_taught_ready_poses[arm_side] = {}
-
-                self.user_taught_ready_poses[arm_side][norm_mode] = taught_pose
-
-                if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
-                    self.marker_calibrator.user_taught_ready_poses = self.user_taught_ready_poses
-
-                if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
-                    self.joint_calibrator.user_taught_ready_poses = self.user_taught_ready_poses
-
-                self.log_msg(f"[INFO] Preserved user-taught ready pose for {arm_side} arm ({norm_mode}).")
-            except Exception as e:
-                self.log_msg(f"[WARN] Failed to preserve user-taught ready pose: {e}")
         evt.set()
 
     def prompt_marker_problem_teaching(self, arm_side):

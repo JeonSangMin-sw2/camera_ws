@@ -719,6 +719,8 @@ class JointCalibrator(BaseCalibrator):
             q_head=None, label="Joint B", log_callback=log_callback,
             current_offset_deg=current_offset_deg, cand_joint=cand_joint, mode=mode
         )
+        if dataset_B is None:
+            return None
         if dataset_A:
             initial_joint_pos = list(dataset_A[0][0][arm_idx])
 
