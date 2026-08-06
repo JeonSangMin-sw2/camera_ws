@@ -5542,7 +5542,7 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_head = False
                 self.log_msg("Headless mode selected; optimize_head changed to False.")
 
-            camera_cfg = getattr(self.calibrator, "camera_config", {})
+            camera_cfg = getattr(self.marker_calibrator, "camera_config", {})
             if not optimize_head:
                 optimize_camera = False
                 self.log_msg("[INFO] Headless mode: Camera extrinsics optimization is DISABLED (Locked to CAD nominal).")
