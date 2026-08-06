@@ -21,13 +21,17 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+import platform
+arch = platform.machine()  # 'x86_64' 또는 Jetson의 'aarch64'
+exe_name = f'camera_calibrator_{arch}'
+
 exe = EXE(
     pyz,
     a.scripts,
     a.binaries,
     a.datas,
     [],
-    name='camera_calibrator',
+    name=exe_name,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

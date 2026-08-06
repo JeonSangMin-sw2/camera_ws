@@ -9,5 +9,5 @@ core/rby1_camera_utils.egg-info/
 result/
 build/
 dist/
-camera_calibrator
+camera_calibrator*
 
