@@ -91,3 +91,42 @@ you can simple start to click start wizard button.
 
 > [!INFO]
 > All calibration results, intermediate captured data, error calculation logs, and graphical plots are automatically saved and available in the `result` folder.
+
+---
+
+## Compiling Standalone Executable
+
+If you want to run the calibration tool as a standalone portable application on other PCs without installing Python or setting up source environments:
+
+### 1. Prerequisites
+Install PyInstaller within your python environment:
+```bash
+pip install pyinstaller
+```
+
+### 2. Compilation Command
+Build the executable using the provided `camera_calibrator.spec` configuration:
+```bash
+pyinstaller camera_calibrator.spec
+```
+
+### 3. Output & Portability
+- The compiled standalone executable is generated at `dist/camera_calibrator`.
+- **Zero-Dependency Portable Behavior**: This executable packages all dependencies (including PySide6, OpenCV, Matplotlib, OSQP solver, and the Robot SDK). 
+- If you move `camera_calibrator` to any other clean directory and run it, it will automatically detect the absence of configurations, create a local `config/` directory next to itself, and copy the default settings templates (`setting.yaml`, `ready_poses.yaml`, `camera_intrinsics.yaml`) to that folder on startup. Any calibration result plots/logs will also be saved locally next to the executable in a `result/` folder.
+
+### 4. Constraints & Troubleshooting
+To run the standalone executable (`camera_calibrator`) on a new target system, ensure the following conditions are met:
+
+* **glibc Version Mismatch (e.g., Ubuntu 20.04 or older)**:
+  * *Constraint*: The binary was compiled on Ubuntu 22.04 (glibc 2.35). Running it on older systems with glibc < 2.35 will fail with a linker error.
+  * *Countermeasure*: Run the binary on **Ubuntu 22.04 or newer**. If you must support older OS versions, install PyInstaller on that target system and rebuild the binary locally using `pyinstaller camera_calibrator.spec`.
+* **ARM Platform Compatibility (e.g., NVIDIA Jetson, Raspberry Pi)**:
+  * *Constraint*: The pre-compiled binary is for `x86_64` (Intel/AMD) only.
+  * *Countermeasure*: For ARM targets, you must build the source code natively on the ARM device using PyInstaller.
+* **Headless/SSH Launch Failure (`could not connect to display`)**:
+  * *Constraint*: The GUI requires an active X11/Wayland display server.
+  * *Countermeasure*: Ensure you are running it inside a desktop environment. If debugging headlessly over SSH, enable X11 forwarding (`ssh -X`) or launch it under a virtual framebuffer using `xvfb-run ./camera_calibrator`.
+* **Robot Connection Failures**:
+  * *Constraint*: The PC must be on the same network subnet as the robot.
+  * *Countermeasure*: Configure your PC's ethernet adapter IP address to match the robot's network subnet settings (e.g., `192.168.1.xxx`).

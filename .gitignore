@@ -7,3 +7,7 @@ __pycache__/
 rby1_camera_utils.egg-info/
 core/rby1_camera_utils.egg-info/
 result/
+build/
+dist/
+camera_calibrator
+

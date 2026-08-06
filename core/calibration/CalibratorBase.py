@@ -98,8 +98,8 @@ class BaseCalibrator:
                 self.user_taught_ready_poses.clear()
 
     def load_ready_poses(self):
-        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
-        yaml_path = os.path.join(config_dir, "ready_poses.yaml")
+        from core.paths import CONFIG_PATHS
+        yaml_path = CONFIG_PATHS["ready_poses_yaml"]
         if os.path.exists(yaml_path):
             try:
                 with open(yaml_path, "r", encoding="utf-8") as f:
@@ -170,8 +170,8 @@ class BaseCalibrator:
 
     def load_camera_config(self):
         # Locate setting.yaml
-        config_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "config"))
-        yaml_path = os.path.join(config_dir, "setting.yaml")
+        from core.paths import CONFIG_PATHS
+        yaml_path = CONFIG_PATHS["setting_yaml"]
         if os.path.exists(yaml_path):
             try:
                 with open(yaml_path, "r", encoding="utf-8") as f:

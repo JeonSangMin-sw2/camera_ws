@@ -605,8 +605,8 @@ class JointCalibrator(BaseCalibrator):
             )
             plt.tight_layout()
 
-            camera_ws_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            result_dir = os.path.join(camera_ws_dir, "result", "result_img")
+            from core.paths import CONFIG_PATHS
+            result_dir = CONFIG_PATHS["plot_dir"]
             os.makedirs(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
             if not force_overwrite and os.path.exists(plot_save_path):

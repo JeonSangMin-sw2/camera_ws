@@ -86,6 +86,10 @@ except ImportError:
         reset_motion_state,
     )
 current_dir = os.path.dirname(os.path.abspath(__file__))
+if getattr(sys, 'frozen', False):
+    app_dir = os.path.dirname(sys.executable)
+else:
+    app_dir = current_dir
 calibration_dir = os.path.abspath(os.path.join(current_dir,"core","calibration"))
 # --- Configuration & Paths ---
 from core.paths import CONFIG_PATHS
@@ -6091,8 +6095,7 @@ class UnifiedCalibrationApp(QWidget):
         return result_files[0]
 
     def get_latest_home_reset_path(self, required=True):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        path = Path(os.path.abspath(os.path.join(current_dir, "config", "home_reset_baseline.json")))
+        path = Path(os.path.abspath(os.path.join(app_dir, "config", "home_reset_baseline.json")))
         if path.exists():
             return path
         if required:
@@ -6100,8 +6103,7 @@ class UnifiedCalibrationApp(QWidget):
         return None
 
     def get_home_reset_path_for_result(self, result_path):
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        path = Path(os.path.abspath(os.path.join(current_dir, "config", "home_reset_baseline.json")))
+        path = Path(os.path.abspath(os.path.join(app_dir, "config", "home_reset_baseline.json")))
         if path.exists():
             return path
         return self.get_latest_home_reset_path(required=False)
