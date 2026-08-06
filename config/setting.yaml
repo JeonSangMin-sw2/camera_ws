@@ -11,6 +11,9 @@ camera:
   height: 720
   mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0] # [0.023, 0.0, 0.066,0.0,90.0,0.0]
   width: 1280
+  optimize_camera: false
+  lambda_cam_pos: 1.0
+  lambda_cam_rot: 1.0
 joint_offset:
   left:
     joint3: -0.6916334506336691

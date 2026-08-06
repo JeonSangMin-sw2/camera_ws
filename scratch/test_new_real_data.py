@@ -3,8 +3,8 @@ import sys
 import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
 
-sys.path.append("/home/rainbow/camera_ws/core/calibration")
-from MarkerCalibrator import MarkerCalibrator
+sys.path.append("/home/rainbow/camera_ws")
+from core.calibration.MarkerCalibrator import MarkerCalibrator
 
 def load_sweep_data(filepath):
     angles = []
@@ -13,9 +13,10 @@ def load_sweep_data(filepath):
     q_fulls = []
     with open(filepath, "r") as f:
         for line in f:
-            if line.strip().startswith("#") or not line.strip():
+            line_str = line.strip()
+            if line_str.startswith("#") or not line_str or "==" in line_str:
                 continue
-            parts = [float(p.strip()) for p in line.strip().split(",")]
+            parts = [float(p.strip()) for p in line_str.split(",")]
             angles.append(parts[0])
             torso_pts.append(parts[4:7])
             # T_cam2marker_flat(16)
@@ -44,19 +45,54 @@ def load_sweep_data(filepath):
     return np.array(angles), np.array(poses), np.array(torso_pts), q_fulls
 
 def main():
-    base_dir = "/home/rainbow/camera_ws/core/calibration"
+    base_dir = "/home/rainbow/camera_ws/result/result_txt"
     
     print("Loading raw files...")
-    # Loading files with " (1)" in their names as specified by user
-    angles_4, poses_4, torso_4, q_full_4 = load_sweep_data(os.path.join(base_dir, "sweep_points_right_marker_axis_4 (1).txt"))
-    angles_5, poses_5, torso_5, q_full_5 = load_sweep_data(os.path.join(base_dir, "sweep_points_right_marker_axis_5 (1).txt"))
-    angles_6, poses_6, torso_6, q_full_6 = load_sweep_data(os.path.join(base_dir, "sweep_points_right_marker_axis_6 (1).txt"))
+    # Loading actual files
+    angles_4, poses_4, torso_4, q_full_4 = load_sweep_data(os.path.join(base_dir, "sweep_points_right_marker_axis_4.txt"))
+    angles_5, poses_5, torso_5, q_full_5 = load_sweep_data(os.path.join(base_dir, "sweep_points_right_marker_axis_5.txt"))
+    angles_6, poses_6, torso_6, q_full_6 = load_sweep_data(os.path.join(base_dir, "sweep_points_right_marker_axis_6.txt"))
     
     print(f"Loaded points count: Axis 4: {len(angles_4)}, Axis 5: {len(angles_5)}, Axis 6: {len(angles_6)}")
     
     # We will instantiate MarkerCalibrator
-    calibrator = MarkerCalibrator(marker_st=None, robot="mock_robot")
-    calibrator.get_robot_version = lambda: 1.3
+    import rby1_sdk.dynamics as rd
+    urdf_path = "/home/rainbow/sdk/rby1-sdk/models/rby1m/urdf/model_v1.0.urdf"
+    robot_config = rd.load_robot_from_urdf(urdf_path, "base")
+    dyn_robot = rd.Robot(robot_config)
+    
+    class MockRobot:
+        def __init__(self, dyn_robot):
+            self._dyn_robot = dyn_robot
+        def get_dynamics(self):
+            return self._dyn_robot
+        class MockModel:
+            @property
+            def robot_joint_names(self):
+                return [
+                    'wheel_fr', 'wheel_fl', 'wheel_rr', 'wheel_rl',
+                    'torso_0', 'torso_1', 'torso_2', 'torso_3', 'torso_4', 'torso_5',
+                    'right_arm_0', 'right_arm_1', 'right_arm_2', 'right_arm_3', 'right_arm_4', 'right_arm_5', 'right_arm_6',
+                    'left_arm_0', 'left_arm_1', 'left_arm_2', 'left_arm_3', 'left_arm_4', 'left_arm_5', 'left_arm_6',
+                    'head_0', 'head_1'
+                ]
+            @property
+            def right_arm_idx(self):
+                return [10, 11, 12, 13, 14, 15, 16]
+            @property
+            def left_arm_idx(self):
+                return [17, 18, 19, 20, 21, 22, 23]
+        def model(self):
+            return self.MockModel()
+        class MockState:
+            def __init__(self):
+                self.position = np.zeros(26)
+        def get_state(self):
+            return self.MockState()
+
+    mock_robot_instance = MockRobot(dyn_robot)
+    calibrator = MarkerCalibrator(marker_st=None, robot=mock_robot_instance)
+    calibrator.get_robot_version = lambda: "1.3"
     # Use a camera_config with nominal values from setting.yaml (or default)
     # The setting.yaml tf_vec is [0.096, 0.00000, -0.005, 90.0, 0.0, -90.0]
     calibrator.camera_config = {

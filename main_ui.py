@@ -1860,7 +1860,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 4...")
                         res_4 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 4, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
                         )
                         if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
                         res_4['axis_mode'] = 4
@@ -1870,7 +1870,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
                         res_6 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
                         )
                         if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
                         res_6['axis_mode'] = 6
@@ -1880,7 +1880,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
                         res_5 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 5, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
                         )
                         if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
                         res_5['axis_mode'] = 5
@@ -2109,7 +2109,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 4...")
                         res_4 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 4, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
                         )
                         if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
                         res_4['axis_mode'] = 4
@@ -2119,7 +2119,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
                         res_6 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
                         )
                         if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
                         res_6['axis_mode'] = 6
@@ -2129,7 +2129,7 @@ class FullAutoWorker(QThread):
                         self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
                         res_5 = self.marker_calibrator.perform_calibration_sweep(
                             arm_side, 5, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose
+                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
                         )
                         if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
                         res_5['axis_mode'] = 5
@@ -5538,14 +5538,19 @@ class UnifiedCalibrationApp(QWidget):
             mode = self.step2_mode_sel.currentText()
             active_arms = ["right", "left"]
             optimize_head = self.include_head_motion
-            optimize_camera = True
-            
-            lambda_cam_pos = 1.0
-            lambda_cam_rot = 1.0
-            
             if not self.include_head_motion and optimize_head:
                 optimize_head = False
                 self.log_msg("Headless mode selected; optimize_head changed to False.")
+
+            camera_cfg = getattr(self.calibrator, "camera_config", {})
+            if not optimize_head:
+                optimize_camera = False
+                self.log_msg("[INFO] Headless mode: Camera extrinsics optimization is DISABLED (Locked to CAD nominal).")
+            else:
+                optimize_camera = camera_cfg.get("optimize_camera", True)
+                
+            lambda_cam_pos = camera_cfg.get("lambda_cam_pos", 1.0)
+            lambda_cam_rot = camera_cfg.get("lambda_cam_rot", 1.0)
 
             if len(active_arms) == 1:
                 cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
