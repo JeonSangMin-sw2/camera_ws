@@ -9,7 +9,8 @@ a = Analysis(
         ('config/i18n.yaml', 'config'),
         ('config/setting.yaml', 'config'),
         ('config/ready_poses.yaml', 'config'),
-        ('config/camera_intrinsics.yaml', 'config')
+        ('config/camera_intrinsics.yaml', 'config'),
+        ('img/*', 'img')
     ],
     hiddenimports=['osqp.ext_builtin'],
     hookspath=[],

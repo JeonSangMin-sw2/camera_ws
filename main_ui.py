@@ -91,6 +91,11 @@ if getattr(sys, 'frozen', False):
 else:
     app_dir = current_dir
 calibration_dir = os.path.abspath(os.path.join(current_dir,"core","calibration"))
+def get_asset_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        return os.path.abspath(os.path.join(sys._MEIPASS, relative_path))
+    else:
+        return os.path.abspath(os.path.join(current_dir, relative_path))
 # --- Configuration & Paths ---
 from core.paths import CONFIG_PATHS
 
@@ -381,8 +386,8 @@ class ZeroPoseCheckDialog(QDialog):
         layout.addWidget(msg_lbl)
         
         # Load warning pose check images
-        for path_name in ["warning_pose_check.png", "warning_pose.png"]:
-            img_path = os.path.join(current_dir, path_name)
+        for path_name in ["img/warning_pose_check.png", "img/warning_pose.png", "warning_pose_check.png", "warning_pose.png"]:
+            img_path = get_asset_path(path_name)
             if os.path.exists(img_path):
                 pixmap = QPixmap(img_path)
                 if not pixmap.isNull():
@@ -438,7 +443,7 @@ class MarkerRecognitionProblemDialog(QDialog):
         for img_path, cap in imgs_info:
             v_box = QVBoxLayout()
             lbl_img = QLabel()
-            pix = QPixmap(img_path)
+            pix = QPixmap(get_asset_path(img_path))
             if not pix.isNull():
                 lbl_img.setPixmap(pix.scaled(150, 130, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             else:
@@ -6153,7 +6158,7 @@ class UnifiedCalibrationApp(QWidget):
 
             # Image
             img_label = QLabel()
-            pixmap = QPixmap("img/home_offset_position.png")
+            pixmap = QPixmap(get_asset_path("img/home_offset_position.png"))
             if not pixmap.isNull():
                 img_label.setPixmap(pixmap.scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             else:
