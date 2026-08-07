@@ -1,4 +1,5 @@
 import os
+import sys
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QStackedWidget, QGroupBox, QCheckBox, QLineEdit, QMessageBox, QDialog,
@@ -7,6 +8,13 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap
 from core.i18n import I18nManager, tr
+
+def get_asset_path(relative_path):
+    if getattr(sys, 'frozen', False):
+        return os.path.abspath(os.path.join(sys._MEIPASS, relative_path))
+    else:
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        return os.path.abspath(os.path.join(current_dir, relative_path))
 
 class HowToMoveArmsDialog(QDialog):
     def __init__(self, parent=None, is_ko=False):
@@ -32,7 +40,7 @@ class HowToMoveArmsDialog(QDialog):
         layout.addWidget(lbl_title)
         
         img_lbl = QLabel()
-        pix = QPixmap("img/teaching_button.png")
+        pix = QPixmap(get_asset_path("img/teaching_button.png"))
         if not pix.isNull():
             img_lbl.setPixmap(pix.scaled(550, 240, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -235,7 +243,7 @@ class CalibrationWizardWidget(QWidget):
         self.t0.setVisible(False)
         
         img0 = QLabel()
-        pix0 = QPixmap("img/head_onoff.png")
+        pix0 = QPixmap(get_asset_path("img/head_onoff.png"))
         if not pix0.isNull():
             img0.setPixmap(pix0.scaled(700, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -274,7 +282,7 @@ class CalibrationWizardWidget(QWidget):
         self.t1_2.setVisible(False)
         
         img1_2 = QLabel()
-        pix1_2 = QPixmap("img/marker_connect.png")
+        pix1_2 = QPixmap(get_asset_path("img/marker_connect.png"))
         if not pix1_2.isNull():
             img1_2.setPixmap(pix1_2.scaled(700, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -327,7 +335,7 @@ class CalibrationWizardWidget(QWidget):
         img_row1_3 = QHBoxLayout()
         
         img1_3_left = QLabel()
-        pix1_3_left = QPixmap("img/CHARUCOBOARD.png")
+        pix1_3_left = QPixmap(get_asset_path("img/CHARUCOBOARD.png"))
         if not pix1_3_left.isNull():
             img1_3_left.setPixmap(pix1_3_left.scaled(380, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -336,7 +344,7 @@ class CalibrationWizardWidget(QWidget):
         img_row1_3.addWidget(img1_3_left)
 
         img1_3_right = QLabel()
-        pix1_3_right = QPixmap("img/camera_intrinsics.png")
+        pix1_3_right = QPixmap(get_asset_path("img/camera_intrinsics.png"))
         if not pix1_3_right.isNull():
             img1_3_right.setPixmap(pix1_3_right.scaled(380, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -544,7 +552,7 @@ class CalibrationWizardWidget(QWidget):
         col_yes.setSpacing(10)
         
         img_yes = QLabel()
-        pix_yes = QPixmap("img/additional_head_bracket.png")
+        pix_yes = QPixmap(get_asset_path("img/additional_head_bracket.png"))
         if not pix_yes.isNull():
             img_yes.setPixmap(pix_yes.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -563,7 +571,7 @@ class CalibrationWizardWidget(QWidget):
         col_no.setSpacing(10)
         
         img_no = QLabel()
-        pix_no = QPixmap("img/standard_head_bracket.png")
+        pix_no = QPixmap(get_asset_path("img/standard_head_bracket.png"))
         if not pix_no.isNull():
             img_no.setPixmap(pix_no.scaled(350, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -682,7 +690,7 @@ class CalibrationWizardWidget(QWidget):
         row3_2.setSpacing(15)
         
         img3_2 = QLabel()
-        pix3_2 = QPixmap("img/home_offset_position.png")
+        pix3_2 = QPixmap(get_asset_path("img/home_offset_position.png"))
         if not pix3_2.isNull():
             img3_2.setPixmap(pix3_2.scaled(550, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
@@ -829,7 +837,7 @@ class CalibrationWizardWidget(QWidget):
         apply_row.setSpacing(15)
         
         img_apply = QLabel()
-        pix_apply = QPixmap("img/apply_offset.png")
+        pix_apply = QPixmap(get_asset_path("img/apply_offset.png"))
         if not pix_apply.isNull():
             img_apply.setPixmap(pix_apply.scaled(520, 220, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         else:
