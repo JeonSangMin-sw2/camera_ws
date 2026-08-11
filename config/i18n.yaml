@@ -285,3 +285,13 @@ dialogs:
         2. 중력 보상: 버튼을 누르고 있는 동안 중력 보상(직접 교시 모드)이 활성화됩니다.
         3. 수동 이동: 버튼을 누른 상태에서 지정된 기준 자세(어깨 롤 몸쪽 회전, 팔꿈치 후방 밀착)로 손으로 직접 조작하여 맞춥니다.
         4. 해제: 자세가 구비되면 버튼에서 손을 뗍니다.
+  camera_intrinsics_warning:
+    title:
+      en: "Camera Intrinsics Warning"
+      ko: "카메라 내부 파라미터 경고"
+    text:
+      en: "Connected camera model ({connected_model}) does not match camera model in intrinsics calibration file ({calib_device})."
+      ko: "연결된 카메라 기종({connected_model})과 내부 파라미터 파일의 기종({calib_device})이 다릅니다."
+    informative_text:
+      en: "Please recalibrate the camera intrinsics (camera_intrinsics.yaml) for the connected model."
+      ko: "내부 파라미터(camera_intrinsics.yaml)를 현재 카메라에 맞게 보정해 주세요."

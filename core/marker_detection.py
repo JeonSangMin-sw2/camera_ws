@@ -8,14 +8,14 @@ import time
 import threading
 import os, yaml
 
-#debugging flag : 실사용시 모두 false여야함
+#debugging flag : must be all false in production
 imshow_when_detect = False
 tcpip_send = False
-use_calib_int = False # 세밀하게 보정된 파일(camera_intrinsics.yaml)을 사용할지 여부
+use_calib_int = False # Whether to use the finely calibrated intrinsics file (camera_intrinsics.yaml)
 # see_depth_sensors_depth = False
 # see_stereo_depth = False
 
-# 유틸리티 클래스
+# Utility classes
 class TCPClient:
     def __init__(self, ip, port):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -49,35 +49,35 @@ class TCPClient:
             print(f"Send Error: {e}")
             self.connected = False
         
-# 카메라 클래스
+# Camera class
 """
-해당 클래스는 realsense 카메라만 호환
-다른 카메라를 사용할 경우 아래의 get이란 이름이 들어간 함수들의 양식을 동일하게 맞춰주고 구현하는것을 권장
+This class is only compatible with RealSense cameras
+If using another camera, it is recommended to implement functions with the same signature.
 """
 class RealSenseCamera:
-    # serial_number : 해당 넘버의 카메라를 사용, 입력하지 않으면 첫번째 카메라 사용
-    """카메라의 시리얼 넘버는 realsense_check.py를 통해 검색할 수 있음"""
+    # serial_number : Use camera with this serial, if not specified, use the first camera
+    """Camera serial number can be searched via realsense_check.py"""
     def __init__(self, serial_number=None):
-        # 연결되어있는 카메라 검색
+        # Search for connected cameras
         ctx = rs.context()
         devices = ctx.query_devices()
         if len(devices) == 0:
             print("No RealSense devices found!")
             raise RuntimeError("No RealSense connected")
-        # 카메라 선택 : 시리얼 넘버가 정해져있으면 해당 카메라 사용, 없으면 첫번째 카메라 사용
+        # Camera selection: use specified serial number if given, otherwise use the first device
         for i, dev in enumerate(devices):
             print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
             if serial_number == dev.get_info(rs.camera_info.serial_number) or serial_number is None:
                 self.device_number = i
                 break
 
-        # 안전한 사용을 위해 선택한 카메라 재연결
+        # Reconnect selected camera for safe usage
         print("Resetting Realsense device...")
         devices[self.device_number].hardware_reset()
-        # 카메라가 다시 연결될 때까지 대기
+        # Wait for camera to reconnect
         time.sleep(3)
 
-        # 카메라 정보 재확인(하드웨어 리셋했으므로 재확인 필요)
+        # Re-verify camera info (hardware reset performed)
         ctx = rs.context()
         devices = ctx.query_devices()
 
@@ -85,47 +85,47 @@ class RealSenseCamera:
         self.serial_number = devices[self.device_number].get_info(rs.camera_info.serial_number)
         print("Using camera is : ", self.device_name)
 
-        # depth 해상도 확인 : D435는 1mm, D405 는 0.1mm. 즉 모델에 따라 다름
+        # Depth scale check: D435 is 1mm, D405 is 0.1mm, depending on model
         depth_sensor = devices[self.device_number].first_depth_sensor()
         if depth_sensor.supports(rs.option.thermal_compensation):
-            depth_sensor.set_option(rs.option.thermal_compensation, 1.0) # 온도보정기능 On
+            depth_sensor.set_option(rs.option.thermal_compensation, 1.0) # Thermal compensation On
             depth_sensor.set_option(rs.option.visual_preset, 3) # High Accuracy
         depth_scale = depth_sensor.get_depth_scale()
         print("depth scale : ", depth_scale)
         
 
-        # 카메라 구동을 위한 파라미터 설정
-        self.depth_resolution = depth_scale*1000                # 각 픽셀의 depth 값 해상도
-        self.pipeline = rs.pipeline()                           # 카메라 스트리밍을 위한 파이프라인
-        self.config = rs.config()                               # 카메라 설정구조체
-        self.spatial = rs.spatial_filter()                      # 평활화 필터 (노이즈 제거)
-        self.spatial.set_option(rs.option.filter_magnitude, 2)  # 평활화 필터의 강도 설정
-        self.temporal = rs.temporal_filter()                    # 깜빡임 방지필터
-        self.hole_filling = rs.hole_filling_filter()            # 노이즈에 의한 빈 공간 채우는 필터
+        # Parameter configuration for running camera
+        self.depth_resolution = depth_scale*1000                # Depth value resolution of each pixel
+        self.pipeline = rs.pipeline()                           # Pipeline for camera streaming
+        self.config = rs.config()                               # Camera config structure
+        self.spatial = rs.spatial_filter()                      # Spatial filter (noise reduction)
+        self.spatial.set_option(rs.option.filter_magnitude, 2)  # Set spatial filter strength
+        self.temporal = rs.temporal_filter()                    # Temporal filter (flicker prevention)
+        self.hole_filling = rs.hole_filling_filter()            # Hole filling filter
 
-        # 상태 flag
-        self.camera_running = False                             # 카메라 구동상태 flag
-        self.camera_monitoring = False                          # 카메라 모니터링 상태 flag
-        self.Infrared = True                                    # 적외선 카메라 사용 flag
+        # Status flags
+        self.camera_running = False                             # Camera running status flag
+        self.camera_monitoring = False                          # Camera monitoring status flag
+        self.Infrared = True                                    # Infrared camera usage flag
 
-        #이미지 저장 변수
+        # Image storage variables
         self.color_image = None
         self.depth_image = None
-        # 기본해상도
+        # Default resolution
         self.width = 1280 # 848
         self.height = 720 # 480
         self.fps = 30
 
-        #카메라 내부 파라미터 : 해당 파라미터로 depth map 및 마커좌표 계산됨
-        self.fx = 0.0                                           # 초점거리 x
-        self.fy = 0.0                                           # 초점거리 y
-        self.principal_point = [0.0, 0.0]                       # 주점(이미지 중심)
-        self.intrinsics = None                                  # 내부 파라미터 행렬
-        self.profile = None                                     # 카메라 프로파일
-        self.baseline = 0.065                                   # 스테레오 카메라 베이스라인(m)
-        self.dist_coeffs = None                                 # 카메라 왜곡 계수
+        # Camera intrinsic parameters: used for calculating depth map and marker coordinates
+        self.fx = 0.0                                           # Focal length x
+        self.fy = 0.0                                           # Focal length y
+        self.principal_point = [0.0, 0.0]                       # Principal point (image center)
+        self.intrinsics = None                                  # Intrinsic matrix
+        self.profile = None                                     # Camera profile
+        self.baseline = 0.065                                   # Stereo camera baseline (m)
+        self.dist_coeffs = None                                 # Distortion coefficients
 
-        # 스레드 동기화를 위한 Lock
+        # Lock for thread synchronization
         self.lock = threading.Lock()
         self.thread = None
 
@@ -136,15 +136,15 @@ class RealSenseCamera:
         
         try:
             self.config.enable_device(self.serial_number)
-            # 사용할 카메라(컬러, depth, ir) 스트리밍 활성화. depth는 모든상황에 사용됨
-            # cpu 부하를 줄이기 위해 적외선 사용 시 ir1, ir2 를, 사용하지 않을 경우 color만 추가로 스트리밍 진행
-            self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+            # Enable streaming for the selected camera types. Depth is always used.
+            # To reduce CPU load, ir1/ir2 are streamed when IR is used, otherwise color is streamed.
+            # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
             self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-            if self.Infrared:
-                self.config.enable_stream(rs.stream.infrared, 1, self.width, self.height, rs.format.y8, self.fps)
-                self.config.enable_stream(rs.stream.infrared, 2, self.width, self.height, rs.format.y8, self.fps)
+            # if self.Infrared:
+            #     self.config.enable_stream(rs.stream.infrared, 1, self.width, self.height, rs.format.y8, self.fps)
+            #     self.config.enable_stream(rs.stream.infrared, 2, self.width, self.height, rs.format.y8, self.fps)
             
-            # 파이프라인 시작
+            # Start pipeline
             self.profile = self.pipeline.start(self.config)
         except Exception as e:
             print(f"Failed to start pipeline with {self.width}x{self.height}@{self.fps}. Error: {e}")
@@ -153,7 +153,7 @@ class RealSenseCamera:
                 self.config = rs.config() # Reset config
                 self.config.enable_device(self.serial_number)
                 self.width, self.height, self.fps = 848, 480, 30
-                self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+                # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
                 self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
                 self.profile = self.pipeline.start(self.config)
             except Exception as e2:
@@ -162,7 +162,7 @@ class RealSenseCamera:
                     self.config = rs.config()
                     self.config.enable_device(self.serial_number)
                     self.width, self.height, self.fps = 640, 480, 30
-                    self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
+                    # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
                     self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
                     self.profile = self.pipeline.start(self.config)
                 except Exception as e3:
@@ -170,35 +170,35 @@ class RealSenseCamera:
                     raise e3
 
         try:
-            # 구동 후 카메라 안정화를 위해 10프레임 정도는 버리고 사용
+            # Discard first 10 frames to allow camera exposure to stabilize
             for i in range(10):
                 self.pipeline.wait_for_frames()
             
-            # [NEW] 센서 자동 노출(Auto Exposure) 설정 - 다양한 환경 대응
+            # [NEW] Sensor Auto Exposure configuration - adaptive to diverse environments
             device = self.profile.get_device()
             for sensor in device.query_sensors():
                 if sensor.supports(rs.option.enable_auto_exposure):
-                    sensor.set_option(rs.option.enable_auto_exposure, 1) # 자동 노출 활성화 (기존 수동 0)
-                # 기존 수동 설정 주석 처리
+                    sensor.set_option(rs.option.enable_auto_exposure, 1) # Enable auto exposure (previously manual 0)
+                # Comment out previous manual settings
                 # if sensor.supports(rs.option.exposure):
                 #     try:
-                #         sensor.set_option(rs.option.exposure, 6000) # 6ms (모션 블러 방지와 밝기 밸런스)
+                #         sensor.set_option(rs.option.exposure, 6000) # 6ms (exposure time)
                 #     except Exception as e:
                 #         print(f"Warning: Failed to set exposure on sensor {sensor.get_info(rs.camera_info.name)}: {e}")
                 # if sensor.supports(rs.option.gain):
                 #     try:
-                #         sensor.set_option(rs.option.gain, 80) # Gain 상향으로 밝기 확보
+                #         sensor.set_option(rs.option.gain, 80) # Increase gain for brightness
                 #     except Exception as e:
                 #         print(f"Warning: Failed to set gain on sensor {sensor.get_info(rs.camera_info.name)}: {e}")
 
-            # depth 카메라 내부 파라미터 얻기 : baseline, fx, fy, principal_point 를 위해 사용
+            # Get depth camera intrinsics: used for baseline, fx, fy, principal_point
             color_stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
 
-            left_ir_stream = self.profile.get_stream(rs.stream.infrared, 1).as_video_stream_profile()
-            right_ir_stream = self.profile.get_stream(rs.stream.infrared, 2).as_video_stream_profile()
-            
-            extrinsics = left_ir_stream.get_extrinsics_to(right_ir_stream)
-            self.baseline = abs(extrinsics.translation[0]) # m
+            # left_ir_stream = self.profile.get_stream(rs.stream.infrared, 1).as_video_stream_profile()
+            # right_ir_stream = self.profile.get_stream(rs.stream.infrared, 2).as_video_stream_profile()
+            # 
+            # extrinsics = left_ir_stream.get_extrinsics_to(right_ir_stream)
+            # self.baseline = abs(extrinsics.translation[0]) # m
             self.intrinsics = color_stream.get_intrinsics()
             self.fx = self.intrinsics.fx
             self.fy = self.intrinsics.fy
@@ -214,7 +214,7 @@ class RealSenseCamera:
             print(f"Camera didn't initialize post-start: {e}")
             raise e
 
-    # Monitoring 함수로 스트리밍을 켜고 끔
+    # Turn streaming on/off with monitoring function
     def monitoring(self, Flag=True):
         self.camera_monitoring = Flag
         if self.camera_monitoring:
@@ -264,11 +264,11 @@ class RealSenseCamera:
                 
                 if len(result_list) > 0:
                     if len(result_list) == 1:
-                        # 이미지가 한개일 때 화면 크기 기본 해상도의 1/2
+                        # If only one image, window size is 1/2 default resolution
                         resize_height = self.height // 2
                         resize_width = self.width // 2
                     else:
-                        # 이미지가 두개 이상일 때 화면 크기 기본 해상도의 1/n
+                        # If two or more images, window size is 1/n default resolution
                         resize_height = self.height // len(result_list)
                         resize_width = (self.width // len(result_list)) * len(result_list)
                     concat_image = cv2.hconcat(result_list)
@@ -294,15 +294,15 @@ class RealSenseCamera:
             pass
 
     def capture_image(self):
-        # 복잡한 스레드 검사 로직(if self.thread is not None...)을 전부 삭제합니다.
+        # Completely remove complex thread checking logic.
         if not self.camera_running:
             return
 
-        # 이 함수는 stream_on(백그라운드 스레드)에서만 단독으로 실행됩니다.
+        # This function runs solely inside the stream_on background thread.
         try:
             frames = self.pipeline.wait_for_frames()
             
-            # [LEGACY] RealSense CPU Depth Align & Filter (마커 PnP 검출에는 미사용되나 프레임당 25ms 병목 발생 -> 주석 처리)
+            # [LEGACY] RealSense CPU Depth Align & Filter (Not used for PnP detection but causes 25ms bottleneck -> Commented out)
             # align_to = rs.stream.color
             # align = rs.align(align_to)
             # aligned_frames = align.process(frames)
@@ -312,29 +312,29 @@ class RealSenseCamera:
             # depth_frame = self.temporal.process(depth_frame)
             # depth_frame = self.hole_filling.process(depth_frame)
 
-            # [OPTIMIZED] Color 및 Depth 프레임 직접 취득 (CPU 병목 제거)
+            # [OPTIMIZED] Directly retrieve Color and Depth frames to remove CPU bottleneck
             color_frame = frames.get_color_frame()
-            depth_frame = frames.get_depth_frame()
-            if not color_frame or not depth_frame:
+            # depth_frame = frames.get_depth_frame()
+            if not color_frame: # or not depth_frame:
                 print("no frame")
                 return
             color_data = np.asanyarray(color_frame.get_data())
-            depth_data = np.asanyarray(depth_frame.get_data())
+            # depth_data = np.asanyarray(depth_frame.get_data())
         
             with self.lock:
                 self.color_image = color_data
-                self.depth_image = depth_data
-                if self.Infrared:
-                    ir_frame_left = frames.get_infrared_frame(1)
-                    ir_frame_right = frames.get_infrared_frame(2)
-                    if ir_frame_left and ir_frame_right:
-                        self.left_ir_image = np.asanyarray(ir_frame_left.get_data())
-                        self.right_ir_image = np.asanyarray(ir_frame_right.get_data())
+                # self.depth_image = depth_data
+                # if self.Infrared:
+                #     ir_frame_left = frames.get_infrared_frame(1)
+                #     ir_frame_right = frames.get_infrared_frame(2)
+                #     if ir_frame_left and ir_frame_right:
+                #         self.left_ir_image = np.asanyarray(ir_frame_left.get_data())
+                #         self.right_ir_image = np.asanyarray(ir_frame_right.get_data())
         except Exception as e:
-            pass # 간헐적인 프레임 드랍 무시
+            pass # Ignore intermittent frame drops
 
 
-    # 연산을 위해 호출돼야하는 함수들
+    # Functions that must be called for calculation
     def get_color_image(self):
         with self.lock:
             if self.color_image is None:
@@ -371,7 +371,7 @@ class RealSenseCamera:
             if depth_sensor.supports(rs.option.projector_temperature):
                 proj_temp = depth_sensor.get_option(rs.option.projector_temperature)
                 return proj_temp
-            # 만약 asic 온도를 대신 지원하는 모델일 경우 (D435 등은 둘 다 지원하거나 하나만 지원)
+            # If the model supports ASIC temperature (e.g. D435 supports either or both)
             elif depth_sensor.supports(rs.option.asic_temperature):
                 asic_temp = depth_sensor.get_option(rs.option.asic_temperature)
                 return asic_temp
@@ -386,34 +386,34 @@ class RealSenseCamera:
 
 class Marker_Detection:
     def __init__(self):
-        # 어떤 마커를 인식시킬건지 정의
+        # Define which markers to detect
         self.dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
         if hasattr(cv2.aruco, 'DetectorParameters_create'):
             self.parameters = cv2.aruco.DetectorParameters_create()
         else:
             self.parameters = cv2.aruco.DetectorParameters()
-        # 마커 인식 정밀도 향상을 위한 파라미터 튜닝
-        # 1. 서브픽셀 정밀도 극대화
+        # Parameter tuning for improving marker detection precision
+        # 1. Maximize sub-pixel precision
         self.parameters.cornerRefinementMethod = cv2.aruco.CORNER_REFINE_SUBPIX
         self.parameters.cornerRefinementWinSize = 5
         self.parameters.cornerRefinementMaxIterations = 50
         self.parameters.cornerRefinementMinAccuracy = 0.01
 
-        # 2. 이진화 세밀화 (조명 및 그림자 대응)
+        # 2. Refine binarization (for lighting and shadow robust)
         self.parameters.adaptiveThreshWinSizeMin = 3
         self.parameters.adaptiveThreshWinSizeMax = 23
-        self.parameters.adaptiveThreshWinSizeStep = 3  # 세밀한 스캔
-        self.parameters.adaptiveThreshConstant = 7     # 노이즈 대비 약간 낮춤
+        self.parameters.adaptiveThreshWinSizeStep = 3  # Fine scan
+        self.parameters.adaptiveThreshConstant = 7     # Adjusted lower for noise
 
-        # 3. 형상 근사 및 필터링
-        self.parameters.polygonalApproxAccuracyRate = 0.01 # 더 엄격한 사각형 검사
+        # 3. Shape approximation and filtering
+        self.parameters.polygonalApproxAccuracyRate = 0.01 # Stricter square check
         self.parameters.minDistanceToBorder = 3
         self.parameters.minMarkerPerimeterRate = 0.01
 
-        # 4. 내부 비트 샘플링 향상
-        self.parameters.perspectiveRemovePixelPerCell = 12 # 정밀한 비트 추출
+        # 4. Enhance internal bit sampling
+        self.parameters.perspectiveRemovePixelPerCell = 12 # Fine bit extraction
 
-        # 계산에 쓰일 카메라 내부 파라미터
+        # Intrinsic parameters used for calculation
         self.principal_point = [0, 0]
         self.fx = 0
         self.fy = 0
@@ -426,11 +426,11 @@ class Marker_Detection:
 
         self.focal_scale = 1.0# 0.99 # Focal length scaling factor for fine-tuning
 
-        # 인식할 마커 타입과 ID
+        # Marker type and ID to detect
         self.marker_type = None
         self.marker_id = None
         
-        self.marker_size_mm = 36.0 # 기본값, config에서 덮어씌워짐
+        self.marker_size_mm = 36.0 # Default value, overwritten by config
         self.markers_config = {}
         if tcpip_send:
             self.tcp_client = TCPClient("127.0.0.1", 5000)
@@ -443,7 +443,7 @@ class Marker_Detection:
         else:
             self.detector = None
 
-    # 연산에 필요한 카메라 파라미터 설정
+    # Set camera parameters required for calculation
     def set_intrinsics_param(self, param):
         self.principal_point = [param[0], param[1]]
         self.fx = param[2]
@@ -480,9 +480,9 @@ class Marker_Detection:
             return float(depth_image[y, x])*self.depth_resolution
         return 0.0
 
-    # 마커들의 중심좌표(4*4행렬)
+    # Center coordinates of markers (4x4 matrix)
     def detect(self, color_image, lpf = False, logging = False, depth_image = None, use_filter = True):
-        # [LEGACY] 이미지 전체 렌즈 왜곡 펴기 (CPU 처리 병목 발생 원인 -> 롤백 가능하도록 주석 처리)
+        # [LEGACY] Image-wide lens undistortion (causes CPU processing bottleneck -> Commented out)
         # pnp_dist_coeffs = self.dist_coeffs
         # if self.dist_coeffs is not None and np.any(self.dist_coeffs != 0):
         #     base_cam_mat = np.array([
@@ -490,12 +490,12 @@ class Marker_Detection:
         #         [0, self.fy, self.principal_point[1]],
         #         [0, 0, 1]
         #     ], dtype=np.float32)
-        #     # 이미지 전체 렌즈 왜곡 펴기 (마커 모서리 직선 복원)
+        #     # Image-wide lens undistortion (to restore marker edges to straight lines)
         #     color_image = cv2.undistort(color_image, base_cam_mat, self.dist_coeffs, None, base_cam_mat)
-        #     # 이미 왜곡을 폈으므로, 이후 solvePnP에서는 왜곡 파라미터 무시 (이중 보정 방지)
+        #     # Since distortion is already corrected, ignore distortion params in solvePnP to avoid double correction
         #     pnp_dist_coeffs = None
 
-        # [OPTIMIZED] 이미지 전체 undistort 대신, solvePnP에 distort 파라미터를 넘겨 0.01ms 내 보정
+        # [OPTIMIZED] Pass distortion parameters to solvePnP instead of doing full undistort (takes <0.01ms)
         pnp_dist_coeffs = self.dist_coeffs
             
         gray = cv2.cvtColor(color_image, cv2.COLOR_BGR2GRAY)
@@ -504,7 +504,7 @@ class Marker_Detection:
         else:
             corners, ids, _ = cv2.aruco.detectMarkers(gray, self.dictionary, parameters=self.parameters)
         
-        # Step 2: 서브픽셀 정밀도 강제화
+        # Step 2: Enforce sub-pixel precision
         if corners is not None and len(corners) > 0:
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.001)
             for i in range(len(corners)):
@@ -513,7 +513,7 @@ class Marker_Detection:
         marker_centers_result = []
         
 
-        # 등록된 마커만 필터링 (tuple과 ndarray는 pop()을 쓸 수 없으므로 새로 리스트를 만듭니다)
+        # Filter only registered markers (create a new list since tuple and ndarray don't support pop)
         if ids is not None and len(ids) > 0 and self.marker_id is not None:
             valid_indices = []
             for i, mid in enumerate(ids):
@@ -526,7 +526,7 @@ class Marker_Detection:
             else:
                 corners, ids = (), None
 
-        # debugging (필터링이 끝난 마커들만 화면에 표시되게 위치를 조정합니다)
+        # debugging (Adjust positions so only filtered markers are displayed on screen)
         if imshow_when_detect:
             if ids is not None:
                 cv2.aruco.drawDetectedMarkers(color_image, corners, ids)
@@ -640,8 +640,8 @@ class Marker_Transform:
         self._load_all_configs()
         
         # Setup Transforms
-        tf_vec_l = self.camera_config.get("Tf_to_marker_left", self.camera_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
-        tf_vec_r = self.camera_config.get("Tf_to_marker_right", self.camera_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
+        tf_vec_l = self.markers_config.get("Tf_to_marker_left", self.markers_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
+        tf_vec_r = self.markers_config.get("Tf_to_marker_right", self.markers_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
         head_base_vec = self.camera_config.get("head_base_to_cam", [0.009, -0.09, -0.085, 159.0, 0.0, 180.0])
         print(tf_vec_l)
         
@@ -667,7 +667,8 @@ class Marker_Transform:
 
         self.marker_detection.set_baseline(self.camera.baseline)
         
-        # [NEW] 내부 파라미터 보정 파일(camera_intrinsics.yaml) 사용 설정
+
+        # [NEW] Apply calibrated camera intrinsics setting (camera_intrinsics.yaml)
         if use_calib_int:
             # Search for config in current dir or parent dir (to support both source and installed structures)
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -685,7 +686,7 @@ class Marker_Transform:
                     calib_w = calib_data.get("width")
                     calib_h = calib_data.get("height")
                     
-                    # 해상도가 다를 경우 비례적으로 스케일 조정
+                    # Proportionally adjust scale if resolution differs
                     if calib_w and calib_h and (calib_w != self.width or calib_h != self.height):
                         scale_x = self.width / calib_w
                         scale_y = self.height / calib_h
@@ -699,8 +700,8 @@ class Marker_Transform:
                         mtx[1,2] *= scale_y # ppy
                         print(f"\n[INFO] Scaled intrinsics from {calib_w}x{calib_h} to {self.width}x{self.height} (Scale X:{scale_x:.2f}, Y:{scale_y:.2f})")
 
-                    # Marker_Detection에 보정된 파라미터 주입
-                    # 신규 인터페이스 [ppx, ppy, fx, fy]
+                    # Inject calibrated parameters to Marker_Detection
+                    # New interface [ppx, ppy, fx, fy]
                     new_intrinsics = [mtx[0,2], mtx[1,2], mtx[0,0], mtx[1,1]]
                     self.marker_detection.set_intrinsics_param(new_intrinsics)
                     self.marker_detection.set_dist_coeffs(dist)
@@ -723,12 +724,64 @@ class Marker_Transform:
             
         try:
             with open(setting_config_path, "r") as f:
-                config_data = yaml.safe_load(f)
-                self.camera_config = config_data.get("camera", {})
-                self.markers_config = config_data.get("marker", config_data) # fallback
-                self.marker_detection.markers_config = self.markers_config
+                config_data = yaml.safe_load(f) or {}
                 
-                print(f"- Loaded Setting Config from {os.path.basename(setting_config_path)}")
+            camera_config = config_data.get("camera", {})
+            yaml_device_name = camera_config.get("device_name")
+            connected_device_name = getattr(self.camera, 'device_name', None)
+            
+            self.camera_model = None
+            if connected_device_name:
+                known_models = ["D405", "D435I", "D435", "D455", "D415"]
+                for model in known_models:
+                    if model.lower() in connected_device_name.lower():
+                        self.camera_model = model
+                        break
+            
+            if self.camera_model and self.camera_model != yaml_device_name:
+                print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Updating...")
+                extrinsics_file = os.path.join(os.path.dirname(setting_config_path), "camera_extrinsics.yaml")
+                if os.path.exists(extrinsics_file):
+                    with open(extrinsics_file, "r") as ef:
+                        extrinsics_data = yaml.safe_load(ef) or {}
+                    
+                    if self.camera_model in extrinsics_data:
+                        cam_ext = extrinsics_data[self.camera_model]
+                        camera_config["device_name"] = self.camera_model
+                        camera_config["head_base_to_cam"] = cam_ext.get("head_base_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
+                        camera_config["mount_to_cam"] = cam_ext.get("mount_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
+                        camera_config["camera_mount_link"] = cam_ext.get("camera_mount_link", "link_head_2")
+                        config_data["camera"] = camera_config
+                        
+                        with open(setting_config_path, "w") as wf:
+                            yaml.safe_dump(config_data, wf, default_flow_style=False, sort_keys=False)
+                        print(f"[INFO] Updated setting.yaml extrinsics for {self.camera_model} from camera_extrinsics.yaml")
+                    else:
+                        print(f"[WARNING] Match '{self.camera_model}' not found in camera_extrinsics.yaml")
+                else:
+                    print(f"[WARNING] camera_extrinsics.yaml not found at {extrinsics_file}")
+            
+            self.camera_config = camera_config
+            self.markers_config = config_data.get("marker", config_data)
+            self.marker_detection.markers_config = self.markers_config
+            print(f"- Loaded Setting Config from {os.path.basename(setting_config_path)}")
+            
+            # Check camera intrinsics model mismatch
+            self.intrinsics_mismatch = False
+            self.calib_device_name = ""
+            calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
+            if not os.path.exists(calib_file):
+                calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
+            if os.path.exists(calib_file):
+                try:
+                    with open(calib_file, "r") as f:
+                        calib_data = yaml.safe_load(f) or {}
+                    self.calib_device_name = calib_data.get("device_name", "")
+                    if self.calib_device_name and self.camera_model and self.calib_device_name.lower() != self.camera_model.lower():
+                        self.intrinsics_mismatch = True
+                        print(f"[WARNING] Camera intrinsics model mismatch detected (Connected: {self.camera_model}, Calibrated: {self.calib_device_name})")
+                except Exception as e:
+                    print(f"[WARNING] Failed to parse camera_intrinsics.yaml: {e}")
         except Exception as e:
             print(f"- Warning: Could not load {setting_config_path}: {e}")
             self.camera_config = {}
@@ -824,7 +877,7 @@ class Marker_Transform:
             except KeyboardInterrupt:
                 raise
             
-            # CPU 점유율을 낮추기 위한 미세한 대기
+            # Small sleep to reduce CPU utilization
             time.sleep(0.01)
             
         final_results = {}

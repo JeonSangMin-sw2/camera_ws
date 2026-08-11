@@ -75,6 +75,7 @@ class BaseCalibrator:
         
         # Load camera setting config if available
         self.camera_config = {}
+        self.markers_config = {}
         self.load_camera_config()
         
         self.ready_poses = {}
@@ -177,6 +178,11 @@ class BaseCalibrator:
                 with open(yaml_path, "r", encoding="utf-8") as f:
                     config_data = yaml.safe_load(f) or {}
                     self.camera_config = config_data.get("camera", {})
+                    self.markers_config = config_data.get("marker", {})
+                    # For compatibility, merge Tf_to_marker keys from markers_config to camera_config
+                    for k, v in self.markers_config.items():
+                        if k.startswith("Tf_to_marker_"):
+                            self.camera_config[k] = v
                 logging.info(f"Loaded config from setting.yaml")
             except Exception as e:
                 logging.error(f"Failed to load setting.yaml: {e}")
@@ -336,7 +342,7 @@ class BaseCalibrator:
             logging.info("Servos are ON. Ensuring Control Manager is enabled with unlimited mode...")
             enable_cm_helper(robot)
         else:
-            # 아니면, 일단 disable한다음에 양팔 서보 키고 enable
+            # Otherwise, disable control manager first, then turn on servos and enable
             logging.info("Servos are not ON. Disabling Control Manager first to turn on servos...")
             if is_cm_enabled:
                 try:
@@ -782,8 +788,8 @@ class BaseCalibrator:
                 raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 1 failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
             rmse = np.sqrt(np.mean(opt_res.fun**2))
             if rmse < best_rmse:
-                # [FIX] axis_prior가 주어진 경우, 피팅된 축이 선험 방향과 같은 반공간에 있을 때만 채택
-                # → 노이즈 과적합으로 인해 잘못된 sign(-1)이 수학적으로 더 낮은 RMSE를 갖는 상황 방지
+                # [FIX] If axis_prior is given, accept the fitted axis only if it lies in the same half-space as the prior direction.
+                # -> Prevents cases where noise overfitting results in a mathematically lower RMSE with the wrong sign (-1).
                 if axis_prior is not None:
                     axis_candidate = opt_res.x[3:6]
                     axis_candidate_norm = axis_candidate / (np.linalg.norm(axis_candidate) + 1e-9)

@@ -1,0 +1,24 @@
+D405:
+  head_base_to_cam: [0.102, 0.009, 0.044, -90.0, 0.0, -90.0]
+  mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
+  camera_mount_link: link_head_2
+
+D435:
+  head_base_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  mount_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  camera_mount_link: link_head_2
+
+D435I:
+  head_base_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  mount_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  camera_mount_link: link_head_2
+
+D455:
+  head_base_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  mount_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  camera_mount_link: link_head_2
+
+D415:
+  head_base_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  mount_to_cam: [0.0, 0.0, 0.0, -90.0, 0.0, -90.0]
+  camera_mount_link: link_head_2

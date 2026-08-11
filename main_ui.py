@@ -2515,6 +2515,16 @@ class UnifiedCalibrationApp(QWidget):
         self.on_left_tab_changed(self.left_tabs.currentIndex())
         
         self.active_worker = None
+        
+        if self.marker_st and getattr(self.marker_st, 'intrinsics_mismatch', False):
+            calib_device = getattr(self.marker_st, 'calib_device_name', '')
+            connected_model = getattr(self.marker_st, 'camera_model', '')
+            QMessageBox.warning(
+                self,
+                tr("dialogs.camera_intrinsics_warning.title"),
+                tr("dialogs.camera_intrinsics_warning.text").format(connected_model=connected_model, calib_device=calib_device) + "\n\n" +
+                tr("dialogs.camera_intrinsics_warning.informative_text")
+            )
 
     def load_offsets_from_yaml(self):
         self.joint_offsets_store = {
@@ -5556,10 +5566,10 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_camera = False
                 self.log_msg("[INFO] Headless mode: Camera extrinsics optimization is DISABLED (Locked to CAD nominal).")
             else:
-                optimize_camera = camera_cfg.get("optimize_camera", True)
+                optimize_camera = False
                 
-            lambda_cam_pos = camera_cfg.get("lambda_cam_pos", 1.0)
-            lambda_cam_rot = camera_cfg.get("lambda_cam_rot", 1.0)
+            lambda_cam_pos = 1.0
+            lambda_cam_rot = 1.0
 
             if len(active_arms) == 1:
                 cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())
@@ -5840,13 +5850,14 @@ class UnifiedCalibrationApp(QWidget):
                 with open(config_path, "r") as f:
                     data = yaml.safe_load(f)
                     is_v13 = self.get_robot_version() == "1.3"
+                    marker_data = data.get("marker", {})
                     # Load Left Arm values
-                    val_left = data["camera"].get("Tf_to_marker_left", None)
+                    val_left = marker_data.get("Tf_to_marker_left", None)
                     if val_left and len(val_left) == 6:
                         if is_v13 and abs(val_left[0]) < 0.05:
-                            val_left = data["camera"].get("Tf_to_marker_left_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["left"])
+                            val_left = marker_data.get("Tf_to_marker_left_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["left"])
                         elif not is_v13 and abs(val_left[0]) > 0.05:
-                            val_left = data["camera"].get("Tf_to_marker_left_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["left"])
+                            val_left = marker_data.get("Tf_to_marker_left_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["left"])
                         self.txt_bracket_l_x.setText(f"{val_left[0]:.4f}")
                         self.txt_bracket_l_y.setText(f"{val_left[1]:.4f}")
                         self.txt_bracket_l_z.setText(f"{val_left[2]:.4f}")
@@ -5854,16 +5865,16 @@ class UnifiedCalibrationApp(QWidget):
                         self.txt_bracket_l_pitch.setText(f"{val_left[4]:.2f}")
                         self.txt_bracket_l_yaw.setText(f"{val_left[5]:.2f}")
                         # Sync back to memory configs
-                        self.marker_calibrator.camera_config["Tf_to_marker_left"] = val_left
-                        self.joint_calibrator.camera_config["Tf_to_marker_left"] = val_left
+                        self.marker_calibrator.markers_config["Tf_to_marker_left"] = val_left
+                        self.joint_calibrator.markers_config["Tf_to_marker_left"] = val_left
                     
                     # Load Right Arm values
-                    val_right = data["camera"].get("Tf_to_marker_right", None)
+                    val_right = marker_data.get("Tf_to_marker_right", None)
                     if val_right and len(val_right) == 6:
                         if is_v13 and abs(val_right[0]) < 0.05:
-                            val_right = data["camera"].get("Tf_to_marker_right_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["right"])
+                            val_right = marker_data.get("Tf_to_marker_right_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["right"])
                         elif not is_v13 and abs(val_right[0]) > 0.05:
-                            val_right = data["camera"].get("Tf_to_marker_right_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["right"])
+                            val_right = marker_data.get("Tf_to_marker_right_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["right"])
                         self.txt_bracket_r_x.setText(f"{val_right[0]:.4f}")
                         self.txt_bracket_r_y.setText(f"{val_right[1]:.4f}")
                         self.txt_bracket_r_z.setText(f"{val_right[2]:.4f}")
@@ -5871,8 +5882,8 @@ class UnifiedCalibrationApp(QWidget):
                         self.txt_bracket_r_pitch.setText(f"{val_right[4]:.2f}")
                         self.txt_bracket_r_yaw.setText(f"{val_right[5]:.2f}")
                         # Sync back to memory configs
-                        self.marker_calibrator.camera_config["Tf_to_marker_right"] = val_right
-                        self.joint_calibrator.camera_config["Tf_to_marker_right"] = val_right
+                        self.marker_calibrator.markers_config["Tf_to_marker_right"] = val_right
+                        self.joint_calibrator.markers_config["Tf_to_marker_right"] = val_right
                     
                     self.log_msg(f"[INFO] Loaded Tf_to_marker values for both arms and synced to calibrator memory")
                     return
@@ -5880,17 +5891,17 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to load setting.yaml: {e}")
 
-    def _update_camera_key_in_lines(self, lines_list, key_str, new_vals_list):
-        camera_idx = -1
+    def _update_marker_key_in_lines(self, lines_list, key_str, new_vals_list):
+        marker_idx = -1
         for idx, line in enumerate(lines_list):
-            if line.strip().startswith("camera:"):
-                camera_idx = idx
+            if line.strip().startswith("marker:"):
+                marker_idx = idx
                 break
         
         new_val_str = f"[{new_vals_list[0]:.5f}, {new_vals_list[1]:.5f}, {new_vals_list[2]:.5f}, {new_vals_list[3]:.2f}, {new_vals_list[4]:.2f}, {new_vals_list[5]:.2f}]"
         key_found = False
-        if camera_idx != -1:
-            i = camera_idx + 1
+        if marker_idx != -1:
+            i = marker_idx + 1
             while i < len(lines_list):
                 line = lines_list[i]
                 stripped = line.strip()
@@ -5913,11 +5924,11 @@ class UnifiedCalibrationApp(QWidget):
                 i += 1
         
         if not key_found:
-            if camera_idx == -1:
-                lines_list.append("camera:\n")
+            if marker_idx == -1:
+                lines_list.append("marker:\n")
                 lines_list.append(f"  {key_str}: {new_val_str}\n")
             else:
-                lines_list.insert(camera_idx + 1, f"  {key_str}: {new_val_str}\n")
+                lines_list.insert(marker_idx + 1, f"  {key_str}: {new_val_str}\n")
 
     def apply_bracket_design_values(self, silent=False):
         config_path = CONFIG_PATHS["setting_yaml"]
@@ -5946,8 +5957,8 @@ class UnifiedCalibrationApp(QWidget):
                 with open(config_path, "r") as f:
                     lines = f.readlines()
             
-            self._update_camera_key_in_lines(lines, "Tf_to_marker_left", [l_x, l_y, l_z, l_roll, l_pitch, l_yaw])
-            self._update_camera_key_in_lines(lines, "Tf_to_marker_right", [r_x, r_y, r_z, r_roll, r_pitch, r_yaw])
+            self._update_marker_key_in_lines(lines, "Tf_to_marker_left", [l_x, l_y, l_z, l_roll, l_pitch, l_yaw])
+            self._update_marker_key_in_lines(lines, "Tf_to_marker_right", [r_x, r_y, r_z, r_roll, r_pitch, r_yaw])
             
             with open(config_path, "w") as f:
                 f.writelines(lines)
@@ -5958,11 +5969,11 @@ class UnifiedCalibrationApp(QWidget):
             
             if not self.ui_only and self.marker_st is not None:
                 detector = self.marker_st.marker_detection
-                if hasattr(detector, 'camera_config'):
-                    detector.camera_config["Tf_to_marker_left"] = [l_x, l_y, l_z, l_roll, l_pitch, l_yaw]
-                    detector.camera_config["Tf_to_marker_right"] = [r_x, r_y, r_z, r_roll, r_pitch, r_yaw]
-                    detector.Tf_to_marker_tf_left = detector.make_transform(detector.camera_config["Tf_to_marker_left"])
-                    detector.Tf_to_marker_tf_right = detector.make_transform(detector.camera_config["Tf_to_marker_right"])
+                if hasattr(detector, 'markers_config'):
+                    detector.markers_config["Tf_to_marker_left"] = [l_x, l_y, l_z, l_roll, l_pitch, l_yaw]
+                    detector.markers_config["Tf_to_marker_right"] = [r_x, r_y, r_z, r_roll, r_pitch, r_yaw]
+                    detector.Tf_to_marker_tf_left = detector.make_transform(detector.markers_config["Tf_to_marker_left"])
+                    detector.Tf_to_marker_tf_right = detector.make_transform(detector.markers_config["Tf_to_marker_right"])
                     self.log_msg("[INFO] Dynamically updated marker detector Tf_to_marker transforms in memory.")
         except Exception as e:
             self.log_msg(f"[ERROR] Failed to save bracket values: {e}")

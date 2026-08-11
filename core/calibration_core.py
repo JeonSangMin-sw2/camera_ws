@@ -125,15 +125,16 @@ def load_camera_nominals(version="1.2"):
         config = yaml.safe_load(f) or {}
 
     camera_cfg = config.get("camera", {})
+    marker_cfg = config.get("marker", {})
     mount_to_cam_nom = camera_cfg.get("mount_to_cam")
     head_base_to_cam_nom = camera_cfg.get("head_base_to_cam")
 
     if str(version) == "1.3":
-        ee_to_marker_left = camera_cfg.get("Tf_to_marker_left_v13", camera_cfg.get("Tf_to_marker_left"))
-        ee_to_marker_right = camera_cfg.get("Tf_to_marker_right_v13", camera_cfg.get("Tf_to_marker_right"))
+        ee_to_marker_left = marker_cfg.get("Tf_to_marker_left_v13", marker_cfg.get("Tf_to_marker_left"))
+        ee_to_marker_right = marker_cfg.get("Tf_to_marker_right_v13", marker_cfg.get("Tf_to_marker_right"))
     else:
-        ee_to_marker_left = camera_cfg.get("Tf_to_marker_left", camera_cfg.get("Tf_to_marker_left_v12"))
-        ee_to_marker_right = camera_cfg.get("Tf_to_marker_right", camera_cfg.get("Tf_to_marker_right_v12"))
+        ee_to_marker_left = marker_cfg.get("Tf_to_marker_left", marker_cfg.get("Tf_to_marker_left_v12"))
+        ee_to_marker_right = marker_cfg.get("Tf_to_marker_right", marker_cfg.get("Tf_to_marker_right_v12"))
 
     return {
         "mount_to_cam_nom": mount_to_cam_nom,
