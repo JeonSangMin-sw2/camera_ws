@@ -476,8 +476,10 @@ class QPCalibrationOptimizer:
             upper_parts.append(q_upper)
 
         if self.optimize_head:
-            lower_parts.append(self.q_lower[self.head_idx])
-            upper_parts.append(self.q_upper[self.head_idx])
+            # Restrict head joint offsets to physically reasonable range (e.g. ±15 degrees) to prevent gimbal roll/tilt representation flip
+            head_limit_rad = 15.0 * D2R
+            lower_parts.append(np.array([-head_limit_rad, -head_limit_rad]))
+            upper_parts.append(np.array([head_limit_rad, head_limit_rad]))
 
         if not lower_parts:
             return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
