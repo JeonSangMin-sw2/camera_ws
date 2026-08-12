@@ -1190,6 +1190,38 @@ class Step2InitPoseWorker(QThread):
                 priority=self.priority,
                 include_head_motion=self.include_head_motion,
             )
+            
+            # Check marker visibility at the ready pose
+            if self.app.marker_st is not None:
+                self.log_signal.emit("[Step2] Verifying marker visibility at the initial ready pose...")
+                # Wait a moment for the camera stream to stabilize after motion stops
+                time.sleep(1.5)
+                
+                # Check right arm
+                right_check = self.app.marker_st.get_marker_transform(sampling_time=1.5, side="right")
+                if right_check is None:
+                    self.log_signal.emit("[INFO] Right arm marker not visible at Init Pose. Showing teaching dialog...")
+                    resolved = self.app.prompt_marker_problem_teaching("right")
+                    if not resolved:
+                        raise RuntimeError("Right arm posture teaching canceled by user.")
+                
+                # Check left arm
+                left_check = self.app.marker_st.get_marker_transform(sampling_time=1.5, side="left")
+                if left_check is None:
+                    self.log_signal.emit("[INFO] Left arm marker not visible at Init Pose. Showing teaching dialog...")
+                    resolved = self.app.prompt_marker_problem_teaching("left")
+                    if not resolved:
+                        raise RuntimeError("Left arm posture teaching canceled by user.")
+                        
+                # Re-verify visibility
+                self.log_signal.emit("[INFO] Re-verifying marker visibility at the new posture...")
+                right_check = self.app.marker_st.get_marker_transform(sampling_time=1.5, side="right")
+                left_check = self.app.marker_st.get_marker_transform(sampling_time=1.5, side="left")
+                if right_check is None or left_check is None:
+                    raise RuntimeError("Marker still not detected at Init Pose after teaching.")
+                    
+                self.log_signal.emit("[SUCCESS] Marker visibility verified successfully at the ready pose.")
+
             self.finished_signal.emit(True, "")
         except Exception as e:
             self.finished_signal.emit(False, str(e))
@@ -4715,12 +4747,14 @@ class UnifiedCalibrationApp(QWidget):
                         with open(config_path, "r") as f:
                             lines = f.readlines()
                         
-                        if mount_to_cam_new:
-                            self.log_msg(f"[APPLY] Saving optimized mount_to_cam to setting.yaml: {mount_to_cam_new}")
-                            self._update_camera_key_in_lines(lines, "mount_to_cam", mount_to_cam_new)
-                        if head_base_to_cam_new:
-                            self.log_msg(f"[APPLY] Saving optimized head_base_to_cam to setting.yaml: {head_base_to_cam_new}")
-                            self._update_camera_key_in_lines(lines, "head_base_to_cam", head_base_to_cam_new)
+                        if include_head:
+                            if mount_to_cam_new:
+                                self.log_msg(f"[APPLY] Saving optimized mount_to_cam to setting.yaml: {mount_to_cam_new}")
+                                self._update_camera_key_in_lines(lines, "mount_to_cam", mount_to_cam_new)
+                        else:
+                            if head_base_to_cam_new:
+                                self.log_msg(f"[APPLY] Saving optimized head_base_to_cam to setting.yaml: {head_base_to_cam_new}")
+                                self._update_camera_key_in_lines(lines, "head_base_to_cam", head_base_to_cam_new)
                             
                         with open(config_path, "w") as f:
                             f.writelines(lines)
@@ -4794,54 +4828,10 @@ class UnifiedCalibrationApp(QWidget):
 
         q_arm, q_head, T_meas = self.capture_one_sample(motion_plan_step=motion_plan_step)
         if q_arm is None:
-            if self.head_move_count == 0 and self.step2_mode_sel.currentText() == "live" and not self.ui_only:
-                self.log_msg("[WARNING] Marker not detected at the initial ready pose. Prompting posture adjustment...")
-                self.current_calib_mode = "marker"
-                
-                # Check right arm
-                right_check = self.marker_st.get_marker_transform(sampling_time=1.5, side="right")
-                if right_check is None:
-                    self.log_msg("[INFO] Right arm marker not visible. Showing teaching dialog...")
-                    resolved = self.prompt_marker_problem_teaching("right")
-                    if not resolved:
-                        self.log_msg("[ERROR] Posture teaching canceled by user.")
-                        self.head_move_count += 1
-                        self.update_head_pose_status()
-                        return False
-                
-                # Check left arm
-                left_check = self.marker_st.get_marker_transform(sampling_time=1.5, side="left")
-                if left_check is None:
-                    self.log_msg("[INFO] Left arm marker not visible. Showing teaching dialog...")
-                    resolved = self.prompt_marker_problem_teaching("left")
-                    if not resolved:
-                        self.log_msg("[ERROR] Posture teaching canceled by user.")
-                        self.head_move_count += 1
-                        self.update_head_pose_status()
-                        return False
-
-                # Re-verify visibility after adjustment
-                self.log_msg("[INFO] Re-verifying marker visibility at the new posture...")
-                q_arm, q_head, T_meas = self.capture_one_sample(motion_plan_step=motion_plan_step)
-                if q_arm is None:
-                    self.log_msg("[ERROR] Marker still not detected after teaching adjustment.")
-                    self.head_move_count += 1
-                    self.update_head_pose_status()
-                    return False
-                
-                # Re-build motion plan starting from the new taught ready pose
-                self.log_msg("[INFO] Posture adjustment successful. Re-building motion plan from current pose...")
-                active_arms = ["right", "left"]
-                self.auto_motion_plan = build_incremental_motion_plan(
-                    self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion
-                )
-                self.update_head_pose_status()
-                self.update_step2_est_samples()
-            else:
-                self.head_move_count += 1
-                self.update_head_pose_status()
-                self.log_msg("Capture failed after motion. This pose is skipped.")
-                return False
+            self.head_move_count += 1
+            self.update_head_pose_status()
+            self.log_msg("Capture failed after motion. This pose is skipped.")
+            return False
 
         self.shared_arm_q_list.append(q_arm)
         if self.include_head_motion and q_head is not None:
@@ -5103,10 +5093,7 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
         if solver_type == "QP Solver":
-            if optimize_head and optimize_camera:
-                actual_lambda_cam_rot = 1e6
-            else:
-                actual_lambda_cam_rot = lambda_cam_rot
+            actual_lambda_cam_rot = lambda_cam_rot
 
             self.log_msg("\n[INFO] === 3-STAGE QP SEQUENTIAL OPTIMIZATION WORKFLOW ===")
 
@@ -5610,7 +5597,7 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_camera = False
                 self.log_msg("[INFO] Headless mode: Camera extrinsics optimization is DISABLED (Locked to CAD nominal).")
             else:
-                optimize_camera = False
+                optimize_camera = True
                 
             lambda_cam_pos = 1.0
             lambda_cam_rot = 1.0
@@ -6012,7 +5999,7 @@ class UnifiedCalibrationApp(QWidget):
                 QMessageBox.information(self, "Success", "Bracket design values saved for both arms!")
             
             if not self.ui_only and self.marker_st is not None:
-                detector = self.marker_st.marker_detection
+                detector = self.marker_st
                 if hasattr(detector, 'markers_config'):
                     detector.markers_config["Tf_to_marker_left"] = [l_x, l_y, l_z, l_roll, l_pitch, l_yaw]
                     detector.markers_config["Tf_to_marker_right"] = [r_x, r_y, r_z, r_roll, r_pitch, r_yaw]
