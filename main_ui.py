@@ -3091,7 +3091,7 @@ class UnifiedCalibrationApp(QWidget):
         ind_layout.addStretch()
         status_layout.addLayout(ind_layout)
         
-        self.temp_label = QLabel("Camera Temp: -- °C")
+        self.temp_label = QLabel(self.get_temp_label_text())
         self.temp_label.setStyleSheet("color: #ff5500; font-weight: bold; font-size: 11px;")
         status_layout.addWidget(self.temp_label)
         
@@ -3228,7 +3228,7 @@ class UnifiedCalibrationApp(QWidget):
         self.lbl_captured.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.lbl_captured.setStyleSheet("color: #2979ff;")
         
-        self.lbl_temp = QLabel("Camera Temp: -- °C")
+        self.lbl_temp = QLabel(self.get_temp_label_text())
         self.lbl_temp.setFont(QFont("Segoe UI", 12, QFont.Bold))
         self.lbl_temp.setStyleSheet("color: #ff5500;")
         
@@ -3562,6 +3562,24 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg("  4. Control head and verify offsets as a final check.")
         self.log_msg("="*60)
 
+    def is_temp_supported(self):
+        if self.ui_only or self.marker_st is None:
+            return False
+        return getattr(self.marker_st, 'temp_supported', False)
+
+    def get_temp_label_text(self, temp_val=None):
+        is_ko = (I18nManager.instance().current_lang == "ko")
+        if not self.is_temp_supported():
+            if is_ko:
+                return "카메라 온도: 지원하지 않음"
+            else:
+                return "Camera Temp: Not Supported"
+        else:
+            if temp_val is not None:
+                return f"카메라 온도: {temp_val:.1f} °C" if is_ko else f"Camera Temp: {temp_val:.1f} °C"
+            else:
+                return "카메라 온도: -- °C" if is_ko else "Camera Temp: -- °C"
+
     def on_language_combo_changed(self, index):
         lang_code = "en" if index == 0 else "ko"
         I18nManager.instance().set_language(lang_code)
@@ -3576,6 +3594,17 @@ class UnifiedCalibrationApp(QWidget):
             self.left_tabs.setTabText(2, tr("main_tabs.tab_step2"))
         if hasattr(self, 'btn_start_wizard'):
             self.btn_start_wizard.setText(tr("wizard.btn_start_wizard"))
+
+        # Translate temperature labels
+        last_temp = getattr(self, 'last_temp', None)
+        temp_text = self.get_temp_label_text(last_temp)
+        if hasattr(self, 'temp_label') and self.temp_label is not None:
+            self.temp_label.setText(temp_text)
+        if hasattr(self, 'lbl_temp') and self.lbl_temp is not None:
+            self.lbl_temp.setText(temp_text)
+        if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+            if hasattr(self.wizard_widget, 'lbl_temp') and self.wizard_widget.lbl_temp is not None:
+                self.wizard_widget.lbl_temp.setText(temp_text)
 
     @property
     def is_mock(self) -> bool:
@@ -4198,14 +4227,29 @@ class UnifiedCalibrationApp(QWidget):
         if self.ui_only or self.marker_st is None:
             return
         try:
+            if not self.is_temp_supported():
+                text = self.get_temp_label_text()
+                if hasattr(self, 'temp_label') and self.temp_label is not None:
+                    self.temp_label.setText(text)
+                if hasattr(self, 'lbl_temp') and self.lbl_temp is not None:
+                    self.lbl_temp.setText(text)
+                if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+                    if hasattr(self.wizard_widget, 'lbl_temp') and self.wizard_widget.lbl_temp is not None:
+                        self.wizard_widget.lbl_temp.setText(text)
+                return
+
             if hasattr(self.marker_st, 'camera') and self.marker_st.camera is not None:
                 temp = self.marker_st.camera.get_camera_temperature()
+                self.last_temp = temp
                 if temp is not None:
-                    text = f"Camera Temp: {temp:.1f} °C"
+                    text = self.get_temp_label_text(temp)
                     if hasattr(self, 'temp_label') and self.temp_label is not None:
                         self.temp_label.setText(text)
                     if hasattr(self, 'lbl_temp') and self.lbl_temp is not None:
                         self.lbl_temp.setText(text)
+                    if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+                        if hasattr(self.wizard_widget, 'lbl_temp') and self.wizard_widget.lbl_temp is not None:
+                            self.wizard_widget.lbl_temp.setText(text)
         except Exception:
             pass
 
@@ -7133,14 +7177,23 @@ class UnifiedCalibrationApp(QWidget):
     def capture_intrinsics_frame(self):
         if hasattr(self, 'current_frame'):
             self.captured_images.append(self.current_frame.copy())
-            self.lbl_captured.setText(f"Captured Frames: {len(self.captured_images)}")
-            self.log_msg(f"[INTRINSICS] Frame {len(self.captured_images)} captured.")
+            frames = len(self.captured_images)
+            self.lbl_captured.setText(f"Captured Frames: {frames}")
+            if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+                if hasattr(self.wizard_widget, 'lbl_captured') and self.wizard_widget.lbl_captured is not None:
+                    self.wizard_widget.lbl_captured.setText(f"Captured Frames: {frames} / 16")
+            self.log_msg(f"[INTRINSICS] Frame {frames} captured.")
             
             num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
             if hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked() and self.current_guide_idx < num_steps:
                 self.current_guide_idx += 1
                 if self.current_guide_idx == num_steps:
                     self.log_msg(f"[INTRINSICS] All {num_steps} guided frames captured! You can now run calibration.")
+
+            if frames == 16:
+                self.log_msg("[INTRINSICS] 16 frames collected! Automatically running calibration...")
+                QApplication.processEvents()
+                self.run_intrinsics_calibration()
 
     def reset_intrinsics_captures(self):
         self.captured_images.clear()
@@ -7191,9 +7244,17 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg("[INTRINSICS] Click 'SAVE PARAMETERS' to apply changes.")
             self.btn_int_save.setEnabled(True)
             self.show_intrinsics_verification()
+            if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+                if hasattr(self.wizard_widget, 'lbl_step1_status') and self.wizard_widget.lbl_step1_status is not None:
+                    self.wizard_widget.lbl_step1_status.setText(f"Status: Calibration OK (RMS: {self.intrinsics_calibrator.rms_error:.4f})")
+                    self.wizard_widget.lbl_step1_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
         else:
             self.log_msg("[ERROR] Calibration failed. Check images and board settings.")
             QMessageBox.critical(self, "Calibration Failed", "Calibration failed! Check board visibility and image quality.")
+            if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
+                if hasattr(self.wizard_widget, 'lbl_step1_status') and self.wizard_widget.lbl_step1_status is not None:
+                    self.wizard_widget.lbl_step1_status.setText("Status: Calibration Failed (Check board settings)")
+                    self.wizard_widget.lbl_step1_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
 
     def save_intrinsics_calibration(self):
         if len(self.captured_images) < 16:
@@ -7207,7 +7268,9 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         try:
+            camera_model = getattr(self.marker_st, 'camera_model', "")
             data = {
+                "device_name": camera_model,
                 "camera_matrix": self.intrinsics_calibrator.cameraMatrix.tolist(),
                 "dist_coeffs": self.intrinsics_calibrator.distCoeffs.flatten().tolist(),
                 "rms_error": float(self.intrinsics_calibrator.rms_error),
@@ -7225,6 +7288,12 @@ class UnifiedCalibrationApp(QWidget):
                 self.marker_detector.fy = self.intrinsics_calibrator.cameraMatrix[1, 1]
                 self.marker_detector.principal_point = [self.intrinsics_calibrator.cameraMatrix[0, 2], self.intrinsics_calibrator.cameraMatrix[1, 2]]
                 self.marker_detector.dist_coeffs = self.intrinsics_calibrator.distCoeffs
+            
+            # Show save success message box
+            self.show_message_box(
+                "Save Complete" if I18nManager.instance().current_lang != "ko" else "저장 완료",
+                f"Camera intrinsics saved successfully to:\n{self.output_yaml}" if I18nManager.instance().current_lang != "ko" else f"카메라 내부 파라미터가 다음 경로에 성공적으로 저장되었습니다:\n{self.output_yaml}"
+            )
         except Exception as e:
             self.log_msg(f"[ERROR] Save failed: {e}")
 

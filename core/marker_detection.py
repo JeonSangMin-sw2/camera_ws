@@ -738,33 +738,49 @@ class Marker_Transform:
                         self.camera_model = model
                         break
             
+            self.temp_supported = False
+            info_file = os.path.join(os.path.dirname(setting_config_path), "camera_info.yaml")
+            info_data = {}
+            if os.path.exists(info_file):
+                try:
+                    with open(info_file, "r") as inf:
+                        info_data = yaml.safe_load(inf) or {}
+                    if self.camera_model in info_data:
+                        self.temp_supported = info_data[self.camera_model].get("temp_supported", False)
+                except Exception as e:
+                    print(f"[WARNING] Failed to read temp_supported from camera_info.yaml: {e}")
+
             if self.camera_model and self.camera_model != yaml_device_name:
                 print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Updating...")
-                extrinsics_file = os.path.join(os.path.dirname(setting_config_path), "camera_extrinsics.yaml")
-                if os.path.exists(extrinsics_file):
-                    with open(extrinsics_file, "r") as ef:
-                        extrinsics_data = yaml.safe_load(ef) or {}
+                if info_data and self.camera_model in info_data:
+                    cam_ext = info_data[self.camera_model]
+                    camera_config["device_name"] = self.camera_model
+                    camera_config["head_base_to_cam"] = cam_ext.get("head_base_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
+                    camera_config["mount_to_cam"] = cam_ext.get("mount_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
+                    camera_config["camera_mount_link"] = cam_ext.get("camera_mount_link", "link_head_2")
+                    config_data["camera"] = camera_config
                     
-                    if self.camera_model in extrinsics_data:
-                        cam_ext = extrinsics_data[self.camera_model]
-                        camera_config["device_name"] = self.camera_model
-                        camera_config["head_base_to_cam"] = cam_ext.get("head_base_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
-                        camera_config["mount_to_cam"] = cam_ext.get("mount_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
-                        camera_config["camera_mount_link"] = cam_ext.get("camera_mount_link", "link_head_2")
-                        config_data["camera"] = camera_config
-                        
-                        with open(setting_config_path, "w") as wf:
-                            yaml.safe_dump(config_data, wf, default_flow_style=False, sort_keys=False)
-                        print(f"[INFO] Updated setting.yaml extrinsics for {self.camera_model} from camera_extrinsics.yaml")
-                    else:
-                        print(f"[WARNING] Match '{self.camera_model}' not found in camera_extrinsics.yaml")
+                    class PrettyDumper(yaml.SafeDumper):
+                        pass
+                    PrettyDumper.add_representer(
+                        list,
+                        lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
+                    )
+                    with open(setting_config_path, "w") as wf:
+                        yaml.dump(config_data, wf, Dumper=PrettyDumper, default_flow_style=False, sort_keys=False)
+                    print(f"[INFO] Updated setting.yaml extrinsics for {self.camera_model} from camera_info.yaml")
                 else:
-                    print(f"[WARNING] camera_extrinsics.yaml not found at {extrinsics_file}")
+                    if not os.path.exists(info_file):
+                        print(f"[WARNING] camera_info.yaml not found at {info_file}")
+                    else:
+                        print(f"[WARNING] Match '{self.camera_model}' not found in camera_info.yaml")
             
             self.camera_config = camera_config
             self.markers_config = config_data.get("marker", config_data)
             self.marker_detection.markers_config = self.markers_config
             print(f"- Loaded Setting Config from {os.path.basename(setting_config_path)}")
+            print(f"  * head_base_to_cam: {camera_config.get('head_base_to_cam')}")
+            print(f"  * mount_to_cam: {camera_config.get('mount_to_cam')}")
             
             # Check camera intrinsics model mismatch
             self.intrinsics_mismatch = False

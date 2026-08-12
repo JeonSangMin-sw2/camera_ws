@@ -464,7 +464,7 @@ class CalibrationWizardWidget(QWidget):
         self.lbl_captured.setFont(QFont("Segoe UI", 13, QFont.Bold))
         self.lbl_captured.setStyleSheet("color: #2979ff;")
         
-        self.lbl_temp = QLabel(tr("wizard.slides.slide_3.lbl_temp") + "-- °C")
+        self.lbl_temp = QLabel(self.parent_app.get_temp_label_text())
         self.lbl_temp.setFont(QFont("Segoe UI", 13, QFont.Bold))
         self.lbl_temp.setStyleSheet("color: #ff5500;")
         
@@ -1064,8 +1064,13 @@ class CalibrationWizardWidget(QWidget):
         frames = len(self.parent_app.captured_images)
         self.lbl_captured.setText(f"Captured Frames: {frames} / 16")
         if frames >= 16:
-            self.lbl_step1_status.setText(f"Status: Captured {frames} / 16 frames. Ready to calibrate.")
-            self.lbl_step1_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
+            err = self.parent_app.intrinsics_calibrator.rms_error
+            if err is not None and err > 0.0:
+                self.lbl_step1_status.setText(f"Status: Calibration OK (RMS: {err:.4f})")
+                self.lbl_step1_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
+            else:
+                self.lbl_step1_status.setText(f"Status: Captured {frames} / 16 frames. Ready to calibrate.")
+                self.lbl_step1_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
         else:
             self.lbl_step1_status.setText(f"Status: Captured {frames} / 16 frames (Need 16)")
             self.lbl_step1_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
