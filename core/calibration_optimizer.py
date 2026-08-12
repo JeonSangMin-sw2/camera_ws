@@ -924,10 +924,13 @@ class QPCalibrationOptimizer:
     def get_calibrated_head_base_to_cam(self, xi_mount_cam):
         T_mount_to_cam = self.get_nominal_mount_to_cam() @ se3_exp(xi_mount_cam)
         if self.use_head_kinematics:
+            q_zero_head = self.q_nominal.copy()
+            if self.head_idx is not None:
+                q_zero_head[self.head_idx] = 0.0
             _, T_head_base_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,
-                q_full=self.q_nominal,
+                q_full=q_zero_head,
                 ee_link=self.camera_link,
                 base_link="link_head_0",
             )
@@ -1281,10 +1284,13 @@ class CalibrationOptimizer:
     def get_calibrated_head_base_to_cam(self, xi_cam):
         T_cam_calib = self.get_nominal_cam_transform() @ se3_exp(xi_cam)
         if self.use_head_kinematics:
+            q_zero_head = self.q_nominal.copy()
+            if self.head_idx is not None:
+                q_zero_head[self.head_idx] = 0.0
             _, T_head_base_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,
-                q_full=self.q_nominal,
+                q_full=q_zero_head,
                 ee_link=self.camera_link,
                 base_link="link_head_0",
             )

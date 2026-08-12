@@ -238,15 +238,19 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                 "desc": f"Pos: ({dx:.3f},{dy:.3f},{dz:.3f})"
             })
             
-        # 4. Independent head motions (Pan Left/Right, Tilt Up/Down)
+        # 4. Independent head motions (Pan Left/Right, Tilt Up/Down) with denser steps and optimized angle range
         if has_head and q_head_0 is not None:
-            ang_rad = np.radians(config.angle_step_deg)
-            head_targets = [
-                (-ang_rad, 0.0, f"Head Pan: {-config.angle_step_deg:.1f}deg"),
-                (ang_rad, 0.0, f"Head Pan: {config.angle_step_deg:.1f}deg"),
-                (0.0, -ang_rad, f"Head Tilt: {-config.angle_step_deg:.1f}deg"),
-                (0.0, ang_rad, f"Head Tilt: {config.angle_step_deg:.1f}deg"),
-            ]
+            head_sweep_range_deg = 3.5
+            steps_deg = [-head_sweep_range_deg, -head_sweep_range_deg / 2.0, head_sweep_range_deg / 2.0, head_sweep_range_deg]
+            
+            head_targets = []
+            for ang in steps_deg:
+                ang_rad = np.radians(ang)
+                head_targets.append((ang_rad, 0.0, f"Head Pan: {ang:+.2f}deg"))
+            for ang in steps_deg:
+                ang_rad = np.radians(ang)
+                head_targets.append((0.0, ang_rad, f"Head Tilt: {ang:+.2f}deg"))
+
             for d_pan, d_tilt, desc in head_targets:
                 hq = np.array([q_head_0[0] + d_pan, q_head_0[1] + d_tilt], dtype=np.float64)
                 plan.append({
