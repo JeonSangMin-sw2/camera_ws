@@ -1175,6 +1175,7 @@ class Step2InitPoseWorker(QThread):
         self.active_arms = active_arms
         self.priority = priority
         self.include_head_motion = include_head_motion
+        self.app = parent
 
     def run(self):
         try:
