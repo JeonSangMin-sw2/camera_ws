@@ -1,3 +1,45 @@
+pi05_open_door_merge_right_arm 라고 학습했었습니다.
+TrainConfig(
+        name="pi05_open_door_merge_right_arm",
+        model=pi0_config.Pi0Config(
+            pi05=True,
+            action_horizon=40,
+        ),
+        data=LeRobotRBY1OneArmDataConfig(
+            repo_id="sanfmin/opendoor_data_merge",
+            base_config=DataConfig(prompt_from_task=True),
+            use_delta_joint_actions=True,
+        ),
+        weight_loader=weight_loaders.CheckpointWeightLoader(
+            "gs://openpi-assets/checkpoints/pi05_base/params"
+        ),
+        batch_size=32,
+        num_train_steps=50_000,
+        log_interval=1000,
+        save_interval=10_000,
+        fsdp_devices=1,
+        freeze_filter=nnx.Nothing,
+        seed=1000,
+        lr_schedule=_optimizer.CosineDecaySchedule(
+            warmup_steps=10_000,
+            peak_lr=5e-5,
+            decay_steps=1_000_000,
+            decay_lr=5e-5,
+        ),
+        optimizer=_optimizer.AdamW(
+            b1=0.9,
+            b2=0.95,
+            eps=1e-8,
+            weight_decay=1e-10,
+            clip_gradient_norm=1.0,
+        ),
+    ),
+
+혹시 얘기주신게 이거 맞을까요?
+
+
+
+
 아래와 같이 실행했어요.
 
 uv run src/openpi/serving/zmq_policy_server.py  \
