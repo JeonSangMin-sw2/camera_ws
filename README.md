@@ -1,3 +1,11 @@
+아래와 같이 실행했어요.
+
+uv run src/openpi/serving/zmq_policy_server.py  \
+  --config-name  pi05_open_door_merge_right_arm \
+  --checkpoint-dir ~/NAS/openpi/pi05_open_door_merge_right_arm/opendoor_without_mobile/49999  \
+  --host 0.0.0.0 --port 5555
+
+
 ============================================================
   UNIFIED ROBOT CALIBRATION SUITE LOADED
 ============================================================
