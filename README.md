@@ -1,3 +1,8 @@
+ python -m lerobot.async_inference.robot_client --backend=pi05_zmq --server_address=192.168.0.3:5556
+  --task="Go straight and open the door"  --policy_device=cuda --actions_per_chunk=40 --chunk_size_threshold=0.8 --debug_visualize_queue_size=True --robot.type=rby1 --fps=30
+
+
+
 pi05_open_door_merge_right_arm 라고 학습했었습니다.
 TrainConfig(
         name="pi05_open_door_merge_right_arm",
