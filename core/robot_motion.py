@@ -265,7 +265,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         
     return plan
 
-def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True):
+def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None):
     model = robot.model() if robot else None
     has_head = (include_head_motion) and (model is not None and hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2)
     
@@ -299,13 +299,30 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 1: Joint Ready Pose.")
 
+    # Determine whether v1.3 behavior is requested (UI setting takes precedence over hardware model)
+    is_v13 = False
+    if robot_version is not None:
+        is_v13 = (str(robot_version).replace("v", "").strip() == "1.3")
+    elif model is not None:
+        model_name = getattr(model, 'robot_model_name', '').lower()
+        joint_cnt = len(getattr(model, 'robot_joint_names', []))
+        is_v13 = (model_name == 'm' or joint_cnt == 26)
+
     # Step 2: Cartesian Checking Pose (Lower Z to 0.18m for fixed chest camera vs 0.3m for head)
     z_height = 0.18 if not has_head else 0.3
-    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -0.15, z_height])
+    y_val = 0.11 if is_v13 else 0.13
+    
+    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -y_val, z_height])
     T_right[:3, :3] = T_right[:3, :3] @ rot_z(180*D2R)
     
-    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, 0.15, z_height])
+    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, y_val, z_height])
     T_left[:3, :3] = T_left[:3, :3] @ rot_z(180*D2R)
+
+    # v1.3 (Model M) branch: Rotate +90 deg around base frame Pitch (Y) axis
+    if is_v13:
+        R_pitch_90 = rot_y(90 * D2R)
+        T_right[:3, :3] = R_pitch_90 @ T_right[:3, :3]
+        T_left[:3, :3]  = R_pitch_90 @ T_left[:3, :3]
 
     body2 = rby.BodyComponentBasedCommandBuilder()
 

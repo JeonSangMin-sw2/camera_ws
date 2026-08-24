@@ -1190,6 +1190,7 @@ class Step2InitPoseWorker(QThread):
                 minimum_time=10.0,
                 priority=self.priority,
                 include_head_motion=self.include_head_motion,
+                robot_version=self.app.get_robot_version() if hasattr(self.app, 'get_robot_version') else None,
             )
             
             # Check marker visibility at the ready pose
@@ -1872,6 +1873,8 @@ class FullAutoWorker(QThread):
                     self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
 
                     for calibrator in [self.joint_calibrator, self.marker_calibrator]:
+                        if arm_side not in calibrator.joint_offsets:
+                            calibrator.joint_offsets[arm_side] = {}
                         calibrator.joint_offsets[arm_side]["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
                         if is_v13:
                             calibrator.joint_offsets[arm_side]["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
@@ -1885,7 +1888,7 @@ class FullAutoWorker(QThread):
                     if is_v13:
                         # === v1.3 CALIBRATION SEQUENCE ===
                         # 1. Marker Bracket Sweeps (Axis 4, 6, 5)
-                        self.log_msg.emit(f"[FULL AUTO 1/2] Starting Marker Bracket Calibration for {arm_side} arm (Pass {pass_idx}/Pass 2)...")
+                        self.log_msg.emit(f"[FULL AUTO] Starting Marker Bracket Sweeps for {arm_side} arm (Pass {pass_idx}/Pass 2)...")
                         self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
                         if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
@@ -1930,44 +1933,113 @@ class FullAutoWorker(QThread):
                         if self.stop_event.is_set(): return
 
                         # 2. Calibrate J6 Wrist Roll
-                        self.log_msg.emit(f"\n[FULL AUTO] Calibrating J6 Wrist Roll first...")
-                        dataset_A_6 = list(zip(res_6['captured_q_full'], res_6['captured_poses']))
-                        dataset_B_5 = list(zip(res_5['captured_q_full'], res_5['captured_poses']))
-                        model = self.joint_calibrator.robot.model()
-                        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                        initial_joint_pos_roll = list(res_6['captured_q_full'][0][arm_idx])
-                        
-                        joint_res_roll = self.joint_calibrator.compute_calibration_results(
-                            arm_side, "wrist_roll_v13", dataset_A_6, dataset_B_5, initial_joint_pos_roll,
-                            current_offset_deg=0.0, use_angle_based_fitting=True, log_callback=self.log_msg.emit
-                        )
-                        if not joint_res_roll:
-                            raise RuntimeError(f"J6 calibration failed on {arm_side} arm")
-                        opt_roll = joint_res_roll["recommended_joint_offset"]
-                        self.log_msg.emit(f"[FULL AUTO] Staging J6 offset: {opt_roll:.4f}°")
-                        self.joint_offsets_store[arm_side]["joint6"] = opt_roll
-                        self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
-                        self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
-                        
-                        plot_path = self.joint_calibrator.save_calibration_comparison_plot(
-                            arm_side, "wrist_roll_v13", joint_res_roll, joint_res_roll, 
-                            log_callback=self.log_msg.emit, force_overwrite=True
-                        )
-                        if plot_path:
-                            joint_res_roll['plot_path_combined'] = plot_path
-                        
-                        joint_res_roll['arm_side'] = arm_side
-                        joint_res_roll['mode'] = "wrist_roll_v13"
-                        joint_res_roll['pass_idx'] = pass_idx
-                        self.joint_finished_signal.emit(joint_res_roll)
-                        time.sleep(0.5)
-                        if self.stop_event.is_set(): return
+                        pass1_res_roll = pass1_joint_results.get("wrist_roll")
+                        if pass_idx == 2 and pass1_res_roll and pass1_res_roll.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO] J6 (Wrist Roll) converged in Pass 1 ({pass1_res_roll['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                            opt_roll = pass1_res_roll["recommended_joint_offset"]
+                            self.joint_offsets_store[arm_side]["joint6"] = opt_roll
+                            self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                            self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                            self.joint_finished_signal.emit(pass1_res_roll)
+                        else:
+                            self.log_msg.emit(f"\n[FULL AUTO] Calibrating J6 (Wrist Roll)...")
+                            if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_roll_v13", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to move to ready pose for wrist_roll on {arm_side} arm")
+                            if self.stop_event.is_set(): return
 
-                        # 3. Compute Marker Bracket (with J6 locked)
-                        self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration (J6 locked)...")
-                        staged_pitch = self.joint_offsets_store[arm_side]["joint5"]
+                            joint_res_roll = self.joint_calibrator.perform_joint_calibration(
+                                arm_side, "wrist_roll_v13",
+                                log_callback=self.log_msg.emit,
+                                status_callback=self.status_signal.emit,
+                                current_offset_deg=self.joint_offsets_store[arm_side]["joint6"],
+                                save_debug=self.save_debug,
+                                pass_idx=pass_idx,
+                                pass1_res=pass1_res_roll
+                            )
+                            if not joint_res_roll:
+                                raise RuntimeError(f"J6 calibration failed on {arm_side} arm")
+                            if pass_idx == 1:
+                                pass1_joint_results["wrist_roll"] = joint_res_roll
+                            opt_roll = joint_res_roll["recommended_joint_offset"]
+                            self.log_msg.emit(f"[FULL AUTO] Staging J6 offset: {opt_roll:.4f}°")
+                            self.joint_offsets_store[arm_side]["joint6"] = opt_roll
+                            self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                            self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
+                            
+                            plot_path = self.joint_calibrator.save_calibration_comparison_plot(
+                                arm_side, "wrist_roll_v13", pass1_res_roll if pass1_res_roll else joint_res_roll, joint_res_roll, 
+                                log_callback=self.log_msg.emit, force_overwrite=True
+                            )
+                            if plot_path:
+                                joint_res_roll['plot_path_combined'] = plot_path
+                            
+                            joint_res_roll['arm_side'] = arm_side
+                            joint_res_roll['mode'] = "wrist_roll_v13"
+                            joint_res_roll['pass_idx'] = pass_idx
+                            self.joint_finished_signal.emit(joint_res_roll)
+                            time.sleep(0.5)
+                            if self.stop_event.is_set(): return
+
+                        # 3. Calibrate J5 Wrist Pitch
+                        pass1_res_pitch = pass1_joint_results.get("wrist_pitch")
+                        if pass_idx == 2 and pass1_res_pitch and pass1_res_pitch.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO] J5 (Wrist Pitch) converged in Pass 1 ({pass1_res_pitch['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                            opt_pitch = pass1_res_pitch["recommended_joint_offset"]
+                            self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                            self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                            self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
+                            self.joint_finished_signal.emit(pass1_res_pitch)
+                        else:
+                            self.log_msg.emit("\n[FULL AUTO] Calibrating J5 (Wrist Pitch)...")
+                            for calibrator in [self.joint_calibrator, self.marker_calibrator]:
+                                calibrator.joint_offsets[arm_side]["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
+                                calibrator.joint_offsets[arm_side]["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
+                                calibrator.joint_offsets[arm_side]["wrist_yaw2"] = 0.0
+                                calibrator.joint_offsets[arm_side]["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
+
+                            if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch_v13", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to move to ready pose for wrist_pitch on {arm_side} arm")
+                            if self.stop_event.is_set(): return
+                            
+                            joint_res_pitch = self.joint_calibrator.perform_joint_calibration(
+                                arm_side, "wrist_pitch_v13",
+                                log_callback=self.log_msg.emit,
+                                status_callback=self.status_signal.emit,
+                                current_offset_deg=self.joint_offsets_store[arm_side]["joint5"],
+                                save_debug=self.save_debug,
+                                pass_idx=pass_idx,
+                                pass1_res=pass1_res_pitch
+                            )
+                            if not joint_res_pitch:
+                                raise RuntimeError(f"Wrist pitch joint calibration failed on {arm_side} arm")
+                            if pass_idx == 1:
+                                pass1_joint_results["wrist_pitch"] = joint_res_pitch
+                            joint_res_pitch['arm_side'] = arm_side
+                            joint_res_pitch['mode'] = "wrist_pitch_v13"
+                            joint_res_pitch['pass_idx'] = pass_idx
+                            
+                            opt_pitch = joint_res_pitch["recommended_joint_offset"]
+                            self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                            self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
+                            self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
+                            
+                            plot_path = self.joint_calibrator.save_calibration_comparison_plot(
+                                arm_side, "wrist_pitch_v13", pass1_res_pitch if pass1_res_pitch else joint_res_pitch, joint_res_pitch,
+                                log_callback=self.log_msg.emit, force_overwrite=True
+                            )
+                            if plot_path:
+                                joint_res_pitch['plot_path_combined'] = plot_path
+                            
+                            self.joint_finished_signal.emit(joint_res_pitch)
+                            time.sleep(0.5)
+                            if self.stop_event.is_set(): return
+
+                        # 4. Compute Marker Bracket (with J6 & J5 locked)
+                        self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration (J6 & J5 locked)...")
+                        opt_pitch = self.joint_offsets_store[arm_side]["joint5"]
+                        opt_roll = self.joint_offsets_store[arm_side]["joint6"]
                         unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
-                            res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll, calib_pitch_deg=staged_pitch
+                            res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_deg=opt_roll, calib_pitch_deg=opt_pitch
                         )
                         
                         unified_res['res_5'] = res_5
@@ -1992,90 +2064,52 @@ class FullAutoWorker(QThread):
                         time.sleep(0.5)
                         if self.stop_event.is_set(): return
 
-                        # 4. Calibrate J5 Wrist Pitch
-                        self.log_msg.emit("[FULL AUTO] Sweeping Wrist Pitch (Joint 5)...")
-                        for calibrator in [self.joint_calibrator, self.marker_calibrator]:
-                            calibrator.joint_offsets[arm_side]["wrist_pitch"] = self.joint_offsets_store[arm_side]["joint5"]
-                            calibrator.joint_offsets[arm_side]["wrist_roll"] = self.joint_offsets_store[arm_side]["joint6"]
-                            calibrator.joint_offsets[arm_side]["wrist_yaw2"] = 0.0
-                            calibrator.joint_offsets[arm_side]["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
-
-                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_pitch_v13", log_callback=self.log_msg.emit):
-                            raise RuntimeError(f"Failed to move to ready pose for wrist_pitch on {arm_side} arm")
-                        if self.stop_event.is_set(): return
-                        
-                        pass1_res_pitch = pass1_joint_results.get("wrist_pitch")
-                        joint_res_pitch = self.joint_calibrator.perform_joint_calibration(
-                            arm_side, "wrist_pitch_v13",
-                            log_callback=self.log_msg.emit,
-                            status_callback=self.status_signal.emit,
-                            current_offset_deg=self.joint_offsets_store[arm_side]["joint5"],
-                            save_debug=self.save_debug,
-                            pass_idx=pass_idx,
-                            pass1_res=pass1_res_pitch
-                        )
-                        if not joint_res_pitch:
-                            raise RuntimeError(f"Wrist pitch joint calibration failed on {arm_side} arm")
-                        if pass_idx == 1:
-                            pass1_joint_results["wrist_pitch"] = joint_res_pitch
-                        joint_res_pitch['arm_side'] = arm_side
-                        joint_res_pitch['mode'] = "wrist_pitch_v13"
-                        joint_res_pitch['pass_idx'] = pass_idx
-                        
-                        opt_pitch = joint_res_pitch["recommended_joint_offset"]
-                        self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
-                        self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
-                        self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
-                        
-                        plot_path = self.joint_calibrator.save_calibration_comparison_plot(
-                            arm_side, "wrist_pitch_v13", pass1_res_pitch if pass1_res_pitch else joint_res_pitch, joint_res_pitch,
-                            log_callback=self.log_msg.emit, force_overwrite=True
-                        )
-                        if plot_path:
-                            joint_res_pitch['plot_path_combined'] = plot_path
-                        
-                        self.joint_finished_signal.emit(joint_res_pitch)
-                        time.sleep(0.5)
-                        if self.stop_event.is_set(): return
-                        
                         # 5. Calibrate J3 Elbow
-                        self.log_msg.emit("[FULL AUTO] Sweeping Elbow (Joint 3)...")
-                        if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
-                            raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
-                        if self.stop_event.is_set(): return
-                        
                         pass1_res_elbow = pass1_joint_results.get("elbow")
-                        joint_res_elbow = self.joint_calibrator.perform_joint_calibration(
-                            arm_side, "elbow",
-                            log_callback=self.log_msg.emit,
-                            status_callback=self.status_signal.emit,
-                            current_offset_deg=self.joint_offsets_store[arm_side]["joint3"],
-                            save_debug=self.save_debug,
-                            pass_idx=pass_idx,
-                            pass1_res=pass1_res_elbow
-                        )
-                        if not joint_res_elbow:
-                            raise RuntimeError(f"Elbow joint calibration failed on {arm_side} arm")
-                        if pass_idx == 1:
-                            pass1_joint_results["elbow"] = joint_res_elbow
-                        joint_res_elbow['arm_side'] = arm_side
-                        joint_res_elbow['mode'] = "elbow"
-                        joint_res_elbow['pass_idx'] = pass_idx
-                        
-                        opt_elbow = joint_res_elbow["recommended_joint_offset"]
-                        self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
-                        self.marker_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
-                        self.joint_offsets_store[arm_side]["joint3"] = opt_elbow
-                        
-                        plot_path = self.joint_calibrator.save_calibration_comparison_plot(
-                            arm_side, "elbow", pass1_res_elbow if pass1_res_elbow else joint_res_elbow, joint_res_elbow,
-                            log_callback=self.log_msg.emit, force_overwrite=True
-                        )
-                        if plot_path:
-                            joint_res_elbow['plot_path_combined'] = plot_path
-                        
-                        self.joint_finished_signal.emit(joint_res_elbow)
-                        time.sleep(0.5)
+                        if pass_idx == 2 and pass1_res_elbow and pass1_res_elbow.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO] J3 (Elbow) converged in Pass 1 ({pass1_res_elbow['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                            opt_elbow = pass1_res_elbow["recommended_joint_offset"]
+                            self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
+                            self.marker_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
+                            self.joint_offsets_store[arm_side]["joint3"] = opt_elbow
+                            self.joint_finished_signal.emit(pass1_res_elbow)
+                        else:
+                            self.log_msg.emit("[FULL AUTO] Sweeping Elbow (Joint 3)...")
+                            if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, "elbow", log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to move to ready pose for elbow on {arm_side} arm")
+                            if self.stop_event.is_set(): return
+                            
+                            joint_res_elbow = self.joint_calibrator.perform_joint_calibration(
+                                arm_side, "elbow",
+                                log_callback=self.log_msg.emit,
+                                status_callback=self.status_signal.emit,
+                                current_offset_deg=self.joint_offsets_store[arm_side]["joint3"],
+                                save_debug=self.save_debug,
+                                pass_idx=pass_idx,
+                                pass1_res=pass1_res_elbow
+                            )
+                            if not joint_res_elbow:
+                                raise RuntimeError(f"Elbow joint calibration failed on {arm_side} arm")
+                            if pass_idx == 1:
+                                pass1_joint_results["elbow"] = joint_res_elbow
+                            joint_res_elbow['arm_side'] = arm_side
+                            joint_res_elbow['mode'] = "elbow"
+                            joint_res_elbow['pass_idx'] = pass_idx
+                            
+                            opt_elbow = joint_res_elbow["recommended_joint_offset"]
+                            self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
+                            self.marker_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
+                            self.joint_offsets_store[arm_side]["joint3"] = opt_elbow
+                            
+                            plot_path = self.joint_calibrator.save_calibration_comparison_plot(
+                                arm_side, "elbow", pass1_res_elbow if pass1_res_elbow else joint_res_elbow, joint_res_elbow,
+                                log_callback=self.log_msg.emit, force_overwrite=True
+                            )
+                            if plot_path:
+                                joint_res_elbow['plot_path_combined'] = plot_path
+                            
+                            self.joint_finished_signal.emit(joint_res_elbow)
+                            time.sleep(0.5)
 
                     else:
                         # === v1.2 CALIBRATION SEQUENCE ===
@@ -2209,41 +2243,49 @@ class FullAutoWorker(QThread):
                         if self.stop_event.is_set(): return
 
                         # 4. Calibrate J6 (Wrist Yaw 2) & Iteration 2 Verification
-                        self.log_msg.emit(f"\n[FULL AUTO] Calibrating J6 (Wrist Yaw 2) under locked bracket...")
                         pass1_res_yaw2 = pass1_joint_results.get("wrist_yaw2")
-                        joint_res_roll = self.joint_calibrator.perform_joint_calibration(
-                            arm_side, "wrist_yaw2",
-                            log_callback=self.log_msg.emit,
-                            status_callback=self.status_signal.emit,
-                            current_offset_deg=self.joint_offsets_store[arm_side]["joint6"],
-                            save_debug=self.save_debug,
-                            pass_idx=pass_idx,
-                            pass1_res=pass1_res_yaw2
-                        )
-                        if not joint_res_roll:
-                            raise RuntimeError(f"J6 (Wrist Yaw 2) calibration failed on {arm_side} arm")
-                        if pass_idx == 1:
-                            pass1_joint_results["wrist_yaw2"] = joint_res_roll
+                        if pass_idx == 2 and pass1_res_yaw2 and pass1_res_yaw2.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO 2/3] J6 (Wrist Yaw 2) converged in Pass 1 ({pass1_res_yaw2['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                            opt_roll = pass1_res_yaw2["recommended_joint_offset"]
+                            self.joint_offsets_store[arm_side]["joint6"] = opt_roll
+                            self.joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+                            self.marker_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+                            self.joint_finished_signal.emit(pass1_res_yaw2)
+                        else:
+                            self.log_msg.emit(f"\n[FULL AUTO] Calibrating J6 (Wrist Yaw 2) under locked bracket...")
+                            joint_res_roll = self.joint_calibrator.perform_joint_calibration(
+                                arm_side, "wrist_yaw2",
+                                log_callback=self.log_msg.emit,
+                                status_callback=self.status_signal.emit,
+                                current_offset_deg=self.joint_offsets_store[arm_side]["joint6"],
+                                save_debug=self.save_debug,
+                                pass_idx=pass_idx,
+                                pass1_res=pass1_res_yaw2
+                            )
+                            if not joint_res_roll:
+                                raise RuntimeError(f"J6 (Wrist Yaw 2) calibration failed on {arm_side} arm")
+                            if pass_idx == 1:
+                                pass1_joint_results["wrist_yaw2"] = joint_res_roll
 
-                        opt_roll = joint_res_roll["recommended_joint_offset"]
-                        self.log_msg.emit(f"[FULL AUTO] Staging J6 offset: {opt_roll:.4f}°")
-                        self.joint_offsets_store[arm_side]["joint6"] = opt_roll
-                        self.joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
-                        self.marker_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
-                        
-                        plot_path = self.joint_calibrator.save_calibration_comparison_plot(
-                            arm_side, "wrist_yaw2", pass1_res_yaw2 if pass1_res_yaw2 else joint_res_roll, joint_res_roll,
-                            log_callback=self.log_msg.emit, force_overwrite=True
-                        )
-                        if plot_path:
-                            joint_res_roll['plot_path_combined'] = plot_path
-                        
-                        joint_res_roll['arm_side'] = arm_side
-                        joint_res_roll['mode'] = "wrist_yaw2"
-                        joint_res_roll['pass_idx'] = pass_idx
-                        self.joint_finished_signal.emit(joint_res_roll)
-                        time.sleep(0.5)
-                        if self.stop_event.is_set(): return
+                            opt_roll = joint_res_roll["recommended_joint_offset"]
+                            self.log_msg.emit(f"[FULL AUTO] Staging J6 offset: {opt_roll:.4f}°")
+                            self.joint_offsets_store[arm_side]["joint6"] = opt_roll
+                            self.joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+                            self.marker_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+                            
+                            plot_path = self.joint_calibrator.save_calibration_comparison_plot(
+                                arm_side, "wrist_yaw2", pass1_res_yaw2 if pass1_res_yaw2 else joint_res_roll, joint_res_roll,
+                                log_callback=self.log_msg.emit, force_overwrite=True
+                            )
+                            if plot_path:
+                                joint_res_roll['plot_path_combined'] = plot_path
+                            
+                            joint_res_roll['arm_side'] = arm_side
+                            joint_res_roll['mode'] = "wrist_yaw2"
+                            joint_res_roll['pass_idx'] = pass_idx
+                            self.joint_finished_signal.emit(joint_res_roll)
+                            time.sleep(0.5)
+                            if self.stop_event.is_set(): return
 
                         # 5. Calibrate J3 Elbow
                         pass1_res_elbow = pass1_joint_results.get("elbow")
@@ -5051,7 +5093,7 @@ class UnifiedCalibrationApp(QWidget):
         T_meas_list,
         result_path,
         lambda_cam_pos=1.0,
-        lambda_cam_rot=1.0,
+        lambda_cam_rot=1e6,
         solver_type="QP Solver",
         use_sag=False,
     ):
@@ -5601,7 +5643,7 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_camera = True
                 
             lambda_cam_pos = 1.0
-            lambda_cam_rot = 1.0
+            lambda_cam_rot = 1e6
 
             if len(active_arms) == 1:
                 cfg = get_arm_config(self.model, active_arms[0], version=self.get_robot_version())

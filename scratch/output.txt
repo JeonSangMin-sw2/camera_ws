@@ -1,4 +1,11 @@
 Script started.
 Imported modules successfully.
-Loaded NPZ with 71 samples.
-Running optimization...
+CRASHED WITH ERROR: [Errno 2] No such file or directory: '/home/rainbow/camera_ws/result/result_step2/dataset_20260729_192805.npz'
+Traceback (most recent call last):
+  File "/home/rainbow/camera_ws/scratch/test_print.py", line 42, in <module>
+    q_arm_list, q_head_list, T_meas_list = load_npz_dataset(npz_path)
+  File "/home/rainbow/camera_ws/core/calibration_core.py", line 65, in load_npz_dataset
+    data = np.load(path)
+  File "/home/rainbow/.local/lib/python3.10/site-packages/numpy/lib/npyio.py", line 427, in load
+    fid = stack.enter_context(open(os_fspath(file), "rb"))
+FileNotFoundError: [Errno 2] No such file or directory: '/home/rainbow/camera_ws/result/result_step2/dataset_20260729_192805.npz'

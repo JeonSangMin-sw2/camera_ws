@@ -153,12 +153,9 @@ class JointCalibrator(BaseCalibrator):
                 angle_error = res.get('angle_between_normals', 0.0)
                 sign = res.get('sign', 1.0)
                 
-                # wrist_roll_v13 has perpendicular axes (target 90 deg), other modes have parallel axes (target 0 deg)
-                if mode == "wrist_roll_v13":
+                # wrist_roll_v13 (J6 vs J5) and wrist_pitch_v13 (J6 vs J4) have perpendicular axes (target 90 deg)
+                if mode in ("wrist_roll_v13", "wrist_pitch_v13"):
                     angle_dev = abs(angle_error - 90.0)
-                    center_dist = res.get('perp_dist_after', 999.0)
-                elif mode == "wrist_pitch_v13":
-                    angle_dev = angle_error
                     center_dist = res.get('perp_dist_after', 999.0)
                 else:
                     angle_dev = angle_error
@@ -663,7 +660,8 @@ class JointCalibrator(BaseCalibrator):
         else:
             if status_callback: status_callback(True)
 
-        if getattr(self, 'stop_requested', False):
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot is not connected.")
             return None
 
         state = self.robot.get_state()
@@ -672,7 +670,7 @@ class JointCalibrator(BaseCalibrator):
         if first_starting_pose is not None:
             initial_joint_pos = list(first_starting_pose)
         else:
-            initial_joint_pos = list(state.position[arm_idx])
+            initial_joint_pos = list(np.array(state.position)[arm_idx])
 
         # Define joint parameters from JOINT_CONFIGS
         jcfg = self.JOINT_CONFIGS[mode]
@@ -792,8 +790,8 @@ class JointCalibrator(BaseCalibrator):
             a_B_local = np.array([0.0, 1.0, 0.0])
         elif mode == "wrist_pitch_v13":
             a_cand_local = np.array([0.0, 1.0, 0.0])
-            a_A_local = np.array([0.0, 1.0, 0.0])
-            a_B_local = np.array([0.0, 1.0, 0.0])
+            a_A_local = np.array([1.0, 0.0, 0.0])
+            a_B_local = np.array([0.0, 0.0, 1.0])
         elif mode in ("wrist_pitch", "elbow"):
             a_cand_local = np.array([0.0, 1.0, 0.0])
             a_A_local = np.array([0.0, 0.0, 1.0])
@@ -812,7 +810,7 @@ class JointCalibrator(BaseCalibrator):
         sweep_joint_B = jcfg["sweep_joint_B"]
 
         if not self.robot:
-            raise RuntimeError("Robot instance is not initialized")
+            raise RuntimeError("Robot instance is not initialized or connected.")
             
         state = self.robot.get_state()
         model = self.robot.model()
@@ -845,14 +843,18 @@ class JointCalibrator(BaseCalibrator):
         logging.debug(f"       a_A_t5    = {a_A_t5.tolist()}")
         logging.debug(f"       a_B_t5    = {a_B_t5.tolist()}")
 
-        # Use nominal fixed camera rotation relative to torso (ZYX [-90, 0, -90])
-        # to avoid using uncalibrated mount_to_cam values or head kinematics.
-        R_rob_to_cam = R_scipy.from_euler('ZYX', [-90.0, 0.0, -90.0], degrees=True).as_matrix()
+        # Calculate accurate transformation from torso to camera frame
+        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        T_mount_to_cam = self.make_transform(mount_to_cam)
+        q_init = dataset_A[0][0]
+        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
+        T_torso_to_cam = np.linalg.inv(T_t5_to_head @ T_mount_to_cam)
+        R_torso_to_cam = T_torso_to_cam[:3, :3]
 
-        # Define nominal axes in the camera frame using transpose of R_rob_to_cam (since R_rob_to_cam is R_cam_to_torso)
-        a_cand_cam = R_rob_to_cam.T @ a_cand_t5
-        a_A_cam = R_rob_to_cam.T @ a_A_t5
-        a_B_cam_nom = R_rob_to_cam.T @ a_B_t5
+        # Define nominal axes in the camera frame
+        a_cand_cam = R_torso_to_cam @ a_cand_t5
+        a_A_cam = R_torso_to_cam @ a_A_t5
+        a_B_cam_nom = R_torso_to_cam @ a_B_t5
 
         a_cand_cam /= np.linalg.norm(a_cand_cam)
         a_A_cam /= np.linalg.norm(a_A_cam)
@@ -871,7 +873,7 @@ class JointCalibrator(BaseCalibrator):
 
         n_A = res_A['axis_opt']
         n_B = res_B['axis_opt']
-        if np.dot(n_A, n_B) < 0:
+        if mode not in ("wrist_roll_v13", "wrist_pitch_v13") and np.dot(n_A, n_B) < 0:
             n_B = -n_B
 
         r_A = res_A['radius']
@@ -894,62 +896,7 @@ class JointCalibrator(BaseCalibrator):
         n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
 
         # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
-        if mode == "wrist_pitch_v13":
-            try:
-                # Phase-based fitting for parallel axes (J5 vs J3)
-                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                T_mount_to_cam = self.make_transform(mount_to_cam)
-                
-                q_first, T_cam_to_marker_first = dataset_A[0]
-                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_first, "link_head_2", "link_torso_5")
-                T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
-                
-                ver_key = "v1.3" if self.is_v13() else "v1.2"
-                key = f"Tf_to_marker_{arm_side}"
-                if self.camera_config and key in self.camera_config:
-                    bracket_vec = self.camera_config[key]
-                else:
-                    bracket_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-                T_ee_to_marker = self.make_transform(bracket_vec)
-                
-                arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
-                
-                angles = []
-                for q_full, T_cam_to_marker in dataset_A:
-                    q_nom = np.array(q_full)
-                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                        q_nom[arm_idx[3]] -= np.radians(offsets.get("elbow", 0.0))
-                        q_nom[arm_idx[5]] -= np.radians(offsets.get("wrist_pitch", 0.0))
-                        q_nom[arm_idx[6]] -= np.radians(offsets.get("wrist_roll", 0.0))
-                    
-                    T_torso_to_ee_nom = self.compute_fk(self.robot, dyn_model, q_nom, ee_name, "link_torso_5")
-                    T_cam_to_marker_nom = T_torso_to_cam @ T_torso_to_ee_nom @ T_ee_to_marker
-                    p_nom = T_cam_to_marker_nom[:3, 3]
-                    p_meas = T_cam_to_marker[:3, 3]
-                    
-                    v_nom = p_nom - c_A_c / 1000.0
-                    v_nom = v_nom - np.dot(v_nom, n_A) * n_A
-                    v_nom /= np.linalg.norm(v_nom)
-                    
-                    v_meas = p_meas - c_A_c / 1000.0
-                    v_meas = v_meas - np.dot(v_meas, n_A) * n_A
-                    v_meas /= np.linalg.norm(v_meas)
-                    
-                    ang = np.arctan2(np.dot(np.cross(v_nom, v_meas), n_A), np.dot(v_nom, v_meas))
-                    angles.append(ang)
-                    
-                # We return negative of the mean to represent the compensation offset
-                optimal_offset_deg = float(np.degrees(np.mean(angles)))
-            except Exception as e:
-                import traceback
-                if log_callback:
-                    log_callback(f"[WARN] Phase-based fitting failed: {e}\n{traceback.format_exc()}. Using 0.0.")
-                optimal_offset_deg = 0.0
-            
-            diff_angle = np.radians(optimal_offset_deg)
-        elif mode in ("wrist_roll_v13", "wrist_yaw2"):
+        if mode in ("wrist_roll_v13", "wrist_yaw2"):
             try:
                 from core.calibration.MarkerCalibrator import MarkerCalibrator
                 mc = MarkerCalibrator(self.marker_st, self.robot)
@@ -1017,6 +964,14 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}\n{traceback.format_exc()}. Using 0.0.")
                 optimal_offset_deg = 0.0
                 diff_angle = 0.0
+        elif mode == "wrist_pitch_v13":
+            # Orthogonal normal vector projection solver for v1.3 spherical wrist Pitch (J5)
+            # Sweep A is J6 (Roll, nominal axis X) and Sweep B is J4 (Yaw, nominal axis Z).
+            # J6 and J4 are nominally orthogonal (90.0°).
+            cross = np.cross(n_A, n_B)
+            sin_sign = np.sign(np.dot(cross, a_cand_cam))
+            optimal_offset_deg = (angle_between_normals - 90.0) * sin_sign
+            diff_angle = np.radians(optimal_offset_deg)
         else:
             # Project axes onto the candidate joint's rotation plane to absorb physical DH twist errors
             # This ensures smooth zero-crossing even if the sweep axes are not perfectly parallel.
@@ -1067,13 +1022,20 @@ class JointCalibrator(BaseCalibrator):
                 T_cand_child = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint}")
                 p_cand_cam = (T_torso_to_cam @ T_cand_child)[:3, 3] * 1000.0  # mm
                 
-                vec_elbow_to_cA = c_A_c - p_cand_cam
+                # Project centers to candidate plane
+                c_A_proj = c_A_c - np.dot(c_A_c - p_cand_cam, true_a_cand_cam) * true_a_cand_cam
+                c_B_proj = c_B_c - np.dot(c_B_c - p_cand_cam, true_a_cand_cam) * true_a_cand_cam
                 
-                # Cross direction gives the expected displacement direction for a positive physical offset
-                dir_vec = np.cross(true_a_cand_cam, vec_elbow_to_cA)
-                L2 = np.sum(dir_vec**2)
+                v_A = c_A_proj - p_cand_cam
+                v_B = c_B_proj - p_cand_cam
+                L1 = np.linalg.norm(v_A) # Length of link between cand joint and sweep joint A
+                L2 = np.linalg.norm(v_B) # Length of link between cand joint and sweep joint B
                 
-                if L2 > 1.0:
+                if L1 > 1e-3 and L2 > 1e-3:
+                    # Direction perpendicular to v_A in the rotation plane
+                    dir_vec = np.cross(true_a_cand_cam, v_A / L1)
+                    # Project center displacement onto this perpendicular direction
+                    diff_centers = c_B_proj - c_A_proj
                     proj = np.dot(diff_centers, dir_vec)
                     sin_theta = np.clip(proj / L2, -1.0, 1.0)
                     # We return the negative of the physical error as the compensation offset
@@ -1081,6 +1043,8 @@ class JointCalibrator(BaseCalibrator):
                 else:
                     optimal_offset_deg = 0.0
                     
+            elif mode == "wrist_pitch_v13":
+                pass # Already computed directly above
             elif mode not in ("wrist_roll_v13", "wrist_yaw2"):
                 optimal_offset_deg = -np.degrees(diff_angle)
 

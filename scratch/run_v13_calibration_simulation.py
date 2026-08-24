@@ -9,7 +9,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import rby1_sdk
 from core.calibration.MarkerCalibrator import MarkerCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
-from additional_calib_ui import SimulatedMarkerTransform, FullAutoWorker
+from main_ui import SimulatedMarkerTransform, FullAutoWorker
 
 class DummySignal:
     def emit(self, *args, **kwargs):

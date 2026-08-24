@@ -9,7 +9,7 @@ except ImportError:
 
 
 DEFAULT_LAMBDA_CAM_POS = 1.0
-DEFAULT_LAMBDA_CAM_ROT = 1.0
+DEFAULT_LAMBDA_CAM_ROT = 1e6
 DEFAULT_ESTIMATE_MEASUREMENT_NOISE = False
 DEFAULT_NOISE_UPDATE_RATE = 0.5
 DEFAULT_INITIAL_NOISE_STD_ROT_RAD = np.deg2rad(0.5)
@@ -371,7 +371,7 @@ class QPCalibrationOptimizer:
         self.joint_offset_bound_rad = joint_offset_bound_rad
         self.camera_rot_step_bound_rad = camera_rot_step_bound_rad
         self.camera_pos_step_bound_m = camera_pos_step_bound_m
-        self.camera_rot_bound_rad = camera_rot_bound_rad
+        self.camera_rot_bound_rad = (2.0 * D2R) if camera_rot_bound_rad is None else camera_rot_bound_rad
         self.camera_pos_bound_m = camera_pos_bound_m
 
     def get_joint_limit(self):
@@ -476,8 +476,8 @@ class QPCalibrationOptimizer:
             upper_parts.append(q_upper)
 
         if self.optimize_head:
-            # Restrict head joint offsets to physically reasonable range (e.g. ±15 degrees) to prevent gimbal roll/tilt representation flip
-            head_limit_rad = 15.0 * D2R
+            # Restrict head joint offsets to physically reasonable range (e.g. ±20 degrees)
+            head_limit_rad = 20.0 * D2R
             lower_parts.append(np.array([-head_limit_rad, -head_limit_rad]))
             upper_parts.append(np.array([head_limit_rad, head_limit_rad]))
 

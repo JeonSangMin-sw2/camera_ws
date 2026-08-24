@@ -7,8 +7,12 @@ This is a camera calibration tool for the robot to calibrate joint offsets and c
 - **OS**: Ubuntu 22.04
 - **SDK compatibility**: rby1-sdk 0.10.x and later
 - **Python version**: 3.10
-- **Camera**: Intel RealSense D405 (Resolution: 1280x720, 30 FPS)
+- **Camera**: Intel RealSense D405,D435 (Resolution: 1280x720, 30 FPS)
 - **Markers**: AprilTag (Plate Marker: Size 80mm. ID: Left (7), Right (8))
+
+> [!IMPORTANT]
+> The camera cable must be USB 3.0.
+
 
 > [!NOTE]
 > if you'll test in RBY1 Simulator, pleasse install docker for RBY1 Simulator.
@@ -77,6 +81,8 @@ To run the latest PySide6 (>=6.5.0) GUI environment on Linux without errors, you
 2. **OpenCV-PySide6 Qt Conflict Bypass (Auto-applied in code)**
    - When the `opencv-contrib-python` package is loaded, it sets the Qt plugin path (`QT_QPA_PLATFORM_PLUGIN_PATH`) internally. This causes a version mismatch crash (Aborted) when launching the PySide6 GUI.
    - The `os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)` logic is applied at the top of the `main_ui.py` code to prevent this collision programmatically.
+3. **Custom / Unlisted RealSense Models (`config/camera_info.yaml`)**
+   - If using an Intel RealSense camera model not pre-configured (e.g., other than D405, D435), you must manually enter the coordinate values and mount transforms for the color camera lens in [`config/camera_info.yaml`](file:///home/rainbow/camera_ws/config/camera_info.yaml).
 
 ### 4. Running the Calibration UI
 Run the following command in the terminal to launch the main UI:

@@ -18,7 +18,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 class BaseCalibrator:
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 5, "sweep_joint_B": 3, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 6, "sweep_joint_B": 4, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
         "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 15.0, "sweep_range_B": 15.0},
@@ -82,7 +82,10 @@ class BaseCalibrator:
         self.load_ready_poses()
         
         # Active joint home offsets to apply to commanded trajectories
-        self.joint_offsets = {"wrist_pitch": 0.0, "elbow": 0.0}
+        self.joint_offsets = {
+            "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0},
+            "left":  {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0}
+        }
         self.user_taught_ready_poses = {}
         self.stop_requested = False
 
@@ -142,11 +145,16 @@ class BaseCalibrator:
             raise RuntimeError("Ready poses are not loaded or the configuration file is empty.")
         
         try:
-            val = self.ready_poses[version_key]
+            ver_clean = str(version_key).replace("v", "")
+            val = self.ready_poses.get(version_key) or self.ready_poses.get(f"v{ver_clean}") or self.ready_poses.get(ver_clean)
+            if val is None:
+                raise KeyError(f"Version key {version_key} not in ready_poses (available: {list(self.ready_poses.keys())})")
             if type_key == "joint":
                 lookup_key = mode_key
                 if lookup_key == "wrist_pitch_v13":
                     lookup_key = "wrist_pitch"
+                elif lookup_key == "wrist_roll_v13":
+                    lookup_key = "wrist_roll"
                 val = val["joint"][lookup_key][f"{arm_side}_arm"]
             elif type_key == "check_calib":
                 val = val["check_calib"][f"{arm_side}_arm"]
@@ -379,7 +387,13 @@ class BaseCalibrator:
     def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
         model = robot.model()
         state = dyn_model.make_state([base_link, ee_link], model.robot_joint_names)
-        state.set_q(q)
+        num_joints = len(model.robot_joint_names)
+        q_arr = np.zeros(num_joints)
+        if len(q) >= num_joints:
+            q_arr = np.array(q[:num_joints])
+        else:
+            q_arr[:len(q)] = q
+        state.set_q(q_arr)
         dyn_model.compute_forward_kinematics(state)
         T = dyn_model.compute_transformation(state, 0, 1)
         return T
@@ -401,6 +415,9 @@ class BaseCalibrator:
 
 
     def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None, q_actual=None):
+        if not self.robot:
+            raise RuntimeError("Robot is not initialized or connected.")
+
         is_v13 = self.is_v13()
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
@@ -419,7 +436,6 @@ class BaseCalibrator:
         injected_joint_offsets_deg[5] = mock_gt.get("joint5_v13" if is_v13 else "joint5_v12", 0.0)
         injected_joint_offsets_deg[6] = mock_gt.get("joint6", 0.0)
 
-        
         if q_actual is None:
             state = self.robot.get_state()
             q_actual = np.array(state.position)
@@ -1052,8 +1068,8 @@ class BaseCalibrator:
                 ready_mode = "elbow"
             elif mode == "wrist_yaw2":
                 ready_mode = "wrist_yaw2"
-            elif mode == "wrist_roll_v13":
-                ready_mode = "wrist_roll_v13"
+            elif mode in ("wrist_roll", "wrist_roll_v13"):
+                ready_mode = "wrist_roll"
             else:
                 ready_mode = "wrist_pitch"
             
@@ -1266,9 +1282,13 @@ class BaseCalibrator:
                     apply_offsets=False
                 )
 
+        if not self.robot:
+            if log_callback: log_callback("[ERROR] Robot is not connected.")
+            return None
+
         is_camera_mock = self.is_mock
-        model = self.robot.model() if self.robot else None
-        arm_idx = (model.left_arm_idx if arm_side == "left" else model.right_arm_idx) if model else list(range(7))
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
 
         # Retrieve joint limits with safety clamping
         dyn_model = self.robot.get_dynamics() if self.robot else None
@@ -1317,7 +1337,7 @@ class BaseCalibrator:
             if log_callback: log_callback(f"[ERROR] Failed to move {label} to start pose or stop requested.")
             return None
 
-        if self.robot:
+        if self.robot and self.robot != "mock_robot":
             time.sleep(0.5)
         else:
             time.sleep(0.01)
@@ -1335,35 +1355,32 @@ class BaseCalibrator:
         )
 
         dataset = []
+        t_start = time.time()
         move_thread.start()
 
         # Capture poses and joint positions at high frequency
         while move_thread.is_alive():
             if getattr(self, 'stop_requested', False):
-                if self.robot:
-                    self.robot.cancel_control()
+                self.robot.cancel_control()
                 move_thread.join()
                 return None
 
-            if self.robot:
-                q_full_captured = None
-                for retry in range(3):
-                    try:
-                        state_obj = self.robot.get_state()
-                        if state_obj is not None and getattr(state_obj, 'position', None) is not None:
-                            q_full_captured = np.array(state_obj.position)
-                            break
-                    except Exception as e:
-                        if retry == 2:
-                            self.logger.warning(f"get_state() failed after 3 retries: {e}")
-                        time.sleep(0.005)
-                if q_full_captured is None:
-                    if len(dataset) > 0:
-                        q_full_captured = dataset[-1][0].copy()
-                    else:
-                        q_full_captured = np.zeros(20)
-            else:
-                q_full_captured = np.zeros(20)
+            q_full_captured = None
+            for retry in range(3):
+                try:
+                    state_obj = self.robot.get_state()
+                    if state_obj is not None and getattr(state_obj, 'position', None) is not None:
+                        q_full_captured = np.array(state_obj.position)
+                        break
+                except Exception as e:
+                    if retry == 2:
+                        self.logger.warning(f"get_state() failed after 3 retries: {e}")
+                    time.sleep(0.005)
+            if q_full_captured is None:
+                if len(dataset) > 0:
+                    q_full_captured = dataset[-1][0].copy()
+                else:
+                    q_full_captured = np.zeros(26)
 
             if is_camera_mock:
                 if hasattr(self, 'get_simulated_marker_pose'):
@@ -1392,7 +1409,7 @@ class BaseCalibrator:
                         dataset.append((q_full_captured, pose_mat))
 
             if is_camera_mock:
-                time.sleep(0.033)
+                time.sleep(0.005 if sweep_duration <= 2.0 else 0.033)
             else:
                 time.sleep(0.01)
 

@@ -103,7 +103,7 @@ class MarkerCalibrator(BaseCalibrator):
             time.sleep(0.5)
         return True
 
-    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False, initial_joint_pos=None, pass_idx=1):
+    def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False, initial_joint_pos=None, pass_idx=1, sweep_duration=10.0):
         try:
             if getattr(self, 'stop_requested', False):
                 return None
@@ -141,14 +141,15 @@ class MarkerCalibrator(BaseCalibrator):
             else:
                 if status_callback: status_callback(True)
 
-            if getattr(self, 'stop_requested', False):
+            if not self.robot:
+                if log_callback: log_callback("[ERROR] Robot is not connected.")
                 return None
 
             state = self.robot.get_state()
             model = self.robot.model()
             arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
             if initial_joint_pos is None:
-                initial_joint_pos = list(state.position[arm_idx])
+                initial_joint_pos = list(np.array(state.position)[arm_idx])
 
             # Sweep configuration from MARKER_CONFIGS
             axis_str = str(axis_mode).lower()
@@ -166,7 +167,7 @@ class MarkerCalibrator(BaseCalibrator):
 
             # Head index and active head tracking setup
             head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
-            q_head_0 = state.position[head_idx].copy() if head_idx is not None else None
+            q_head_0 = np.array(state.position)[head_idx].copy() if head_idx is not None else None
             dyn_model = self.robot.get_dynamics()
             
             q_head_start = None
@@ -174,7 +175,7 @@ class MarkerCalibrator(BaseCalibrator):
                 q_head_start = q_head_0
 
             dataset = self.perform_single_joint_sweep(
-                arm_side, joint_i, initial_joint_pos, start_deg, end_deg, 10.0,
+                arm_side, joint_i, initial_joint_pos, start_deg, end_deg, sweep_duration,
                 q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback, mode="marker"
             )
             if dataset is None:
@@ -609,13 +610,8 @@ class MarkerCalibrator(BaseCalibrator):
         }
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
-        if self.is_v13():
-            return self.compute_unified_bracket_calibration_v1_3(
-                marker_data_5, marker_data_6, arm_side, tolerance=tolerance,
-                marker_data_4=marker_data_4, calib_roll_deg=calib_roll_deg,
-                calib_pitch_deg=calib_pitch_deg, calib_roll_or_yaw_deg=calib_roll_or_yaw_deg,
-                lock_bracket=lock_bracket
-            )
+        if calib_roll_or_yaw_deg is not None:
+            calib_roll_deg = calib_roll_or_yaw_deg
 
         L_5_ee = self.get_link_length(arm_side)
 
@@ -662,23 +658,25 @@ class MarkerCalibrator(BaseCalibrator):
         mid_idx_6 = len(poses_6) // 2
         R_ref_6 = poses_6[mid_idx_6][:3, :3] if len(poses_6) > 0 else np.eye(3)
         n6_cam = marker_data_6.get('axis_opt')
+        target_ideal_6 = x_ee_m_ideal if self.is_v13() else z_ee_m_ideal
         if n6_cam is not None:
             n6_marker_actual = R_ref_6.T @ n6_cam
-            if np.dot(n6_marker_actual, z_ee_m_ideal) < 0:
+            if np.dot(n6_marker_actual, target_ideal_6) < 0:
                 n6_marker_actual = -n6_marker_actual
         else:
-            n6_marker_actual = extract_axis_from_rotations(poses_6, z_ee_m_ideal)
+            n6_marker_actual = extract_axis_from_rotations(poses_6, target_ideal_6)
         
         poses_5 = marker_data_5.get('captured_poses', [])
         mid_idx_5 = len(poses_5) // 2
         R_ref_5 = poses_5[mid_idx_5][:3, :3] if len(poses_5) > 0 else np.eye(3)
         n5_cam = marker_data_5.get('axis_opt')
+        target_ideal_5 = y_ee_m_ideal
         if n5_cam is not None:
             n5_marker_actual = R_ref_5.T @ n5_cam
-            if np.dot(n5_marker_actual, y_ee_m_ideal) < 0:
+            if np.dot(n5_marker_actual, target_ideal_5) < 0:
                 n5_marker_actual = -n5_marker_actual
         else:
-            n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+            n5_marker_actual = extract_axis_from_rotations(poses_5, target_ideal_5)
  
         # [BYPASS] Bypassed permanently to calculate using ONLY the marker and rotation axis trajectory.
         kinematic_success = False
@@ -711,12 +709,13 @@ class MarkerCalibrator(BaseCalibrator):
                 mid_idx_4 = len(poses_4) // 2
                 R_ref_4 = poses_4[mid_idx_4][:3, :3] if len(poses_4) > 0 else np.eye(3)
                 n4_cam = marker_data_4.get('axis_opt')
+                target_ideal_4 = z_ee_m_ideal if self.is_v13() else x_ee_m_ideal
                 if n4_cam is not None:
                     n4_marker_actual = R_ref_4.T @ n4_cam
-                    if np.dot(n4_marker_actual, x_ee_m_ideal) < 0:
+                    if np.dot(n4_marker_actual, target_ideal_4) < 0:
                         n4_marker_actual = -n4_marker_actual
                 else:
-                    n4_marker_actual = extract_axis_from_rotations(poses_4, x_ee_m_ideal)
+                    n4_marker_actual = extract_axis_from_rotations(poses_4, target_ideal_4)
 
                 # Joint 6 angle correction for Joint 4 sweep
                 theta_6_4 = marker_data_4.get('theta_6', None)
@@ -738,28 +737,46 @@ class MarkerCalibrator(BaseCalibrator):
                     offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
                     theta_6_4 -= np.radians(offset_val)
 
-                z_col = n6_marker_actual
-                
-                # Form orthogonal projections of n5 and n4 onto plane perpendicular to z_col
-                y_col_rot = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
-                y_col_rot /= np.linalg.norm(y_col_rot)
-                
-                x_col_rot = n4_marker_actual - np.dot(n4_marker_actual, z_col) * z_col
-                x_col_rot /= np.linalg.norm(x_col_rot)
+                if not self.is_v13():
+                    z_col = n6_marker_actual
+                    y_col_rot = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+                    y_col_rot /= np.linalg.norm(y_col_rot)
+                    x_col_rot = n4_marker_actual - np.dot(n4_marker_actual, z_col) * z_col
+                    x_col_rot /= np.linalg.norm(x_col_rot)
 
-                # Apply Joint 6 angle rotations back
-                if abs(theta_6) > 1e-5:
-                    y_col = self.rodrigues_rotation(y_col_rot, z_col, theta_6)
-                else:
-                    y_col = y_col_rot
+                    # Apply Joint 6 angle rotations back
+                    if abs(theta_6) > 1e-5:
+                        y_col = self.rodrigues_rotation(y_col_rot, z_col, theta_6)
+                    else:
+                        y_col = y_col_rot
 
-                if abs(theta_6_4) > 1e-5:
-                    x_col = self.rodrigues_rotation(x_col_rot, z_col, theta_6_4)
+                    if abs(theta_6_4) > 1e-5:
+                        x_col = self.rodrigues_rotation(x_col_rot, z_col, theta_6_4)
+                    else:
+                        x_col = x_col_rot
+
+                    M = np.column_stack((x_col, y_col, z_col))
                 else:
-                    x_col = x_col_rot
+                    # v1.3 Spherical Wrist: J6 is X-axis, J5 is Y-axis, J4 is Z-axis
+                    x_col = n6_marker_actual
+                    y_col_rot = n5_marker_actual - np.dot(n5_marker_actual, x_col) * x_col
+                    y_col_rot /= np.linalg.norm(y_col_rot)
+                    z_col_rot = n4_marker_actual - np.dot(n4_marker_actual, x_col) * x_col
+                    z_col_rot /= np.linalg.norm(z_col_rot)
+
+                    if abs(theta_6) > 1e-5:
+                        y_col = self.rodrigues_rotation(y_col_rot, x_col, theta_6)
+                    else:
+                        y_col = y_col_rot
+
+                    if abs(theta_6_4) > 1e-5:
+                        z_col = self.rodrigues_rotation(z_col_rot, x_col, theta_6_4)
+                    else:
+                        z_col = z_col_rot
+
+                    M = np.column_stack((x_col, y_col, z_col))
 
                 # Use SVD to clean up orthogonality errors and build R_m_ee
-                M = np.column_stack((x_col, y_col, z_col))
                 U, S, Vt = np.linalg.svd(M)
                 R_m_ee_actual = U @ Vt
                 if np.linalg.det(R_m_ee_actual) < 0:
@@ -768,23 +785,37 @@ class MarkerCalibrator(BaseCalibrator):
                 
                 R_ee_m_actual = R_m_ee_actual.T
             else:
-                # --- 2-Axis Gram-Schmidt Alignment (Joint 5 and 6) ---
-                z_col = n6_marker_actual
-                y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
-                y_col_rotated /= np.linalg.norm(y_col_rotated)
-                
-                if abs(theta_6) > 1e-5:
-                    y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
-                else:
-                    y_col = y_col_rotated
+                if not self.is_v13():
+                    # --- 2-Axis Gram-Schmidt Alignment (Joint 5 and 6) ---
+                    z_col = n6_marker_actual
+                    y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, z_col) * z_col
+                    y_col_rotated /= np.linalg.norm(y_col_rotated)
                     
-                x_col = np.cross(y_col, z_col)
-                
-                R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
-                R_ee_m_actual = R_m_ee_actual.T
+                    if abs(theta_6) > 1e-5:
+                        y_col = self.rodrigues_rotation(y_col_rotated, z_col, theta_6)
+                    else:
+                        y_col = y_col_rotated
+                        
+                    x_col = np.cross(y_col, z_col)
+                    
+                    R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
+                    R_ee_m_actual = R_m_ee_actual.T
+                else:
+                    x_col = n6_marker_actual
+                    y_col_rotated = n5_marker_actual - np.dot(n5_marker_actual, x_col) * x_col
+                    y_col_rotated /= np.linalg.norm(y_col_rotated)
+                    
+                    if abs(theta_6) > 1e-5:
+                        y_col = self.rodrigues_rotation(y_col_rotated, x_col, theta_6)
+                    else:
+                        y_col = y_col_rotated
+                        
+                    z_col = np.cross(x_col, y_col)
+                    
+                    R_m_ee_actual = np.column_stack((x_col, y_col, z_col))
+                    R_ee_m_actual = R_m_ee_actual.T
 
         # 4. 오일러 각도 추출
-        # 기준 행렬이 +90도를 기반으로 구축되었으므로, ZYX 분해 시 자연스럽게 +90도 근처의 값이 도출됩니다.
         euler_deg = R_scipy.from_matrix(R_ee_m_actual).as_euler('ZYX', degrees=True)
         yaw_e, pitch_e, roll_e = euler_deg
         
@@ -793,55 +824,75 @@ class MarkerCalibrator(BaseCalibrator):
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         if not self.is_v13():
             yaw_e = nominal_vec[5]
-        
-        if arm_side == "right" and yaw_e < 0:
-            yaw_e += 360.0
+            if arm_side == "right" and yaw_e < 0:
+                yaw_e += 360.0
+        else:
+            if arm_side == "right" and yaw_e < 0 and abs(yaw_e - 270.0) < 45.0:
+                yaw_e += 360.0
 
         # 5. 평행이동 오프셋 계산 (Least-Squares Solver allowing small attachment errors)
         radius_6 = marker_data_6.get('radius', 0.0)
         radius_5 = marker_data_5.get('radius', 0.0)
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
         
-        # 오차 전파 차단을 위해 기존 setting.yaml의 Tf_to_marker 값을 쓰지 않고, 
-        # 무조건 고정 설계 템플릿(NOMINAL_BRACKET_TEMPLATES)만 명목 목표값으로 사용합니다.
         x_nom = nominal_vec[0] * 1000.0
         y_nom = nominal_vec[1] * 1000.0
         z_nom = nominal_vec[2] * 1000.0
         
-        # In v1.2, we assume J5/J6 joint offsets are already zero/corrected
         opt_delta_5_rad = 0.0
         opt_delta_6_rad = 0.0
         
-        # Z-axis direction is dynamically determined based on the robot kinematics model
         z_sign = self.get_z_sign(arm_side)
 
         from scipy.optimize import least_squares
         if marker_data_4 is not None:
-            def residuals_trans(params):
-                xe, ye, ze = params
-                r6_pred = np.sqrt(xe**2 + ye**2)
-                Z_prime = ze + z_sign * L_5_ee
-                r5_pred = np.sqrt(xe**2 + Z_prime**2)
-                # J4 axis is Z of link 4. J5 ready pose is at 90 deg, which aligns J4 rotation to EE X-axis.
-                # In link 4 frame, X_marker = L_5_ee + ze, Y_marker = ye
-                # Thus J4 sweep radius is sqrt((ze + z_sign * L_5_ee)**2 + ye**2)
-                r4_pred = np.sqrt((ze + z_sign * L_5_ee)**2 + ye**2)
-                res = [
-                    r6_pred - radius_6,
-                    r5_pred - radius_5,
-                    r4_pred - radius_4
-                ]
-                reg_weight = 1e-7
-                res.append(reg_weight * (xe - x_nom))
-                res.append(reg_weight * (ye - y_nom))
-                res.append(reg_weight * (ze - z_nom))
-                return res
+            if not self.is_v13():
+                def residuals_trans(params):
+                    xe, ye, ze = params
+                    r6_pred = np.sqrt(xe**2 + ye**2)
+                    Z_prime = ze + z_sign * L_5_ee
+                    r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                    r4_pred = np.sqrt((ze + z_sign * L_5_ee)**2 + ye**2)
+                    res = [
+                        r6_pred - radius_6,
+                        r5_pred - radius_5,
+                        r4_pred - radius_4
+                    ]
+                    reg_weight = 1e-7
+                    res.append(reg_weight * (xe - x_nom))
+                    res.append(reg_weight * (ye - y_nom))
+                    res.append(reg_weight * (ze - z_nom))
+                    return res
 
-            initial_guess = [x_nom, y_nom, z_nom]
-            lower_bounds = [x_nom - 30.0, y_nom - 30.0, -250.0]
-            upper_bounds = [x_nom + 30.0, y_nom + 30.0, 10.0]
-            opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
-            x_e, y_e, z_e = opt_res.x
+                initial_guess = [x_nom, y_nom, z_nom]
+                lower_bounds = [x_nom - 30.0, y_nom - 30.0, -250.0]
+                upper_bounds = [x_nom + 30.0, y_nom + 30.0, 10.0]
+                opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
+                x_e, y_e, z_e = opt_res.x
+            else:
+                def residuals_trans(params):
+                    xe, ye, ze = params
+                    # In v1.3: J6 is X, J5 is Y, J4 is Z (at q5=0)
+                    Z_prime = ze + z_sign * L_5_ee
+                    r6_pred = np.sqrt(ye**2 + Z_prime**2)
+                    r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                    r4_pred = np.sqrt(xe**2 + ye**2)
+                    res = [
+                        r6_pred - radius_6,
+                        r5_pred - radius_5,
+                        r4_pred - radius_4
+                    ]
+                    reg_weight = 1e-7
+                    res.append(reg_weight * (xe - x_nom))
+                    res.append(reg_weight * (ye - y_nom))
+                    res.append(reg_weight * (ze - z_nom))
+                    return res
+
+                initial_guess = [x_nom, y_nom, z_nom]
+                lower_bounds = [x_nom - 30.0, y_nom - 30.0, z_nom - 30.0]
+                upper_bounds = [x_nom + 30.0, y_nom + 30.0, z_nom + 30.0]
+                opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
+                x_e, y_e, z_e = opt_res.x
         else:
             def residuals_trans(params):
                 ye, ze = params
