@@ -1,206 +1,498 @@
- python -m lerobot.async_inference.robot_client --backend=pi05_zmq --server_address=192.168.0.3:5556
-  --task="Go straight and open the door"  --policy_device=cuda --actions_per_chunk=40 --chunk_size_threshold=0.8 --debug_visualize_queue_size=True --robot.type=rby1 --fps=30
+[INFO] Starting Full Auto Sequential Calibration (Right -> Left Arm)...
+[FULL AUTO] Initial joint offsets reset to 0.0 before starting calibration.
+Starting FULL AUTO sequential calibration...
 
+==================================================
+   STARTING PASS 1/2 FOR RIGHT ARM
+==================================================
 
+[INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[FULL AUTO] Starting Marker Bracket Sweeps for right arm (Pass 1/Pass 2)...
+[FULL AUTO] Moving right arm to ready pose...
+[INFO] Moving right arm to marker Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+[FULL AUTO] Sweeping Axis 4...
 
-pi05_open_door_merge_right_arm 라고 학습했었습니다.
-TrainConfig(
-        name="pi05_open_door_merge_right_arm",
-        model=pi0_config.Pi0Config(
-            pi05=True,
-            action_horizon=40,
-        ),
-        data=LeRobotRBY1OneArmDataConfig(
-            repo_id="sanfmin/opendoor_data_merge",
-            base_config=DataConfig(prompt_from_task=True),
-            use_delta_joint_actions=True,
-        ),
-        weight_loader=weight_loaders.CheckpointWeightLoader(
-            "gs://openpi-assets/checkpoints/pi05_base/params"
-        ),
-        batch_size=32,
-        num_train_steps=50_000,
-        log_interval=1000,
-        save_interval=10_000,
-        fsdp_devices=1,
-        freeze_filter=nnx.Nothing,
-        seed=1000,
-        lr_schedule=_optimizer.CosineDecaySchedule(
-            warmup_steps=10_000,
-            peak_lr=5e-5,
-            decay_steps=1_000_000,
-            decay_lr=5e-5,
-        ),
-        optimizer=_optimizer.AdamW(
-            b1=0.9,
-            b2=0.95,
-            eps=1e-8,
-            weight_decay=1e-10,
-            clip_gradient_norm=1.0,
-        ),
-    ),
+==================================================
+   STARTING 4 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
+[FULL AUTO] Sweeping Axis 6...
 
-혹시 얘기주신게 이거 맞을까요?
+==================================================
+   STARTING 6 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+[FULL AUTO] Sweeping Axis 5...
 
+==================================================
+   STARTING 5 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
 
+[FULL AUTO] Calibrating J6 (Wrist Roll)...
+[INFO] Moving right arm to wrist_roll_v13 Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
 
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_roll_v13: J7 nominal ready pose=-0.00°, raw_diff=-0.21°, optimal_offset=-0.17°
 
-아래와 같이 실행했어요.
+[ITERATION 2/6] Sweeping physically with staged offset -0.1705°...
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_roll_v13: J7 nominal ready pose=-0.00°, raw_diff=0.03°, optimal_offset=-0.15°
 
-uv run src/openpi/serving/zmq_policy_server.py  \
-  --config-name  pi05_open_door_merge_right_arm \
-  --checkpoint-dir ~/NAS/openpi/pi05_open_door_merge_right_arm/opendoor_without_mobile/49999  \
-  --host 0.0.0.0 --port 5555
+[SUCCESS] Calibration CONVERGED successfully:
+  * Step Correction: 0.0179° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: -0.1705°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_roll_v13_joint_calib.png
+[FULL AUTO] Staging J6 offset: -0.1705°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_roll_v13_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_roll_v13. Staged: -0.1705° (click APPLY OFFSET to save).
 
+[FULL AUTO] Calibrating J5 (Wrist Pitch)...
+[INFO] Moving right arm to wrist_pitch_v13 Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
 
-============================================================
-  UNIFIED ROBOT CALIBRATION SUITE LOADED
-============================================================
-[RECOMMENDED SEQUENCE]
-  1. Calibrate camera intrinsics first if needed (Step 1 > Camera tab).
-  2. Calibrate joint offsets using Joint subtab.
-  3. Perform marker bracket sweeps using Marker subtab.
-  4. Control head and verify offsets as a final check.
-============================================================
-[INFO] Loaded Tf_to_marker values for both arms and synced to calibrator memory
-[WARN] Initial connection attempt failed. Waiting 1.0s before retrying...
-[ERROR] Connection failure: Failed to connect robot at 192.168.30.1:50051
-[WARNING] Model mismatch! UI selected model: a, but actual robot model is: M. Auto-reconnecting with actual model...
-[INFO] Power is already ON.
-[INFO] Servos are ON.
-[INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
-[INFO] Enabling control manager with unlimited_mode_enabled=True...
-[INFO] Auto-updating UI model selection to match robot model: 'M'
-[INFO] Connected robot model version string: 'v1.2'
-[INFO] Loaded joint offsets from setting.yaml: R[J3=-2.0686°, J5=0.0000°, J6=0.3089°] L[J3=-1.9436°, J5=0.0000°, J6=-0.0782°]
-[INFO] Loaded Tf_to_marker values for both arms and synced to calibrator memory
-[INFO] Automatically switched Step 2 Mode to 'live' because camera and robot are connected.
-[INFO] Robot successfully connected and initialized (Classified Version: 1.2).
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 2/6] Sweeping physically with staged offset -0.6449°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 3/6] Sweeping physically with staged offset 0.4710°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 4/6] Sweeping physically with staged offset 0.3895°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 5/6] Sweeping physically with staged offset 0.0615°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 6/6] Sweeping physically with staged offset 0.1533°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[INFO] Joint wrist_pitch_v13 did not meet 0.06° convergence tolerance due to measurement noise floor.
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_v13_joint_calib.png
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_v13_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_pitch_v13. Staged: 0.1903° (click APPLY OFFSET to save).
+
+[FULL AUTO] Computing unified marker bracket calibration (J6 & J5 locked)...
+[INFO] Full Auto: Finished bracket calibration for RIGHT arm. Values staged in UI (click APPLY BRACKETS to save).
+[FULL AUTO] Sweeping Elbow (Joint 3)...
+[INFO] Moving right arm to elbow Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 2/6] Sweeping physically with staged offset -2.1095°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 3/6] Sweeping physically with staged offset -2.4094°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Step Correction: 0.0297° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: -2.4094°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_elbow_joint_calib.png
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_elbow_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for RIGHT elbow. Staged: -2.4094° (click APPLY OFFSET to save).
+
+[PASS 1 EVALUATION] Staged parameter changes for RIGHT Arm:
+  * Joint 6 Change      : 0.1705°
+  * Joint 5 Change      : 0.1903°
+  * Joint 3 Change      : 2.4094°
+  * Bracket Pos Change  : 30.4626 mm
+  * Bracket Rot Change  : 4.1086°
+[PASS 1 EVALUATION] Some changes exceed thresholds. Proceeding to Pass 2 for refinement.
+
+==================================================
+   STARTING PASS 2/2 FOR RIGHT ARM
+==================================================
+
+[INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[FULL AUTO] Starting Marker Bracket Sweeps for right arm (Pass 2/Pass 2)...
+[FULL AUTO] Moving right arm to ready pose...
+[INFO] Moving right arm to marker Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+[FULL AUTO] Sweeping Axis 4...
+
+==================================================
+   STARTING 4 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
+[FULL AUTO] Sweeping Axis 6...
+
+==================================================
+   STARTING 6 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+[FULL AUTO] Sweeping Axis 5...
+
+==================================================
+   STARTING 5 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
+[FULL AUTO] J6 (Wrist Roll) converged in Pass 1 (-0.1705°). Skipping Pass 2 sweep.
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_roll_v13. Staged: -0.1705° (click APPLY OFFSET to save).
+
+[FULL AUTO] Calibrating J5 (Wrist Pitch)...
+[INFO] Moving right arm to wrist_pitch_v13 Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.1903°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 2/6] Sweeping physically with staged offset 2.3508°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 3/6] Sweeping physically with staged offset 0.5880°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 4/6] Sweeping physically with staged offset 1.5119°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 5/6] Sweeping physically with staged offset 1.1604°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 6/6] Sweeping physically with staged offset 0.9612°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[INFO] Joint wrist_pitch_v13 did not meet 0.06° convergence tolerance due to measurement noise floor.
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_v13_joint_calib.png
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_right_wrist_pitch_v13_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for RIGHT wrist_pitch_v13. Staged: 0.9126° (click APPLY OFFSET to save).
+
+[FULL AUTO] Computing unified marker bracket calibration (J6 & J5 locked)...
+[INFO] Full Auto: Finished bracket calibration for RIGHT arm. Values staged in UI (click APPLY BRACKETS to save).
+[FULL AUTO] J3 (Elbow) converged in Pass 1 (-2.4094°). Skipping Pass 2 sweep.
+[INFO] Full Auto: Finished joint calibration for RIGHT elbow. Staged: -2.4094° (click APPLY OFFSET to save).
+[INFO] RIGHT arm sequential calibration completed successfully.
+
+==================================================
+   STARTING PASS 1/2 FOR LEFT ARM
+==================================================
+
+[INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[FULL AUTO] Starting Marker Bracket Sweeps for left arm (Pass 1/Pass 2)...
+[FULL AUTO] Moving left arm to ready pose...
+[INFO] Moving left arm to marker Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+[FULL AUTO] Sweeping Axis 4...
+
+==================================================
+   STARTING 4 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_left_marker_axis_4.txt
+[FULL AUTO] Sweeping Axis 6...
+
+==================================================
+   STARTING 6 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_left_marker_axis_6.txt
+[FULL AUTO] Sweeping Axis 5...
+
+==================================================
+   STARTING 5 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_left_marker_axis_5.txt
+
+[FULL AUTO] Calibrating J6 (Wrist Roll)...
+[INFO] Moving left arm to wrist_roll_v13 Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_roll_v13: J7 nominal ready pose=-0.00°, raw_diff=-0.48°, optimal_offset=-0.38°
+
+[ITERATION 2/6] Sweeping physically with staged offset -0.3844°...
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_roll_v13: J7 nominal ready pose=-0.00°, raw_diff=-0.30°, optimal_offset=-0.63°
+
+[ITERATION 3/6] Sweeping physically with staged offset -0.6263°...
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+[INFO] wrist_roll_v13: J7 nominal ready pose=-0.00°, raw_diff=-0.07°, optimal_offset=-0.68°
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Step Correction: -0.0566° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: -0.6263°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_left_wrist_roll_v13_joint_calib.png
+[FULL AUTO] Staging J6 offset: -0.6263°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_left_wrist_roll_v13_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for LEFT wrist_roll_v13. Staged: -0.6263° (click APPLY OFFSET to save).
+
+[FULL AUTO] Calibrating J5 (Wrist Pitch)...
+[INFO] Moving left arm to wrist_pitch_v13 Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 2/6] Sweeping physically with staged offset -1.7512°...
+   STARTING WRIST_PITCH_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Step Correction: -0.0027° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: -1.7512°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_left_wrist_pitch_v13_joint_calib.png
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_left_wrist_pitch_v13_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for LEFT wrist_pitch_v13. Staged: -1.7512° (click APPLY OFFSET to save).
+
+[FULL AUTO] Computing unified marker bracket calibration (J6 & J5 locked)...
+[INFO] Full Auto: Finished bracket calibration for LEFT arm. Values staged in UI (click APPLY BRACKETS to save).
+[FULL AUTO] Sweeping Elbow (Joint 3)...
+[INFO] Moving left arm to elbow Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 2/6] Sweeping physically with staged offset -2.1073°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 3/6] Sweeping physically with staged offset -2.3187°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[ITERATION 4/6] Sweeping physically with staged offset -2.2258°...
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Step Correction: 0.0268° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: -2.2258°
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_left_elbow_joint_calib.png
+[SUCCESS] Saved combined calibration comparison plot to: /home/nvidia/camera_ws/result/result_img/circle_fit_left_elbow_joint_calib.png
+[INFO] Full Auto: Finished joint calibration for LEFT elbow. Staged: -2.2258° (click APPLY OFFSET to save).
+
+[PASS 1 EVALUATION] Staged parameter changes for LEFT Arm:
+  * Joint 6 Change      : 0.6263°
+  * Joint 5 Change      : 1.7512°
+  * Joint 3 Change      : 2.2258°
+  * Bracket Pos Change  : 31.5601 mm
+  * Bracket Rot Change  : 2.4801°
+[PASS 1 EVALUATION] Some changes exceed thresholds. Proceeding to Pass 2 for refinement.
+
+==================================================
+   STARTING PASS 2/2 FOR LEFT ARM
+==================================================
+
+[INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[FULL AUTO] Starting Marker Bracket Sweeps for left arm (Pass 2/Pass 2)...
+[FULL AUTO] Moving left arm to ready pose...
+[INFO] Moving left arm to marker Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+[FULL AUTO] Sweeping Axis 4...
+
+==================================================
+   STARTING 4 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_left_marker_axis_4.txt
+[FULL AUTO] Sweeping Axis 6...
+
+==================================================
+   STARTING 6 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_left_marker_axis_6.txt
+[FULL AUTO] Sweeping Axis 5...
+
+==================================================
+   STARTING 5 CONTINUOUS MARKER SWEEP
+==================================================
+[DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_left_marker_axis_5.txt
+[FULL AUTO] J6 (Wrist Roll) converged in Pass 1 (-0.6263°). Skipping Pass 2 sweep.
+[INFO] Full Auto: Finished joint calibration for LEFT wrist_roll_v13. Staged: -0.6263° (click APPLY OFFSET to save).
+[FULL AUTO] J5 (Wrist Pitch) converged in Pass 1 (-1.7512°). Skipping Pass 2 sweep.
+[INFO] Full Auto: Finished joint calibration for LEFT wrist_pitch_v13. Staged: -1.7512° (click APPLY OFFSET to save).
+
+[FULL AUTO] Computing unified marker bracket calibration (J6 & J5 locked)...
+[INFO] Full Auto: Finished bracket calibration for LEFT arm. Values staged in UI (click APPLY BRACKETS to save).
+[FULL AUTO] J3 (Elbow) converged in Pass 1 (-2.2258°). Skipping Pass 2 sweep.
+[INFO] Full Auto: Finished joint calibration for LEFT elbow. Staged: -2.2258° (click APPLY OFFSET to save).
+[INFO] LEFT arm sequential calibration completed successfully.
+
+==================================================
+   FULL AUTO SEQUENTIAL CALIBRATION COMPLETE!
+==================================================
+
+[CALIB REPORT] Final Calibrated Offsets (Relative to Nominal Design):
+  --- RIGHT ARM ---
+  * Bracket Pos: X: -30.0, Y: +0.0, Z: +5.0 mm
+  * Bracket Rot: R: +1.63, P: +3.79, Y: +0.70 deg
+  * Joint Offsets: Joint 6: -0.17°, Joint 5: +0.91°, Joint 3: -2.41°
+  --- LEFT ARM ---
+  * Bracket Pos: X: -27.5, Y: -0.0, Z: +5.0 mm
+  * Bracket Rot: R: +0.12, P: +1.93, Y: +0.69 deg
+  * Joint Offsets: Joint 6: -0.63°, Joint 5: -1.75°, Joint 3: -2.23°
+==================================================
+
+[INFO] Full Auto sequential calibration ended.
+[SUCCESS] Full Auto Sequential Calibration completed successfully! Please review the offsets in the table.
+[SUCCESS] Saved offsets permanently to setting.yaml!
+
+==================================================
+[APPLY] Applied current staged joint offsets for BOTH arms:
+  --- LEFT ARM ---
+    * Joint 6 (Wrist Roll) : -0.6263°
+    * Joint 5 (Wrist Pitch): -1.7512°
+    * Joint 3 (Elbow)      : -2.2258°
+  --- RIGHT ARM ---
+    * Joint 6 (Wrist Roll) : -0.1705°
+    * Joint 5 (Wrist Pitch): 0.9126°
+    * Joint 3 (Elbow)      : -2.4094°
+[APPLY] Permanently saved all staged offsets across both arms to setting.yaml successfully!
+==================================================
+
+[SUCCESS] Saved Tf_to_marker values for both arms to setting.yaml
+[INFO] Dynamically updated marker detector Tf_to_marker transforms in memory.
+[APPLY] Full auto results (Joints & Brackets) applied successfully.
 [Step2] Init Pose requested.
 [Step2] Verifying marker visibility at the initial ready pose...
-[INFO] Right arm marker not visible at Init Pose. Showing teaching dialog...
-[INFO] Preserved user-taught ready pose for right arm (marker).
 [INFO] Re-verifying marker visibility at the new posture...
 [SUCCESS] Marker visibility verified successfully at the ready pose.
-Auto base head pose (deg): [-0.021 -0.022]
+Auto base head pose (deg): [-0.006 -0.032]
 [Step2] Auto Motion requested.
 Motion plan is missing or empty. Re-building...
 Auto Motion started in a background thread. Press Stop to cancel.
 Building motion plan based on current pose... (Angle=5.0deg, Pos=0.03m, StepX=0.03m, MaxX=0.4m)
 Auto motion done: Joint 0 Offset: -2.5deg
-[Sample 1] Captured marker: R_pos=[ 49.3 -22.3 201. ]mm, L_pos=[-84.2 -14.5 195.5]mm
+[Sample 1] Captured marker: R_pos=[113.6 -39.7 178.9]mm, L_pos=[-101.9  -37.3  184.5]mm
 Auto motion done: Joint 0 Offset: -5.0deg
-[Sample 2] Captured marker: R_pos=[ 45.  -21.1 186.4]mm, L_pos=[-73.5 -13.  185.6]mm
+[Sample 2] Captured marker: R_pos=[107.2 -37.1 168.2]mm, L_pos=[-94.5 -34.7 173.9]mm
 Auto motion done: Joint 0 Offset: 2.5deg
-[Sample 3] Captured marker: R_pos=[ 51.8 -23.  208.5]mm, L_pos=[-89.7 -15.1 200.7]mm
+[Sample 3] Captured marker: R_pos=[117.1 -41.2 184.3]mm, L_pos=[-105.8  -38.7  190. ]mm
 Auto motion done: Joint 0 Offset: 5.0deg
-[Sample 4] Captured marker: R_pos=[ 54.5 -24.1 216.1]mm, L_pos=[-95.3 -15.9 205.9]mm
+[Sample 4] Captured marker: R_pos=[120.8 -42.8 190.1]mm, L_pos=[-109.9  -40.2  195.6]mm
 Auto motion done: Joint 1 Offset: -2.5deg
-[Sample 5] Captured marker: R_pos=[ 50.5 -24.6 206.9]mm, L_pos=[-85.8 -12.8 190.4]mm
+[Sample 5] Captured marker: R_pos=[112.8 -40.3 182.2]mm, L_pos=[-102.8  -36.7  181.1]mm
 Auto motion done: Joint 1 Offset: -5.0deg
-[Sample 6] Captured marker: R_pos=[ 51.5 -26.8 212.8]mm, L_pos=[-87.3 -11.1 185.3]mm
+[Sample 6] Captured marker: R_pos=[111.9 -41.  185.5]mm, L_pos=[-103.5  -36.1  177.7]mm
 Auto motion done: Joint 1 Offset: 2.5deg
-[Sample 7] Captured marker: R_pos=[ 48.1 -20.  195.2]mm, L_pos=[-82.4 -16.1 200.6]mm
+[Sample 7] Captured marker: R_pos=[114.3 -39.  175.5]mm, L_pos=[-101.1  -37.8  187.8]mm
 Auto motion done: Joint 1 Offset: 5.0deg
-[Sample 8] Captured marker: R_pos=[ 46.6 -17.7 189.3]mm, L_pos=[-80.2 -17.8 205.6]mm
+[Sample 8] Captured marker: R_pos=[115.  -38.3 172.2]mm, L_pos=[-100.1  -38.3  191.2]mm
 Auto motion done: Joint 2 Offset: -2.5deg
-[Sample 9] Captured marker: R_pos=[ 56.6 -24.6 200. ]mm, L_pos=[-89.2 -15.4 192. ]mm
+[Sample 9] Captured marker: R_pos=[123.8 -40.  178.8]mm, L_pos=[-112.   -37.7  184.2]mm
 Auto motion done: Joint 2 Offset: -5.0deg
-[Sample 10] Captured marker: R_pos=[ 64.3 -26.8 199.4]mm, L_pos=[-94.5 -16.5 188.8]mm
+[Sample 10] Captured marker: R_pos=[134.3 -40.3 178.9]mm, L_pos=[-122.4  -38.   183.8]mm
 Auto motion done: Joint 2 Offset: 2.5deg
-[Sample 11] Captured marker: R_pos=[ 42.7 -19.8 202.5]mm, L_pos=[-79.5 -13.5 199.2]mm
+[Sample 11] Captured marker: R_pos=[103.8 -39.3 178.9]mm, L_pos=[-92.  -36.8 184.8]mm
 Auto motion done: Joint 2 Offset: 5.0deg
-[Sample 12] Captured marker: R_pos=[ 36.4 -17.2 204.4]mm, L_pos=[-75.2 -12.7 203.1]mm
+[Sample 12] Captured marker: R_pos=[ 94.3 -38.9 178.9]mm, L_pos=[-82.5 -36.3 185.1]mm
 Auto motion done: Joint 4 Offset: -2.5deg
-[Sample 13] Captured marker: R_pos=[ 51.8 -27.2 196.5]mm, L_pos=[-82.7  -9.6 200.1]mm
+[Sample 13] Captured marker: R_pos=[116.2 -42.3 174.6]mm, L_pos=[-99.9 -34.6 188.9]mm
 Auto motion done: Joint 4 Offset: -5.0deg
-[Sample 14] Captured marker: R_pos=[ 54.2 -32.1 192.4]mm, L_pos=[-81.6  -4.5 204.9]mm
+[Sample 14] Captured marker: R_pos=[118.9 -44.9 170.4]mm, L_pos=[-97.9 -31.9 193.6]mm
 Auto motion done: Joint 4 Offset: 2.5deg
-[Sample 15] Captured marker: R_pos=[ 47.2 -17.4 205.6]mm, L_pos=[-85.8 -19.5 191.2]mm
+[Sample 15] Captured marker: R_pos=[111.3 -37.1 183.3]mm, L_pos=[-104.2  -40.   180.1]mm
 Auto motion done: Joint 4 Offset: 5.0deg
-[Sample 16] Captured marker: R_pos=[ 45.3 -12.4 210.5]mm, L_pos=[-87.6 -24.4 187.1]mm
+[Sample 16] Captured marker: R_pos=[109.1 -34.5 188. ]mm, L_pos=[-106.7  -42.6  176. ]mm
 Auto motion done: Joint 1+4 (+5.0,+5.0)deg
-[Sample 17] Captured marker: R_pos=[ 42.2  -7.9 198.4]mm, L_pos=[-83.4 -27.9 196.7]mm
+[Sample 17] Captured marker: R_pos=[110.1 -33.3 181. ]mm, L_pos=[-104.4  -43.8  182.4]mm
 Auto motion done: Joint 1+4 (+5.0,-5.0)deg
-[Sample 18] Captured marker: R_pos=[ 51.8 -27.7 181. ]mm, L_pos=[-78.   -8.  215.3]mm
+[Sample 18] Captured marker: R_pos=[120.7 -43.4 164.1]mm, L_pos=[-96.6 -32.8 200.6]mm
 Auto motion done: Joint 1+4 (-5.0,+5.0)deg
-[Sample 19] Captured marker: R_pos=[ 47.5 -17.  222.5]mm, L_pos=[-91.2 -21.1 177.3]mm
+[Sample 19] Captured marker: R_pos=[107.9 -35.6 194.9]mm, L_pos=[-108.8  -41.3  169.7]mm
 Auto motion done: Joint 1+4 (-5.0,-5.0)deg
-[Sample 20] Captured marker: R_pos=[ 56.  -36.6 203.7]mm, L_pos=[-84.3  -1.2 194.2]mm
+[Sample 20] Captured marker: R_pos=[116.7 -46.3 176.6]mm, L_pos=[-99.  -30.9 186.5]mm
 Auto motion done: Joint 1+2 (+5.0,+5.0)deg
-[Sample 21] Captured marker: R_pos=[ 33.8 -11.5 192.2]mm, L_pos=[-71.6 -17.2 213.8]mm
+[Sample 21] Captured marker: R_pos=[ 95.5 -37.5 170.8]mm, L_pos=[-80.7 -37.3 193.2]mm
 Auto motion done: Joint 1+2 (-5.0,-5.0)deg
-Marker not detected.
-Capture failed after motion. This pose is skipped.
-[WARNING] Step capture failed (1/3). Skipping this pose...
+[Sample 22] Captured marker: R_pos=[132.5 -41.7 183.8]mm, L_pos=[-124.1  -36.6  178.7]mm
 Auto motion done: Restore Baseline Pose
-[Sample 22] Captured marker: R_pos=[ 49.4 -22.2 201. ]mm, L_pos=[-84.1 -14.4 195.6]mm
+[Sample 23] Captured marker: R_pos=[113.6 -39.6 178.9]mm, L_pos=[-101.9  -37.3  184.5]mm
 Auto motion done: RPY: (-2.50,0.00,0.00)
-[Sample 23] Captured marker: R_pos=[ 54.5 -23.  206.7]mm, L_pos=[-87.6 -15.3 202.9]mm
+[Sample 24] Captured marker: R_pos=[117.1 -41.  184.4]mm, L_pos=[-105.6  -38.6  189.9]mm
 Auto motion done: RPY: (-5.00,0.00,0.00)
-[Sample 24] Captured marker: R_pos=[ 57.2 -22.9 205.1]mm, L_pos=[-85.5 -15.5 205.2]mm
+[Sample 25] Captured marker: R_pos=[117.2 -41.  184.6]mm, L_pos=[-105.2  -38.7  189.7]mm
 Auto motion done: RPY: (2.50,0.00,0.00)
-[Sample 25] Captured marker: R_pos=[ 49.2 -23.1 210.5]mm, L_pos=[-91.8 -15.  198.5]mm
+[Sample 26] Captured marker: R_pos=[117.1 -41.2 184.2]mm, L_pos=[-106.1  -38.7  190.1]mm
 Auto motion done: RPY: (5.00,0.00,0.00)
-[Sample 26] Captured marker: R_pos=[ 46.7 -23.3 212.5]mm, L_pos=[-94.  -14.8 196.5]mm
+[Sample 27] Captured marker: R_pos=[117.1 -41.3 184.1]mm, L_pos=[-106.3  -38.6  190.3]mm
 Auto motion done: RPY: (0.00,-2.50,0.00)
-[Sample 27] Captured marker: R_pos=[ 51.4 -20.9 208.4]mm, L_pos=[-89.  -12.9 200.5]mm
+[Sample 28] Captured marker: R_pos=[119.8 -40.8 184.5]mm, L_pos=[-108.3  -38.3  189.9]mm
 Auto motion done: RPY: (0.00,-5.00,0.00)
-[Sample 28] Captured marker: R_pos=[ 51.1 -18.5 208.1]mm, L_pos=[-88.3 -10.6 200.2]mm
+[Sample 29] Captured marker: R_pos=[122.3 -40.5 184.6]mm, L_pos=[-110.7  -38.   190. ]mm
 Auto motion done: RPY: (0.00,2.50,0.00)
-[Sample 29] Captured marker: R_pos=[ 52.4 -25.4 208.7]mm, L_pos=[-90.5 -17.4 200.9]mm
+[Sample 30] Captured marker: R_pos=[114.6 -41.5 184.4]mm, L_pos=[-103.5  -39.1  190.2]mm
 Auto motion done: RPY: (0.00,5.00,0.00)
-[Sample 30] Captured marker: R_pos=[ 52.9 -27.6 208.9]mm, L_pos=[-91.4 -19.6 201.1]mm
+[Sample 31] Captured marker: R_pos=[112.  -41.8 184.5]mm, L_pos=[-101.1  -39.4  190.6]mm
 Auto motion done: RPY: (0.00,0.00,-2.50)
-[Sample 31] Captured marker: R_pos=[ 51.8 -25.5 208.6]mm, L_pos=[-89.6 -12.8 200.6]mm
+[Sample 32] Captured marker: R_pos=[117.2 -44.1 184.3]mm, L_pos=[-105.8  -35.8  189.8]mm
 Auto motion done: RPY: (0.00,0.00,-5.00)
-[Sample 32] Captured marker: R_pos=[ 51.8 -27.8 208.7]mm, L_pos=[-89.6 -10.5 200.7]mm
+[Sample 33] Captured marker: R_pos=[117.4 -47.  184.6]mm, L_pos=[-105.7  -33.   189.7]mm
 Auto motion done: RPY: (0.00,0.00,2.50)
-[Sample 33] Captured marker: R_pos=[ 51.8 -20.7 208.6]mm, L_pos=[-89.7 -17.5 200.8]mm
+[Sample 34] Captured marker: R_pos=[117.  -38.3 184.4]mm, L_pos=[-105.9  -41.6  190.2]mm
 Auto motion done: RPY: (0.00,0.00,5.00)
-[Sample 34] Captured marker: R_pos=[ 51.8 -18.3 208.7]mm, L_pos=[-89.7 -19.8 201.1]mm
+[Sample 35] Captured marker: R_pos=[117.  -35.4 184.7]mm, L_pos=[-106.1  -44.5  190.7]mm
 Auto motion done: Pos: (0.000,-0.015,0.000)
-[Sample 35] Captured marker: R_pos=[ 55.1 -23.  211.1]mm, L_pos=[-85.4 -15.1 194.7]mm
+[Sample 36] Captured marker: R_pos=[120.4 -41.2 191. ]mm, L_pos=[-102.6  -39.   184.5]mm
 Auto motion done: Pos: (0.000,-0.030,0.000)
-[Sample 36] Captured marker: R_pos=[ 58.1 -23.  214.4]mm, L_pos=[-81.  -14.9 189.7]mm
+[Sample 37] Captured marker: R_pos=[123.2 -41.2 198.4]mm, L_pos=[-99.  -39.4 179.7]mm
 Auto motion done: Pos: (0.000,0.015,0.000)
-[Sample 37] Captured marker: R_pos=[ 48.1 -23.2 207. ]mm, L_pos=[-93.9 -15.3 207.3]mm
+[Sample 38] Captured marker: R_pos=[113.7 -41.5 178.6]mm, L_pos=[-108.8  -38.6  196.5]mm
 Auto motion done: Pos: (0.000,0.030,0.000)
-[Sample 38] Captured marker: R_pos=[ 44.2 -23.3 206.4]mm, L_pos=[-97.8 -15.7 214.7]mm
+[Sample 39] Captured marker: R_pos=[109.7 -41.8 173.8]mm, L_pos=[-111.5  -38.6  203.8]mm
 Auto motion done: Pos: (0.000,0.000,-0.015)
-[Sample 39] Captured marker: R_pos=[ 52.4 -20.3 205.1]mm, L_pos=[-90.2 -11.9 197.4]mm
+[Sample 40] Captured marker: R_pos=[117.3 -37.1 179.9]mm, L_pos=[-106.2  -34.9  185.2]mm
 Auto motion done: Pos: (0.000,0.000,-0.030)
-[Sample 40] Captured marker: R_pos=[ 52.8 -17.8 202.3]mm, L_pos=[-90.8  -8.7 195. ]mm
+[Sample 41] Captured marker: R_pos=[117.5 -33.2 176.4]mm, L_pos=[-106.3  -31.1  181.3]mm
 Auto motion done: Pos: (0.000,0.000,0.015)
-[Sample 41] Captured marker: R_pos=[ 51.2 -25.9 212.8]mm, L_pos=[-88.8 -18.5 204.7]mm
+[Sample 42] Captured marker: R_pos=[117.  -45.4 189.5]mm, L_pos=[-105.6  -42.6  195.4]mm
 Auto motion done: Pos: (0.000,0.000,0.030)
-[Sample 42] Captured marker: R_pos=[ 50.5 -28.7 217.6]mm, L_pos=[-88.  -21.8 209.3]mm
+[Sample 43] Captured marker: R_pos=[116.8 -49.6 195.4]mm, L_pos=[-105.3  -46.6  201.7]mm
 Auto motion done: Head Pan: -3.50deg
-Marker not detected.
-Capture failed after motion. This pose is skipped.
-[WARNING] Step capture failed (1/3). Skipping this pose...
+[Sample 44] Captured marker: R_pos=[103.1 -41.3 190.5]mm, L_pos=[-120.   -38.8  182.5]mm
 Auto motion done: Head Pan: -1.75deg
-[Sample 43] Captured marker: R_pos=[ 44.  -23.  209.2]mm, L_pos=[-97.2 -15.1 196.9]mm
+[Sample 45] Captured marker: R_pos=[110.2 -41.3 187.5]mm, L_pos=[-113.   -38.7  186.3]mm
 Auto motion done: Head Pan: +1.75deg
-[Sample 44] Captured marker: R_pos=[ 59.5 -23.2 207.7]mm, L_pos=[-82.1 -15.2 204.2]mm
+[Sample 46] Captured marker: R_pos=[124.2 -41.2 180.9]mm, L_pos=[-98.7 -38.7 193.4]mm
 Auto motion done: Head Pan: +3.50deg
-[Sample 45] Captured marker: R_pos=[ 67.1 -23.3 206.6]mm, L_pos=[-74.4 -15.3 207.7]mm
+[Sample 47] Captured marker: R_pos=[131.  -41.2 177.3]mm, L_pos=[-91.4 -38.6 196.6]mm
 Auto motion done: Head Tilt: -3.50deg
-[Sample 46] Captured marker: R_pos=[ 52.1  -7.5 213.2]mm, L_pos=[-89.4   0.  204.8]mm
+[Sample 48] Captured marker: R_pos=[117.2 -27.1 189.8]mm, L_pos=[-105.9  -24.2  195.2]mm
 Auto motion done: Head Tilt: -1.75deg
-[Sample 47] Captured marker: R_pos=[ 51.9 -15.2 211. ]mm, L_pos=[-89.6  -7.5 202.9]mm
+[Sample 49] Captured marker: R_pos=[117.2 -34.2 187.2]mm, L_pos=[-106.   -31.5  192.8]mm
 Auto motion done: Head Tilt: +1.75deg
-[Sample 48] Captured marker: R_pos=[ 51.6 -30.7 205.7]mm, L_pos=[-89.7 -22.6 198.3]mm
+[Sample 50] Captured marker: R_pos=[117.3 -48.2 181.1]mm, L_pos=[-105.9  -45.8  187. ]mm
 Auto motion done: Head Tilt: +3.50deg
-[Sample 49] Captured marker: R_pos=[ 51.5 -38.4 202.6]mm, L_pos=[-89.8 -30.  195.6]mm
+[Sample 51] Captured marker: R_pos=[117.3 -55.1 177.9]mm, L_pos=[-105.8  -52.9  183.7]mm
 Auto motions completed.
-[Auto-Save] Dataset saved/updated in: /home/nvidia/camera_ws/result/result_step2/dataset_20260812_190908.npz
+[Auto-Save] Dataset saved/updated in: /home/nvidia/camera_ws/result/result_step2/dataset_20260824_090819.npz
 Auto motions sequence completed.
 [Step2] Calculate requested.
 [Step2] Optimization calculation started in background thread...
-[INFO] Using calibrated marker bracket values for right: [0.0, -0.0544, -0.049, 89.6, -0.36, 180.0]
-[INFO] Using calibrated marker bracket values for left: [0.0, 0.0547, -0.0489, 88.78, -0.11, 0.0]
-[INFO] Applying joint offset bounds: {'right': {'joint3': -2.068647947024635, 'joint5': 0.0, 'joint6': 0.3089493273485196}, 'left': {'joint3': -1.9436406734698237, 'joint5': 0.0, 'joint6': -0.07817763836420505}}
+[INFO] Using calibrated marker bracket values for right: [np.float64(0.0670000000000002), np.float64(1.5146129380243426e-30), np.float64(3.250103350797004e-05), np.float64(86.20654709719416), np.float64(1.6228736139674564), np.float64(-89.40327111916757)]
+[INFO] Using calibrated marker bracket values for left: [np.float64(0.06949019335096633), np.float64(-1.0169433757533666e-16), np.float64(3.163099964570418e-05), np.float64(88.06864595471906), np.float64(0.1198939579220563), np.float64(-89.31154644338253)]
+[INFO] Applying joint offset bounds: {'right': {'joint3': -2.4094043044548377, 'joint5': 0.9125509208996533, 'joint6': -0.17049103687846928}, 'left': {'joint3': -2.225831250196081, 'joint5': -1.7511664980725214, 'joint6': -0.6262597057707002}}
 
 [INFO] === 3-STAGE QP SEQUENTIAL OPTIMIZATION WORKFLOW ===
 [STAGE 1/3] Global Rough Initialization (eps=1e-6)...
@@ -209,38 +501,37 @@ Auto motions sequence completed.
 
 ===== RESULT =====
 lambda_cam_pos = 1.0
-lambda_cam_rot = 1.0
-measurement_noise = sigma_rot=0.2487deg, sigma_pos=0.1339mm
-Right arm joint offset (deg): [ 0.04604022  3.6749295   0.86854863  2.01864796 -2.24647931 -0.0499994
- -0.35894769]
-Left arm joint offset (deg): [ 0.21131437 -4.0303271  -0.27839172  1.89364089  0.55125055 -0.04999897
-  0.02817722]
-Head joint offset (deg): [ -0.80228713 -89.95437384]
-mount_to_cam xi: [-1.57667647e+00  1.02047606e-03  2.25838493e-02  2.80821692e-03
-  7.08623043e-02  8.79886279e-02]
-mount_to_cam_new: [0.06008424540736694, 0.030780932418608305, -0.04409601071372197, 179.65379897669425, 0.7833128599797315, -90.86266929788461]
-Result saved to /home/nvidia/camera_ws/result/result_step2/result_20260812_190908.json
+lambda_cam_rot = 1000000.0
+measurement_noise = sigma_rot=0.1239deg, sigma_pos=0.41mm
+Right arm joint offset (deg): [ 1.07938428  1.98181249  0.35525639  2.45940425 -4.08696062 -0.96255102
+  0.22049109]
+Left arm joint offset (deg): [ 0.52726032 -2.66686755 -1.07824504  2.17583131 -1.06703897  1.70116662
+  0.57625981]
+Head joint offset (deg): [-0.29797387  2.85699734]
+mount_to_cam xi: [-0.0001082  -0.00065772  0.00039608  0.00838724 -0.01384929 -0.01395655]
+mount_to_cam_new: [0.03304695918567131, 0.0006054244735286818, 0.07084838438045041, -90.00619194220225, 0.022695757109106898, -89.9623166928681]
+Result saved to /home/nvidia/camera_ws/result/result_step2/result_20260824_090819.json
 History appended to /home/nvidia/camera_ws/result/result_step2/calibration_history.txt
 
 =========================================================
   BASE LINE COMPARISON (config/home_reset_baseline.json)
 =========================================================
  [RIGHT ARM]
-   J0: Calc =  +0.0460° | Baseline =  +0.0644° | Diff = 0.0184°
-   J1: Calc =  +3.6749° | Baseline =  +4.4074° | Diff = 0.7324°
-   J2: Calc =  +0.8685° | Baseline =  +0.0002° | Diff = 0.8683°
-   J3: Calc =  +2.0186° | Baseline =  +1.5588° | Diff = 0.4599°
-   J4: Calc =  -2.2465° | Baseline =  -0.0053° | Diff = 2.2412°
-   J5: Calc =  -0.0500° | Baseline =  +0.0806° | Diff = 0.1306°
-   J6: Calc =  -0.3589° | Baseline =  +0.0013° | Diff = 0.3603°
+   J0: Calc =  +1.0794° | Baseline =  -0.4286° | Diff = 1.5080°
+   J1: Calc =  +1.9818° | Baseline =  +2.8390° | Diff = 0.8572°
+   J2: Calc =  +0.3553° | Baseline =  -0.0002° | Diff = 0.3555°
+   J3: Calc =  +2.4594° | Baseline =  +0.2621° | Diff = 2.1973°
+   J4: Calc =  -4.0870° | Baseline =  +0.0664° | Diff = 4.1533°
+   J5: Calc =  -0.9626° | Baseline =  +1.3164° | Diff = 2.2789°
+   J6: Calc =  +0.2205° | Baseline =  +0.0136° | Diff = 0.2069°
  [LEFT ARM]
-   J0: Calc =  +0.2113° | Baseline =  +0.2308° | Diff = 0.0195°
-   J1: Calc =  -4.0303° | Baseline =  -4.1041° | Diff = 0.0738°
-   J2: Calc =  -0.2784° | Baseline =  +0.0020° | Diff = 0.2803°
-   J3: Calc =  +1.8936° | Baseline =  +1.8988° | Diff = 0.0051°
-   J4: Calc =  +0.5513° | Baseline =  +0.0308° | Diff = 0.5205°
-   J5: Calc =  -0.0500° | Baseline =  +0.0393° | Diff = 0.0893°
-   J6: Calc =  +0.0282° | Baseline =  -0.0062° | Diff = 0.0343°
+   J0: Calc =  +0.5273° | Baseline =  +1.8200° | Diff = 1.2928°
+   J1: Calc =  -2.6669° | Baseline =  -1.9092° | Diff = 0.7576°
+   J2: Calc =  -1.0782° | Baseline =  -0.0128° | Diff = 1.0654°
+   J3: Calc =  +2.1758° | Baseline =  +0.2319° | Diff = 1.9439°
+   J4: Calc =  -1.0670° | Baseline =  -0.7561° | Diff = 0.3110°
+   J5: Calc =  +1.7012° | Baseline =  +0.5636° | Diff = 1.1376°
+   J6: Calc =  +0.5763° | Baseline =  -0.0578° | Diff = 0.6340°
 =========================================================
 
 Optimization finished successfully.
@@ -248,3 +539,42 @@ Optimization finished successfully.
 
 [Check Position] Step 1: Moving to Joint Ready Pose...
 [Check Position] Step 2: Moving to Check Pose with Offsets...
+
+===== HOME OFFSET PREVIEW: Baseline Check Position =====
+JSON: /home/nvidia/camera_ws/config/home_reset_baseline.json
+Arm: both
+Right move offset (deg): [0.4285755724009901, -2.839041228341585, 0.00021755105198019802, -0.2621490176361386, -0.066357421875, -1.3163818359375, -0.013623046875]
+Left move offset (deg): [-1.8200321008663367, 1.909228032178218, 0.012835512066831683, -0.2319094214108911, 0.7560791015624999, -0.5635986328125, 0.0577880859375]
+Head move offset (deg): [-0.0, -0.0]
+Preview move complete. Inspect the robot pose before applying.
+
+[Check Position] Step 1: Moving to Joint Ready Pose...
+[Check Position] Step 2: Moving to Check Pose with Offsets...
+
+===== HOME OFFSET PREVIEW: Optimized Check Position =====
+JSON: /home/nvidia/camera_ws/result/result_step2/result_20260824_090819.json
+Arm: both
+Right move offset (deg): [-1.079384283663843, -1.9818124932414398, -0.3552563883360053, -2.459404252934418, 4.086960623236188, 0.9625510168448301, -0.22049108998956696]
+Left move offset (deg): [-0.5272603188504041, 2.6668675503726424, 1.07824504151197, -2.175831309743437, 1.0670389676090297, -1.7011666235479064, -0.5762598077260497]
+Head move offset (deg): [0.29797387447622403, -2.8569973356739586]
+Preview move complete. Inspect the robot pose before applying.
+
+[Check Position] Step 1: Moving to Joint Ready Pose...
+[Check Position] Step 2: Moving to Check Pose with Offsets...
+
+===== HOME OFFSET PREVIEW: Baseline Check Position =====
+JSON: /home/nvidia/camera_ws/config/home_reset_baseline.json
+Arm: both
+Right move offset (deg): [0.4285755724009901, -2.839041228341585, 0.00021755105198019802, -0.2621490176361386, -0.066357421875, -1.3163818359375, -0.013623046875]
+Left move offset (deg): [-1.8200321008663367, 1.909228032178218, 0.012835512066831683, -0.2319094214108911, 0.7560791015624999, -0.5635986328125, 0.0577880859375]
+Head move offset (deg): [-0.0, -0.0]
+Preview move complete. Inspect the robot pose before applying.
+[Step2] Apply Home Offset requested.
+
+===== HOME OFFSET PREVIEW: Optimized Zero =====
+JSON: /home/nvidia/camera_ws/result/result_step2/result_20260824_090819.json
+Arm: both
+Right move offset (deg): [-1.079384283663843, -1.9818124932414398, -0.3552563883360053, -2.459404252934418, 4.086960623236188, 0.9625510168448301, -0.22049108998956696]
+Left move offset (deg): [-0.5272603188504041, 2.6668675503726424, 1.07824504151197, -2.175831309743437, 1.0670389676090297, -1.7011666235479064, -0.5762598077260497]
+Head move offset (deg): [0.29797387447622403, -2.8569973356739586]
+Preview move complete. Inspect the robot pose before applying.
