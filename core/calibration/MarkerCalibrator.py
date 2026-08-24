@@ -253,14 +253,8 @@ class MarkerCalibrator(BaseCalibrator):
     def get_link_length(self, arm_side):
         try:
             dyn_model = self.robot.get_dynamics()
-            names = self.robot.model().robot_joint_names
-            state = dyn_model.make_state(
-                [f"link_{arm_side}_arm_5", f"ee_{arm_side}"],
-                names
-            )
-            state.set_q(self.robot.get_state().position)
-            dyn_model.compute_forward_kinematics(state)
-            T = dyn_model.compute_transformation(state, 0, 1)
+            q = np.array(self.robot.get_state().position)
+            T = BaseCalibrator.compute_fk(self.robot, dyn_model, q, f"ee_{arm_side}", f"link_{arm_side}_arm_5")
             return np.linalg.norm(T[:3, 3]) * 1000.0 # m to mm
         except Exception as e:
             logging.error(f"Failed to get link kinematics: {e}")
@@ -269,18 +263,13 @@ class MarkerCalibrator(BaseCalibrator):
     def get_z_sign(self, arm_side):
         try:
             dyn_model = self.robot.get_dynamics()
-            names = self.robot.model().robot_joint_names
-            state = dyn_model.make_state(
-                [f"link_{arm_side}_arm_5", f"ee_{arm_side}"],
-                names
-            )
-            state.set_q(self.robot.get_state().position)
-            dyn_model.compute_forward_kinematics(state)
-            T = dyn_model.compute_transformation(state, 0, 1)
+            q = np.array(self.robot.get_state().position)
+            T = BaseCalibrator.compute_fk(self.robot, dyn_model, q, f"ee_{arm_side}", f"link_{arm_side}_arm_5")
             # If Z translation is negative, the EE Z-axis points inward (toward J5), so z_sign = -1.0
             return -1.0 if T[2, 3] < 0.0 else 1.0
-        except Exception:
-            return 1.0
+        except Exception as e:
+            logging.error(f"Failed to get link z_sign: {e}")
+            raise e
 
 
     def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
@@ -299,7 +288,11 @@ class MarkerCalibrator(BaseCalibrator):
             nominal_rpy = [tf_vec[3], tf_vec[4], tf_vec[5]]
         else:
             ver_key = "1.3" if self.is_v13() else "1.2"
-            nominal_rpy = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side][3:6]
+            suffix = "_v13" if self.is_v13() else "_v12"
+            nominal_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}{suffix}") if hasattr(self, 'camera_config') and self.camera_config else None
+            if nominal_vec is None:
+                nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+            nominal_rpy = nominal_vec[3:6]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
         # Helper to extract rotation axis
@@ -821,7 +814,10 @@ class MarkerCalibrator(BaseCalibrator):
         
         # v1.2: Z축 회전 방향 비틀림(Torsion) 오차 배제 - 명목 설계값 yaw으로 고정
         ver_key = "1.3" if self.is_v13() else "1.2"
-        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+        suffix = "_v13" if self.is_v13() else "_v12"
+        nominal_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}{suffix}") if hasattr(self, 'camera_config') and self.camera_config else None
+        if nominal_vec is None:
+            nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         if not self.is_v13():
             yaw_e = nominal_vec[5]
             if arm_side == "right" and yaw_e < 0:
@@ -889,8 +885,8 @@ class MarkerCalibrator(BaseCalibrator):
                     return res
 
                 initial_guess = [x_nom, y_nom, z_nom]
-                lower_bounds = [x_nom - 30.0, y_nom - 30.0, z_nom - 30.0]
-                upper_bounds = [x_nom + 30.0, y_nom + 30.0, z_nom + 30.0]
+                lower_bounds = [x_nom - 40.0, y_nom - 40.0, z_nom - 40.0]
+                upper_bounds = [x_nom + 40.0, y_nom + 40.0, z_nom + 40.0]
                 opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
                 x_e, y_e, z_e = opt_res.x
         else:
@@ -927,10 +923,17 @@ class MarkerCalibrator(BaseCalibrator):
         print(f"  Optimal residuals: {residuals_trans(opt_res.x)}", flush=True)
 
         # Circle fitting validation checks
-        r6_err = abs(radius_6 - np.sqrt(x_e**2 + y_e**2))
-        r5_err = abs(radius_5 - np.sqrt(x_e**2 + (z_e + z_sign * L_5_ee)**2))
+        if not self.is_v13():
+            r6_err = abs(radius_6 - np.sqrt(x_e**2 + y_e**2))
+            r5_err = abs(radius_5 - np.sqrt(x_e**2 + (z_e + z_sign * L_5_ee)**2))
+            r4_err = abs(radius_4 - np.sqrt((z_sign * L_5_ee + z_e)**2 + y_e**2)) if marker_data_4 is not None else 0.0
+        else:
+            Z_prime = z_e + z_sign * L_5_ee
+            r6_err = abs(radius_6 - np.sqrt(y_e**2 + Z_prime**2))
+            r5_err = abs(radius_5 - np.sqrt(x_e**2 + Z_prime**2))
+            r4_err = abs(radius_4 - np.sqrt(x_e**2 + y_e**2)) if marker_data_4 is not None else 0.0
+
         if marker_data_4 is not None:
-            r4_err = abs(radius_4 - np.sqrt((z_sign * L_5_ee + z_e)**2 + y_e**2))
             print(f"[VALIDATION] {arm_side.upper()} ARM BRACKET SWEEP CIRCLE RESIDUALS:", flush=True)
             print(f"  * J6 Sweep Radius Err: {r6_err:.4f} mm", flush=True)
             print(f"  * J5 Sweep Radius Err: {r5_err:.4f} mm", flush=True)
