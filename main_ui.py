@@ -6229,6 +6229,16 @@ class UnifiedCalibrationApp(QWidget):
                     
                     indent = len(line) - len(line.lstrip())
                     lines_list[i] = " " * indent + f"{key_str}: {new_val_str}{comment}\n"
+                    # Clean up any legacy multiline list items (- val) belonging to this key
+                    j = i + 1
+                    while j < len(lines_list):
+                        sub_line = lines_list[j]
+                        sub_stripped = sub_line.strip()
+                        sub_indent = len(sub_line) - len(sub_line.lstrip())
+                        if sub_stripped.startswith("-") and sub_indent > indent:
+                            del lines_list[j]
+                        else:
+                            break
                     key_found = True
                     break
                 i += 1
@@ -6268,6 +6278,16 @@ class UnifiedCalibrationApp(QWidget):
                     
                     indent = len(line) - len(line.lstrip())
                     lines_list[i] = " " * indent + f"{key_str}: {new_val_str}{comment}\n"
+                    # Clean up any legacy multiline list items (- val) belonging to this key
+                    j = i + 1
+                    while j < len(lines_list):
+                        sub_line = lines_list[j]
+                        sub_stripped = sub_line.strip()
+                        sub_indent = len(sub_line) - len(sub_line.lstrip())
+                        if sub_stripped.startswith("-") and sub_indent > indent:
+                            del lines_list[j]
+                        else:
+                            break
                     key_found = True
                     break
                 i += 1

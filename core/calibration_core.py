@@ -124,8 +124,11 @@ def split_arm_offsets(q_offset):
 def load_camera_nominals(version="1.2"):
     if not os.path.exists(SETTING_PATH):
         raise FileNotFoundError(f"[CRITICAL ERROR] setting.yaml not found at {SETTING_PATH}!")
-    with open(SETTING_PATH, "r") as f:
-        config = yaml.safe_load(f) or {}
+    try:
+        with open(SETTING_PATH, "r") as f:
+            config = yaml.safe_load(f) or {}
+    except Exception as e:
+        raise RuntimeError(f"[CRITICAL ERROR] Failed to parse {SETTING_PATH}: {e}")
 
     camera_cfg = config.get("camera", {})
     marker_cfg = config.get("marker", {})
