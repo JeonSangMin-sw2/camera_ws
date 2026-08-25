@@ -7728,8 +7728,7 @@ def main():
     # Enable High-DPI scaling and crisp pixmaps
     from PySide6.QtCore import QCoreApplication
     from PySide6.QtGui import QGuiApplication, QFont
-    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
-    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    # Note: HighDPI scaling is natively enabled in Qt6. We guard against DeprecationWarning.
     if hasattr(Qt, 'HighDpiScaleFactorRoundingPolicy'):
         QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
 
