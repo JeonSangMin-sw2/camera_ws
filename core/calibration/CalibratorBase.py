@@ -1110,18 +1110,44 @@ class BaseCalibrator:
 
             fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
+            def extract_plot_dict(res_obj, default_stage="first"):
+                if not res_obj or not isinstance(res_obj, dict):
+                    return {}
+                if '_plot_data' in res_obj:
+                    return res_obj
+                if default_stage == "first":
+                    if 'first_res' in res_obj and isinstance(res_obj['first_res'], dict):
+                        return extract_plot_dict(res_obj['first_res'], "first")
+                    if 'final_res' in res_obj and isinstance(res_obj['final_res'], dict):
+                        return extract_plot_dict(res_obj['final_res'], "final")
+                else:
+                    if 'final_res' in res_obj and isinstance(res_obj['final_res'], dict):
+                        return extract_plot_dict(res_obj['final_res'], "final")
+                    if 'first_res' in res_obj and isinstance(res_obj['first_res'], dict):
+                        return extract_plot_dict(res_obj['first_res'], "first")
+                return res_obj
+
+            first_res_actual = extract_plot_dict(first_res, "first")
+            final_res_actual = extract_plot_dict(final_res, "final")
+
             def plot_column(res, col_idx, stage_name):
                 plot_data = res.get('_plot_data', res)
-                pts_a = plot_data['pts_a_cam']
-                pts_b = plot_data['pts_b_cam']
-                c_A = plot_data['c_A']
-                c_B = plot_data['c_B']
-                n_A = plot_data['n_A']
-                n_B = plot_data['n_B']
-                r_A = plot_data['r_A']
-                r_B = plot_data['r_B']
-                angle_error = plot_data['angle_between_normals']
-                center_dist = plot_data['center_dist']
+                pts_a = plot_data.get('pts_a_cam')
+                pts_b = plot_data.get('pts_b_cam')
+                c_A = plot_data.get('c_A')
+                c_B = plot_data.get('c_B')
+                n_A = plot_data.get('n_A')
+                n_B = plot_data.get('n_B')
+                r_A = plot_data.get('r_A', res.get('r_A', 1.0))
+                r_B = plot_data.get('r_B', res.get('r_B', 1.0))
+                angle_error = plot_data.get('angle_between_normals', res.get('angle_between_normals', 0.0))
+                center_dist = plot_data.get('center_dist', res.get('center_dist', 0.0))
+
+                if pts_a is None or c_A is None or n_A is None:
+                    for row in range(2):
+                        axes[row, col_idx].set_title(f'[{stage_name}] No plot data')
+                        axes[row, col_idx].axis('off')
+                    return
 
                 # Compute local frames algebraically from normals (Z axes)
                 def get_local_vectors(n):
@@ -1209,30 +1235,36 @@ class BaseCalibrator:
                     dyn_model.compute_forward_kinematics(state_3_5)
                     T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
                     nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
-                except Exception as e:
+                except Exception:
                     pass
 
-            plot_column(first_res, 0, "BEFORE")
-            plot_column(final_res, 1, "AFTER")
+            plot_column(first_res_actual, 0, "BEFORE")
+            plot_column(final_res_actual, 1, "AFTER")
 
             before_dist_str = ""
             after_dist_str = ""
             if mode == "wrist_pitch_v13":
-                dist_before = compute_shortest_distance_between_lines(
-                    first_res['c_A'], first_res['n_A'], first_res['c_B'], first_res['n_B']
-                )
-                dist_after = compute_shortest_distance_between_lines(
-                    final_res['c_A'], final_res['n_A'], final_res['c_B'], final_res['n_B']
-                )
-                before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
-                after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
-                if nominal_dist_35 is not None:
-                    after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
+                first_pd = first_res_actual.get('_plot_data', first_res_actual)
+                final_pd = final_res_actual.get('_plot_data', final_res_actual)
+                if all(k in first_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
+                    dist_before = compute_shortest_distance_between_lines(
+                        first_pd['c_A'], first_pd['n_A'], first_pd['c_B'], first_pd['n_B']
+                    )
+                    before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
+                if all(k in final_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
+                    dist_after = compute_shortest_distance_between_lines(
+                        final_pd['c_A'], final_pd['n_A'], final_pd['c_B'], final_pd['n_B']
+                    )
+                    after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
+                    if nominal_dist_35 is not None:
+                        after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
 
+            first_pd = first_res_actual.get('_plot_data', first_res_actual)
+            final_pd = final_res_actual.get('_plot_data', final_res_actual)
             fig.suptitle(
                 f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
-                f"Before: Angle Dev = {first_res['angle_between_normals']:.3f}°, Center Dist = {first_res['center_dist']:.2f} mm{before_dist_str}\n"
-                f"After : Angle Dev = {final_res['angle_between_normals']:.3f}°, Center Dist = {final_res['center_dist']:.2f} mm{after_dist_str}",
+                f"Before: Angle Dev = {first_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {first_pd.get('center_dist', 0.0):.2f} mm{before_dist_str}\n"
+                f"After : Angle Dev = {final_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {final_pd.get('center_dist', 0.0):.2f} mm{after_dist_str}",
                 fontsize=16, fontweight='bold'
             )
             plt.tight_layout()

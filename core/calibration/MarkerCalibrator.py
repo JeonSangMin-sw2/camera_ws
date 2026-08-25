@@ -814,10 +814,7 @@ class MarkerCalibrator(BaseCalibrator):
         
         # v1.2: Z축 회전 방향 비틀림(Torsion) 오차 배제 - 명목 설계값 yaw으로 고정
         ver_key = "1.3" if self.is_v13() else "1.2"
-        suffix = "_v13" if self.is_v13() else "_v12"
-        nominal_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}{suffix}") if hasattr(self, 'camera_config') and self.camera_config else None
-        if nominal_vec is None:
-            nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         if not self.is_v13():
             yaw_e = nominal_vec[5]
             if arm_side == "right" and yaw_e < 0:
@@ -841,76 +838,63 @@ class MarkerCalibrator(BaseCalibrator):
         z_sign = self.get_z_sign(arm_side)
 
         from scipy.optimize import least_squares
-        if marker_data_4 is not None:
-            if not self.is_v13():
-                def residuals_trans(params):
-                    xe, ye, ze = params
-                    r6_pred = np.sqrt(xe**2 + ye**2)
-                    Z_prime = ze + z_sign * L_5_ee
-                    r5_pred = np.sqrt(xe**2 + Z_prime**2)
-                    r4_pred = np.sqrt((ze + z_sign * L_5_ee)**2 + ye**2)
-                    res = [
-                        r6_pred - radius_6,
-                        r5_pred - radius_5,
-                        r4_pred - radius_4
-                    ]
-                    reg_weight = 1e-7
-                    res.append(reg_weight * (xe - x_nom))
-                    res.append(reg_weight * (ye - y_nom))
-                    res.append(reg_weight * (ze - z_nom))
-                    return res
+        has_j4 = (marker_data_4 is not None and radius_4 > 1e-3)
 
-                initial_guess = [x_nom, y_nom, z_nom]
-                lower_bounds = [x_nom - 30.0, y_nom - 30.0, -250.0]
-                upper_bounds = [x_nom + 30.0, y_nom + 30.0, 10.0]
-                opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
-                x_e, y_e, z_e = opt_res.x
-            else:
-                def residuals_trans(params):
-                    xe, ye, ze = params
-                    # In v1.3: J6 is X, J5 is Y, J4 is Z (at q5=0)
-                    Z_prime = ze + z_sign * L_5_ee
-                    r6_pred = np.sqrt(ye**2 + Z_prime**2)
-                    r5_pred = np.sqrt(xe**2 + Z_prime**2)
-                    r4_pred = np.sqrt(xe**2 + ye**2)
-                    res = [
-                        r6_pred - radius_6,
-                        r5_pred - radius_5,
-                        r4_pred - radius_4
-                    ]
-                    reg_weight = 1e-7
-                    res.append(reg_weight * (xe - x_nom))
-                    res.append(reg_weight * (ye - y_nom))
-                    res.append(reg_weight * (ze - z_nom))
-                    return res
-
-                initial_guess = [x_nom, y_nom, z_nom]
-                lower_bounds = [x_nom - 40.0, y_nom - 40.0, z_nom - 40.0]
-                upper_bounds = [x_nom + 40.0, y_nom + 40.0, z_nom + 40.0]
-                opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
-                x_e, y_e, z_e = opt_res.x
-        else:
+        if self.is_v13():
+            # v1.3 Spherical Wrist: J6 is Roll (X), J5 is Pitch (Y), J4 is Yaw (Z)
+            # Pivot is located at Z = +125mm in EE frame (z_sign * L_5_ee = -125mm)
             def residuals_trans(params):
-                ye, ze = params
-                xe = 0.0
-                r6_pred = np.sqrt(xe**2 + ye**2)
+                xe, ye, ze = params
                 Z_prime = ze + z_sign * L_5_ee
+                r6_pred = np.sqrt(ye**2 + Z_prime**2)
                 r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                r4_pred = np.sqrt(xe**2 + ye**2)
+                
                 res = [
-                    r6_pred - radius_6,
-                    r5_pred - radius_5
+                    (r6_pred - radius_6),
+                    (r5_pred - radius_5)
                 ]
-                reg_weight = 1e-7
+                if has_j4:
+                    res.append(r4_pred - radius_4)
+                    
+                reg_weight = 1e-4
+                res.append(reg_weight * (xe - x_nom))
                 res.append(reg_weight * (ye - y_nom))
                 res.append(reg_weight * (ze - z_nom))
                 return res
 
-            initial_guess = [y_nom, z_nom]
-            lower_bounds = [y_nom - 30.0, -250.0]
-            upper_bounds = [y_nom + 30.0, 10.0]
+            initial_guess = [x_nom, y_nom, z_nom]
+            lower_bounds = [x_nom - 40.0, y_nom - 30.0, z_nom - 40.0]
+            upper_bounds = [x_nom + 40.0, y_nom + 30.0, z_nom + 40.0]
             opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
-            y_e, z_e = opt_res.x
-            x_e = 0.0
+            x_e, y_e, z_e = opt_res.x
+        else:
+            # v1.2 Non-Spherical Wrist: J6 is Yaw2 (Z), J5 is Pitch (Y), J4 is Forearm Roll (X)
+            def residuals_trans(params):
+                xe, ye, ze = params
+                Z_prime = ze + z_sign * L_5_ee
+                r6_pred = np.sqrt(xe**2 + ye**2)
+                r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                r4_pred = np.sqrt(ye**2 + Z_prime**2)
+                
+                res = [
+                    (r6_pred - radius_6),
+                    (r5_pred - radius_5)
+                ]
+                if has_j4:
+                    res.append(r4_pred - radius_4)
+                    
+                reg_weight = 1e-7
+                res.append(reg_weight * (xe - x_nom))
+                res.append(reg_weight * (ye - y_nom))
+                res.append(reg_weight * (ze - z_nom))
+                return res
+
+            initial_guess = [x_nom, y_nom, z_nom]
+            lower_bounds = [x_nom - 40.0, y_nom - 40.0, -250.0]
+            upper_bounds = [x_nom + 40.0, y_nom + 40.0, 10.0]
+            opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
+            x_e, y_e, z_e = opt_res.x
 
         print(f"DEBUG SOLVER v1.2: arm_side={arm_side}", flush=True)
         print(f"  L_5_ee = {L_5_ee:.4f}", flush=True)

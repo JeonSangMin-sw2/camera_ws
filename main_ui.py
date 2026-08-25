@@ -107,7 +107,7 @@ UI_DROPDOWNS = {
     "joint_modes_v12": ["wrist_yaw2 (6-Axis Sweep)", "wrist_pitch (5-Axis Sweep)", "elbow (3-Axis Sweep)"]
 }
 
-# --- Premium Dark CSS Stylesheet ---
+# --- Premium Dark CSS Stylesheet (Matched with RBY1 Web UI Dark Theme) ---
 DARK_STYLESHEET = """
 QWidget {
     background-color: #121212;
@@ -116,43 +116,47 @@ QWidget {
     font-size: 12px;
 }
 QGroupBox {
-    border: 2px solid #2d2d2d;
+    border: 1px solid #333333;
     border-radius: 8px;
     margin-top: 15px;
     font-weight: bold;
     font-size: 13px;
-    color: #2979ff;
-    padding: 10px;
+    color: #e0e0e0;
+    background-color: #1a1a1a;
+    padding: 12px;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
     left: 15px;
-    padding: 0 5px;
+    padding: 0 6px;
+    background-color: #121212;
+    color: #ffffff;
 }
 QPushButton {
-    background-color: #1e1e1e;
+    background-color: #2c3e50;
     color: #ffffff;
-    border: 1px solid #3d3d3d;
-    border-radius: 6px;
-    padding: 8px 12px;
+    border: 1px solid #111111;
+    border-radius: 4px;
+    padding: 6px 12px;
     font-weight: bold;
 }
 QPushButton:hover {
-    background-color: #2c2c2c;
-    border: 1px solid #2979ff;
+    background-color: #34495e;
+    border: 1px solid #000000;
 }
 QPushButton:pressed {
-    background-color: #121212;
+    background-color: #1a252f;
+    border: 1px solid #000000;
 }
 QPushButton:disabled {
-    background-color: #1a1a1a;
-    border: 1px solid #242424;
-    color: #555555;
+    background-color: #222222;
+    border: 1px solid #111111;
+    color: #616161;
 }
 QComboBox {
     background-color: #1e1e1e;
-    border: 1px solid #3d3d3d;
+    border: 1px solid #333333;
     border-radius: 4px;
     padding: 5px;
     color: #ffffff;
@@ -161,12 +165,19 @@ QComboBox {
 QComboBox::drop-down {
     border: none;
 }
+QComboBox:hover {
+    border: 1px solid #666666;
+}
 QLineEdit {
     background-color: #1e1e1e;
-    border: 1px solid #3d3d3d;
+    border: 1px solid #333333;
     border-radius: 4px;
     padding: 5px;
     color: #ffffff;
+}
+QLineEdit:focus {
+    border: 1px solid #777777;
+    background-color: #262626;
 }
 QTabWidget::pane {
     border: 1px solid #2d2d2d;
@@ -181,37 +192,71 @@ QTabBar::tab {
     font-weight: bold;
     border-top-left-radius: 6px;
     border-top-right-radius: 6px;
-    color: #888888;
+    color: #9e9e9e;
 }
 QTabBar::tab:selected {
-    background: #121212;
-    color: #2979ff;
-    border-bottom: 2px solid #2979ff;
+    background: #262626;
+    color: #ffffff;
+    border-bottom: 2px solid #e0e0e0;
 }
 QTabBar::tab:hover:!selected {
-    background: #252525;
-    color: #e0e0e0;
+    background: #2a2a2a;
+    color: #ffffff;
 }
 QCheckBox {
     spacing: 8px;
     font-weight: bold;
+    color: #e0e0e0;
 }
 QCheckBox::indicator {
     width: 18px;
     height: 18px;
-    border: 1px solid #3d3d3d;
+    border: 1px solid #333333;
     border-radius: 4px;
     background-color: #1e1e1e;
 }
+QCheckBox::indicator:hover {
+    border: 1px solid #777777;
+}
 QCheckBox::indicator:checked {
-    background-color: #2979ff;
-    border: 1px solid #2979ff;
+    background-color: #37474f;
+    border: 1px solid #111111;
 }
 QTextEdit {
     background-color: #0e0e0e;
     color: #00e676;
     border: 2px solid #2d2d2d;
     border-radius: 6px;
+    font-family: 'Consolas', 'Courier New', monospace;
+}
+QProgressBar {
+    background-color: #2a2a2a;
+    border: 1px solid #3d3d3d;
+    border-radius: 4px;
+    text-align: center;
+    color: #ffffff;
+    font-weight: bold;
+}
+QProgressBar::chunk {
+    background-color: #1e88e5;
+    border-radius: 3px;
+}
+QScrollBar:vertical {
+    background: #121212;
+    width: 10px;
+    margin: 0px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical {
+    background: #3d3d3d;
+    min-height: 20px;
+    border-radius: 5px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #546e7a;
+}
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0px;
 }
 QMessageBox {
     background-color: #1e1e1e;
@@ -284,24 +329,24 @@ class PlotViewerDialog(QDialog):
         self.btn_prev.setFixedSize(40, 30)
         self.btn_prev.setStyleSheet("""
             QPushButton {
-                background-color: #3d3d3d;
+                background-color: #546e7a;
                 color: #ffffff;
-                border: 1px solid #555555;
+                border: 1px solid #78909c;
                 border-radius: 4px;
                 font-size: 14px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #505050;
-                border-color: #666666;
+                background-color: #78909c;
+                border-color: #90a4ae;
             }
             QPushButton:pressed {
-                background-color: #2b2b2b;
+                background-color: #37474f;
             }
             QPushButton:disabled {
-                background-color: #222222;
-                color: #555555;
-                border-color: #333333;
+                background-color: #2a2a2a;
+                color: #757575;
+                border-color: #3d3d3d;
             }
         """)
         
@@ -309,8 +354,8 @@ class PlotViewerDialog(QDialog):
         self.lbl_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
         self.lbl_title.setAlignment(Qt.AlignCenter)
         self.lbl_title.setStyleSheet("""
-            background-color: #252525;
-            color: #ffffff;
+            background-color: #1e1e1e;
+            color: #00e5ff;
             border: 1px solid #3d3d3d;
             border-radius: 4px;
             padding: 5px;
@@ -320,24 +365,24 @@ class PlotViewerDialog(QDialog):
         self.btn_next.setFixedSize(40, 30)
         self.btn_next.setStyleSheet("""
             QPushButton {
-                background-color: #3d3d3d;
+                background-color: #1e88e5;
                 color: #ffffff;
-                border: 1px solid #555555;
+                border: 1px solid #42a5f5;
                 border-radius: 4px;
                 font-size: 14px;
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #505050;
-                border-color: #666666;
+                background-color: #2196f3;
+                border-color: #64b5f6;
             }
             QPushButton:pressed {
-                background-color: #2b2b2b;
+                background-color: #1565c0;
             }
             QPushButton:disabled {
-                background-color: #222222;
-                color: #555555;
-                border-color: #333333;
+                background-color: #2a2a2a;
+                color: #757575;
+                border-color: #3d3d3d;
             }
         """)
         
@@ -416,7 +461,7 @@ class MarkerRecognitionProblemDialog(QDialog):
         
         # 1. Title Header
         lbl_title = QLabel("⚠️ 마커 미인식: 수동 위치 교시 및 카메라 시야 확보 안내" if is_ko else "⚠️ Marker Unrecognized: Manual Teaching & View Alignment")
-        lbl_title.setStyleSheet("font-size: 22px; font-weight: bold; color: #ffeb3b;")
+        lbl_title.setStyleSheet("font-size: 22px; font-weight: bold; color: #ffd700;")
         lbl_title.setWordWrap(True)
         lbl_title.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(lbl_title)
@@ -427,7 +472,7 @@ class MarkerRecognitionProblemDialog(QDialog):
         
         # --- Left Box: Guidance Images & Instructions ---
         left_box = QGroupBox("수동 위치 교시 절차" if is_ko else "Manual Teaching Steps")
-        left_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 15px; }")
+        left_box.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 15px; }")
         left_layout = QVBoxLayout(left_box)
         left_layout.setSpacing(10)
         
@@ -452,7 +497,7 @@ class MarkerRecognitionProblemDialog(QDialog):
             
             lbl_cap = QLabel(cap)
             lbl_cap.setAlignment(Qt.AlignCenter)
-            lbl_cap.setStyleSheet("font-size: 13px; font-weight: bold; color: #00e676;")
+            lbl_cap.setStyleSheet("font-size: 13px; font-weight: bold; color: #43a047;")
             
             v_box.addWidget(lbl_img)
             v_box.addWidget(lbl_cap)
@@ -479,7 +524,7 @@ class MarkerRecognitionProblemDialog(QDialog):
         
         # --- Right Box: Embedded Real-time Live Feed ---
         right_box = QGroupBox("실시간 카메라 피드 (Live Feed)" if is_ko else "Live Camera Feed")
-        right_box.setStyleSheet("QGroupBox::title { color: #00e676; font-weight: bold; font-size: 15px; }")
+        right_box.setStyleSheet("QGroupBox::title { color: #43a047; font-weight: bold; font-size: 15px; }")
         right_layout = QVBoxLayout(right_box)
         right_layout.setSpacing(10)
         
@@ -498,12 +543,12 @@ class MarkerRecognitionProblemDialog(QDialog):
         
         btn_done = QPushButton("✅ 티칭 완료 (캘리브레이션 재개)" if is_ko else "✅ Teaching Done (Resume Calibration)")
         btn_done.setMinimumHeight(52)
-        btn_done.setStyleSheet("background-color: #2e7d32; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
+        btn_done.setStyleSheet("background-color: #43a047; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
         btn_done.clicked.connect(self.accept)
         
         btn_cancel = QPushButton("❌ 캘리브레이션 취소" if is_ko else "❌ Cancel Calibration")
         btn_cancel.setMinimumHeight(52)
-        btn_cancel.setStyleSheet("background-color: #c62828; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
+        btn_cancel.setStyleSheet("background-color: #e53935; color: #ffffff; font-size: 16px; font-weight: bold; border-radius: 6px;")
         btn_cancel.clicked.connect(self.reject)
         
         btn_layout.addWidget(btn_done, stretch=2)
@@ -563,15 +608,15 @@ class ApplyHomeOffsetDialog(QDialog):
         QPushButton {
             font-size: 16px;
             font-weight: bold;
-            color: #aaaaaa;
-            background-color: #333333;
-            border: 2px solid #444444;
+            color: #b0bec5;
+            background-color: #2a2a2a;
+            border: 2px solid #3d3d3d;
             border-radius: 8px;
         }
         QPushButton:checked {
             color: #ffffff;
-            background-color: #d84315;
-            border: 3px solid #ff9800;
+            background-color: #1e88e5;
+            border: 3px solid #448aff;
         }
         QPushButton:disabled {
             background-color: #222222;
@@ -1785,21 +1830,8 @@ class SimulatedMarkerTransform:
             T_head_to_cam = BaseCalibrator.make_transform(mount_to_cam)
             T_t5_to_cam = T_t5_to_head @ T_head_to_cam
             
-            if is_v13:
-                default_left = [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
-                default_right = [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
-                key_left = "Tf_to_marker_left_v13"
-                key_right = "Tf_to_marker_right_v13"
-            else:
-                default_left = [0.0, 0.0775, -0.06677, 90.0, 0.0, 0.0]
-                default_right = [0.0, -0.0775, -0.06677, 90.0, 0.0, 180.0]
-                key_left = "Tf_to_marker_left"
-                key_right = "Tf_to_marker_right"
-
-            if side == "left":
-                tf_vec = self.camera_config.get(key_left, default_left)
-            else:
-                tf_vec = self.camera_config.get(key_right, default_right)
+            ver_key = "1.3" if is_v13 else "1.2"
+            tf_vec = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][side]
             T_ee_to_marker = BaseCalibrator.make_transform(tf_vec)
             
             T_cam_to_t5 = np.linalg.inv(T_t5_to_cam)
@@ -2829,7 +2861,7 @@ class UnifiedCalibrationApp(QWidget):
         
         connect_head_row = QHBoxLayout()
         self.btn_connect = QPushButton("CONNECT")
-        self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
+        self.btn_connect.setStyleSheet("background-color: #2b5278; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 11px; border-radius: 4px; border: 1px solid #111111;")
         self.btn_connect.clicked.connect(self.connect_robot)
         self.btn_connect.setFixedHeight(28)
         connect_head_row.addWidget(self.btn_connect)
@@ -2837,7 +2869,7 @@ class UnifiedCalibrationApp(QWidget):
         # Head checkbox — controls whether head servos are enabled on connect
         self.chk_servo_head = QCheckBox("Head")
         self.chk_servo_head.setChecked(True)
-        self.chk_servo_head.setStyleSheet("color: #cccccc;")
+        self.chk_servo_head.setStyleSheet("color: #b0bec5;")
         self.chk_servo_head.toggled.connect(self.on_head_checkbox_changed)
         connect_head_row.addWidget(self.chk_servo_head)
         conn_head_layout.addLayout(connect_head_row)
@@ -2870,7 +2902,7 @@ class UnifiedCalibrationApp(QWidget):
         workflow_layout.addLayout(debug_row)
         
         self.btn_stop_motion = QPushButton("STOP MOTION")
-        self.btn_stop_motion.setStyleSheet("background-color: #ff1744; color: #ffffff; font-weight: bold;")
+        self.btn_stop_motion.setStyleSheet("background-color: #c0392b; color: #ffffff; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_stop_motion.clicked.connect(self.stop_motion)
         self.btn_stop_motion.setFixedHeight(26)
         workflow_layout.addWidget(self.btn_stop_motion)
@@ -2886,11 +2918,11 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_mode_sel.currentIndexChanged.connect(self.update_applied_offset_label)
         
         self.btn_joint_ready = QPushButton("MOVE TO READY")
-        self.btn_joint_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
+        self.btn_joint_ready.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_joint_ready.clicked.connect(self.move_to_ready_pose_joint)
         
         self.btn_joint_start = QPushButton("START SWEEP")
-        self.btn_joint_start.setStyleSheet("background-color: #1565c0; color: white;")
+        self.btn_joint_start.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_joint_start.clicked.connect(self.start_calibration_joint)
         
         joint_sublayout.addWidget(QLabel("Joint Sweeps for Polarities & Kinematics:"))
@@ -2912,15 +2944,15 @@ class UnifiedCalibrationApp(QWidget):
         self.tolerance_input = QLineEdit("0.5")
         
         self.btn_marker_ready = QPushButton("MOVE TO READY")
-        self.btn_marker_ready.setStyleSheet("background-color: #6a1b9a; color: white;")
+        self.btn_marker_ready.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_marker_ready.clicked.connect(self.move_to_ready_pose_marker)
         
         self.btn_marker_start = QPushButton("START SWEEP")
-        self.btn_marker_start.setStyleSheet("background-color: #1565c0; color: white;")
+        self.btn_marker_start.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_marker_start.clicked.connect(self.start_calibration_marker)
         
         self.btn_marker_result = QPushButton("UNIFIED RESULT")
-        self.btn_marker_result.setStyleSheet("background-color: #2e7d32; color: white;")
+        self.btn_marker_result.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_marker_result.clicked.connect(self.show_unified_result_marker)
         
         marker_sublayout.addWidget(self.lbl_marker_axis)
@@ -2934,15 +2966,15 @@ class UnifiedCalibrationApp(QWidget):
         full_auto_sublayout = QVBoxLayout()
         
         self.btn_full_auto_ready = QPushButton("MOVE TO READY")
-        self.btn_full_auto_ready.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold;")
+        self.btn_full_auto_ready.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_full_auto_ready.clicked.connect(self.move_to_ready_full_auto)
         
         self.btn_full_auto_start = QPushButton("START FULL AUTO")
-        self.btn_full_auto_start.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        self.btn_full_auto_start.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_full_auto_start.clicked.connect(self.start_full_auto)
         
         self.btn_full_auto_apply = QPushButton("APPLY FULL AUTO RESULTS")
-        self.btn_full_auto_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold;")
+        self.btn_full_auto_apply.setStyleSheet("background-color: #d35400; color: #ffffff; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_full_auto_apply.clicked.connect(self.apply_full_auto_results)
         self.btn_full_auto_apply.setEnabled(False) # Enabled after full auto finishes
         
@@ -2983,18 +3015,18 @@ class UnifiedCalibrationApp(QWidget):
         
         desc_label = QLabel("Reset joint offsets to zero to restore factory alignment:")
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("color: #aaaaaa; font-size: 11px;")
+        desc_label.setStyleSheet("color: #b0bec5; font-size: 11px;")
         home_offset_layout.addWidget(desc_label)
         
         btn_row = QHBoxLayout()
         self.btn_home_reset = QPushButton("Home Offset Reset")
-        self.btn_home_reset.setStyleSheet("background-color: #d84315; color: white; font-weight: bold;")
+        self.btn_home_reset.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_home_reset.clicked.connect(self.home_offset_reset)
         self.btn_home_reset.setFixedHeight(28)
         btn_row.addWidget(self.btn_home_reset)
 
         self.btn_step2_zero_pose = QPushButton("Zero Pose")
-        self.btn_step2_zero_pose.setStyleSheet("background-color: #37474f; color: white; font-weight: bold;")
+        self.btn_step2_zero_pose.setStyleSheet("background-color: #34495e; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_zero_pose.setFixedHeight(28)
         self.btn_step2_zero_pose.clicked.connect(self.step2_zero_pose_check)
         btn_row.addWidget(self.btn_step2_zero_pose)
@@ -3003,7 +3035,7 @@ class UnifiedCalibrationApp(QWidget):
         
         hint_label = QLabel("Tip: Double-click any cell in the table below to manually stage individual offsets.")
         hint_label.setWordWrap(True)
-        hint_label.setStyleSheet("color: #2979ff; font-size: 11px; font-weight: bold;")
+        hint_label.setStyleSheet("color: #9e9e9e; font-size: 11px;")
         home_offset_layout.addWidget(hint_label)
         
         home_offset_box.setLayout(home_offset_layout)
@@ -3025,18 +3057,18 @@ class UnifiedCalibrationApp(QWidget):
         self.tbl_offset_monitor.cellDoubleClicked.connect(self.on_cell_double_clicked)
         self.tbl_offset_monitor.setStyleSheet("""
             QTableWidget {
-                background-color: #121212;
-                color: #00e5ff;
+                background-color: #1e1e1e;
+                color: #ffffff;
                 gridline-color: #2d2d2d;
                 font-weight: bold;
                 border: 1px solid #2d2d2d;
                 border-radius: 4px;
             }
             QHeaderView::section {
-                background-color: #1a1a1a;
-                color: #888888;
+                background-color: #263238;
+                color: #b0bec5;
                 font-weight: bold;
-                padding: 2px;
+                padding: 3px;
                 border: 1px solid #2d2d2d;
             }
         """)
@@ -3048,7 +3080,7 @@ class UnifiedCalibrationApp(QWidget):
         bracket_layout.setSpacing(4)
         bracket_layout.setContentsMargins(6, 6, 6, 6)
         
-        input_style = "background-color: #1c1c1c; color: #00e5ff; border: 1px solid #3d3d3d; border-radius: 3px; padding: 2px;"
+        input_style = "background-color: #1c1c1c; color: #ffffff; border: 1px solid #333333; border-radius: 3px; padding: 2px;"
         
         grid = QGridLayout()
         grid.setSpacing(6)
@@ -3115,7 +3147,7 @@ class UnifiedCalibrationApp(QWidget):
         bracket_layout.addLayout(grid)
         
         self.btn_apply_bracket = QPushButton("APPLY BRACKETS")
-        self.btn_apply_bracket.setStyleSheet("background-color: #2979ff; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_apply_bracket.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; font-size: 11px; border-radius: 4px; border: 1px solid #111111;")
         self.btn_apply_bracket.setFixedHeight(24)
         self.btn_apply_bracket.clicked.connect(self.apply_bracket_design_values)
         bracket_layout.addWidget(self.btn_apply_bracket)
@@ -3128,12 +3160,12 @@ class UnifiedCalibrationApp(QWidget):
         btn_joint_layout.setSpacing(6)
         
         self.btn_joint_apply = QPushButton("APPLY OFFSET")
-        self.btn_joint_apply.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_joint_apply.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; font-size: 11px; border-radius: 4px; border: 1px solid #111111;")
         self.btn_joint_apply.clicked.connect(self.apply_joint_offset)
         self.btn_joint_apply.setFixedHeight(24)
         
         self.btn_joint_clear = QPushButton("CLEAR OFFSET")
-        self.btn_joint_clear.setStyleSheet("background-color: #555555; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_joint_clear.setStyleSheet("background-color: #34495e; color: white; font-weight: bold; font-size: 11px; border-radius: 4px; border: 1px solid #111111;")
         self.btn_joint_clear.clicked.connect(self.clear_joint_offset)
         self.btn_joint_clear.setFixedHeight(24)
         
@@ -3167,16 +3199,18 @@ class UnifiedCalibrationApp(QWidget):
         status_layout.addLayout(ind_layout)
         
         self.temp_label = QLabel(self.get_temp_label_text())
-        self.temp_label.setStyleSheet("color: #ff5500; font-weight: bold; font-size: 11px;")
+        self.temp_label.setStyleSheet("color: #fb8c00; font-weight: bold; font-size: 11px;")
         status_layout.addWidget(self.temp_label)
         
         btn_layout = QHBoxLayout()
         self.btn_monitor = QPushButton("Marker Monitor: OFF")
+        self.btn_monitor.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_monitor.setCheckable(True)
         self.btn_monitor.toggled.connect(self.on_monitor_toggled)
         self.btn_monitor.setFixedHeight(26)
         
         self.btn_camera_feed = QPushButton("Camera Feed")
+        self.btn_camera_feed.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_camera_feed.clicked.connect(self.toggle_camera_feed_dialog)
         self.btn_camera_feed.setFixedHeight(26)
         
@@ -3195,10 +3229,10 @@ class UnifiedCalibrationApp(QWidget):
         log_header = QHBoxLayout()
         console_title = QLabel("Execution Console Logs")
         console_title.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        console_title.setStyleSheet("color: #2979ff; margin-bottom: 2px;")
+        console_title.setStyleSheet("color: #ffffff; margin-bottom: 2px;")
         
         self.btn_show_plot = QPushButton("Show Calibration Plot")
-        self.btn_show_plot.setStyleSheet("background-color: #2979ff; color: white; font-weight: bold; font-size: 11px;")
+        self.btn_show_plot.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; font-size: 11px; border-radius: 4px; border: 1px solid #111111;")
         self.btn_show_plot.setFixedHeight(24)
         self.btn_show_plot.clicked.connect(self.open_plot_dialog)
         
@@ -3270,26 +3304,26 @@ class UnifiedCalibrationApp(QWidget):
         
         self.btn_int_capture = QPushButton("CAPTURE FRAME (C)")
         self.btn_int_capture.setMinimumHeight(45)
-        self.btn_int_capture.setStyleSheet("background-color: #1565c0; color: white; font-size: 13px;")
+        self.btn_int_capture.setStyleSheet("background-color: #1e88e5; color: white; font-size: 13px; font-weight: bold; border-radius: 4px;")
         self.btn_int_capture.clicked.connect(self.capture_intrinsics_frame)
         controls_layout.addWidget(self.btn_int_capture)
         
         self.btn_int_calibrate = QPushButton("RUN CALIBRATION")
         self.btn_int_calibrate.setMinimumHeight(45)
-        self.btn_int_calibrate.setStyleSheet("background-color: #2e7d32; color: white; font-size: 13px;")
+        self.btn_int_calibrate.setStyleSheet("background-color: #43a047; color: white; font-size: 13px; font-weight: bold; border-radius: 4px;")
         self.btn_int_calibrate.clicked.connect(self.run_intrinsics_calibration)
         controls_layout.addWidget(self.btn_int_calibrate)
         
         self.btn_int_save = QPushButton("SAVE PARAMETERS")
         self.btn_int_save.setMinimumHeight(45)
-        self.btn_int_save.setStyleSheet("background-color: #e65100; color: white; font-size: 13px;")
+        self.btn_int_save.setStyleSheet("background-color: #fb8c00; color: #000000; font-size: 13px; font-weight: bold; border-radius: 4px;")
         self.btn_int_save.clicked.connect(self.save_intrinsics_calibration)
         self.btn_int_save.setEnabled(False)
         controls_layout.addWidget(self.btn_int_save)
         
         self.btn_int_reset = QPushButton("RESET CAPTURES")
         self.btn_int_reset.setMinimumHeight(30)
-        self.btn_int_reset.setStyleSheet("background-color: #37474f; color: white;")
+        self.btn_int_reset.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 12px; border-radius: 4px;")
         self.btn_int_reset.clicked.connect(self.reset_intrinsics_captures)
         controls_layout.addWidget(self.btn_int_reset)
         
@@ -3496,7 +3530,7 @@ class UnifiedCalibrationApp(QWidget):
         
         # Actions Box (mirrors calibration_ui Actions section)
         actions_box = QGroupBox("Actions")
-        actions_box.setStyleSheet("QGroupBox { border: 1px solid #555; border-radius: 4px; } QGroupBox::title { color: #ff9800; font-weight: bold; }")
+        actions_box.setStyleSheet("QGroupBox { border: 1px solid #333333; border-radius: 4px; } QGroupBox::title { color: #ffffff; font-weight: bold; }")
         actions_layout = QVBoxLayout()
         actions_layout.setSpacing(4)
         actions_layout.setContentsMargins(6, 6, 6, 6)
@@ -3504,13 +3538,13 @@ class UnifiedCalibrationApp(QWidget):
         # Top row: Zero Pose Check, Stop (Home Offset Reset and Camera Feed excluded — already in Step 1)
         top_action_row = QHBoxLayout()
         self.btn_step2_zero_pose = QPushButton("Zero Pose Check")
-        self.btn_step2_zero_pose.setStyleSheet("background-color: #37474f; color: white; font-weight: bold;")
+        self.btn_step2_zero_pose.setStyleSheet("background-color: #34495e; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_zero_pose.setFixedHeight(28)
         self.btn_step2_zero_pose.clicked.connect(self.step2_zero_pose_check)
         top_action_row.addWidget(self.btn_step2_zero_pose)
         
         self.btn_step2_stop = QPushButton("Stop")
-        self.btn_step2_stop.setStyleSheet("background-color: #ff1744; color: white; font-weight: bold;")
+        self.btn_step2_stop.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_stop.setFixedHeight(28)
         self.btn_step2_stop.clicked.connect(self.stop_motion)
         top_action_row.addWidget(self.btn_step2_stop)
@@ -3519,13 +3553,13 @@ class UnifiedCalibrationApp(QWidget):
         # Numbered actions row 1
         act_row1 = QHBoxLayout()
         self.btn_step2_init_pose = QPushButton("1) Init Pose")
-        self.btn_step2_init_pose.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold;")
+        self.btn_step2_init_pose.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_init_pose.setFixedHeight(28)
         self.btn_step2_init_pose.clicked.connect(self.step2_init_pose)
         act_row1.addWidget(self.btn_step2_init_pose)
         
         self.btn_step2_auto_motion = QPushButton("2) Auto Motion")
-        self.btn_step2_auto_motion.setStyleSheet("background-color: #1565c0; color: white; font-weight: bold;")
+        self.btn_step2_auto_motion.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_auto_motion.setFixedHeight(28)
         self.btn_step2_auto_motion.clicked.connect(self.step2_auto_motion)
         act_row1.addWidget(self.btn_step2_auto_motion)
@@ -3534,13 +3568,13 @@ class UnifiedCalibrationApp(QWidget):
         # Numbered actions row 2
         act_row2 = QHBoxLayout()
         self.btn_step2_calculate = QPushButton("3) Calculate")
-        self.btn_step2_calculate.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold;")
+        self.btn_step2_calculate.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_calculate.setFixedHeight(28)
         self.btn_step2_calculate.clicked.connect(self.step2_calculate)
         act_row2.addWidget(self.btn_step2_calculate)
         
         self.btn_step2_clear = QPushButton("4) Clear Samples")
-        self.btn_step2_clear.setStyleSheet("background-color: #555555; color: white; font-weight: bold;")
+        self.btn_step2_clear.setStyleSheet("background-color: #34495e; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_clear.setFixedHeight(28)
         self.btn_step2_clear.clicked.connect(self.step2_clear_samples)
         act_row2.addWidget(self.btn_step2_clear)
@@ -3549,13 +3583,13 @@ class UnifiedCalibrationApp(QWidget):
         # Numbered actions row 3
         act_row3 = QHBoxLayout()
         self.btn_step2_apply_home = QPushButton("5) Apply Home Offset")
-        self.btn_step2_apply_home.setStyleSheet("background-color: #e65100; color: white; font-weight: bold;")
+        self.btn_step2_apply_home.setStyleSheet("background-color: #d35400; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_apply_home.setFixedHeight(28)
         self.btn_step2_apply_home.clicked.connect(self.step2_apply_home_offset)
         act_row3.addWidget(self.btn_step2_apply_home)
         
         self.btn_step2_check_state = QPushButton("6) Check Calibration State")
-        self.btn_step2_check_state.setStyleSheet("background-color: #00838f; color: white; font-weight: bold;")
+        self.btn_step2_check_state.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_check_state.setFixedHeight(28)
         self.btn_step2_check_state.clicked.connect(self.step2_check_calibration_state)
         act_row3.addWidget(self.btn_step2_check_state)
@@ -3617,7 +3651,7 @@ class UnifiedCalibrationApp(QWidget):
         
         self.btn_quit_global = QPushButton("QUIT")
         self.btn_quit_global.setMinimumHeight(40)
-        self.btn_quit_global.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold; font-size: 14px;")
+        self.btn_quit_global.setStyleSheet("background-color: #b71c1c; color: white; font-weight: bold; font-size: 14px; border-radius: 6px; border: 1px solid #111111;")
         self.btn_quit_global.clicked.connect(self.close)
         outer_layout.addWidget(self.btn_quit_global)
         

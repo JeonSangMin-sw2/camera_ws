@@ -466,9 +466,29 @@ class JointCalibrator(BaseCalibrator):
 
             fig, axes = plt.subplots(2, 2, figsize=(14, 12))
 
+            def extract_plot_dict(res_obj, default_stage="first"):
+                if not res_obj or not isinstance(res_obj, dict):
+                    return {}
+                if '_plot_data' in res_obj:
+                    return res_obj
+                if default_stage == "first":
+                    if 'first_res' in res_obj and isinstance(res_obj['first_res'], dict):
+                        return extract_plot_dict(res_obj['first_res'], "first")
+                    if 'final_res' in res_obj and isinstance(res_obj['final_res'], dict):
+                        return extract_plot_dict(res_obj['final_res'], "final")
+                else:
+                    if 'final_res' in res_obj and isinstance(res_obj['final_res'], dict):
+                        return extract_plot_dict(res_obj['final_res'], "final")
+                    if 'first_res' in res_obj and isinstance(res_obj['first_res'], dict):
+                        return extract_plot_dict(res_obj['first_res'], "first")
+                return res_obj
+
+            first_res_actual = extract_plot_dict(first_res, "first")
+            final_res_actual = extract_plot_dict(final_res, "final")
+
             def plot_column(res, col_idx, stage_name):
                 # Read from internal _plot_data bundle
-                pd = res.get('_plot_data', {})
+                pd = res.get('_plot_data', res)
                 pts_a      = pd.get('pts_a_cam')
                 pts_b      = pd.get('pts_b_cam')
                 c_A        = pd.get('c_A')
@@ -571,14 +591,14 @@ class JointCalibrator(BaseCalibrator):
                 except Exception:
                     pass
 
-            plot_column(first_res, 0, "BEFORE")
-            plot_column(final_res, 1, "AFTER")
+            plot_column(first_res_actual, 0, "BEFORE")
+            plot_column(final_res_actual, 1, "AFTER")
 
             before_dist_str = ""
             after_dist_str = ""
             if mode == "wrist_pitch_v13":
-                first_pd = first_res.get('_plot_data', {})
-                final_pd = final_res.get('_plot_data', {})
+                first_pd = first_res_actual.get('_plot_data', first_res_actual)
+                final_pd = final_res_actual.get('_plot_data', final_res_actual)
                 if all(k in first_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
                     dist_before = compute_shortest_distance_between_lines(
                         first_pd['c_A'], first_pd['n_A'], first_pd['c_B'], first_pd['n_B']
@@ -592,8 +612,8 @@ class JointCalibrator(BaseCalibrator):
                     if nominal_dist_35 is not None:
                         after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
 
-            first_pd = first_res.get('_plot_data', first_res)
-            final_pd = final_res.get('_plot_data', final_res)
+            first_pd = first_res_actual.get('_plot_data', first_res_actual)
+            final_pd = final_res_actual.get('_plot_data', final_res_actual)
             fig.suptitle(
                 f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
                 f"Before: Angle Dev = {first_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {first_pd.get('center_dist', 0.0):.2f} mm{before_dist_str}\n"

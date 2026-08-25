@@ -25,17 +25,17 @@ class HowToMoveArmsDialog(QDialog):
         self.setStyleSheet("""
             QDialog { background-color: #1e1e1e; color: #ffffff; }
             QLabel { color: #ffffff; font-size: 14px; }
-            QGroupBox { border: 2px solid #2d2d2d; border-radius: 8px; margin-top: 15px; font-weight: bold; font-size: 15px; color: #00e5ff; padding: 10px; }
-            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 15px; padding: 0 5px; }
-            QPushButton { background-color: #1565c0; color: white; font-weight: bold; font-size: 14px; padding: 8px 16px; border-radius: 6px; }
-            QPushButton:hover { background-color: #1e88e5; }
+            QGroupBox { border: 1px solid #333333; border-radius: 8px; margin-top: 15px; font-weight: bold; font-size: 15px; color: #e0e0e0; padding: 10px; background-color: #1a1a1a; }
+            QGroupBox::title { subcontrol-origin: margin; subcontrol-position: top left; left: 15px; padding: 0 6px; background-color: #1e1e1e; color: #90caf9; }
+            QPushButton { background-color: #1e88e5; color: white; font-weight: bold; font-size: 14px; padding: 8px 16px; border-radius: 6px; }
+            QPushButton:hover { background-color: #2196f3; }
         """)
         
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         
         lbl_title = QLabel("직접 교시 버튼 사용 안내" if is_ko else "Direct Teaching Button Usage")
-        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffeb3b;")
+        lbl_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffd700;")
         lbl_title.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl_title)
         
@@ -83,7 +83,7 @@ class CalibrationWizardWidget(QWidget):
         self.layout.setSpacing(12)
         
         self.lbl_wizard_title = QLabel()
-        self.lbl_wizard_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffeb3b;")
+        self.lbl_wizard_title.setStyleSheet("font-size: 24px; font-weight: bold; color: #ffd700;")
         self.lbl_wizard_title.setAlignment(Qt.AlignCenter)
         self.layout.addWidget(self.lbl_wizard_title)
         
@@ -100,9 +100,9 @@ class CalibrationWizardWidget(QWidget):
         for btn in (self.btn_prev, self.btn_skip, self.btn_next):
             btn.setFixedSize(140, 45)
             
-        self.btn_prev.setStyleSheet("background-color: #555555; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
-        self.btn_skip.setStyleSheet("background-color: #d32f2f; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
-        self.btn_next.setStyleSheet("background-color: #1976d2; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+        self.btn_prev.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+        self.btn_skip.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+        self.btn_next.setStyleSheet("background-color: #1e88e5; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
         
         self.btn_prev.clicked.connect(self.go_prev)
         self.btn_skip.clicked.connect(self.go_next)
@@ -361,7 +361,7 @@ class CalibrationWizardWidget(QWidget):
         l1_3.addWidget(self.d1_3)
         
         self.btn_go_intrinsics = QPushButton(tr("wizard.slides.slide_3.title"))
-        self.btn_go_intrinsics.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 15px; padding: 10px 20px; border-radius: 6px;")
+        self.btn_go_intrinsics.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; padding: 10px 20px; border-radius: 6px;")
         self.btn_go_intrinsics.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(3))
         l1_3.addWidget(self.btn_go_intrinsics, alignment=Qt.AlignCenter)
         
@@ -394,7 +394,7 @@ class CalibrationWizardWidget(QWidget):
         int_left.addWidget(self.wizard_video_label, 3)
         
         self.instr_box = QGroupBox(tr("wizard.slides.slide_3.box_guidelines"))
-        self.instr_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        self.instr_box.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 16px;}")
         instr_layout = QVBoxLayout()
         self.lbl_inst_3_1 = QLabel(tr("wizard.slides.slide_3.inst1"))
         self.lbl_inst_3_1.setStyleSheet("color: #dddddd; font-size: 14px; font-weight: bold;")
@@ -420,7 +420,7 @@ class CalibrationWizardWidget(QWidget):
         int_left.addWidget(self.instr_box, 1)
         
         self.controls_box = QGroupBox(tr("wizard.slides.slide_3.box_controls"))
-        self.controls_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        self.controls_box.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 16px;}")
         controls_layout = QVBoxLayout()
         
         self.chk_int_guide = QCheckBox(tr("wizard.slides.slide_3.guide_overlay"))
@@ -431,25 +431,25 @@ class CalibrationWizardWidget(QWidget):
         
         self.btn_int_capture = QPushButton(tr("wizard.slides.slide_3.btn_capture"))
         self.btn_int_capture.setMinimumHeight(45)
-        self.btn_int_capture.setStyleSheet("background-color: #1565c0; color: white; font-size: 14px; font-weight: bold;")
+        self.btn_int_capture.setStyleSheet("background-color: #1e88e5; color: white; font-size: 14px; font-weight: bold;")
         self.btn_int_capture.clicked.connect(self.step1_capture)
         controls_layout.addWidget(self.btn_int_capture)
         
         self.btn_int_calibrate = QPushButton(tr("wizard.slides.slide_3.btn_calibrate"))
         self.btn_int_calibrate.setMinimumHeight(45)
-        self.btn_int_calibrate.setStyleSheet("background-color: #2e7d32; color: white; font-size: 14px; font-weight: bold;")
+        self.btn_int_calibrate.setStyleSheet("background-color: #43a047; color: white; font-size: 14px; font-weight: bold;")
         self.btn_int_calibrate.clicked.connect(self.step1_run)
         controls_layout.addWidget(self.btn_int_calibrate)
         
         self.btn_int_save = QPushButton(tr("wizard.slides.slide_3.btn_save"))
         self.btn_int_save.setMinimumHeight(45)
-        self.btn_int_save.setStyleSheet("background-color: #e65100; color: white; font-size: 14px; font-weight: bold;")
+        self.btn_int_save.setStyleSheet("background-color: #fb8c00; color: #000000; font-size: 14px; font-weight: bold;")
         self.btn_int_save.clicked.connect(self.step1_save)
         controls_layout.addWidget(self.btn_int_save)
         
         self.btn_int_reset = QPushButton(tr("wizard.slides.slide_3.btn_reset"))
         self.btn_int_reset.setMinimumHeight(35)
-        self.btn_int_reset.setStyleSheet("background-color: #37474f; color: white; font-weight: bold; font-size: 13px;")
+        self.btn_int_reset.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 13px;")
         self.btn_int_reset.clicked.connect(self.parent_app.reset_intrinsics_captures)
         controls_layout.addWidget(self.btn_int_reset)
         
@@ -458,15 +458,15 @@ class CalibrationWizardWidget(QWidget):
         int_right = QVBoxLayout()
         
         self.stats_box2 = QGroupBox(tr("wizard.slides.slide_3.box_stats"))
-        self.stats_box2.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        self.stats_box2.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 16px;}")
         stats_layout2 = QHBoxLayout()
         self.lbl_captured = QLabel(tr("wizard.slides.slide_3.lbl_captured") + "0 / 16")
         self.lbl_captured.setFont(QFont("Segoe UI", 13, QFont.Bold))
-        self.lbl_captured.setStyleSheet("color: #2979ff;")
+        self.lbl_captured.setStyleSheet("color: #448aff;")
         
         self.lbl_temp = QLabel(self.parent_app.get_temp_label_text())
         self.lbl_temp.setFont(QFont("Segoe UI", 13, QFont.Bold))
-        self.lbl_temp.setStyleSheet("color: #ff5500;")
+        self.lbl_temp.setStyleSheet("color: #fb8c00;")
         
         stats_layout2.addWidget(self.lbl_captured)
         stats_layout2.addStretch()
@@ -482,7 +482,6 @@ class CalibrationWizardWidget(QWidget):
         int_right.addStretch()
         int_right.addWidget(self.lbl_step1_status)
         int_right.addStretch()
-        int_right.addWidget(self.lbl_step1_status)
         
         content1_layout.addLayout(int_left, 2)
         content1_layout.addLayout(int_right, 1)
@@ -513,7 +512,7 @@ class CalibrationWizardWidget(QWidget):
         
         # Question Label (Centered, Yellow, Bold)
         self.lbl_bracket_query = QLabel(tr("wizard.slides.slide_4.additional_bracket_query"))
-        self.lbl_bracket_query.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffeb3b; margin-top: 10px; margin-bottom: 5px;")
+        self.lbl_bracket_query.setStyleSheet("font-size: 18px; font-weight: bold; color: #ffd700; margin-top: 10px; margin-bottom: 5px;")
         self.lbl_bracket_query.setAlignment(Qt.AlignCenter)
         l2.addWidget(self.lbl_bracket_query)
         
@@ -537,12 +536,12 @@ class CalibrationWizardWidget(QWidget):
                 height: 0px;
             }
             QRadioButton:checked {
-                background-color: #ff9800;
-                color: #000000;
-                border: 2px solid #ff9800;
+                background-color: #1e88e5;
+                color: #ffffff;
+                border: 2px solid #1e88e5;
             }
             QRadioButton:hover {
-                border: 2px solid #ff9800;
+                border: 2px solid #448aff;
             }
         """
         
@@ -598,7 +597,7 @@ class CalibrationWizardWidget(QWidget):
         self.rdo_bracket_no.toggled.connect(self.on_bracket_radio_changed)
         
         self.conn_box = QGroupBox(tr("wizard.slides.slide_4.box_title"))
-        self.conn_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        self.conn_box.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 16px;}")
         self.conn_box.setFixedWidth(600)
         conn_layout = QVBoxLayout()
         conn_layout.setSpacing(10)
@@ -618,7 +617,7 @@ class CalibrationWizardWidget(QWidget):
         connect_row = QHBoxLayout()
         self.btn_wizard_connect = QPushButton("CONNECT")
         self.btn_wizard_connect.setMinimumWidth(160)
-        self.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
+        self.btn_wizard_connect.setStyleSheet("background-color: #1e88e5; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px;")
         self.btn_wizard_connect.clicked.connect(self.step2_connect)
         connect_row.addWidget(self.btn_wizard_connect)
         
@@ -659,7 +658,7 @@ class CalibrationWizardWidget(QWidget):
         self.btn_move_zero_init = QPushButton("Move to Zero Position")
         self.btn_move_zero_init.setMinimumWidth(260)
         self.btn_move_zero_init.setMinimumHeight(45)
-        self.btn_move_zero_init.setStyleSheet("background-color: #6a1b9a; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
+        self.btn_move_zero_init.setStyleSheet("background-color: #1e88e5; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
         self.btn_move_zero_init.clicked.connect(self.step3_1_move_zero)
         l3_1.addWidget(self.btn_move_zero_init, alignment=Qt.AlignCenter)
         
@@ -703,12 +702,12 @@ class CalibrationWizardWidget(QWidget):
         
         self.btn_how_to_move = QPushButton(tr("wizard.slides.slide_6.btn_how_to_move"))
         self.btn_how_to_move.setMinimumHeight(45)
-        self.btn_how_to_move.setStyleSheet("background-color: #0288d1; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
+        self.btn_how_to_move.setStyleSheet("background-color: #448aff; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
         self.btn_how_to_move.clicked.connect(self.show_how_to_move_arms_dialog)
         right_col.addWidget(self.btn_how_to_move, alignment=Qt.AlignRight)
         
         self.inst3_2_box = QGroupBox(tr("wizard.slides.slide_6.box_title"))
-        self.inst3_2_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        self.inst3_2_box.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 16px;}")
         inst3_2_layout = QVBoxLayout(self.inst3_2_box)
         inst3_2_layout.setSpacing(10)
         
@@ -723,7 +722,7 @@ class CalibrationWizardWidget(QWidget):
         inst3_2_layout.addWidget(self.lbl_p2)
 
         self.lbl_p3 = QLabel(tr("wizard.slides.slide_6.inst3"))
-        self.lbl_p3.setStyleSheet("font-size: 15px; color: #ffeb3b; font-weight: bold;")
+        self.lbl_p3.setStyleSheet("font-size: 15px; color: #ffd700; font-weight: bold;")
         self.lbl_p3.setWordWrap(True)
         inst3_2_layout.addWidget(self.lbl_p3)
             
@@ -734,7 +733,7 @@ class CalibrationWizardWidget(QWidget):
         self.btn_step3_reset = QPushButton(tr("wizard.slides.slide_6.btn_reset"))
         self.btn_step3_reset.setMinimumWidth(260)
         self.btn_step3_reset.setMinimumHeight(45)
-        self.btn_step3_reset.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
+        self.btn_step3_reset.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
         self.btn_step3_reset.clicked.connect(self.step3_reset)
         l3_2.addWidget(self.btn_step3_reset, alignment=Qt.AlignCenter)
         
@@ -768,7 +767,7 @@ class CalibrationWizardWidget(QWidget):
         self.btn_start_unified = QPushButton(tr("wizard.btn_start_calibration"))
         self.btn_start_unified.setMinimumHeight(50)
         self.btn_start_unified.setMinimumWidth(260)
-        self.btn_start_unified.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 18px; border-radius: 6px; padding: 0 15px;")
+        self.btn_start_unified.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 18px; border-radius: 6px; padding: 0 15px;")
         self.btn_start_unified.clicked.connect(self.start_unified_calibration)
         
         action_row4.addStretch()
@@ -777,7 +776,7 @@ class CalibrationWizardWidget(QWidget):
         l4.addLayout(action_row4)
         
         self.aux_box4 = QGroupBox(tr("wizard.safety_title"))
-        self.aux_box4.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 15px;}")
+        self.aux_box4.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 15px;}")
         self.aux_box4.setFixedWidth(640)
         aux_layout4 = QVBoxLayout()
         aux_layout4.setSpacing(10)
@@ -785,11 +784,11 @@ class CalibrationWizardWidget(QWidget):
         feed_row = QHBoxLayout()
         feed_row.addStretch()
         self.feed_desc = QLabel(tr("wizard.slides.slide_7.feed_desc"))
-        self.feed_desc.setStyleSheet("font-size: 14px; color: #ffeb3b; font-weight: bold;")
+        self.feed_desc.setStyleSheet("font-size: 14px; color: #ffd700; font-weight: bold;")
         feed_row.addWidget(self.feed_desc)
         self.btn_feed4 = QPushButton(tr("wizard.btn_open_feed"))
         self.btn_feed4.setMinimumWidth(160)
-        self.btn_feed4.setStyleSheet("background-color: #ff9800; color: black; font-weight: bold; font-size: 14px; padding: 6px 14px; border-radius: 4px;")
+        self.btn_feed4.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 14px; padding: 6px 14px; border-radius: 4px;")
         self.btn_feed4.clicked.connect(self.parent_app.toggle_camera_feed_dialog)
         feed_row.addWidget(self.btn_feed4)
         aux_layout4.addLayout(feed_row)
@@ -801,7 +800,7 @@ class CalibrationWizardWidget(QWidget):
         stop_row.addWidget(self.stop_desc)
         self.btn_stop4 = QPushButton(tr("wizard.btn_stop_motion"))
         self.btn_stop4.setMinimumWidth(160)
-        self.btn_stop4.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 14px; padding: 6px 14px; border-radius: 4px;")
+        self.btn_stop4.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 14px; padding: 6px 14px; border-radius: 4px;")
         self.btn_stop4.clicked.connect(self.stop_unified_calibration)
         stop_row.addWidget(self.btn_stop4)
         aux_layout4.addLayout(stop_row)
@@ -846,7 +845,7 @@ class CalibrationWizardWidget(QWidget):
         apply_row.addWidget(img_apply)
         
         self.apply_instructions_box = QGroupBox(tr("wizard.slides.slide_8.box_title"))
-        self.apply_instructions_box.setStyleSheet("QGroupBox::title { color: #ffeb3b; font-weight: bold; font-size: 16px;}")
+        self.apply_instructions_box.setStyleSheet("QGroupBox::title { color: #448aff; font-weight: bold; font-size: 16px;}")
         apply_instr_layout = QVBoxLayout()
         apply_instr_layout.setSpacing(8)
         
@@ -885,13 +884,13 @@ class CalibrationWizardWidget(QWidget):
         
         self.btn_rollback_preview = QPushButton("Rollback Preview" if I18nManager.instance().current_lang != "ko" else "롤백 자세 확인")
         self.btn_rollback_preview.setMinimumHeight(40)
-        self.btn_rollback_preview.setStyleSheet("background-color: #37474f; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+        self.btn_rollback_preview.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
         self.btn_rollback_preview.clicked.connect(lambda: self.wizard_move_check("baseline"))
         row1_layout.addWidget(self.btn_rollback_preview)
         
         self.btn_new_offset_preview = QPushButton("New Offset Preview" if I18nManager.instance().current_lang != "ko" else "보정 자세 확인")
         self.btn_new_offset_preview.setMinimumHeight(40)
-        self.btn_new_offset_preview.setStyleSheet("background-color: #e65100; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+        self.btn_new_offset_preview.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; border-radius: 6px;")
         self.btn_new_offset_preview.clicked.connect(lambda: self.wizard_move_check("optimized"))
         row1_layout.addWidget(self.btn_new_offset_preview)
         btn_container.addLayout(row1_layout)
@@ -902,13 +901,13 @@ class CalibrationWizardWidget(QWidget):
         
         self.btn_rollback_joint = QPushButton("Rollback Joint" if I18nManager.instance().current_lang != "ko" else "기존 영점 복구 (Rollback)")
         self.btn_rollback_joint.setMinimumHeight(45)
-        self.btn_rollback_joint.setStyleSheet("background-color: #c62828; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
+        self.btn_rollback_joint.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_rollback_joint.clicked.connect(lambda: self.wizard_apply_offset("baseline"))
         row2_layout.addWidget(self.btn_rollback_joint)
         
         self.btn_apply_new_offset = QPushButton("Apply New Offset" if I18nManager.instance().current_lang != "ko" else "신규 보정 적용 (Apply)")
         self.btn_apply_new_offset.setMinimumHeight(45)
-        self.btn_apply_new_offset.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
+        self.btn_apply_new_offset.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_apply_new_offset.clicked.connect(lambda: self.wizard_apply_offset("optimized"))
         row2_layout.addWidget(self.btn_apply_new_offset)
         btn_container.addLayout(row2_layout)
@@ -1047,14 +1046,14 @@ class CalibrationWizardWidget(QWidget):
         self.btn_next.setEnabled(enabled)
         
         if enabled:
-            self.btn_next.setStyleSheet("background-color: #1976d2; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+            self.btn_next.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
         else:
-            self.btn_next.setStyleSheet("background-color: #444444; color: #888888; font-weight: bold; font-size: 15px; border-radius: 6px;")
+            self.btn_next.setStyleSheet("background-color: #222222; color: #616161; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
         
         if idx == self.stacked_widget.count() - 1:
             self.btn_next.setText(tr("wizard.btn_finish"))
             self.btn_next.setEnabled(True)
-            self.btn_next.setStyleSheet("background-color: #1976d2; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
+            self.btn_next.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
         else:
             self.btn_next.setText(tr("wizard.btn_next"))
 
@@ -1067,18 +1066,18 @@ class CalibrationWizardWidget(QWidget):
             err = self.parent_app.intrinsics_calibrator.rms_error
             if err is not None and err > 0.0:
                 self.lbl_step1_status.setText(f"Status: Calibration OK (RMS: {err:.4f})")
-                self.lbl_step1_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
+                self.lbl_step1_status.setStyleSheet("color: #d35400; font-weight: bold; font-size: 16px;")
             else:
                 self.lbl_step1_status.setText(f"Status: Captured {frames} / 16 frames. Ready to calibrate.")
-                self.lbl_step1_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
+                self.lbl_step1_status.setStyleSheet("color: #27ae60; font-weight: bold; font-size: 16px;")
         else:
             self.lbl_step1_status.setText(f"Status: Captured {frames} / 16 frames (Need 16)")
-            self.lbl_step1_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
+            self.lbl_step1_status.setStyleSheet("color: #b0bec5; font-weight: bold; font-size: 16px;")
 
     def step1_run(self):
         if len(self.parent_app.captured_images) < 16:
             self.lbl_step1_status.setText("Status: Need all 16 frames to run calibration!")
-            self.lbl_step1_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
+            self.lbl_step1_status.setStyleSheet("color: #c0392b; font-weight: bold; font-size: 16px;")
             QMessageBox.warning(self, "Insufficient Data", f"Cannot run calibration: Only {len(self.parent_app.captured_images)} / 16 frames collected.\nPlease capture all 16 frames first.")
             return
 
@@ -1086,10 +1085,10 @@ class CalibrationWizardWidget(QWidget):
         err = self.parent_app.intrinsics_calibrator.rms_error
         if err is not None and err > 0.0:
             self.lbl_step1_status.setText(f"Status: Calibration OK (RMS: {err:.4f})")
-            self.lbl_step1_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
+            self.lbl_step1_status.setStyleSheet("color: #d35400; font-weight: bold; font-size: 16px;")
         else:
             self.lbl_step1_status.setText("Status: Calibration Failed (Check board settings)")
-            self.lbl_step1_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
+            self.lbl_step1_status.setStyleSheet("color: #c0392b; font-weight: bold; font-size: 16px;")
 
     def step1_save(self):
         if len(self.parent_app.captured_images) < 16:
@@ -1107,7 +1106,7 @@ class CalibrationWizardWidget(QWidget):
     # Step 2: Robot Connection
     def step2_connect(self):
         self.btn_wizard_connect.setText("CONNECTING...")
-        self.btn_wizard_connect.setStyleSheet("background-color: #ffb74d; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
+        self.btn_wizard_connect.setStyleSheet("background-color: #d35400; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
         self.btn_wizard_connect.setEnabled(False)
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
@@ -1120,11 +1119,11 @@ class CalibrationWizardWidget(QWidget):
         self.btn_wizard_connect.setEnabled(True)
         if self.parent_app.robot is not None:
             self.btn_wizard_connect.setText("CONNECTED")
-            self.btn_wizard_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px;")
+            self.btn_wizard_connect.setStyleSheet("background-color: #34495e; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
             self.mark_step_completed(4, True, "Connected to Robot")
         else:
             self.btn_wizard_connect.setText("CONNECT")
-            self.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
+            self.btn_wizard_connect.setStyleSheet("background-color: #2b5278; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
             self.mark_step_completed(4, False, "Connection Failed")
 
     def sync_bracket_radio(self):
@@ -1162,7 +1161,7 @@ class CalibrationWizardWidget(QWidget):
 
         if self.parent_app.home_offset_reset(confirm_dialog=False):
             self.lbl_step7_status.setText("Status: Reset in progress...")
-            self.lbl_step7_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
+            self.lbl_step7_status.setStyleSheet("color: #1e88e5; font-weight: bold; font-size: 16px;")
             self.set_wizard_busy(True)
         else:
             if not self.parent_app.robot:
@@ -1176,7 +1175,7 @@ class CalibrationWizardWidget(QWidget):
         self.btn_skip.setEnabled(not busy)
         if busy:
             self.btn_next.setEnabled(False)
-            self.btn_next.setStyleSheet("background-color: #444444; color: #888888; font-weight: bold; font-size: 15px; border-radius: 6px;")
+            self.btn_next.setStyleSheet("background-color: #2a2a2a; color: #757575; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #3d3d3d;")
         else:
             self.update_navigation(self.stacked_widget.currentIndex())
         if hasattr(self, 'btn_step3_reset'):
@@ -1188,10 +1187,10 @@ class CalibrationWizardWidget(QWidget):
     def start_unified_calibration(self):
         self.unified_elapsed = 0
         self.lbl_step4_status.setText("Status: [Step 1/2] Full Auto In Progress (00:00)")
-        self.lbl_step4_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
+        self.lbl_step4_status.setStyleSheet("color: #1e88e5; font-weight: bold; font-size: 16px;")
         if hasattr(self, 'btn_start_unified'):
             self.btn_start_unified.setEnabled(False)
-            self.btn_start_unified.setStyleSheet("background-color: #555555; color: #888888; font-weight: bold; font-size: 18px; border-radius: 6px;")
+            self.btn_start_unified.setStyleSheet("background-color: #2a2a2a; color: #757575; font-weight: bold; font-size: 18px; border-radius: 6px; border: 1px solid #3d3d3d;")
         
         self.unified_timer.start(1000)
         self.parent_app.start_full_auto()
@@ -1268,7 +1267,7 @@ class CalibrationWizardWidget(QWidget):
         self.unified_timer.stop()
         if hasattr(self, 'btn_start_unified'):
             self.btn_start_unified.setEnabled(True)
-            self.btn_start_unified.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 18px; border-radius: 6px;")
+            self.btn_start_unified.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 18px; border-radius: 6px; padding: 0 15px;")
             
         m = self.unified_elapsed // 60
         s = self.unified_elapsed % 60
@@ -1287,7 +1286,7 @@ class CalibrationWizardWidget(QWidget):
         self.unified_timer.stop()
         if hasattr(self, 'btn_start_unified'):
             self.btn_start_unified.setEnabled(True)
-            self.btn_start_unified.setStyleSheet("background-color: #2e7d32; color: white; font-weight: bold; font-size: 18px; border-radius: 6px;")
+            self.btn_start_unified.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 18px; border-radius: 6px; padding: 0 15px;")
         self.mark_step_completed(7, False, err_msg)
 
     def get_apply_paths(self):
