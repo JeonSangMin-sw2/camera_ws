@@ -346,9 +346,19 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
         state = robot.get_state()
         q_current = np.array(state.position, dtype=np.float64).reshape(-1)
         
-        dyn_model = model.get_dynamics_model()
-        q_lower = np.array(dyn_model.get_limit_q_lower(state), dtype=np.float64).reshape(-1)
-        q_upper = np.array(dyn_model.get_limit_q_upper(state), dtype=np.float64).reshape(-1)
+        if hasattr(robot, "get_dynamics"):
+            dyn_model = robot.get_dynamics()
+        elif hasattr(model, "get_dynamics_model"):
+            dyn_model = model.get_dynamics_model()
+        else:
+            dyn_model = None
+
+        if dyn_model is not None:
+            q_lower = np.array(dyn_model.get_limit_q_lower(state), dtype=np.float64).reshape(-1)
+            q_upper = np.array(dyn_model.get_limit_q_upper(state), dtype=np.float64).reshape(-1)
+        else:
+            q_lower = np.full(len(q_current), -np.pi)
+            q_upper = np.full(len(q_current), np.pi)
 
         # 1. Posture Direction Sign Validation for Home Offset Reset
         # Right Arm: J1 (Shoulder Roll) <= 0, J3 (Elbow) <= 0

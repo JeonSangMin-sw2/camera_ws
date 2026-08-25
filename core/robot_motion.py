@@ -165,13 +165,29 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         half_ang = config.angle_step_deg / 2.0
         full_ang = config.angle_step_deg
 
-        # 1. Joint steps for joint 0, 1, 2, and 4
-        for joint_idx in [0, 1, 2, 4]:
-            if joint_idx == 0:
-                # Enhanced sweep range for J0 (Shoulder Pitch) to strongly identify sagittal rotation
-                j_offsets = [-full_ang * 1.5, -full_ang, -half_ang, half_ang, full_ang, full_ang * 1.5]
-            else:
-                j_offsets = [-half_ang, -full_ang, half_ang, full_ang]
+        # 1. Interleaved J0 x Head Tilt Cross Grid Sweeps for robust decoupling
+        # (J0 rotates in horizontal plane, Head Tilt rotates in vertical plane -> 90 deg orthogonal decoupling)
+        j0_targets = [-full_ang, 0.0, full_ang]
+        tilt_offsets = [-full_ang, 0.0, full_ang]
+        
+        for j0_off in j0_targets:
+            for tilt_off in tilt_offsets:
+                # Skip the neutral (0, 0) since baseline handles it
+                if abs(j0_off) < 1e-3 and abs(tilt_off) < 1e-3:
+                    continue
+                plan.append({
+                    "type": "joint",
+                    "joint_idx": 0,
+                    "offset_deg": j0_off,
+                    "head_tilt_offset_deg": tilt_off,
+                    "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+                    "T_left": T_curr_left.copy() if T_curr_left is not None else None,
+                    "desc": f"J0 ({j0_off:+.1f}deg) + Head Tilt ({tilt_off:+.1f}deg)"
+                })
+
+        # 1.2 Other Joint steps for joint 1, 2, and 4
+        for joint_idx in [1, 2, 4]:
+            j_offsets = [-half_ang, -full_ang, half_ang, full_ang]
             for offset in j_offsets:
                 plan.append({
                     "type": "joint",
@@ -550,21 +566,29 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
 
         head_q = None
         if include_head_motion:
-            q_full_temp = q_full.copy()
-            q_full_temp[model.right_arm_idx[:7]] = q_right_target
-            q_full_temp[model.left_arm_idx[:7]] = q_left_target
+            if "head_q" in motion_plan_step and motion_plan_step["head_q"] is not None:
+                head_q = motion_plan_step["head_q"]
+            elif "head_tilt_offset_deg" in motion_plan_step or "head_pan_offset_deg" in motion_plan_step:
+                d_pan = np.radians(motion_plan_step.get("head_pan_offset_deg", 0.0))
+                d_tilt = np.radians(motion_plan_step.get("head_tilt_offset_deg", 0.0))
+                base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else np.zeros(2)
+                head_q = np.array([base_head[0] + d_pan, base_head[1] + d_tilt], dtype=np.float64)
+            else:
+                q_full_temp = q_full.copy()
+                q_full_temp[model.right_arm_idx[:7]] = q_right_target
+                q_full_temp[model.left_arm_idx[:7]] = q_left_target
 
-            _, T_right_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_right", "link_torso_5")
-            _, T_left_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_left", "link_torso_5")
+                _, T_right_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_right", "link_torso_5")
+                _, T_left_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_left", "link_torso_5")
 
-            head_q = compute_head_tracking_q(
-                T_right_fk,
-                T_left_fk,
-                active_arms,
-                _motion_state["p_neck"],
-                _motion_state["q_head_0"],
-                _motion_state["p_marker_0"]
-            )
+                head_q = compute_head_tracking_q(
+                    T_right_fk,
+                    T_left_fk,
+                    active_arms,
+                    _motion_state["p_neck"],
+                    _motion_state["q_head_0"],
+                    _motion_state["p_marker_0"]
+                )
 
         cmd = make_dual_arm_head_cmd(
             T_right=None,
