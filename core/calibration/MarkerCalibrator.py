@@ -582,6 +582,11 @@ class MarkerCalibrator(BaseCalibrator):
         dot_val = np.dot(n6_marker_actual, n5_marker_actual)
         ortho_err = abs(90.0 - np.degrees(np.arccos(np.clip(abs(dot_val), -1.0, 1.0))))
 
+        pos_diff_mm = float(np.linalg.norm([xe_opt - x_nom, ye_opt - y_nom, ze_opt - z_nom]))
+        warn_large_pos = pos_diff_mm > 40.0
+        if warn_large_pos:
+            logging.error(f"[{arm_side.upper()} BRACKET ERROR] Bracket position deviation exceeded safety limit: {pos_diff_mm:.1f}mm > 40.0mm! (Nominal: [{x_nom:.1f}, {y_nom:.1f}, {z_nom:.1f}], Opt: [{xe_opt:.1f}, {ye_opt:.1f}, {ze_opt:.1f}])")
+
         return {
             'converged': True,
             'x_e': xe_opt, 'y_e': ye_opt, 'z_e': ze_opt,
@@ -594,6 +599,8 @@ class MarkerCalibrator(BaseCalibrator):
             'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 is not None else 0.0,
             'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
             'warn_large_angle': rot_err_deg > 15.0,
+            'warn_large_pos': warn_large_pos,
+            'pos_diff_mm': pos_diff_mm,
             'opt_delta_5': opt_delta_5,
             'opt_delta_6': opt_delta_6,
             'min_radius': radius_4,

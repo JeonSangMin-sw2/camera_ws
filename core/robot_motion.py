@@ -167,8 +167,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
 
         # 1. Joint steps for joint 0, 1, 2, and 4
         for joint_idx in [0, 1, 2, 4]:
-            if joint_idx == 0 and not has_head:
-                j_offsets = [0.0, -half_ang, -full_ang, half_ang]
+            if joint_idx == 0:
+                # Enhanced sweep range for J0 (Shoulder Pitch) to strongly identify sagittal rotation
+                j_offsets = [-full_ang * 1.5, -full_ang, -half_ang, half_ang, full_ang, full_ang * 1.5]
             else:
                 j_offsets = [-half_ang, -full_ang, half_ang, full_ang]
             for offset in j_offsets:
@@ -178,7 +179,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                     "offset_deg": offset,
                     "T_right": T_curr_right.copy() if T_curr_right is not None else None,
                     "T_left": T_curr_left.copy() if T_curr_left is not None else None,
-                    "desc": f"Joint {joint_idx} Offset: {offset:.1f}deg"
+                    "desc": f"Joint {joint_idx} Offset: {offset:+.1f}deg"
                 })
 
         # 1.5 Multi-joint diagonal sweeps for J1 and J4 coupling decoupling (full_ang = 5.0deg for high 3D SNR)
@@ -191,6 +192,30 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             ({1: -full_ang, 2: -full_ang}, f"Joint 1+2 (-{full_ang:.1f},-{full_ang:.1f})deg"),
         ]
         for off_dict, desc in multi_joint_targets:
+            plan.append({
+                "type": "joint",
+                "joint_idx": None,
+                "offsets_dict": off_dict,
+                "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+                "T_left": T_curr_left.copy() if T_curr_left is not None else None,
+                "desc": desc
+            })
+
+        plan.append({
+            "type": "restore_baseline",
+            "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+            "T_left": T_curr_left.copy() if T_curr_left is not None else None,
+            "desc": "Restore Baseline Pose"
+        })
+
+        # 2. Elbow-bent joint targets for robust J2 and J4 decoupling (with matching wrist compensation)
+        elbow_joint_targets = [
+            ({3: -15.0, 5: 15.0}, "Elbow Deep Bend (J3 -15deg, J5 +15deg)"),
+            ({3:  15.0, 5: -15.0}, "Elbow Extended (J3 +15deg, J5 -15deg)"),
+            ({3: -15.0, 2: 5.0, 4: -5.0}, "Elbow Bent + Cross Yaw (+5deg)"),
+            ({3: -15.0, 2: -5.0, 4: 5.0}, "Elbow Bent + Cross Yaw (-5deg)"),
+        ]
+        for off_dict, desc in elbow_joint_targets:
             plan.append({
                 "type": "joint",
                 "joint_idx": None,
@@ -370,7 +395,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 2: Cartesian Checking Pose.")
 
-def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=0.5, q_right=None, q_left=None):
+def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=0.5, q_right=None, q_left=None, elbow_angle_deg=None):
     body = rby.BodyComponentBasedCommandBuilder()
 
     header_right = None
@@ -390,8 +415,10 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
             
             right_cart = rby.CartesianCommandBuilder()
             right_cart.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.2, 0.5, 0.3)
-            right_cart.set_stop_position_tracking_error(0.001)
-            right_cart.set_stop_orientation_tracking_error(0.005)
+            if elbow_angle_deg is not None:
+                right_cart.add_joint_position_target("right_arm_3", float(np.radians(elbow_angle_deg)))
+            right_cart.set_stop_position_tracking_error(0.005)
+            right_cart.set_stop_orientation_tracking_error(0.02)
             right_cart.set_command_header(header_right)
             right_cart.set_minimum_time(min_time)
             body.set_right_arm_command(right_cart)
@@ -419,8 +446,10 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
             
             left_cart = rby.CartesianCommandBuilder()
             left_cart.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.2, 0.5, 0.3)
-            left_cart.set_stop_position_tracking_error(0.001)
-            left_cart.set_stop_orientation_tracking_error(0.005)
+            if elbow_angle_deg is not None:
+                left_cart.add_joint_position_target("left_arm_3", float(np.radians(elbow_angle_deg)))
+            left_cart.set_stop_position_tracking_error(0.005)
+            left_cart.set_stop_orientation_tracking_error(0.02)
             left_cart.set_command_header(header_left)
             left_cart.set_minimum_time(min_time)
             body.set_left_arm_command(left_cart)
@@ -577,10 +606,11 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
         return motion_plan_step
 
     else:
-        # Standard Cartesian step
+        # Standard Cartesian step (with optional elbow bias target)
         T_right = motion_plan_step["T_right"]
         T_left = motion_plan_step["T_left"]
         head_q = motion_plan_step.get("head_q", None) if include_head_motion else None
+        elbow_bias_deg = motion_plan_step.get("elbow_bias_deg", None)
 
         cmd = make_dual_arm_head_cmd(
             T_right=T_right,
@@ -589,6 +619,7 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
             head_position=head_q,
             min_time=config.move_time,
             hold_time=config.hold_time,
+            elbow_angle_deg=elbow_bias_deg,
         )
         rv = robot.send_command(cmd, config.priority).get()
         if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:

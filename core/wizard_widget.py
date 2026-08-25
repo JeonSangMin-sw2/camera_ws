@@ -3,7 +3,7 @@ import sys
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel,
     QStackedWidget, QGroupBox, QCheckBox, QLineEdit, QMessageBox, QDialog,
-    QRadioButton, QButtonGroup
+    QRadioButton, QButtonGroup, QSpinBox, QSlider
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap
@@ -115,17 +115,18 @@ class CalibrationWizardWidget(QWidget):
         
         self.layout.addLayout(self.nav_layout)
         
-        # State tracking for each step to enable Next (9 slides total)
-        self.step_completed = [False] * 9
+        # State tracking for each step to enable Next (10 slides total)
+        self.step_completed = [False] * 10
         self.step_completed[0] = True   # 1-1 Camera Mounting
         self.step_completed[1] = True   # 1-2 Marker Attachment
-        self.step_completed[2] = True   # 1-3 Intrinsics Check
-        self.step_completed[3] = False  # Intrinsics Calibration (Optional)
-        self.step_completed[4] = False  # Robot Connection
-        self.step_completed[5] = False  # 3-1 Initial Zero (Must move zero position to complete)
-        self.step_completed[6] = False  # 3-2 Home Offset Position Setup
-        self.step_completed[7] = False  # 4. Calibration Start (Step 1 + Step 2 Unified)
-        self.step_completed[8] = True   # 5. Apply Home Offset
+        self.step_completed[2] = False  # 1-3 Camera Exposure / Brightness Setup (Must confirm settings)
+        self.step_completed[3] = True   # 1-4 Intrinsics Check
+        self.step_completed[4] = False  # Intrinsics Calibration (Optional)
+        self.step_completed[5] = False  # 2. Robot Connection
+        self.step_completed[6] = False  # 3-1 Initial Zero (Must move zero position to complete)
+        self.step_completed[7] = False  # 3-2 Home Offset Position Setup
+        self.step_completed[8] = False  # 4. Calibration Start (Step 1 + Step 2 Unified)
+        self.step_completed[9] = True   # 5. Apply Home Offset
         
         self.check_pose_init_done = False
         
@@ -157,13 +158,27 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'lbl_m2'): self.lbl_m2.setText(tr("wizard.slides.slide_1.inst2"))
         if hasattr(self, 'lbl_m3'): self.lbl_m3.setText(tr("wizard.slides.slide_1.inst3"))
         
-        # Slide 2
+        # Slide 2 (Exposure)
+        if hasattr(self, 't_exp'): self.t_exp.setText(tr("wizard.slides.slide_exposure.title"))
+        if hasattr(self, 'd_exp'): self.d_exp.setText(tr("wizard.slides.slide_exposure.inst"))
+        if hasattr(self, 'chk_wiz_auto_exp'): self.chk_wiz_auto_exp.setText(tr("wizard.slides.slide_exposure.auto_exposure"))
+        if hasattr(self, 'lbl_wiz_exp_text'): self.lbl_wiz_exp_text.setText(tr("wizard.slides.slide_exposure.exposure_label"))
+        if hasattr(self, 'btn_wiz_apply_exp'): self.btn_wiz_apply_exp.setText(tr("wizard.slides.slide_exposure.btn_apply"))
+        if hasattr(self, 'btn_wiz_cancel_exp'): self.btn_wiz_cancel_exp.setText(tr("wizard.slides.slide_exposure.btn_cancel"))
+        if hasattr(self, 'chk_wiz_exp_confirmed'): self.chk_wiz_exp_confirmed.setText(tr("wizard.slides.slide_exposure.chk_confirmed"))
+        if hasattr(self, 'lbl_wiz_exp_status'):
+            if self.step_completed[2]:
+                self.lbl_wiz_exp_status.setText(tr("wizard.slides.slide_exposure.status_confirmed"))
+            else:
+                self.lbl_wiz_exp_status.setText(tr("wizard.slides.slide_exposure.status_waiting"))
+
+        # Slide 3 (Intrinsics Check)
         if hasattr(self, 't1_3'): self.t1_3.setText(tr("wizard.slides.slide_2.title"))
         if hasattr(self, 'lbl_intrinsics_hint'): self.lbl_intrinsics_hint.setText(tr("wizard.slides.slide_2.skip_note"))
         if hasattr(self, 'd1_3'): self.d1_3.setText(tr("wizard.slides.slide_2.inst1"))
-        if hasattr(self, 'btn_go_intrinsics'): self.btn_go_intrinsics.setText(tr("wizard.slides.slide_2.btn_go"))
+        if hasattr(self, 'btn_go_intrinsics'): self.btn_go_intrinsics.setText(tr("wizard.slides.slide_3.title"))
         
-        # Slide 3
+        # Slide 4 (Intrinsics Calib)
         if hasattr(self, 't1'): self.t1.setText(tr("wizard.slides.slide_3.title"))
         if hasattr(self, 'lbl_skip_hint1'): self.lbl_skip_hint1.setText(tr("wizard.slides.slide_3.skip_hint"))
         if hasattr(self, 'instr_box'): self.instr_box.setTitle(tr("wizard.slides.slide_3.box_guidelines"))
@@ -179,7 +194,7 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'btn_int_reset'): self.btn_int_reset.setText(tr("wizard.slides.slide_3.btn_reset"))
         if hasattr(self, 'stats_box2'): self.stats_box2.setTitle(tr("wizard.slides.slide_3.box_stats"))
         
-        # Slide 4
+        # Slide 5 (Robot Connect)
         if hasattr(self, 't2'): self.t2.setText(tr("wizard.slides.slide_4.title"))
         if hasattr(self, 'd2'): self.d2.setText(tr("wizard.slides.slide_4.inst1"))
         if hasattr(self, 'head_desc'): self.head_desc.setText(tr("wizard.slides.slide_4.head_note"))
@@ -188,12 +203,12 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'rdo_bracket_no'): self.rdo_bracket_no.setText(tr("wizard.slides.slide_4.no"))
         if hasattr(self, 'conn_box'): self.conn_box.setTitle(tr("wizard.slides.slide_4.box_title"))
         
-        # Slide 5
+        # Slide 6 (Zero Pose)
         if hasattr(self, 't3_1'): self.t3_1.setText(tr("wizard.slides.slide_5.title"))
         if hasattr(self, 'd3_1'): self.d3_1.setText(tr("wizard.slides.slide_5.inst1"))
         if hasattr(self, 'btn_move_zero_init'): self.btn_move_zero_init.setText(tr("wizard.slides.slide_5.btn_move_zero"))
         
-        # Slide 6
+        # Slide 7 (Home Offset Pose)
         if hasattr(self, 't3_2'): self.t3_2.setText(tr("wizard.slides.slide_6.title"))
         if hasattr(self, 'lbl_skip_hint7'): self.lbl_skip_hint7.setText(tr("wizard.slides.slide_6.skip_hint"))
         if hasattr(self, 'btn_how_to_move'): self.btn_how_to_move.setText(tr("wizard.slides.slide_6.btn_how_to_move"))
@@ -203,7 +218,7 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'lbl_p3'): self.lbl_p3.setText(tr("wizard.slides.slide_6.inst3"))
         if hasattr(self, 'btn_step3_reset'): self.btn_step3_reset.setText(tr("wizard.slides.slide_6.btn_reset"))
         
-        # Slide 7
+        # Slide 8 (Calibration Pipeline)
         if hasattr(self, 't4'): self.t4.setText(tr("wizard.slides.slide_7.title"))
         if hasattr(self, 'd4_step1'): self.d4_step1.setText(tr("wizard.slides.slide_7.desc"))
         if hasattr(self, 'btn_start_unified'): self.btn_start_unified.setText(tr("wizard.btn_start_calibration"))
@@ -213,7 +228,7 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'stop_desc'): self.stop_desc.setText(tr("wizard.slides.slide_7.stop_desc"))
         if hasattr(self, 'btn_stop4'): self.btn_stop4.setText(tr("wizard.btn_stop_motion"))
         
-        # Slide 8
+        # Slide 9 (Apply Offset)
         if hasattr(self, 't6'): self.t6.setText(tr("wizard.slides.slide_8.title"))
         if hasattr(self, 'd6'): self.d6.setText(tr("wizard.slides.slide_8.desc"))
         if hasattr(self, 'apply_instructions_box'): self.apply_instructions_box.setTitle(tr("wizard.slides.slide_8.box_title"))
@@ -316,7 +331,136 @@ class CalibrationWizardWidget(QWidget):
         self.stacked_widget.addWidget(slide1_2)
 
         # -----------------------------------------
-        # Slide 2: 1-3. Camera Intrinsics Check
+        # Slide 2: 1-3. Camera Exposure & Brightness Setup
+        # -----------------------------------------
+        slide_exp = QWidget()
+        slide_exp_layout = QVBoxLayout(slide_exp)
+        slide_exp_layout.setSpacing(10)
+        
+        self.t_exp = QLabel(tr("wizard.slides.slide_exposure.title"))
+        self.t_exp.setVisible(False)
+        
+        self.d_exp = QLabel(tr("wizard.slides.slide_exposure.inst"))
+        self.d_exp.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
+        self.d_exp.setWordWrap(True)
+        self.d_exp.setAlignment(Qt.AlignCenter)
+        slide_exp_layout.addWidget(self.d_exp)
+        
+        content_exp_layout = QHBoxLayout()
+        
+        # Left: Live Camera Feed
+        exp_left = QVBoxLayout()
+        self.wizard_exposure_video_label = QLabel("Camera Feed Loading...")
+        self.wizard_exposure_video_label.setAlignment(Qt.AlignCenter)
+        self.wizard_exposure_video_label.setMinimumSize(480, 290)
+        self.wizard_exposure_video_label.setStyleSheet("background-color: black; color: white; border: 2px solid #2d2d2d; border-radius: 8px;")
+        exp_left.addWidget(self.wizard_exposure_video_label, 1)
+        content_exp_layout.addLayout(exp_left, 3)
+        
+        # Right: Exposure Controls
+        exp_right = QVBoxLayout()
+        exp_ctrl_box = QGroupBox(tr("wizard.slides.slide_exposure.title"))
+        exp_ctrl_box.setStyleSheet("QGroupBox::title { color: #00e5ff; font-weight: bold; font-size: 15px;}")
+        exp_ctrl_layout = QVBoxLayout()
+        exp_ctrl_layout.setSpacing(10)
+        
+        self.chk_wiz_auto_exp = QCheckBox(tr("wizard.slides.slide_exposure.auto_exposure"))
+        self.chk_wiz_auto_exp.setChecked(True)
+        self.chk_wiz_auto_exp.setStyleSheet("color: #ffffff; font-weight: bold; font-size: 14px;")
+        self.chk_wiz_auto_exp.toggled.connect(self.on_wiz_auto_exp_toggled)
+        exp_ctrl_layout.addWidget(self.chk_wiz_auto_exp)
+        
+        spin_row = QHBoxLayout()
+        self.lbl_wiz_exp_text = QLabel(tr("wizard.slides.slide_exposure.exposure_label"))
+        self.lbl_wiz_exp_text.setStyleSheet("color: #dddddd; font-size: 14px; font-weight: bold;")
+        spin_row.addWidget(self.lbl_wiz_exp_text)
+        
+        self.spin_wiz_exp = QSpinBox()
+        self.spin_wiz_exp.setRange(100, 100000)
+        self.spin_wiz_exp.setSingleStep(500)
+        self.spin_wiz_exp.setValue(6000)
+        self.spin_wiz_exp.setEnabled(False)
+        self.spin_wiz_exp.setStyleSheet("background-color: #1e1e1e; color: #00e5ff; font-weight: bold; font-size: 14px; padding: 4px;")
+        self.spin_wiz_exp.valueChanged.connect(self.on_wiz_exposure_changed)
+        spin_row.addWidget(self.spin_wiz_exp)
+        
+        self.lbl_wiz_exp_ms = QLabel("6.0 ms")
+        self.lbl_wiz_exp_ms.setStyleSheet("color: #ffd700; font-weight: bold; font-size: 14px; min-width: 55px;")
+        spin_row.addWidget(self.lbl_wiz_exp_ms)
+        exp_ctrl_layout.addLayout(spin_row)
+        
+        self.slider_wiz_exp = QSlider(Qt.Horizontal)
+        self.slider_wiz_exp.setRange(100, 100000)
+        self.slider_wiz_exp.setSingleStep(500)
+        self.slider_wiz_exp.setPageStep(5000)
+        self.slider_wiz_exp.setValue(6000)
+        self.slider_wiz_exp.setEnabled(False)
+        self.slider_wiz_exp.valueChanged.connect(self.on_wiz_exposure_changed)
+        exp_ctrl_layout.addWidget(self.slider_wiz_exp)
+        
+        # Action Buttons Row (APPLY, CANCEL)
+        wiz_btn_row = QHBoxLayout()
+        self.btn_wiz_apply_exp = QPushButton(tr("wizard.slides.slide_exposure.btn_apply"))
+        self.btn_wiz_apply_exp.setMinimumHeight(40)
+        self.btn_wiz_apply_exp.setStyleSheet("background-color: #388e3c; color: white; font-weight: bold; font-size: 14px; border-radius: 6px;")
+        self.btn_wiz_apply_exp.clicked.connect(self.on_wiz_apply_exp_clicked)
+        wiz_btn_row.addWidget(self.btn_wiz_apply_exp)
+        
+        self.btn_wiz_cancel_exp = QPushButton(tr("wizard.slides.slide_exposure.btn_cancel"))
+        self.btn_wiz_cancel_exp.setMinimumHeight(40)
+        self.btn_wiz_cancel_exp.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 14px; border-radius: 6px;")
+        self.btn_wiz_cancel_exp.clicked.connect(self.on_wiz_cancel_exp_clicked)
+        wiz_btn_row.addWidget(self.btn_wiz_cancel_exp)
+        exp_ctrl_layout.addLayout(wiz_btn_row)
+        
+        exp_ctrl_layout.addStretch()
+        
+        self.lbl_wiz_exp_status = QLabel(tr("wizard.slides.slide_exposure.status_waiting"))
+        self.lbl_wiz_exp_status.setStyleSheet("color: #ff9800; font-size: 13px; font-weight: bold;")
+        self.lbl_wiz_exp_status.setWordWrap(True)
+        self.lbl_wiz_exp_status.setAlignment(Qt.AlignCenter)
+        exp_ctrl_layout.addWidget(self.lbl_wiz_exp_status)
+        
+        # Confirmation Checkbox to Enable Next Button
+        self.chk_wiz_exp_confirmed = QCheckBox(tr("wizard.slides.slide_exposure.chk_confirmed"))
+        self.chk_wiz_exp_confirmed.setChecked(False)
+        self.chk_wiz_exp_confirmed.setStyleSheet("""
+            QCheckBox {
+                color: #80d8ff;
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px;
+                border: 2px solid #0091ea;
+                border-radius: 6px;
+                background-color: #0d2744;
+            }
+            QCheckBox:hover {
+                border: 2px solid #00e5ff;
+            }
+            QCheckBox::indicator {
+                width: 22px;
+                height: 22px;
+                border: 2px solid #616161;
+                border-radius: 4px;
+                background-color: #212121;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #00b0ff;
+                border: 2px solid #80d8ff;
+            }
+        """)
+        self.chk_wiz_exp_confirmed.toggled.connect(self.on_wiz_exp_confirmed_toggled)
+        exp_ctrl_layout.addWidget(self.chk_wiz_exp_confirmed)
+        
+        exp_ctrl_box.setLayout(exp_ctrl_layout)
+        exp_right.addWidget(exp_ctrl_box)
+        content_exp_layout.addLayout(exp_right, 2)
+        
+        slide_exp_layout.addLayout(content_exp_layout)
+        self.stacked_widget.addWidget(slide_exp)
+
+        # -----------------------------------------
+        # Slide 3: 1-4. Camera Intrinsics Check
         # -----------------------------------------
         slide1_3 = QWidget()
         l1_3 = QVBoxLayout(slide1_3)
@@ -362,7 +506,7 @@ class CalibrationWizardWidget(QWidget):
         
         self.btn_go_intrinsics = QPushButton(tr("wizard.slides.slide_3.title"))
         self.btn_go_intrinsics.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; padding: 10px 20px; border-radius: 6px;")
-        self.btn_go_intrinsics.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(3))
+        self.btn_go_intrinsics.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(4))
         l1_3.addWidget(self.btn_go_intrinsics, alignment=Qt.AlignCenter)
         
         self.stacked_widget.addWidget(slide1_3)
@@ -658,7 +802,7 @@ class CalibrationWizardWidget(QWidget):
         self.btn_move_zero_init = QPushButton("Move to Zero Position")
         self.btn_move_zero_init.setMinimumWidth(260)
         self.btn_move_zero_init.setMinimumHeight(45)
-        self.btn_move_zero_init.setStyleSheet("background-color: #1e88e5; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
+        self.btn_move_zero_init.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 15px;")
         self.btn_move_zero_init.clicked.connect(self.step3_1_move_zero)
         l3_1.addWidget(self.btn_move_zero_init, alignment=Qt.AlignCenter)
         
@@ -920,24 +1064,112 @@ class CalibrationWizardWidget(QWidget):
         dlg = HowToMoveArmsDialog(self, is_ko=False)
         dlg.exec()
 
+    def on_wiz_auto_exp_toggled(self, checked):
+        self.spin_wiz_exp.setEnabled(not checked)
+        self.slider_wiz_exp.setEnabled(not checked)
+        if hasattr(self.parent_app, 'chk_auto_exposure'):
+            self.parent_app.chk_auto_exposure.blockSignals(True)
+            self.parent_app.chk_auto_exposure.setChecked(checked)
+            self.parent_app.chk_auto_exposure.blockSignals(False)
+        if checked:
+            self.parent_app.set_camera_auto_mode()
+            self.lbl_wiz_exp_status.setText("Status: Switched to AUTO exposure mode.")
+            self.lbl_wiz_exp_status.setStyleSheet("color: #00e5ff; font-size: 13px; font-weight: bold;")
+
+    def on_wiz_exposure_changed(self, value):
+        self.lbl_wiz_exp_ms.setText(f"{value / 1000.0:.1f} ms")
+        if self.slider_wiz_exp.value() != value:
+            self.slider_wiz_exp.blockSignals(True)
+            self.slider_wiz_exp.setValue(value)
+            self.slider_wiz_exp.blockSignals(False)
+        if self.spin_wiz_exp.value() != value:
+            self.spin_wiz_exp.blockSignals(True)
+            self.spin_wiz_exp.setValue(value)
+            self.spin_wiz_exp.blockSignals(False)
+        
+        if hasattr(self.parent_app, 'spin_exposure'):
+            self.parent_app.spin_exposure.blockSignals(True)
+            self.parent_app.spin_exposure.setValue(value)
+            self.parent_app.spin_exposure.blockSignals(False)
+        if hasattr(self.parent_app, 'slider_exposure'):
+            self.parent_app.slider_exposure.blockSignals(True)
+            self.parent_app.slider_exposure.setValue(value)
+            self.parent_app.slider_exposure.blockSignals(False)
+        if hasattr(self.parent_app, 'lbl_exposure_ms'):
+            self.parent_app.lbl_exposure_ms.setText(f"{value / 1000.0:.1f} ms")
+
+    def on_wiz_apply_exp_clicked(self):
+        auto_mode = self.chk_wiz_auto_exp.isChecked()
+        exp_val = self.spin_wiz_exp.value()
+        if self.parent_app.marker_st is not None:
+            self.parent_app.marker_st.set_camera_exposure(exp_val, auto_exposure=auto_mode)
+        if auto_mode:
+            self.lbl_wiz_exp_status.setText("Status: Applied AUTO exposure mode.")
+        else:
+            self.lbl_wiz_exp_status.setText(f"Status: Applied {exp_val} μs ({exp_val/1000.0:.1f} ms) manual exposure.")
+        self.lbl_wiz_exp_status.setStyleSheet("color: #4caf50; font-size: 13px; font-weight: bold;")
+        self.parent_app.log_msg(f"[Camera] Wizard applied exposure (auto={auto_mode}, exposure={exp_val}μs)")
+
+    def on_wiz_cancel_exp_clicked(self):
+        self.parent_app.cancel_camera_exposure()
+        is_auto = self.parent_app.saved_camera_auto_exposure
+        val = self.parent_app.saved_camera_exposure_value
+        
+        self.chk_wiz_auto_exp.blockSignals(True)
+        self.chk_wiz_auto_exp.setChecked(is_auto)
+        self.chk_wiz_auto_exp.blockSignals(False)
+        
+        self.spin_wiz_exp.blockSignals(True)
+        self.spin_wiz_exp.setValue(val)
+        self.spin_wiz_exp.setEnabled(not is_auto)
+        self.spin_wiz_exp.blockSignals(False)
+        
+        self.slider_wiz_exp.blockSignals(True)
+        self.slider_wiz_exp.setValue(val)
+        self.slider_wiz_exp.setEnabled(not is_auto)
+        self.slider_wiz_exp.blockSignals(False)
+        
+        self.lbl_wiz_exp_ms.setText(f"{val / 1000.0:.1f} ms")
+        self.lbl_wiz_exp_status.setText("Status: Cancelled. Restored previous exposure setting.")
+        self.lbl_wiz_exp_status.setStyleSheet("color: #ff9800; font-size: 13px; font-weight: bold;")
+
+    def on_wiz_exp_confirmed_toggled(self, checked):
+        if checked:
+            self.parent_app.apply_camera_exposure()
+            self.mark_step_completed(2, True, tr("wizard.slides.slide_exposure.status_confirmed"))
+            self.lbl_wiz_exp_status.setText(tr("wizard.slides.slide_exposure.status_confirmed"))
+            self.lbl_wiz_exp_status.setStyleSheet("color: #00e676; font-size: 14px; font-weight: bold;")
+        else:
+            self.mark_step_completed(2, False, tr("wizard.slides.slide_exposure.status_waiting"))
+            self.lbl_wiz_exp_status.setText(tr("wizard.slides.slide_exposure.status_waiting"))
+            self.lbl_wiz_exp_status.setStyleSheet("color: #ff9800; font-size: 13px; font-weight: bold;")
+
+    def show_how_to_move_arms_dialog(self):
+        dlg = HowToMoveArmsDialog(self, is_ko=False)
+        dlg.exec()
+
     def mark_step_completed(self, step_idx, success=True, msg=""):
         if step_idx < len(self.step_completed):
             self.step_completed[step_idx] = success
-        if (step_idx == 7 or step_idx == 6) and len(self.step_completed) > 6:
-            self.step_completed[6] = success
+        if (step_idx == 8 or step_idx == 7) and len(self.step_completed) > 7:
+            self.step_completed[7] = success
         self.update_navigation(self.stacked_widget.currentIndex())
         
         # Map step index to status label
         lbl_name = None
-        if step_idx == 3:
-            lbl_name = "lbl_step1_status"
+        if step_idx == 2:
+            lbl_name = "lbl_wiz_exp_status"
         elif step_idx == 4:
-            lbl_name = "lbl_step2_status"
+            lbl_name = "lbl_step1_status"
         elif step_idx == 5:
+            lbl_name = "lbl_step2_status"
+        elif step_idx == 6:
             lbl_name = "lbl_step3_1_status"
         elif step_idx == 7:
-            lbl_name = "lbl_step4_status"
+            lbl_name = "lbl_step7_status"
         elif step_idx == 8:
+            lbl_name = "lbl_step4_status"
+        elif step_idx == 9:
             lbl_name = "lbl_step6_status"
 
         if lbl_name:
@@ -957,14 +1189,14 @@ class CalibrationWizardWidget(QWidget):
             self.set_wizard_busy(True)
         else:
             if not self.parent_app.robot:
-                self.mark_step_completed(5, False, "Robot Not Connected")
+                self.mark_step_completed(6, False, "Robot Not Connected")
 
     def go_prev(self):
         idx = self.stacked_widget.currentIndex()
-        if idx == 4:
-            self.stacked_widget.setCurrentIndex(2)
-        elif idx == 3:
-            self.stacked_widget.setCurrentIndex(2)
+        if idx == 5:
+            self.stacked_widget.setCurrentIndex(3)
+        elif idx == 4:
+            self.stacked_widget.setCurrentIndex(3)
         elif idx > 0:
             self.stacked_widget.setCurrentIndex(idx - 1)
         else:
@@ -984,8 +1216,8 @@ class CalibrationWizardWidget(QWidget):
             
     def go_next(self):
         idx = self.stacked_widget.currentIndex()
-        if idx == 2:
-            self.stacked_widget.setCurrentIndex(4)
+        if idx == 3:
+            self.stacked_widget.setCurrentIndex(5)
         elif idx < self.stacked_widget.count() - 1:
             self.stacked_widget.setCurrentIndex(idx + 1)
             if self.sender() == self.btn_skip:
@@ -1009,7 +1241,7 @@ class CalibrationWizardWidget(QWidget):
             self.stacked_widget.setCurrentIndex(0)
             
     def update_navigation(self, idx):
-        if idx != 8:
+        if idx != 9:
             self.check_pose_init_done = False
 
         if hasattr(self, "parent_app") and hasattr(self.parent_app, "on_left_tab_changed"):
@@ -1019,6 +1251,7 @@ class CalibrationWizardWidget(QWidget):
         title_keys = [
             "wizard.slides.slide_0.title",
             "wizard.slides.slide_1.title",
+            "wizard.slides.slide_exposure.title",
             "wizard.slides.slide_2.title",
             "wizard.slides.slide_3.title",
             "wizard.slides.slide_4.title",
@@ -1033,27 +1266,27 @@ class CalibrationWizardWidget(QWidget):
         self.btn_prev.setVisible(True)
         self.btn_prev.setText(tr("wizard.btn_prev"))
             
-        show_skip = (idx == 3 or idx == 6)
+        show_skip = (idx == 4 or idx == 7)
         self.btn_skip.setVisible(show_skip)
         self.btn_skip.setText(tr("wizard.btn_skip"))
         
         if hasattr(self, 'lbl_skip_hint1'):
-            self.lbl_skip_hint1.setVisible(idx == 3)
+            self.lbl_skip_hint1.setVisible(idx == 4)
         if hasattr(self, 'lbl_skip_hint7'):
-            self.lbl_skip_hint7.setVisible(idx == 6)
+            self.lbl_skip_hint7.setVisible(idx == 7)
         
         enabled = self.step_completed[idx]
         self.btn_next.setEnabled(enabled)
         
         if enabled:
-            self.btn_next.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
+            self.btn_next.setStyleSheet("background-color: #1e88e5; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
         else:
-            self.btn_next.setStyleSheet("background-color: #222222; color: #616161; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
+            self.btn_next.setStyleSheet("background-color: #222222; color: #616161; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #333333;")
         
         if idx == self.stacked_widget.count() - 1:
             self.btn_next.setText(tr("wizard.btn_finish"))
             self.btn_next.setEnabled(True)
-            self.btn_next.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
+            self.btn_next.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
         else:
             self.btn_next.setText(tr("wizard.btn_next"))
 
@@ -1093,15 +1326,15 @@ class CalibrationWizardWidget(QWidget):
     def step1_save(self):
         if len(self.parent_app.captured_images) < 16:
             QMessageBox.warning(self, "Insufficient Data", f"Cannot save parameters: Only {len(self.parent_app.captured_images)} / 16 frames collected.")
-            self.mark_step_completed(3, False, "Need 16 frames to save")
+            self.mark_step_completed(4, False, "Need 16 frames to save")
             return
 
         if self.parent_app.intrinsics_calibrator.cameraMatrix is not None and float(self.parent_app.intrinsics_calibrator.rms_error) > 0.0:
             self.parent_app.save_intrinsics_calibration()
-            self.mark_step_completed(3, True, "Parameters Saved")
+            self.mark_step_completed(4, True, "Parameters Saved")
         else:
             QMessageBox.warning(self, "Invalid Calibration", "Calibration must be successfully executed before saving parameters.")
-            self.mark_step_completed(3, False, "Calibration not run yet")
+            self.mark_step_completed(4, False, "Calibration not run yet")
 
     # Step 2: Robot Connection
     def step2_connect(self):
@@ -1120,11 +1353,11 @@ class CalibrationWizardWidget(QWidget):
         if self.parent_app.robot is not None:
             self.btn_wizard_connect.setText("CONNECTED")
             self.btn_wizard_connect.setStyleSheet("background-color: #34495e; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
-            self.mark_step_completed(4, True, "Connected to Robot")
+            self.mark_step_completed(5, True, "Connected to Robot")
         else:
             self.btn_wizard_connect.setText("CONNECT")
             self.btn_wizard_connect.setStyleSheet("background-color: #2b5278; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px; border-radius: 6px; border: 1px solid #111111;")
-            self.mark_step_completed(4, False, "Connection Failed")
+            self.mark_step_completed(5, False, "Connection Failed")
 
     def sync_bracket_radio(self):
         is_head = self.wizard_chk_head.isChecked()
@@ -1165,7 +1398,7 @@ class CalibrationWizardWidget(QWidget):
             self.set_wizard_busy(True)
         else:
             if not self.parent_app.robot:
-                self.mark_step_completed(6, False, "Robot Not Connected")
+                self.mark_step_completed(7, False, "Robot Not Connected")
             else:
                 self.lbl_step7_status.setText("Status: Reset cancelled")
                 self.lbl_step7_status.setStyleSheet("color: #aaaaaa; font-weight: bold; font-size: 16px;")
@@ -1273,9 +1506,9 @@ class CalibrationWizardWidget(QWidget):
         s = self.unified_elapsed % 60
         time_str = f"{m:02d}:{s:02d}"
         if success:
-            self.mark_step_completed(7, True, f"Calibration Pipeline Complete! Total Time: {time_str}")
+            self.mark_step_completed(8, True, f"Calibration Pipeline Complete! Total Time: {time_str}")
         else:
-            self.mark_step_completed(7, False, err_msg)
+            self.mark_step_completed(8, False, err_msg)
 
     def stop_unified_calibration(self):
         self.parent_app.stop_full_auto()
@@ -1287,7 +1520,7 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'btn_start_unified'):
             self.btn_start_unified.setEnabled(True)
             self.btn_start_unified.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 18px; border-radius: 6px; padding: 0 15px;")
-        self.mark_step_completed(7, False, err_msg)
+        self.mark_step_completed(8, False, err_msg)
 
     def get_apply_paths(self):
         result_path = self.parent_app.get_latest_result_path()
@@ -1466,7 +1699,7 @@ class CalibrationWizardWidget(QWidget):
 
                         self.lbl_step6_status.setText(f"Status: SUCCESS - {state.upper()} applied" if not is_ko else f"상태: 성공 - {state.upper()} 적용 완료")
                         self.lbl_step6_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
-                        self.mark_step_completed(8, True, f"'{state.upper()}' home offset applied.")
+                        self.mark_step_completed(9, True, f"'{state.upper()}' home offset applied.")
                         
                         QMessageBox.information(self, "Success" if not is_ko else "성공", 
                                                 f"Robot moved to Zero Pose and '{state.upper()}' home offset applied successfully." if not is_ko 

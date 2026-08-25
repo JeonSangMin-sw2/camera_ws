@@ -1,28 +1,80 @@
 camera:
-  device_name: D405
-  fps: 30
-  head_base_to_cam: [0.102, 0.009, 0.044, -90.0, 0.0, -90.0] # 42*42*23
-  mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
-  height: 720
-  width: 1280
+  auto_exposure: true
   camera_mount_link: link_head_2
+  device_name: D405
+  exposure: 6000
+  fps: 30
+  head_base_to_cam:
+  - 0.102
+  - 0.009
+  - 0.044
+  - -90.0
+  - 0.0
+  - -90.0
+  height: 720
+  mount_to_cam:
+  - 0.047
+  - 0.009
+  - 0.057
+  - -90.0
+  - 0.0
+  - -90.0
+  width: 1280
 joint_offset:
   left:
-    joint3: -0.681311681824198
-    joint5: -3.597691499864368
-    joint6: -3.6020758634498917
+    joint3: -0.6813109243142638
+    joint5: -3.592764278106813
+    joint6: -3.6016849645694284
   right:
-    joint3: -0.4854360134507547
-    joint5: 2.102026320454769
-    joint6: -2.2165254211587206
+    joint3: -0.4852809614141901
+    joint5: 2.1020304961885046
+    joint6: -2.213952903027234
 marker:
-  Tf_to_marker_left: [0.06780, 0.00000, -0.00200, 89.90, -0.01, -90.00]
-  Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
-  Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
-  Tf_to_marker_right: [0.06730, 0.00000, 0.00200, 90.10, -0.02, -89.95]
-  Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
-  Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  Tf_to_marker_left:
+  - 0.0678
+  - 0.0
+  - -0.002
+  - 89.9
+  - -0.01
+  - -90.0
+  Tf_to_marker_left_v12:
+  - 0.0
+  - 0.054
+  - -0.048
+  - 90.0
+  - 0.0
+  - 0.0
+  Tf_to_marker_left_v13:
+  - 0.067
+  - 0.0
+  - 0.0
+  - 90.0
+  - 0.0
+  - -90.0
+  Tf_to_marker_right:
+  - 0.0673
+  - 0.0
+  - 0.002
+  - 90.1
+  - -0.02
+  - -89.95
+  Tf_to_marker_right_v12:
+  - 0.0
+  - -0.054
+  - -0.048
+  - 90.0
+  - 0.0
+  - 180.0
+  Tf_to_marker_right_v13:
+  - 0.067
+  - 0.0
+  - 0.0
+  - 90.0
+  - 0.0
+  - -90.0
   plate:
-    left_ids: [7]
-    right_ids: [8]
+    left_ids:
+    - 7
     plate_size_mm: 80.0
+    right_ids:
+    - 8

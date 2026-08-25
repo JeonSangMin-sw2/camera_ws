@@ -124,6 +124,7 @@ class RealSenseCamera:
         self.profile = None                                     # Camera profile
         self.baseline = 0.065                                   # Stereo camera baseline (m)
         self.dist_coeffs = None                                 # Distortion coefficients
+        self.actual_exposure = 6000.0                           # Actual measured exposure from frame metadata (μs)
 
         # Lock for thread synchronization
         self.lock = threading.Lock()
@@ -319,10 +320,19 @@ class RealSenseCamera:
                 print("no frame")
                 return
             color_data = np.asanyarray(color_frame.get_data())
+            
+            # Read actual exposure metadata from color frame
+            cur_act_exp = self.actual_exposure
+            try:
+                if color_frame.supports_frame_metadata(rs.frame_metadata_value.actual_exposure):
+                    cur_act_exp = float(color_frame.get_frame_metadata(rs.frame_metadata_value.actual_exposure))
+            except Exception:
+                pass
             # depth_data = np.asanyarray(depth_frame.get_data())
         
             with self.lock:
                 self.color_image = color_data
+                self.actual_exposure = cur_act_exp
                 # self.depth_image = depth_data
                 # if self.Infrared:
                 #     ir_frame_left = frames.get_infrared_frame(1)
@@ -378,7 +388,53 @@ class RealSenseCamera:
         except Exception as e:
             print(f"Failed to get temperature: {e}")
             return None
+
+    def set_exposure(self, exposure_val, auto_exposure=False):
+        """
+        exposure_val: exposure time in microseconds (e.g. 100 ~ 100000)
+        auto_exposure: True for auto exposure, False for manual exposure
+        """
+        try:
+            if not self.camera_running or self.profile is None:
+                return False
+            device = self.profile.get_device()
+            for sensor in device.query_sensors():
+                if auto_exposure:
+                    if sensor.supports(rs.option.enable_auto_exposure):
+                        sensor.set_option(rs.option.enable_auto_exposure, 1)
+                else:
+                    if sensor.supports(rs.option.enable_auto_exposure):
+                        sensor.set_option(rs.option.enable_auto_exposure, 0)
+                    if sensor.supports(rs.option.exposure):
+                        sensor.set_option(rs.option.exposure, float(exposure_val))
+            return True
+        except Exception as e:
+            print(f"[Camera] Failed to set exposure (auto={auto_exposure}, val={exposure_val}): {e}")
+            return False
+
+    def get_exposure(self):
+        """
+        Returns (auto_exposure: bool, exposure_val: float)
+        """
+        try:
+            if not self.camera_running or self.profile is None:
+                return True, 6000.0
+            device = self.profile.get_device()
+            for sensor in device.query_sensors():
+                if sensor.supports(rs.option.enable_auto_exposure):
+                    is_auto = bool(sensor.get_option(rs.option.enable_auto_exposure) > 0.5)
+                    exp_val = sensor.get_option(rs.option.exposure) if sensor.supports(rs.option.exposure) else 6000.0
+                    return is_auto, float(exp_val)
+            return True, 6000.0
+        except Exception as e:
+            print(f"[Camera] Failed to get exposure: {e}")
+            return True, 6000.0
         return None
+
+    def get_actual_exposure(self):
+        """Returns the actual measured exposure (in microseconds) from the latest frame metadata."""
+        with self.lock:
+            return float(self.actual_exposure)
 
     def get_dist_coeffs(self):
         return self.dist_coeffs
@@ -714,7 +770,19 @@ class Marker_Transform:
             else:
                 print(f"\n[WARNING] Calibrated Intrinsics file {calib_file} NOT FOUND. Using factory defaults.")
         
+        # Always default to Auto Exposure on initialization
+        self.camera.set_exposure(6000.0, auto_exposure=True)
+
         self.temp_history = []
+
+    def set_camera_exposure(self, exposure_val, auto_exposure=False):
+        return self.camera.set_exposure(exposure_val, auto_exposure)
+
+    def get_camera_exposure(self):
+        return self.camera.get_exposure()
+
+    def get_actual_exposure(self):
+        return self.camera.get_actual_exposure()
 
     def _load_all_configs(self):
         base_dir = os.path.dirname(os.path.abspath(__file__))

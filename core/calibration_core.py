@@ -2,6 +2,7 @@ import argparse
 import itertools
 import json
 import math
+import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +122,8 @@ def split_arm_offsets(q_offset):
     return q_offset, None
 
 def load_camera_nominals(version="1.2"):
+    if not os.path.exists(SETTING_PATH):
+        raise FileNotFoundError(f"[CRITICAL ERROR] setting.yaml not found at {SETTING_PATH}!")
     with open(SETTING_PATH, "r") as f:
         config = yaml.safe_load(f) or {}
 
@@ -129,12 +132,19 @@ def load_camera_nominals(version="1.2"):
     mount_to_cam_nom = camera_cfg.get("mount_to_cam")
     head_base_to_cam_nom = camera_cfg.get("head_base_to_cam")
 
-    if str(version) == "1.3":
-        ee_to_marker_left = marker_cfg.get("Tf_to_marker_left_v13", marker_cfg.get("Tf_to_marker_left"))
-        ee_to_marker_right = marker_cfg.get("Tf_to_marker_right_v13", marker_cfg.get("Tf_to_marker_right"))
+    if mount_to_cam_nom is None:
+        raise KeyError(f"[CRITICAL ERROR] Missing 'mount_to_cam' under 'camera' in setting.yaml!")
+
+    if str(version).replace("v", "").strip() == "1.3":
+        if "Tf_to_marker_left_v13" not in marker_cfg or "Tf_to_marker_right_v13" not in marker_cfg:
+            raise KeyError("[CRITICAL ERROR] Missing required 'Tf_to_marker_left_v13' or 'Tf_to_marker_right_v13' in setting.yaml!")
+        ee_to_marker_left = marker_cfg["Tf_to_marker_left_v13"]
+        ee_to_marker_right = marker_cfg["Tf_to_marker_right_v13"]
     else:
-        ee_to_marker_left = marker_cfg.get("Tf_to_marker_left", marker_cfg.get("Tf_to_marker_left_v12"))
-        ee_to_marker_right = marker_cfg.get("Tf_to_marker_right", marker_cfg.get("Tf_to_marker_right_v12"))
+        if "Tf_to_marker_left_v12" not in marker_cfg or "Tf_to_marker_right_v12" not in marker_cfg:
+            raise KeyError("[CRITICAL ERROR] Missing required 'Tf_to_marker_left_v12' or 'Tf_to_marker_right_v12' in setting.yaml!")
+        ee_to_marker_left = marker_cfg["Tf_to_marker_left_v12"]
+        ee_to_marker_right = marker_cfg["Tf_to_marker_right_v12"]
 
     return {
         "mount_to_cam_nom": mount_to_cam_nom,

@@ -60,8 +60,8 @@ class BaseCalibrator:
     }
     NOMINAL_BRACKET_TEMPLATES = {
         "1.3": {
-            "left":  [0.097, 0.0, -0.005, 90.0, 0.0, -90.0],
-            "right": [0.097, 0.0, -0.005, 90.0, 0.0, -90.0]
+            "left":  [0.067, 0.0, 0.0, 90.0, 0.0, -90.0],
+            "right": [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
         },
         "1.2": {
             "left":  [0.0, 0.054, -0.048, 90.0, 0.0, 0.0],
@@ -181,21 +181,37 @@ class BaseCalibrator:
         # Locate setting.yaml
         from core.paths import CONFIG_PATHS
         yaml_path = CONFIG_PATHS["setting_yaml"]
-        if os.path.exists(yaml_path):
-            try:
-                with open(yaml_path, "r", encoding="utf-8") as f:
-                    config_data = yaml.safe_load(f) or {}
-                    self.camera_config = config_data.get("camera", {})
-                    self.markers_config = config_data.get("marker", {})
-                    # For compatibility, merge Tf_to_marker keys from markers_config to camera_config
-                    for k, v in self.markers_config.items():
-                        if k.startswith("Tf_to_marker_"):
-                            self.camera_config[k] = v
-                logging.info(f"Loaded config from setting.yaml")
-            except Exception as e:
-                logging.error(f"Failed to load setting.yaml: {e}")
-        else:
-            logging.warning(f"setting.yaml not found at {yaml_path}")
+        if not os.path.exists(yaml_path):
+            logging.error(f"[CRITICAL ERROR] setting.yaml not found at {yaml_path}!")
+            raise FileNotFoundError(f"[CRITICAL ERROR] setting.yaml not found at {yaml_path}!")
+
+        try:
+            with open(yaml_path, "r", encoding="utf-8") as f:
+                config_data = yaml.safe_load(f) or {}
+            self.camera_config = config_data.get("camera", {})
+            self.markers_config = config_data.get("marker", {})
+            
+            # Strict validation for marker configurations in setting.yaml
+            required_keys = ["Tf_to_marker_left_v13", "Tf_to_marker_right_v13", "Tf_to_marker_left_v12", "Tf_to_marker_right_v12"]
+            missing_keys = [k for k in required_keys if k not in self.markers_config]
+            if missing_keys:
+                raise KeyError(f"[CRITICAL ERROR] Missing required marker configuration keys in setting.yaml: {missing_keys}")
+
+            # For compatibility, merge Tf_to_marker keys from markers_config to camera_config
+            for k, v in self.markers_config.items():
+                if k.startswith("Tf_to_marker_"):
+                    self.camera_config[k] = v
+            
+            # Dynamically synchronize NOMINAL_BRACKET_TEMPLATES with values from setting.yaml
+            self.NOMINAL_BRACKET_TEMPLATES["1.3"]["left"] = list(self.markers_config["Tf_to_marker_left_v13"])
+            self.NOMINAL_BRACKET_TEMPLATES["1.3"]["right"] = list(self.markers_config["Tf_to_marker_right_v13"])
+            self.NOMINAL_BRACKET_TEMPLATES["1.2"]["left"] = list(self.markers_config["Tf_to_marker_left_v12"])
+            self.NOMINAL_BRACKET_TEMPLATES["1.2"]["right"] = list(self.markers_config["Tf_to_marker_right_v12"])
+            
+            logging.info(f"Loaded config from setting.yaml successfully.")
+        except Exception as e:
+            logging.error(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
+            raise RuntimeError(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
 
     def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None):
         try:

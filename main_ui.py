@@ -14,7 +14,8 @@ import json
 from PySide6.QtWidgets import (QApplication, QWidget, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox, 
                              QLineEdit, QDialog, QMessageBox, QTabWidget, QInputDialog, QGridLayout,
-                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy, QRadioButton, QStackedWidget, QButtonGroup)
+                             QTableWidget, QHeaderView, QTableWidgetItem, QSizePolicy, QRadioButton, QStackedWidget, QButtonGroup,
+                             QSpinBox, QSlider)
 from PySide6.QtCore import Qt, QTimer, QThread, Signal, QMetaObject
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QPixmap, QImage
 import matplotlib
@@ -112,7 +113,7 @@ DARK_STYLESHEET = """
 QWidget {
     background-color: #121212;
     color: #e0e0e0;
-    font-family: 'Segoe UI', 'Malgun Gothic', Arial, sans-serif;
+    font-family: 'Noto Sans CJK KR', 'Noto Sans', 'Segoe UI', 'Ubuntu', 'DejaVu Sans', sans-serif;
     font-size: 12px;
 }
 QGroupBox {
@@ -150,9 +151,9 @@ QPushButton:pressed {
     border: 1px solid #000000;
 }
 QPushButton:disabled {
-    background-color: #222222;
-    border: 1px solid #111111;
+    background-color: #262626;
     color: #616161;
+    border: 1px solid #1f1f1f;
 }
 QComboBox {
     background-color: #1e1e1e;
@@ -208,26 +209,35 @@ QCheckBox {
     font-weight: bold;
     color: #e0e0e0;
 }
+QCheckBox:checked {
+    color: #80d8ff;
+    font-weight: bold;
+}
 QCheckBox::indicator {
-    width: 18px;
-    height: 18px;
-    border: 1px solid #333333;
+    width: 20px;
+    height: 20px;
+    border: 2px solid #616161;
     border-radius: 4px;
-    background-color: #1e1e1e;
+    background-color: #212121;
 }
 QCheckBox::indicator:hover {
-    border: 1px solid #777777;
+    border: 2px solid #40c4ff;
 }
 QCheckBox::indicator:checked {
-    background-color: #37474f;
-    border: 1px solid #111111;
+    background-color: #0091ea;
+    border: 2px solid #40c4ff;
+}
+QCheckBox::indicator:checked:hover {
+    background-color: #00b0ff;
+    border: 2px solid #80d8ff;
 }
 QTextEdit {
-    background-color: #0e0e0e;
-    color: #00e676;
-    border: 2px solid #2d2d2d;
+    background-color: #121212;
+    color: #f5f5f5;
+    border: 1px solid #333333;
     border-radius: 6px;
-    font-family: 'Consolas', 'Courier New', monospace;
+    font-family: 'Noto Sans Mono CJK KR', 'Noto Sans Mono', 'DejaVu Sans Mono', 'Consolas', monospace;
+    font-size: 11px;
 }
 QProgressBar {
     background-color: #2a2a2a;
@@ -1831,7 +1841,12 @@ class SimulatedMarkerTransform:
             T_t5_to_cam = T_t5_to_head @ T_head_to_cam
             
             ver_key = "1.3" if is_v13 else "1.2"
-            tf_vec = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][side]
+            suffix = "_v13" if is_v13 else "_v12"
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{side}{suffix}")
+            if tf_vec is None:
+                tf_vec = self.camera_config.get(f"Tf_to_marker_{side}")
+            if tf_vec is None:
+                tf_vec = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES[ver_key][side]
             T_ee_to_marker = BaseCalibrator.make_transform(tf_vec)
             
             T_cam_to_t5 = np.linalg.inv(T_t5_to_cam)
@@ -2632,6 +2647,124 @@ class UnifiedCalibrationApp(QWidget):
                 tr("dialogs.camera_intrinsics_warning.text").format(connected_model=connected_model, calib_device=calib_device) + "\n\n" +
                 tr("dialogs.camera_intrinsics_warning.informative_text")
             )
+        
+        self.init_camera_exposure_state()
+
+    def init_camera_exposure_state(self):
+        # Default policy: Always start with Auto Exposure enabled
+        self.camera_auto_exposure = True
+        self.camera_exposure_value = 6000
+        self.applied_camera_auto_exposure = True
+        self.applied_camera_exposure_value = 6000
+        self.saved_camera_auto_exposure = True
+        self.saved_camera_exposure_value = 6000
+
+        if self.marker_st is not None:
+            self.marker_st.set_camera_exposure(6000, auto_exposure=True)
+            self.log_msg("[Camera] Initialized camera exposure to AUTO mode.")
+
+    def set_camera_auto_mode(self):
+        self.applied_camera_auto_exposure = True
+        if hasattr(self, 'chk_auto_exposure'):
+            self.chk_auto_exposure.blockSignals(True)
+            self.chk_auto_exposure.setChecked(True)
+            self.chk_auto_exposure.blockSignals(False)
+        if hasattr(self, 'spin_exposure'):
+            self.spin_exposure.setEnabled(False)
+        if hasattr(self, 'slider_exposure'):
+            self.slider_exposure.setEnabled(False)
+            
+        if self.marker_st is not None:
+            self.marker_st.set_camera_exposure(6000, auto_exposure=True)
+        self.log_msg("[Camera] Switched to AUTO exposure mode.")
+
+    def on_auto_exposure_toggled(self, checked):
+        if hasattr(self, 'spin_exposure'):
+            self.spin_exposure.setEnabled(not checked)
+        if hasattr(self, 'slider_exposure'):
+            self.slider_exposure.setEnabled(not checked)
+        if checked:
+            self.set_camera_auto_mode()
+
+    def on_exposure_value_changed(self, value):
+        if hasattr(self, 'lbl_exposure_ms'):
+            self.lbl_exposure_ms.setText(f"{value / 1000.0:.1f} ms")
+        if hasattr(self, 'slider_exposure') and self.slider_exposure.value() != value:
+            self.slider_exposure.blockSignals(True)
+            self.slider_exposure.setValue(value)
+            self.slider_exposure.blockSignals(False)
+        if hasattr(self, 'spin_exposure') and self.spin_exposure.value() != value:
+            self.spin_exposure.blockSignals(True)
+            self.spin_exposure.setValue(value)
+            self.spin_exposure.blockSignals(False)
+
+    def apply_camera_exposure(self):
+        auto_mode = self.chk_auto_exposure.isChecked() if hasattr(self, 'chk_auto_exposure') else True
+        exp_val = self.spin_exposure.value() if hasattr(self, 'spin_exposure') else 6000
+        self.applied_camera_auto_exposure = auto_mode
+        self.applied_camera_exposure_value = exp_val
+        self.saved_camera_auto_exposure = auto_mode
+        self.saved_camera_exposure_value = exp_val
+        
+        if self.marker_st is not None:
+            self.marker_st.set_camera_exposure(exp_val, auto_exposure=auto_mode)
+            
+        if auto_mode:
+            self.log_msg("[Camera] Applied AUTO exposure setting.")
+        else:
+            self.log_msg(f"[Camera] Applied manual exposure: {exp_val} μs ({exp_val/1000.0:.1f} ms)")
+
+    def cancel_camera_exposure(self):
+        # Restore previous applied/saved state
+        self.applied_camera_auto_exposure = self.saved_camera_auto_exposure
+        self.applied_camera_exposure_value = self.saved_camera_exposure_value
+        
+        if hasattr(self, 'chk_auto_exposure'):
+            self.chk_auto_exposure.blockSignals(True)
+            self.chk_auto_exposure.setChecked(self.saved_camera_auto_exposure)
+            self.chk_auto_exposure.blockSignals(False)
+        if hasattr(self, 'spin_exposure'):
+            self.spin_exposure.blockSignals(True)
+            self.spin_exposure.setValue(self.saved_camera_exposure_value)
+            self.spin_exposure.setEnabled(not self.saved_camera_auto_exposure)
+            self.spin_exposure.blockSignals(False)
+        if hasattr(self, 'slider_exposure'):
+            self.slider_exposure.blockSignals(True)
+            self.slider_exposure.setValue(self.saved_camera_exposure_value)
+            self.slider_exposure.setEnabled(not self.saved_camera_auto_exposure)
+            self.slider_exposure.blockSignals(False)
+        if hasattr(self, 'lbl_exposure_ms'):
+            self.lbl_exposure_ms.setText(f"{self.saved_camera_exposure_value / 1000.0:.1f} ms")
+            
+        if self.marker_st is not None:
+            self.marker_st.set_camera_exposure(self.saved_camera_exposure_value, auto_exposure=self.saved_camera_auto_exposure)
+        self.log_msg("[Camera] Exposure changes cancelled. Restored previous setting.")
+
+    def save_camera_exposure(self):
+        self.saved_camera_auto_exposure = self.applied_camera_auto_exposure
+        self.saved_camera_exposure_value = self.applied_camera_exposure_value
+        self.log_msg(f"[SUCCESS] Confirmed and saved exposure for calibration: auto={self.saved_camera_auto_exposure}, exposure={self.saved_camera_exposure_value}μs")
+
+    def reconnect_camera(self, show_dialog=True):
+        self.log_msg("[INFO] Reconnecting RealSense camera...")
+        try:
+            if self.marker_st is not None:
+                try:
+                    self.marker_st.camera.stream_off()
+                except Exception:
+                    pass
+            from marker_detection import Marker_Transform
+            self.marker_st = Marker_Transform()
+            self.marker_st.marker_detection.set_marker_type("plate")
+            self.ui_only = False
+            self.init_camera_exposure_state()
+            self.log_msg("[SUCCESS] RealSense Camera connected and streaming successfully!")
+            if show_dialog:
+                QMessageBox.information(self, "Camera Connected", "RealSense camera successfully connected and active!")
+        except Exception as e:
+            self.log_msg(f"[ERROR] Failed to connect RealSense camera: {e}")
+            if show_dialog:
+                QMessageBox.warning(self, "Camera Connection Failed", f"Could not connect to RealSense camera:\n{e}\n\nPlease check USB cable connection.")
 
     def load_offsets_from_yaml(self):
         self.joint_offsets_store = {
@@ -3242,7 +3375,10 @@ class UnifiedCalibrationApp(QWidget):
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
-        self.log_text.setFont(QFont("Consolas", 10))
+        font_log = QFont("Noto Sans Mono CJK KR", 10)
+        font_log.setStyleHint(QFont.Monospace)
+        font_log.setStyleStrategy(QFont.PreferAntialias | QFont.PreferQuality)
+        self.log_text.setFont(font_log)
         
         log_layout.addLayout(log_header)
         log_layout.addWidget(self.log_text)
@@ -3346,8 +3482,69 @@ class UnifiedCalibrationApp(QWidget):
         stats_layout2.addWidget(self.lbl_temp)
         stats_box2.setLayout(stats_layout2)
         
+        self.btn_reconnect_cam = QPushButton("🔄 RECONNECT CAMERA (카메라 재연결)")
+        self.btn_reconnect_cam.setMinimumHeight(34)
+        self.btn_reconnect_cam.setStyleSheet("background-color: #00838f; color: white; font-size: 11px; font-weight: bold; border-radius: 4px;")
+        self.btn_reconnect_cam.clicked.connect(self.reconnect_camera)
+        
+        # Exposure / Brightness Adjustment Box
+        exposure_box = QGroupBox("Camera Exposure / Brightness")
+        exposure_box.setStyleSheet("QGroupBox::title { color: #00e5ff; font-weight: bold; font-size: 13px;}")
+        exp_layout = QVBoxLayout()
+        exp_layout.setSpacing(8)
+        
+        self.chk_auto_exposure = QCheckBox("Enable Auto Exposure (자동 노출)")
+        self.chk_auto_exposure.setChecked(True)
+        self.chk_auto_exposure.setStyleSheet("color: #ffffff; font-weight: bold;")
+        self.chk_auto_exposure.toggled.connect(self.on_auto_exposure_toggled)
+        exp_layout.addWidget(self.chk_auto_exposure)
+        
+        exp_val_row = QHBoxLayout()
+        exp_val_row.addWidget(QLabel("Exposure (μs):"))
+        self.spin_exposure = QSpinBox()
+        self.spin_exposure.setRange(100, 100000)
+        self.spin_exposure.setSingleStep(500)
+        self.spin_exposure.setValue(6000)
+        self.spin_exposure.setEnabled(False)
+        self.spin_exposure.setStyleSheet("background-color: #1e1e1e; color: #00e5ff; font-weight: bold;")
+        self.spin_exposure.valueChanged.connect(self.on_exposure_value_changed)
+        exp_val_row.addWidget(self.spin_exposure)
+        
+        self.lbl_exposure_ms = QLabel("6.0 ms")
+        self.lbl_exposure_ms.setStyleSheet("color: #ffd700; font-weight: bold; min-width: 50px;")
+        exp_val_row.addWidget(self.lbl_exposure_ms)
+        exp_layout.addLayout(exp_val_row)
+        
+        self.slider_exposure = QSlider(Qt.Horizontal)
+        self.slider_exposure.setRange(100, 100000)
+        self.slider_exposure.setSingleStep(500)
+        self.slider_exposure.setPageStep(5000)
+        self.slider_exposure.setValue(6000)
+        self.slider_exposure.setEnabled(False)
+        self.slider_exposure.valueChanged.connect(self.on_exposure_value_changed)
+        exp_layout.addWidget(self.slider_exposure)
+        
+        # Action Buttons: APPLY and CANCEL
+        btn_row1 = QHBoxLayout()
+        self.btn_apply_exp = QPushButton("APPLY (적용)")
+        self.btn_apply_exp.setMinimumHeight(35)
+        self.btn_apply_exp.setStyleSheet("background-color: #388e3c; color: white; font-size: 12px; font-weight: bold; border-radius: 4px;")
+        self.btn_apply_exp.clicked.connect(self.apply_camera_exposure)
+        btn_row1.addWidget(self.btn_apply_exp)
+        
+        self.btn_cancel_exp = QPushButton("CANCEL (취소)")
+        self.btn_cancel_exp.setMinimumHeight(35)
+        self.btn_cancel_exp.setStyleSheet("background-color: #546e7a; color: white; font-size: 12px; font-weight: bold; border-radius: 4px;")
+        self.btn_cancel_exp.clicked.connect(self.cancel_camera_exposure)
+        btn_row1.addWidget(self.btn_cancel_exp)
+        exp_layout.addLayout(btn_row1)
+        
+        exposure_box.setLayout(exp_layout)
+        
         int_right.addWidget(stats_box2)
-        int_right.addWidget(controls_box) # Placed below stats box!
+        int_right.addWidget(self.btn_reconnect_cam)
+        int_right.addWidget(exposure_box)
+        int_right.addWidget(controls_box) # Placed below exposure box!
         int_right.addStretch()
         
         camera_tab_layout.addLayout(int_left, 2)
@@ -3535,14 +3732,8 @@ class UnifiedCalibrationApp(QWidget):
         actions_layout.setSpacing(4)
         actions_layout.setContentsMargins(6, 6, 6, 6)
         
-        # Top row: Zero Pose Check, Stop (Home Offset Reset and Camera Feed excluded — already in Step 1)
+        # Top row: Stop (Zero Pose is located in Calibration Status above)
         top_action_row = QHBoxLayout()
-        self.btn_step2_zero_pose = QPushButton("Zero Pose Check")
-        self.btn_step2_zero_pose.setStyleSheet("background-color: #34495e; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
-        self.btn_step2_zero_pose.setFixedHeight(28)
-        self.btn_step2_zero_pose.clicked.connect(self.step2_zero_pose_check)
-        top_action_row.addWidget(self.btn_step2_zero_pose)
-        
         self.btn_step2_stop = QPushButton("Stop")
         self.btn_step2_stop.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_step2_stop.setFixedHeight(28)
@@ -4385,6 +4576,14 @@ class UnifiedCalibrationApp(QWidget):
             if not self.ui_only and self.marker_st is not None:
                 self.poll_timer.start(200)
 
+    def is_wizard_video_active(self):
+        if not hasattr(self, 'wizard_widget') or self.wizard_widget is None:
+            return False
+        if self.wizard_widget.isHidden():
+            return False
+        cur_idx = self.wizard_widget.stacked_widget.currentIndex()
+        return cur_idx in [0, 2, 4]
+
     def on_left_tab_changed(self, index):
         # 방어적 코드: 타이머 객체가 아직 미생성된 상태이면 처리를 생략
         if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
@@ -4410,9 +4609,9 @@ class UnifiedCalibrationApp(QWidget):
             elif not self.ui_only and self.marker_st is not None:
                 self.poll_timer.start(200)
         else:
-            # Check if wizard is running and on slide 1, or dialog visible
-            wizard_slide1_active = (hasattr(self, "wizard_widget") and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
-            if wizard_slide1_active or dialog_visible:
+            # Overview tab (index 0) or others: check if wizard is on video slides (0, 2, 4)
+            wizard_video_active = self.is_wizard_video_active()
+            if wizard_video_active or dialog_visible:
                 if self.poll_timer.isActive():
                     self.poll_timer.stop()
                 self.video_timer.start(50)
@@ -5470,6 +5669,9 @@ class UnifiedCalibrationApp(QWidget):
                         gt_rot_offset = np.array(mock_gt[side]["bracket_rpy"])
                         
                         self.log_msg(f" [{side.upper()} ARM BRACKET OFFSETS]")
+                        pos_norm_mm = np.linalg.norm(calc_pos_offset) * 1000.0
+                        if pos_norm_mm > 40.0:
+                            self.log_msg(f"   [ERROR] Bracket position offset exceeded safety threshold: {pos_norm_mm:.1f}mm > 40.0mm!")
                         # Position in mm
                         self.log_msg(f"   Pos X (mm): Calc = {calc_pos_offset[0]*1000.0:+7.2f} | GT = {gt_pos_offset[0]*1000.0:+7.2f} | Error = {abs(calc_pos_offset[0] - gt_pos_offset[0])*1000.0:5.2f}")
                         self.log_msg(f"   Pos Y (mm): Calc = {calc_pos_offset[1]*1000.0:+7.2f} | GT = {gt_pos_offset[1]*1000.0:+7.2f} | Error = {abs(calc_pos_offset[1] - gt_pos_offset[1])*1000.0:5.2f}")
@@ -6037,6 +6239,45 @@ class UnifiedCalibrationApp(QWidget):
                 lines_list.append(f"  {key_str}: {new_val_str}\n")
             else:
                 lines_list.insert(marker_idx + 1, f"  {key_str}: {new_val_str}\n")
+
+    def _update_camera_key_in_lines(self, lines_list, key_str, new_vals_list):
+        cam_idx = -1
+        for idx, line in enumerate(lines_list):
+            if line.strip().startswith("camera:"):
+                cam_idx = idx
+                break
+        
+        new_val_str = f"[{new_vals_list[0]:.5f}, {new_vals_list[1]:.5f}, {new_vals_list[2]:.5f}, {new_vals_list[3]:.2f}, {new_vals_list[4]:.2f}, {new_vals_list[5]:.2f}]"
+        key_found = False
+        if cam_idx != -1:
+            i = cam_idx + 1
+            while i < len(lines_list):
+                line = lines_list[i]
+                stripped = line.strip()
+                if not stripped:
+                    i += 1
+                    continue
+                if not line.startswith(" ") and not line.startswith("\t") and stripped.endswith(":"):
+                    break
+                
+                if stripped.startswith(f"{key_str}:"):
+                    comment = ""
+                    if "#" in line:
+                        comment_idx = line.find("#")
+                        comment = " " + line[comment_idx:].rstrip()
+                    
+                    indent = len(line) - len(line.lstrip())
+                    lines_list[i] = " " * indent + f"{key_str}: {new_val_str}{comment}\n"
+                    key_found = True
+                    break
+                i += 1
+        
+        if not key_found:
+            if cam_idx == -1:
+                lines_list.append("camera:\n")
+                lines_list.append(f"  {key_str}: {new_val_str}\n")
+            else:
+                lines_list.insert(cam_idx + 1, f"  {key_str}: {new_val_str}\n")
 
     def apply_bracket_design_values(self, silent=False):
         config_path = CONFIG_PATHS["setting_yaml"]
@@ -7153,17 +7394,51 @@ class UnifiedCalibrationApp(QWidget):
                 self.lbl_marker_pos.setText("Position: X: 0.0, Y: 0.0, Z: 0.0 mm")
 
     def update_video_frame(self):
-        # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자 또는 마커 미인식 대화상자가 열려있을 때 업데이트
+        # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자 또는 마커 미인식 대화상자, 위자드 비디오 슬라이드가 열려있을 때 업데이트
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
         prob_dlg_visible = hasattr(self, 'marker_problem_dlg') and self.marker_problem_dlg is not None
         camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
-        wizard_slide1_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
-        if not camera_tab_active and not dialog_visible and not wizard_slide1_active and not prob_dlg_visible:
+        wizard_active = hasattr(self, 'wizard_widget') and self.wizard_widget is not None and not self.wizard_widget.isHidden()
+        wizard_slide_idx = self.wizard_widget.stacked_widget.currentIndex() if wizard_active else -1
+        wizard_slide_mount = wizard_active and (wizard_slide_idx == 0)
+        wizard_slide_exp = wizard_active and (wizard_slide_idx == 2)
+        wizard_slide_calib = wizard_active and (wizard_slide_idx == 4)
+        
+        if not camera_tab_active and not dialog_visible and not wizard_slide_mount and not wizard_slide_exp and not wizard_slide_calib and not prob_dlg_visible:
             return
 
         if not self.ui_only and self.marker_st is not None:
             self.marker_st.camera.capture_image()
             img = self.marker_st.camera.get_color_image()
+            
+            # Sync real-time auto exposure value to UI if auto mode is enabled
+            is_auto = hasattr(self, 'chk_auto_exposure') and self.chk_auto_exposure.isChecked()
+            if is_auto:
+                act_exp = self.marker_st.get_actual_exposure()
+                act_exp_int = int(act_exp)
+                if hasattr(self, 'spin_exposure'):
+                    self.spin_exposure.blockSignals(True)
+                    self.spin_exposure.setValue(act_exp_int)
+                    self.spin_exposure.blockSignals(False)
+                if hasattr(self, 'slider_exposure'):
+                    self.slider_exposure.blockSignals(True)
+                    self.slider_exposure.setValue(act_exp_int)
+                    self.slider_exposure.blockSignals(False)
+                if hasattr(self, 'lbl_exposure_ms'):
+                    self.lbl_exposure_ms.setText(f"{act_exp / 1000.0:.1f} ms (Auto)")
+                
+                # Sync Wizard exposure widgets if wizard slide 2 is active
+                if wizard_slide_exp and hasattr(self.wizard_widget, 'chk_wiz_auto_exp') and self.wizard_widget.chk_wiz_auto_exp.isChecked():
+                    if hasattr(self.wizard_widget, 'spin_wiz_exp'):
+                        self.wizard_widget.spin_wiz_exp.blockSignals(True)
+                        self.wizard_widget.spin_wiz_exp.setValue(act_exp_int)
+                        self.wizard_widget.spin_wiz_exp.blockSignals(False)
+                    if hasattr(self.wizard_widget, 'slider_wiz_exp'):
+                        self.wizard_widget.slider_wiz_exp.blockSignals(True)
+                        self.wizard_widget.slider_wiz_exp.setValue(act_exp_int)
+                        self.wizard_widget.slider_wiz_exp.blockSignals(False)
+                    if hasattr(self.wizard_widget, 'lbl_wiz_exp_ms'):
+                        self.wizard_widget.lbl_wiz_exp_ms.setText(f"{act_exp / 1000.0:.1f} ms (Auto)")
             
             # 백그라운드 마커 검출 및 상태 표시 업데이트
             try:
@@ -7187,8 +7462,8 @@ class UnifiedCalibrationApp(QWidget):
         self.current_frame = img.copy()
         display_img = img.copy()
         
-        guide_checked = (hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked()) or (hasattr(self, 'wizard_widget') and self.wizard_widget.chk_int_guide.isChecked())
-        if guide_checked and (camera_tab_active or wizard_slide1_active):
+        guide_checked = (hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked()) or (hasattr(self, 'wizard_widget') and hasattr(self.wizard_widget, 'chk_int_guide') and self.wizard_widget.chk_int_guide.isChecked())
+        if guide_checked and (camera_tab_active or wizard_slide_calib):
             num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
             if self.current_guide_idx < num_steps:
                 guideline = IntrinsicsCalibrator.CALIB_GUIDELINES[self.current_guide_idx]
@@ -7218,9 +7493,11 @@ class UnifiedCalibrationApp(QWidget):
         qimg = QImage(display_img.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
         
-        if camera_tab_active:
+        if camera_tab_active and hasattr(self, 'video_label'):
             self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
-        if wizard_slide1_active and hasattr(self.wizard_widget, 'wizard_video_label'):
+        if wizard_slide_exp and hasattr(self.wizard_widget, 'wizard_exposure_video_label'):
+            self.wizard_widget.wizard_exposure_video_label.setPixmap(pixmap.scaled(self.wizard_widget.wizard_exposure_video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
+        if (wizard_slide_mount or wizard_slide_calib) and hasattr(self.wizard_widget, 'wizard_video_label'):
             self.wizard_widget.wizard_video_label.setPixmap(pixmap.scaled(self.wizard_widget.wizard_video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
         if dialog_visible:
             w_lbl = max(20, self.feed_dialog.lbl_feed.width())
@@ -7233,8 +7510,8 @@ class UnifiedCalibrationApp(QWidget):
 
     def keyPressEvent(self, event):
         camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
-        wizard_slide1_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 0)
-        if event.key() == Qt.Key_C and (camera_tab_active or wizard_slide1_active):
+        wizard_slide4_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 4)
+        if event.key() == Qt.Key_C and (camera_tab_active or wizard_slide4_active):
             self.capture_intrinsics_frame()
         super().keyPressEvent(event)
 
@@ -7428,7 +7705,21 @@ def main():
     parser.add_argument("--ui", action="store_true", help="Start only UI for debugging/simulation")
     args = parser.parse_args()
 
+    # Enable High-DPI scaling and crisp pixmaps
+    from PySide6.QtCore import QCoreApplication
+    from PySide6.QtGui import QGuiApplication, QFont
+    QCoreApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QCoreApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    if hasattr(Qt, 'HighDpiScaleFactorRoundingPolicy'):
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
+
     app = QApplication(sys.argv)
+    
+    # Global crisp Korean/English font with subpixel anti-aliasing
+    default_font = QFont("Noto Sans CJK KR", 10)
+    default_font.setStyleStrategy(QFont.PreferAntialias | QFont.PreferQuality)
+    app.setFont(default_font)
+
     robot = None
     marker_st = None
 
