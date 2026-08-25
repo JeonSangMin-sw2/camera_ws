@@ -1151,8 +1151,6 @@ class CalibrationWizardWidget(QWidget):
     def mark_step_completed(self, step_idx, success=True, msg=""):
         if step_idx < len(self.step_completed):
             self.step_completed[step_idx] = success
-        if (step_idx == 8 or step_idx == 7) and len(self.step_completed) > 7:
-            self.step_completed[7] = success
         self.update_navigation(self.stacked_widget.currentIndex())
         
         # Map step index to status label

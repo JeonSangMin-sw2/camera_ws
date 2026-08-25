@@ -4023,7 +4023,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px;")
                 self.wizard_widget.lbl_step2_status.setText("Status: Robot Connected" if not getattr(self, 'is_ko_ui', False) else "상태: 성공 - 로봇 연결 완료")
                 self.wizard_widget.lbl_step2_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
-                self.wizard_widget.mark_step_completed(4, True, "Connected")
+                self.wizard_widget.mark_step_completed(5, True, "Connected")
         else:
             self.btn_connect.setText("CONNECT")
             self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
@@ -4033,7 +4033,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
                 self.wizard_widget.lbl_step2_status.setText("Status: Disconnected" if not getattr(self, 'is_ko_ui', False) else "상태: 연결 해제됨")
                 self.wizard_widget.lbl_step2_status.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
-                self.wizard_widget.mark_step_completed(4, False, "Disconnected")
+                self.wizard_widget.mark_step_completed(5, False, "Disconnected")
 
     def sync_connection_settings(self, source='main'):
         if not hasattr(self, 'wizard_widget') or not self.wizard_widget:
@@ -5738,9 +5738,9 @@ class UnifiedCalibrationApp(QWidget):
             if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
                 self.wizard_widget.set_wizard_busy(False)
                 if success:
-                    self.wizard_widget.mark_step_completed(5, True, "Moved to Zero Position")
+                    self.wizard_widget.mark_step_completed(6, True, "Moved to Zero Position")
                 else:
-                    self.wizard_widget.mark_step_completed(5, False, error_msg)
+                    self.wizard_widget.mark_step_completed(6, False, error_msg)
 
             if success:
                 self.log_msg("[Wizard 3-1] Robot moved to zero pose successfully.")
