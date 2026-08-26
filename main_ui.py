@@ -5113,11 +5113,12 @@ class UnifiedCalibrationApp(QWidget):
 
         if self.include_head_motion and self.auto_base_head_q is None and self.robot:
             head_cfg = get_head_config(self.model)
-            if head_cfg["head_idx"] is not None:
+            if head_cfg.get("head_idx") is not None:
                 state = self.robot.get_state()
                 if state is not None and getattr(state, 'position', None) is not None:
                     q_full = np.array(state.position)
-                    self.auto_base_head_q = q_full[head_cfg["head_idx"]].copy()
+                    h_idx = list(head_cfg["head_idx"])
+                    self.auto_base_head_q = np.array([float(q_full[i]) for i in h_idx], dtype=np.float64)
                     self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
                 else:
                     self.auto_base_head_q = None
@@ -5771,7 +5772,6 @@ class UnifiedCalibrationApp(QWidget):
             self.auto_motion_thread = None
             if success:
                 self.auto_ready_done = True
-                self.auto_base_head_q = None
                 try:
                     if hasattr(self, 'step2_angle_step'):
                         self.auto_config.angle_step_deg = float(self.step2_angle_step.text())
@@ -5787,11 +5787,12 @@ class UnifiedCalibrationApp(QWidget):
                 self.auto_motion_plan = None
                 if getattr(self, 'include_head_motion', False) and self.robot:
                     head_cfg = get_head_config(self.model)
-                    if head_cfg["head_idx"] is not None:
+                    if head_cfg.get("head_idx") is not None:
                         state = self.robot.get_state()
                         if state is not None and getattr(state, 'position', None) is not None:
                             q_full = np.array(state.position)
-                            self.auto_base_head_q = q_full[head_cfg["head_idx"]].copy()
+                            h_idx = list(head_cfg["head_idx"])
+                            self.auto_base_head_q = np.array([float(q_full[i]) for i in h_idx], dtype=np.float64)
                             self.log_msg(f"Auto base head pose (deg): {np.round(np.rad2deg(self.auto_base_head_q), 3)}")
                         else:
                             self.auto_base_head_q = None
