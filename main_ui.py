@@ -1279,46 +1279,49 @@ class Step2InitPoseWorker(QThread):
                     
                 # Auto-center head if markers are vertically or horizontally offset from camera optical center
                 if self.include_head_motion and hasattr(self.app, 'model') and self.app.model is not None:
-                    head_cfg = get_head_config(self.app.model)
-                    head_idx = head_cfg.get("head_idx")
-                    if head_idx is not None and len(head_idx) >= 2:
-                        pts = []
-                        if right_check is not None:
-                            pts.append(right_check[:3, 3])
-                        if left_check is not None:
-                            pts.append(left_check[:3, 3])
-                        if len(pts) > 0:
-                            p_mid = np.mean(pts, axis=0)  # [X_cam, Y_cam, Z_cam] in camera frame
-                            pitch_err_rad = np.arctan2(p_mid[1], p_mid[2])
-                            yaw_err_rad = np.arctan2(p_mid[0], p_mid[2])
-                            
-                            # If vertical/horizontal offset is noticeable (|pitch_err| > 1.0 deg or |yaw_err| > 1.5 deg)
-                            if abs(pitch_err_rad) > np.deg2rad(1.0) or abs(yaw_err_rad) > np.deg2rad(1.5):
-                                self.log_signal.emit(f"[INFO] Auto-centering head: aligning camera optical center (Pitch: {np.rad2deg(pitch_err_rad):+.2f}°, Yaw: {np.rad2deg(yaw_err_rad):+.2f}°)...")
-                                state = self.robot.get_state()
-                                if state is not None and getattr(state, 'position', None) is not None:
-                                    q_full = np.array(state.position)
-                                    h_idx = list(head_idx)
-                                    q_head_curr = np.array([float(q_full[i]) for i in h_idx], dtype=np.float64)
-                                    q_head_target = q_head_curr + np.array([yaw_err_rad, pitch_err_rad], dtype=np.float64)
-                                    
-                                    # Clip to safe head limits
-                                    q_head_target[0] = np.clip(q_head_target[0], -25.0 * np.pi / 180.0, 25.0 * np.pi / 180.0)
-                                    q_head_target[1] = np.clip(q_head_target[1], -20.0 * np.pi / 180.0, 20.0 * np.pi / 180.0)
-                                    
-                                    comp = rby.ComponentBasedCommandBuilder().set_head_command(
-                                        rby.JointPositionCommandBuilder()
-                                        .set_position(q_head_target)
-                                        .set_minimum_time(2.0)
-                                    )
-                                    cmd = rby.RobotCommandBuilder().set_command(comp)
-                                    self.robot.send_command(cmd, self.priority).get()
-                                    time.sleep(1.0)
-                                    
-                                    # Set auto_base_head_q in UI so next auto-motion and motion plan use this aligned pose
-                                    self.app.auto_base_head_q = q_head_target.copy()
-                                    self.app.auto_motion_plan = None
-                                    self.log_signal.emit(f"[SUCCESS] Head auto-centered successfully to (Pan: {np.rad2deg(q_head_target[0]):+.2f}°, Tilt: {np.rad2deg(q_head_target[1]):+.2f}°).")
+                    try:
+                        head_cfg = get_head_config(self.app.model)
+                        head_idx = head_cfg.get("head_idx")
+                        if head_idx is not None and len(head_idx) >= 2:
+                            pts = []
+                            if right_check is not None:
+                                pts.append(right_check[:3, 3])
+                            if left_check is not None:
+                                pts.append(left_check[:3, 3])
+                            if len(pts) > 0:
+                                p_mid = np.mean(pts, axis=0)  # [X_cam, Y_cam, Z_cam] in camera frame
+                                pitch_err_rad = np.arctan2(p_mid[1], p_mid[2])
+                                yaw_err_rad = np.arctan2(p_mid[0], p_mid[2])
+                                
+                                # If vertical/horizontal offset is noticeable (|pitch_err| > 1.0 deg or |yaw_err| > 1.5 deg)
+                                if abs(pitch_err_rad) > np.deg2rad(1.0) or abs(yaw_err_rad) > np.deg2rad(1.5):
+                                    self.log_signal.emit(f"[INFO] Auto-centering head: aligning camera optical center (Pitch: {np.rad2deg(pitch_err_rad):+.2f}°, Yaw: {np.rad2deg(yaw_err_rad):+.2f}°)...")
+                                    state = self.robot.get_state()
+                                    if state is not None and getattr(state, 'position', None) is not None:
+                                        q_full = np.array(state.position)
+                                        h_idx = list(head_idx)
+                                        q_head_curr = np.array([float(q_full[i]) for i in h_idx], dtype=np.float64)
+                                        q_head_target = q_head_curr + np.array([yaw_err_rad, pitch_err_rad], dtype=np.float64)
+                                        
+                                        # Clip to safe head limits
+                                        q_head_target[0] = np.clip(q_head_target[0], -25.0 * np.pi / 180.0, 25.0 * np.pi / 180.0)
+                                        q_head_target[1] = np.clip(q_head_target[1], -20.0 * np.pi / 180.0, 20.0 * np.pi / 180.0)
+                                        
+                                        comp = rby.ComponentBasedCommandBuilder().set_head_command(
+                                            rby.JointPositionCommandBuilder()
+                                            .set_position(q_head_target)
+                                            .set_minimum_time(2.0)
+                                        )
+                                        cmd = rby.RobotCommandBuilder().set_command(comp)
+                                        self.robot.send_command(cmd, self.priority).get()
+                                        time.sleep(1.0)
+                                        
+                                        # Set auto_base_head_q in UI so next auto-motion and motion plan use this aligned pose
+                                        self.app.auto_base_head_q = q_head_target.copy()
+                                        self.app.auto_motion_plan = None
+                                        self.log_signal.emit(f"[SUCCESS] Head auto-centered successfully to (Pan: {np.rad2deg(q_head_target[0]):+.2f}°, Tilt: {np.rad2deg(q_head_target[1]):+.2f}°).")
+                    except Exception as ex:
+                        self.log_signal.emit(f"[WARNING] Auto-centering head encountered a minor issue: {ex}")
 
                 self.log_signal.emit("[SUCCESS] Marker visibility verified successfully at the ready pose.")
 
