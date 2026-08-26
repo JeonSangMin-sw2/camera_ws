@@ -127,9 +127,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
     
     model = robot.model()
-    head_idx = model.head_idx[:2] if (len(model.head_idx) >= 2 and include_head_motion) else None
+    head_idx = list(model.head_idx[:2]) if (len(model.head_idx) >= 2 and include_head_motion) else None
     has_head = head_idx is not None
-    q_head_0 = q_full[head_idx].copy() if has_head else None
+    q_head_0 = np.array([float(q_full[i]) for i in head_idx], dtype=np.float64) if has_head else None
     
     try:
         _, T_head_0 = compute_fk(robot, dyn_model, q_full, "link_head_2", "link_torso_5")
@@ -550,8 +550,8 @@ def send_auto_motion_cmd(
     state = robot.get_state()
     q_full = np.array(state.position) if (state is not None and getattr(state, 'position', None) is not None) else None
     model = robot.model() if robot is not None else None
-    head_idx = model.head_idx[:2] if (model is not None and hasattr(model, 'head_idx') and len(model.head_idx) >= 2) else None
-    q_head_curr = q_full[head_idx].copy() if (q_full is not None and head_idx is not None) else None
+    head_idx = list(model.head_idx[:2]) if (model is not None and hasattr(model, 'head_idx') and len(model.head_idx) >= 2) else None
+    q_head_curr = np.array([float(q_full[i]) for i in head_idx], dtype=np.float64) if (q_full is not None and head_idx is not None) else None
 
     # Check if sequential execution is needed for head tilt vs arm motion
     need_sequential = False
@@ -674,9 +674,9 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
             _motion_state["q_left_baseline"] = q_full[model.left_arm_idx[:7]].copy()
 
         if include_head_motion and _motion_state["q_head_baseline"] is None:
-            head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
-            _motion_state["q_head_baseline"] = q_full[head_idx].copy() if head_idx is not None else None
-            _motion_state["q_head_0"] = q_full[head_idx].copy() if head_idx is not None else None
+            head_idx = list(model.head_idx[:2]) if len(model.head_idx) >= 2 else None
+            _motion_state["q_head_baseline"] = np.array([float(q_full[i]) for i in head_idx], dtype=np.float64) if head_idx is not None else None
+            _motion_state["q_head_0"] = np.array([float(q_full[i]) for i in head_idx], dtype=np.float64) if head_idx is not None else None
 
             _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
             _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")

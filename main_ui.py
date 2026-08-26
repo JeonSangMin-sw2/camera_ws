@@ -1298,7 +1298,8 @@ class Step2InitPoseWorker(QThread):
                                 state = self.robot.get_state()
                                 if state is not None and getattr(state, 'position', None) is not None:
                                     q_full = np.array(state.position)
-                                    q_head_curr = q_full[head_idx].copy()
+                                    h_idx = list(head_idx)
+                                    q_head_curr = np.array([float(q_full[i]) for i in h_idx], dtype=np.float64)
                                     q_head_target = q_head_curr + np.array([yaw_err_rad, pitch_err_rad], dtype=np.float64)
                                     
                                     # Clip to safe head limits
