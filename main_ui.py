@@ -5422,101 +5422,135 @@ class UnifiedCalibrationApp(QWidget):
                 }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
-        self.log_msg("\n[INFO] === 3-STAGE JOINT-CAMERA DECOUPLED CALIBRATION WORKFLOW ===")
-        
-        # Stage 1: Coarse Multi-DOF Initialization (eps = 1e-5)
-        self.log_msg("[STAGE 1/3] Coarse Multi-DOF Initial Alignment (eps=1e-5)...")
-        opt_st1 = QPCalibrationOptimizer(
-            robot=self.robot,
-            arm_idx=cfg["arm_idx"],
-            ee_links=ee_links,
-            mount_to_cam_nom=cfg["mount_to_cam_nom"],
-            head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-            ee_to_marker_nom=ee_to_marker_nom,
-            active_arms=active_arms,
-            optimize_arm=True,
-            optimize_head=optimize_head,
-            optimize_camera=optimize_camera,
-            head_idx=head_cfg["head_idx"],
-            lambda_cam_pos=lambda_cam_pos,
-            lambda_cam_rot=lambda_cam_rot,
-            use_sag=use_sag,
-            estimate_measurement_noise=True,
-            apply_joint_offset_limits=apply_limits,
-            joint_offsets_to_apply=joint_offsets,
-            camera_pos_bound_m=0.005,
-            camera_rot_bound_rad=2.0 * D2R,
-            eps=1e-5,
-            max_iter=30,
-        )
-        q_arm_1, q_head_1, xi_cam_1, _, _ = opt_st1.optimize(
-            q_arm_list, q_head_list, T_meas_list
-        )
+        if len(active_arms) == 2 and q_arm_list.shape[1] >= 14:
+            self.log_msg("\n[INFO] === SEQUENTIAL 3-STAGE JOINT-CAMERA CALIBRATION WORKFLOW ===")
 
-        # Stage 2: Joint Priority Decoupling (Camera Extrinsics Locked, eps = 1e-6)
-        self.log_msg("[STAGE 2/3] Joint Priority Decoupling (Camera Extrinsics Locked, eps=1e-6)...")
-        opt_st2 = QPCalibrationOptimizer(
-            robot=self.robot,
-            arm_idx=cfg["arm_idx"],
-            ee_links=ee_links,
-            mount_to_cam_nom=cfg["mount_to_cam_nom"],
-            head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-            ee_to_marker_nom=ee_to_marker_nom,
-            active_arms=active_arms,
-            optimize_arm=True,
-            optimize_head=optimize_head,
-            optimize_camera=False,
-            head_idx=head_cfg["head_idx"],
-            lambda_cam_pos=lambda_cam_pos,
-            lambda_cam_rot=lambda_cam_rot,
-            use_sag=use_sag,
-            estimate_measurement_noise=True,
-            apply_joint_offset_limits=apply_limits,
-            joint_offsets_to_apply=joint_offsets,
-            camera_pos_bound_m=0.005,
-            camera_rot_bound_rad=2.0 * D2R,
-            eps=1e-6,
-            max_iter=35,
-        )
-        q_arm_2, q_head_2, _, _, _ = opt_st2.optimize(
-            q_arm_list, q_head_list, T_meas_list,
-            q_arm_offset_init=q_arm_1,
-            q_head_offset_init=q_head_1,
-            xi_mount_cam_init=xi_cam_1,
-        )
+            # Stage 1: Right Arm + Head + Camera Extrinsics (Independent Anchor)
+            self.log_msg("[STAGE 1/3] Right Arm + Head + Camera Alignment...")
+            cfg_r = get_arm_config(self.model, "right", version=self.get_robot_version())
+            opt_r = QPCalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg_r["arm_idx"],
+                ee_links={"right": cfg_r["ee_link"]},
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom={"right": ee_to_marker_nom["right"]},
+                active_arms=["right"],
+                optimize_arm=True,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                head_idx=head_cfg["head_idx"],
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
+                estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+                camera_pos_bound_m=0.005,
+                camera_rot_bound_rad=2.0 * D2R,
+                eps=1e-6,
+                max_iter=30,
+            )
+            T_meas_r = T_meas_list[:, 0] if T_meas_list.ndim == 4 else T_meas_list
+            qr, hr, xir, _, _ = opt_r.optimize(
+                q_arm_list[:, :7], q_head_list, T_meas_r
+            )
 
-        # Stage 3: Final Joint-Camera Fine Integration (eps = 1e-7)
-        self.log_msg("[STAGE 3/3] Final Joint-Camera Fine Integration (All Free, eps=1e-7)...")
-        opt_st3 = QPCalibrationOptimizer(
-            robot=self.robot,
-            arm_idx=cfg["arm_idx"],
-            ee_links=ee_links,
-            mount_to_cam_nom=cfg["mount_to_cam_nom"],
-            head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-            ee_to_marker_nom=ee_to_marker_nom,
-            active_arms=active_arms,
-            optimize_arm=True,
-            optimize_head=optimize_head,
-            optimize_camera=optimize_camera,
-            head_idx=head_cfg["head_idx"],
-            lambda_cam_pos=lambda_cam_pos,
-            lambda_cam_rot=lambda_cam_rot,
-            use_sag=use_sag,
-            estimate_measurement_noise=True,
-            apply_joint_offset_limits=apply_limits,
-            joint_offsets_to_apply=joint_offsets,
-            camera_pos_bound_m=0.005,
-            camera_rot_bound_rad=2.0 * D2R,
-            eps=1e-7,
-            max_iter=40,
-        )
-        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt_st3.optimize(
-            q_arm_list, q_head_list, T_meas_list,
-            q_arm_offset_init=q_arm_2,
-            q_head_offset_init=q_head_2,
-            xi_mount_cam_init=xi_cam_1,
-        )
-        optimizer = opt_st3
+            # Stage 2: Left Arm + Head + Camera Extrinsics (Independent Anchor)
+            self.log_msg("[STAGE 2/3] Left Arm + Head + Camera Alignment...")
+            cfg_l = get_arm_config(self.model, "left", version=self.get_robot_version())
+            opt_l = QPCalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg_l["arm_idx"],
+                ee_links={"left": cfg_l["ee_link"]},
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom={"left": ee_to_marker_nom["left"]},
+                active_arms=["left"],
+                optimize_arm=True,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                head_idx=head_cfg["head_idx"],
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
+                estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+                camera_pos_bound_m=0.005,
+                camera_rot_bound_rad=2.0 * D2R,
+                eps=1e-6,
+                max_iter=30,
+            )
+            T_meas_l = T_meas_list[:, 1] if T_meas_list.ndim == 4 else T_meas_list
+            ql, hl, xil, _, _ = opt_l.optimize(
+                q_arm_list[:, 7:], q_head_list, T_meas_l
+            )
+
+            # Stage 3: Dual-Arm Unified Fine Integration (Warm Start from Stages 1 & 2)
+            self.log_msg("[STAGE 3/3] Dual-Arm Unified Fine Integration (All Free, eps=1e-7)...")
+            opt_st3 = QPCalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                ee_links=ee_links,
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom=ee_to_marker_nom,
+                active_arms=active_arms,
+                optimize_arm=True,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                head_idx=head_cfg["head_idx"],
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
+                estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+                camera_pos_bound_m=0.005,
+                camera_rot_bound_rad=2.0 * D2R,
+                eps=1e-7,
+                max_iter=35,
+            )
+            q_arm_init = np.concatenate([qr, ql])
+            q_head_init = 0.5 * (hr + hl) if (hr is not None and hl is not None) else hr
+            xi_cam_init = 0.5 * (xir + xil)
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt_st3.optimize(
+                q_arm_list, q_head_list, T_meas_list,
+                q_arm_offset_init=q_arm_init,
+                q_head_offset_init=q_head_init,
+                xi_mount_cam_init=xi_cam_init,
+            )
+            optimizer = opt_st3
+        else:
+            self.log_msg("\n[INFO] === SINGLE-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
+            opt_single = QPCalibrationOptimizer(
+                robot=self.robot,
+                arm_idx=cfg["arm_idx"],
+                ee_links=ee_links,
+                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+                ee_to_marker_nom=ee_to_marker_nom,
+                active_arms=active_arms,
+                optimize_arm=True,
+                optimize_head=optimize_head,
+                optimize_camera=optimize_camera,
+                head_idx=head_cfg["head_idx"],
+                lambda_cam_pos=lambda_cam_pos,
+                lambda_cam_rot=lambda_cam_rot,
+                use_sag=use_sag,
+                estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+                camera_pos_bound_m=0.005,
+                camera_rot_bound_rad=2.0 * D2R,
+                eps=1e-7,
+                max_iter=35,
+            )
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt_single.optimize(
+                q_arm_list, q_head_list, T_meas_list
+            )
+            optimizer = opt_single
         
         if len(active_arms) == 1:
             if active_arms[0] == "right":
