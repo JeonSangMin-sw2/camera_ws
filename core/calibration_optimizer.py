@@ -885,6 +885,23 @@ class QPCalibrationOptimizer:
                     H[idx, idx] += anchor_weight
                     g[idx] += -anchor_weight * (cur_val - target_val)
 
+        # Gentle Null-space damping to prevent parallel joint drift along flat unobservable valleys
+        # (J0 vs Head Tilt, J2 vs J4). 
+        # Damping weights (15.0 on J2/J4, 3.0 on J0) are tiny (< 0.03% of total data weight ~50000),
+        # allowing true joint offsets to be estimated with 100% freedom while preventing null-space drift.
+        if self.optimize_arm:
+            if len(self.active_arms) == 1:
+                null_damped = [(0, 3.0), (2, 15.0), (4, 15.0)]
+            else:
+                null_damped = [
+                    (0, 3.0), (2, 15.0), (4, 15.0),    # Right arm J0, J2, J4
+                    (7, 3.0), (9, 15.0), (11, 15.0),   # Left arm J0, J2, J4
+                ]
+            for idx, damp_w in null_damped:
+                if idx < len(q_arm_offset):
+                    H[idx, idx] += damp_w
+                    g[idx] += -damp_w * q_arm_offset[idx]
+
 
 
 
@@ -1269,6 +1286,47 @@ class CalibrationOptimizer:
                 g[pos_slice] += -self.lambda_cam_pos * xi_mount_cam[3:]
 
 
+
+        # Apply Soft Anchor Penalty to Step 1 calibrated joints (J3, J5, J6)
+        if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
+            jo = self.joint_offsets_to_apply
+            anchor_weight = 5000.0
+            if len(self.active_arms) == 1:
+                side = self.active_arms[0]
+                anchors = [
+                    (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
+                    (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
+                    (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
+                ]
+            else:
+                anchors = [
+                    (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
+                    (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
+                    (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
+                    (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
+                    (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
+                    (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
+                ]
+
+            for idx, target_val in anchors:
+                if idx < len(q_arm_offset):
+                    cur_val = q_arm_offset[idx]
+                    H[idx, idx] += anchor_weight
+                    g[idx] += -anchor_weight * (cur_val - target_val)
+
+        # Gentle Null-space damping to prevent parallel joint drift along flat unobservable valleys
+        if self.optimize_arm:
+            if len(self.active_arms) == 1:
+                null_damped = [(0, 3.0), (2, 15.0), (4, 15.0)]
+            else:
+                null_damped = [
+                    (0, 3.0), (2, 15.0), (4, 15.0),    # Right arm J0, J2, J4
+                    (7, 3.0), (9, 15.0), (11, 15.0),   # Left arm J0, J2, J4
+                ]
+            for idx, damp_w in null_damped:
+                if idx < len(q_arm_offset):
+                    H[idx, idx] += damp_w
+                    g[idx] += -damp_w * q_arm_offset[idx]
 
         dx = np.linalg.pinv(H) @ g
         return dx, total_err
