@@ -365,7 +365,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
         is_v13 = (model_name == 'm' or joint_cnt == 26)
 
     # Step 2: Cartesian Checking Pose (Lower Z to 0.18m for fixed chest camera vs 0.3m for head)
-    z_height = 0.18 if not has_head else 0.28
+    z_height = 0.18 if not has_head else 0.27
     y_val = 0.11 if is_v13 else 0.14
     
     T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -y_val, z_height])
