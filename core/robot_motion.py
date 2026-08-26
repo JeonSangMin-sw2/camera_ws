@@ -160,8 +160,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         curr_x = T_curr_right[0, 3]
         if curr_x > config.max_x:
             break
-        loop_count += 1
-            
+        full_ang = getattr(config, 'angle_step_deg', 5.0)
+        half_ang = full_ang / 2.0
+
         if has_head:
             # 1. 2D Decoupled Cross-Grid: Varies J0 and Head Tilt independently across FOV regions (Top, Center, Bottom)
             # Guarantees markers stay safely within camera FOV (+/- 12 deg) while completely breaking collinearity
