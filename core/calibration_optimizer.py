@@ -1300,14 +1300,15 @@ class CalibrationOptimizer:
                 if idx < len(q_arm_offset):
                     locked_indices.append(idx)
 
-        # Gentle Null-space damping to prevent parallel joint drift along flat unobservable valleys
+        # Null-space regularization to prevent parallel joint drift along flat unobservable valleys
+        # (J0 vs Head Tilt pitch coupling, J2 vs J4 roll coupling)
         if self.optimize_arm:
             if len(self.active_arms) == 1:
-                null_damped = [(0, 3.0), (2, 15.0), (4, 15.0)]
+                null_damped = [(0, 50.0), (2, 200.0), (4, 200.0)]
             else:
                 null_damped = [
-                    (0, 3.0), (2, 15.0), (4, 15.0),    # Right arm J0, J2, J4
-                    (7, 3.0), (9, 15.0), (11, 15.0),   # Left arm J0, J2, J4
+                    (0, 50.0), (2, 200.0), (4, 200.0),    # Right arm J0, J2, J4
+                    (7, 50.0), (9, 200.0), (11, 200.0),   # Left arm J0, J2, J4
                 ]
             for idx, damp_w in null_damped:
                 if idx < len(q_arm_offset) and idx not in locked_indices:
