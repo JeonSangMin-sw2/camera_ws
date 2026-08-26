@@ -223,7 +223,7 @@ def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=1, side="
         return None, None, None
     q_full = np.array(state.position)
     q_arm = q_full[arm_idx].copy()
-    q_head = q_full[head_idx].copy() if head_idx is not None else None
+    q_head = np.array([float(q_full[i]) for i in list(head_idx)], dtype=np.float64) if head_idx is not None else None
 
     result = marker_transform.get_marker_transform(sampling_time=sampling_time, side=side)
     if result is None:

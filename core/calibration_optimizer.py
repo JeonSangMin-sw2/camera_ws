@@ -282,7 +282,11 @@ def prepare_q_full(
     q_full = q_nominal.copy()
     q_full[arm_idx] = q_cmd if q_offset is None else (q_cmd + q_offset)
     if head_idx is not None and q_head is not None:
-        q_full[head_idx] = q_head if q_head_offset is None else (q_head + q_head_offset)
+        target_head = q_head if q_head_offset is None else (q_head + q_head_offset)
+        h_idx = list(head_idx)
+        for i, idx in enumerate(h_idx):
+            if i < len(target_head):
+                q_full[idx] = target_head[i]
     return q_full
 
 
@@ -925,7 +929,8 @@ class QPCalibrationOptimizer:
         if self.use_head_kinematics:
             q_zero_head = self.q_nominal.copy()
             if self.head_idx is not None:
-                q_zero_head[self.head_idx] = 0.0
+                for idx in list(self.head_idx):
+                    q_zero_head[idx] = 0.0
             _, T_head_base_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,
@@ -1330,7 +1335,8 @@ class CalibrationOptimizer:
         if self.use_head_kinematics:
             q_zero_head = self.q_nominal.copy()
             if self.head_idx is not None:
-                q_zero_head[self.head_idx] = 0.0
+                for idx in list(self.head_idx):
+                    q_zero_head[idx] = 0.0
             _, T_head_base_to_mount = compute_fk(
                 robot=self.robot,
                 dyn_model=self.dyn_model,

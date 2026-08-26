@@ -165,9 +165,8 @@ class MarkerCalibrator(BaseCalibrator):
             end_deg = mcfg["end_deg"]
             joint_i = mcfg["joint_i"]
 
-            # Head index and active head tracking setup
-            head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
-            q_head_0 = np.array(state.position)[head_idx].copy() if head_idx is not None else None
+            head_idx = list(model.head_idx[:2]) if len(model.head_idx) >= 2 else None
+            q_head_0 = np.array([float(state.position[i]) for i in head_idx], dtype=np.float64) if head_idx is not None else None
             dyn_model = self.robot.get_dynamics()
             
             q_head_start = None

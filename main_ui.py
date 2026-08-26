@@ -5329,10 +5329,12 @@ class UnifiedCalibrationApp(QWidget):
             if motion_plan_step and "q_arm" in motion_plan_step and len(motion_plan_step["q_arm"]) == len(arm_idx):
                 q_full[arm_idx] = motion_plan_step["q_arm"]
             if motion_plan_step and "q_head" in motion_plan_step and head_idx is not None and len(motion_plan_step["q_head"]) == len(head_idx):
-                q_full[head_idx] = motion_plan_step["q_head"]
+                h_idx = list(head_idx)
+                for local_i, global_i in enumerate(h_idx):
+                    q_full[global_i] = motion_plan_step["q_head"][local_i]
 
             q_arm = q_full[arm_idx].copy()
-            q_head = q_full[head_idx].copy() if head_idx is not None else None
+            q_head = np.array([float(q_full[i]) for i in list(head_idx)], dtype=np.float64) if head_idx is not None else None
             T_meas_right = self.marker_calibrator.get_simulated_marker_pose("right", q_actual=q_full)
             T_meas_left = self.marker_calibrator.get_simulated_marker_pose("left", q_actual=q_full)
             T_meas = np.stack([T_meas_right, T_meas_left], axis=0)

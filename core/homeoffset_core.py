@@ -85,7 +85,7 @@ def build_home_reset_baseline_data(robot, model, model_name=None, include_head=T
     left_offset_rad = q_full[model.left_arm_idx].copy()
     head_offset_rad = None
     if include_head and len(model.head_idx) > 0:
-        head_offset_rad = q_full[model.head_idx].copy()
+        head_offset_rad = np.array([float(q_full[i]) for i in list(model.head_idx)], dtype=np.float64)
 
     data = {
         "joint_offset_deg": np.rad2deg(
