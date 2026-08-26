@@ -5416,65 +5416,8 @@ class UnifiedCalibrationApp(QWidget):
 
         if solver_type == "QP Solver":
             actual_lambda_cam_rot = lambda_cam_rot
-
-            self.log_msg("\n[INFO] === 3-STAGE QP SEQUENTIAL OPTIMIZATION WORKFLOW ===")
-
-            # Stage 1: Global Rough Initialization (eps = 1e-6)
-            self.log_msg("[STAGE 1/3] Global Rough Initialization (eps=1e-6)...")
-            optimizer_st1 = QPCalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg["arm_idx"],
-                ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom=ee_to_marker_nom,
-                head_idx=head_cfg["head_idx"],
-                eps=1e-6,
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=actual_lambda_cam_rot,
-                use_sag=use_sag,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
-                active_arms=active_arms,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-            )
-            q_arm_offset, q_head_offset, xi_cam, _, _ = optimizer_st1.optimize(
-                q_arm_list, q_head_list, T_meas_list
-            )
-
-            # Stage 2: Joint Priority Refinement (Camera Extrinsics Locked, eps = 1e-6)
-            self.log_msg("[STAGE 2/3] Joint Priority Refinement (Camera Extrinsics Locked, Arm + Head Free, eps=1e-6)...")
-            optimizer_st2 = QPCalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg["arm_idx"],
-                ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom=ee_to_marker_nom,
-                head_idx=head_cfg["head_idx"],
-                eps=1e-6,
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=actual_lambda_cam_rot,
-                use_sag=use_sag,
-                optimize_head=optimize_head,
-                optimize_camera=False,
-                active_arms=active_arms,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-            )
-            q_arm_offset, q_head_offset, _, _, _ = optimizer_st2.optimize(
-                q_arm_list, q_head_list, T_meas_list,
-                q_arm_offset_init=q_arm_offset,
-                q_head_offset_init=q_head_offset,
-                xi_mount_cam_init=xi_cam,
-            )
-
-            # Stage 3: Final Integration & Fine Tuning (All Free, eps = 1e-7)
-            self.log_msg("[STAGE 3/3] Final Joint-Camera Fine Integration (All Free, eps=1e-7)...")
-            optimizer_st3 = QPCalibrationOptimizer(
+            self.log_msg("\n[INFO] === QP JOINT-CAMERA UNIFIED OPTIMIZATION WORKFLOW ===")
+            optimizer = QPCalibrationOptimizer(
                 robot=self.robot,
                 arm_idx=cfg["arm_idx"],
                 ee_links=ee_links,
@@ -5492,14 +5435,11 @@ class UnifiedCalibrationApp(QWidget):
                 estimate_measurement_noise=True,
                 apply_joint_offset_limits=apply_limits,
                 joint_offsets_to_apply=joint_offsets,
+                max_iter=50
             )
-            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer_st3.optimize(
-                q_arm_list, q_head_list, T_meas_list,
-                q_arm_offset_init=q_arm_offset,
-                q_head_offset_init=q_head_offset,
-                xi_mount_cam_init=xi_cam,
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+                q_arm_list, q_head_list, T_meas_list
             )
-            optimizer = optimizer_st3
         else:
             optimizer = CalibrationOptimizer(
                 robot=self.robot,
