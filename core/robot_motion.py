@@ -167,13 +167,14 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
 
         # 1. User-configured J0 x Head Tilt Cross Grid Sweeps
         j0_tilt_targets = [
-            (-5.0, -5.0),
-            ( 0.0, -5.0),
-            ( 0.0,  0.0),
-            ( 0.0,  5.0),
-            ( 5.0,  0.0),
-            ( 5.0,  5.0),
-            ( 5.0, 10.0),
+            (  0.0,  -5.0),
+            ( -5.0,  -5.0),
+            ( -5.0, -10.0),
+            (-10.0, -10.0),
+            (  5.0,   0.0),
+            (  5.0,   5.0),
+            ( 10.0,   5.0),
+            ( 10.0,  10.0),
         ]
         
         for j0_off, tilt_off in j0_tilt_targets:
