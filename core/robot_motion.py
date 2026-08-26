@@ -214,7 +214,14 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
 
         # 1.2 Other Joint steps for joint 1, 2, and 4
         for joint_idx in [1, 2, 4]:
-            j_offsets = [-half_ang, -full_ang, half_ang, full_ang]
+            if joint_idx == 2:
+                # Joint 2 (Shoulder Yaw) swings the marker across a large 3D arc.
+                # Use a safe angle range (±1.5°, ±3.0°) so it never clips FOV even with head offsets
+                j2_half = min(half_ang, 1.5)
+                j2_full = min(full_ang * 0.6, 3.0)
+                j_offsets = [-j2_half, -j2_full, j2_half, j2_full]
+            else:
+                j_offsets = [-half_ang, -full_ang, half_ang, full_ang]
             for offset in j_offsets:
                 plan.append({
                     "type": "joint",
@@ -225,14 +232,15 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                     "desc": f"Joint {joint_idx} Offset: {offset:+.1f}deg"
                 })
 
-        # 1.5 Multi-joint diagonal sweeps for J1 and J4 coupling decoupling (full_ang = 5.0deg for high 3D SNR)
+        # 1.5 Multi-joint diagonal sweeps for J1 and J4/J2 coupling decoupling
+        j2_diag = min(full_ang * 0.6, 3.0)
         multi_joint_targets = [
             ({1:  full_ang, 4:  full_ang}, f"Joint 1+4 (+{full_ang:.1f},+{full_ang:.1f})deg"),
             ({1:  full_ang, 4: -full_ang}, f"Joint 1+4 (+{full_ang:.1f},-{full_ang:.1f})deg"),
             ({1: -full_ang, 4:  full_ang}, f"Joint 1+4 (-{full_ang:.1f},+{full_ang:.1f})deg"),
             ({1: -full_ang, 4: -full_ang}, f"Joint 1+4 (-{full_ang:.1f},-{full_ang:.1f})deg"),
-            ({1:  full_ang, 2:  full_ang}, f"Joint 1+2 (+{full_ang:.1f},+{full_ang:.1f})deg"),
-            ({1: -full_ang, 2: -full_ang}, f"Joint 1+2 (-{full_ang:.1f},-{full_ang:.1f})deg"),
+            ({1:  full_ang, 2:  j2_diag},  f"Joint 1+2 (+{full_ang:.1f},+{j2_diag:.1f})deg"),
+            ({1: -full_ang, 2: -j2_diag},  f"Joint 1+2 (-{full_ang:.1f},-{j2_diag:.1f})deg"),
         ]
         for off_dict, desc in multi_joint_targets:
             plan.append({
