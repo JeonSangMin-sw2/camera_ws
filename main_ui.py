@@ -5417,61 +5417,35 @@ class UnifiedCalibrationApp(QWidget):
                 }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
-        if solver_type == "QP Solver":
-            actual_lambda_cam_rot = lambda_cam_rot
-            self.log_msg("\n[INFO] === QP JOINT-CAMERA UNIFIED OPTIMIZATION WORKFLOW ===")
-            optimizer = QPCalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg["arm_idx"],
-                ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom=ee_to_marker_nom,
-                head_idx=head_cfg["head_idx"],
-                eps=1e-7,
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=actual_lambda_cam_rot,
-                use_sag=use_sag,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
-                active_arms=active_arms,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-                max_iter=50
-            )
-            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
-                q_arm_list, q_head_list, T_meas_list
-            )
-        else:
-            optimizer = CalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg["arm_idx"],
-                ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom=ee_to_marker_nom,
-                active_arms=active_arms,
-                optimize_arm=True,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
-                head_idx=head_cfg["head_idx"],
-                use_head_kinematics=optimize_head,
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=lambda_cam_rot,
-                use_sag=use_sag,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-                eps=1e-7,
-                max_iter=50,
-            )
+        self.log_msg("\n[INFO] === JOINT-CAMERA UNIFIED CALIBRATION WORKFLOW ===")
+        optimizer = CalibrationOptimizer(
+            robot=self.robot,
+            arm_idx=cfg["arm_idx"],
+            ee_links=ee_links,
+            mount_to_cam_nom=cfg["mount_to_cam_nom"],
+            head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+            ee_to_marker_nom=ee_to_marker_nom,
+            active_arms=active_arms,
+            optimize_arm=True,
+            optimize_head=optimize_head,
+            optimize_camera=optimize_camera,
+            head_idx=head_cfg["head_idx"],
+            use_head_kinematics=optimize_head,
+            lambda_cam_pos=lambda_cam_pos,
+            lambda_cam_rot=lambda_cam_rot,
+            use_sag=use_sag,
+            estimate_measurement_noise=True,
+            apply_joint_offset_limits=apply_limits,
+            joint_offsets_to_apply=joint_offsets,
+            eps=1e-7,
+            max_iter=50,
+        )
 
-            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
-                q_arm_list,
-                q_head_list,
-                T_meas_list,
-            )
+        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+            q_arm_list,
+            q_head_list,
+            T_meas_list,
+        )
         
         if len(active_arms) == 1:
             if active_arms[0] == "right":
