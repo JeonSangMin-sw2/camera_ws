@@ -154,7 +154,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     T_curr_left = T_base_left.copy() if T_base_left is not None else None
     
     loop_count = 0
-    max_loops = getattr(config, 'max_loops', 10)
+    max_loops = getattr(config, 'max_loops', 1)
 
     while loop_count < max_loops:
         curr_x = T_curr_right[0, 3]
@@ -235,6 +235,8 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             ({1: -full_ang, 4: -full_ang}, f"Joint 1+4 (-{full_ang:.1f},-{full_ang:.1f})deg"),
             ({1:  full_ang, 2:  j2_diag},  f"Joint 1+2 (+{full_ang:.1f},+{j2_diag:.1f})deg"),
             ({1: -full_ang, 2: -j2_diag},  f"Joint 1+2 (-{full_ang:.1f},-{j2_diag:.1f})deg"),
+            ({2:  j2_diag,  4: -j2_diag},  f"Joint 2-4 Decouple (+{j2_diag:.1f},-{j2_diag:.1f})deg"),
+            ({2: -j2_diag,  4:  j2_diag},  f"Joint 2-4 Decouple (-{j2_diag:.1f},+{j2_diag:.1f})deg"),
         ]
         for off_dict, desc in multi_joint_targets:
             plan.append({
@@ -253,10 +255,11 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             "desc": "Restore Baseline Pose"
         })
 
-        # 2. Extension-only elbow targets (positive J3 only, with safe outward decoupling)
+        # 2. Elbow depth sweeps (both Extension and safe Flexion)
         elbow_joint_targets = [
             ({3:  2.0, 5: -2.0}, "Elbow Extension Low (J3 +2deg, J5 -2deg)"),
             ({3:  4.0, 5: -4.0}, "Elbow Extension Mid (J3 +4deg, J5 -4deg)"),
+            ({3: -3.0, 5:  3.0}, "Elbow Flexion Low (J3 -3deg, J5 +3deg)"),
             ({3:  2.0, 2:  3.0, 4: -3.0}, "Elbow Extension + Outward Yaw (+3deg)"),
             ({3:  2.0, 2:  6.0, 4: -6.0}, "Elbow Extension + Outward Wide Yaw (+6deg)"),
         ]
@@ -294,11 +297,13 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             
         half_pos = config.position_step_m / 2.0
         full_pos = config.position_step_m
-        yz_targets = [
+        dx_step = min(getattr(config, 'step_x_m', 0.04), 0.04)
+        xyz_targets = [
+            (-dx_step, 0.0, 0.0), (+dx_step, 0.0, 0.0),  # Direct X-axis depth variation!
             (0.0, -half_pos, 0.0), (0.0, -full_pos, 0.0), (0.0, half_pos, 0.0), (0.0, full_pos, 0.0),
             (0.0, 0.0, -half_pos), (0.0, 0.0, -full_pos), (0.0, 0.0, half_pos), (0.0, 0.0, full_pos)
         ]
-        for dx, dy, dz in yz_targets:
+        for dx, dy, dz in xyz_targets:
             tr = apply_cartesian_offset(T_curr_right, dx=dx, dy=dy, dz=dz)
             tl = apply_cartesian_offset(T_curr_left, dx=dx, dy=dy, dz=dz)
             head_q = compute_head_tracking_q(tr, tl, active_arms, p_neck, q_head_0, p_marker_0) if has_head else None
