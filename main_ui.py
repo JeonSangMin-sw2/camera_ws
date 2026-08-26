@@ -5417,8 +5417,70 @@ class UnifiedCalibrationApp(QWidget):
                 }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
-        self.log_msg("\n[INFO] === JOINT-CAMERA UNIFIED CALIBRATION WORKFLOW ===")
-        optimizer = CalibrationOptimizer(
+        self.log_msg("\n[INFO] === 3-STAGE JOINT-CAMERA DECOUPLED CALIBRATION WORKFLOW ===")
+        
+        # Stage 1: Coarse Multi-DOF Initialization (eps = 1e-5)
+        self.log_msg("[STAGE 1/3] Coarse Multi-DOF Initial Alignment (eps=1e-5)...")
+        opt_st1 = CalibrationOptimizer(
+            robot=self.robot,
+            arm_idx=cfg["arm_idx"],
+            ee_links=ee_links,
+            mount_to_cam_nom=cfg["mount_to_cam_nom"],
+            head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+            ee_to_marker_nom=ee_to_marker_nom,
+            active_arms=active_arms,
+            optimize_arm=True,
+            optimize_head=optimize_head,
+            optimize_camera=optimize_camera,
+            head_idx=head_cfg["head_idx"],
+            use_head_kinematics=optimize_head,
+            lambda_cam_pos=lambda_cam_pos,
+            lambda_cam_rot=lambda_cam_rot,
+            use_sag=use_sag,
+            estimate_measurement_noise=True,
+            apply_joint_offset_limits=apply_limits,
+            joint_offsets_to_apply=joint_offsets,
+            eps=1e-5,
+            max_iter=25,
+        )
+        q_arm_1, q_head_1, xi_cam_1, _, _ = opt_st1.optimize(
+            q_arm_list, q_head_list, T_meas_list
+        )
+
+        # Stage 2: Joint Priority Decoupling (Camera Extrinsics Locked, eps = 1e-6)
+        self.log_msg("[STAGE 2/3] Joint Priority Decoupling (Camera Extrinsics Locked, eps=1e-6)...")
+        opt_st2 = CalibrationOptimizer(
+            robot=self.robot,
+            arm_idx=cfg["arm_idx"],
+            ee_links=ee_links,
+            mount_to_cam_nom=cfg["mount_to_cam_nom"],
+            head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
+            ee_to_marker_nom=ee_to_marker_nom,
+            active_arms=active_arms,
+            optimize_arm=True,
+            optimize_head=optimize_head,
+            optimize_camera=False,
+            head_idx=head_cfg["head_idx"],
+            use_head_kinematics=optimize_head,
+            lambda_cam_pos=lambda_cam_pos,
+            lambda_cam_rot=lambda_cam_rot,
+            use_sag=use_sag,
+            estimate_measurement_noise=True,
+            apply_joint_offset_limits=apply_limits,
+            joint_offsets_to_apply=joint_offsets,
+            eps=1e-6,
+            max_iter=30,
+        )
+        q_arm_2, q_head_2, _, _, _ = opt_st2.optimize(
+            q_arm_list, q_head_list, T_meas_list,
+            q_arm_offset_init=q_arm_1,
+            q_head_offset_init=q_head_1,
+            xi_cam_init=xi_cam_1,
+        )
+
+        # Stage 3: Final Joint-Camera Fine Integration (eps = 1e-7)
+        self.log_msg("[STAGE 3/3] Final Joint-Camera Fine Integration (All Free, eps=1e-7)...")
+        opt_st3 = CalibrationOptimizer(
             robot=self.robot,
             arm_idx=cfg["arm_idx"],
             ee_links=ee_links,
@@ -5438,14 +5500,15 @@ class UnifiedCalibrationApp(QWidget):
             apply_joint_offset_limits=apply_limits,
             joint_offsets_to_apply=joint_offsets,
             eps=1e-7,
-            max_iter=50,
+            max_iter=40,
         )
-
-        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
-            q_arm_list,
-            q_head_list,
-            T_meas_list,
+        q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt_st3.optimize(
+            q_arm_list, q_head_list, T_meas_list,
+            q_arm_offset_init=q_arm_2,
+            q_head_offset_init=q_head_2,
+            xi_cam_init=xi_cam_1,
         )
+        optimizer = opt_st3
         
         if len(active_arms) == 1:
             if active_arms[0] == "right":

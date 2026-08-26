@@ -1276,10 +1276,10 @@ class CalibrationOptimizer:
 
 
 
-        # Apply Soft Anchor Penalty to Step 1 calibrated joints (J3, J5, J6)
+        # Step 1 calibrated joints (J3, J5, J6) Hard Lock:
+        locked_indices = []
         if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
             jo = self.joint_offsets_to_apply
-            anchor_weight = 1e7  # Strong anchor penalty weight locking Step 1 joints to Step 1 calibrated values (< 0.02 deg)
             if len(self.active_arms) == 1:
                 side = self.active_arms[0]
                 anchors = [
@@ -1296,12 +1296,9 @@ class CalibrationOptimizer:
                     (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
                     (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
                 ]
-
-            for idx, target_val in anchors:
+            for idx, _ in anchors:
                 if idx < len(q_arm_offset):
-                    cur_val = q_arm_offset[idx]
-                    H[idx, idx] += anchor_weight
-                    g[idx] += -anchor_weight * (cur_val - target_val)
+                    locked_indices.append(idx)
 
         # Gentle Null-space damping to prevent parallel joint drift along flat unobservable valleys
         if self.optimize_arm:
@@ -1313,17 +1310,48 @@ class CalibrationOptimizer:
                     (7, 3.0), (9, 15.0), (11, 15.0),   # Left arm J0, J2, J4
                 ]
             for idx, damp_w in null_damped:
-                if idx < len(q_arm_offset):
+                if idx < len(q_arm_offset) and idx not in locked_indices:
                     H[idx, idx] += damp_w
                     g[idx] += -damp_w * q_arm_offset[idx]
 
-        dx = np.linalg.pinv(H) @ g
+        if len(locked_indices) > 0:
+            free_indices = [i for i in range(dim) if i not in locked_indices]
+            H_sub = H[np.ix_(free_indices, free_indices)]
+            g_sub = g[free_indices]
+            dx_sub = np.linalg.solve(H_sub + 1e-4 * np.eye(len(free_indices)), g_sub)
+            dx = np.zeros(dim)
+            for i_sub, i_full in enumerate(free_indices):
+                dx[i_full] = dx_sub[i_sub]
+        else:
+            dx = np.linalg.solve(H + 1e-4 * np.eye(dim), g)
+
         return dx, total_err
 
     def apply_update(self, q_arm_offset, q_head_offset, xi_mount_cam, dx):
         dq_arm, dq_head, dxi = self.unpack_params(dx)
         if self.optimize_arm:
             q_arm_offset += dq_arm
+            if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
+                jo = self.joint_offsets_to_apply
+                if len(self.active_arms) == 1:
+                    side = self.active_arms[0]
+                    anchors = [
+                        (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
+                        (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
+                        (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
+                    ]
+                else:
+                    anchors = [
+                        (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
+                        (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
+                        (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
+                        (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
+                        (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
+                        (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
+                    ]
+                for idx, target_val in anchors:
+                    if idx < len(q_arm_offset):
+                        q_arm_offset[idx] = target_val
         if self.optimize_head and q_head_offset is not None:
             q_head_offset += dq_head
         if self.optimize_camera:
@@ -1380,6 +1408,27 @@ class CalibrationOptimizer:
             )
 
         q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
+        if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
+            jo = self.joint_offsets_to_apply
+            if len(self.active_arms) == 1:
+                side = self.active_arms[0]
+                anchors = [
+                    (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
+                    (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
+                    (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
+                ]
+            else:
+                anchors = [
+                    (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
+                    (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
+                    (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
+                    (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
+                    (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
+                    (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
+                ]
+            for idx, target_val in anchors:
+                if idx < len(q_arm_offset):
+                    q_arm_offset[idx] = target_val
         if self.optimize_head:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else np.zeros(len(self.head_idx))
         else:
