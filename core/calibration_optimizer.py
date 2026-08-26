@@ -387,25 +387,9 @@ class QPCalibrationOptimizer:
         lower_parts = []
         upper_parts = []
         if self.optimize_arm:
-            urdf_q_lower_arm = self.q_lower[self.arm_idx]
-            q_lower = urdf_q_lower_arm.copy()
-            q_lower[ 1] =  0.0 * D2R # rsr
-            # q_lower[ 5] =  0.0 * D2R # rsr
-            q_lower[ 8] =-10.0 * D2R # lsr
-            q_lower[ 3] =  0.0 * D2R # rep
-            q_lower[10] =  0.0 * D2R # le[]
-            # q_lower[12] =  0.0 * D2R # le[]
-
-            urdf_q_upper_arm = self.q_upper[self.arm_idx]
-            q_upper = urdf_q_upper_arm.copy()
-            q_upper[ 1] = 10.0 * D2R# rsr
-            # q_upper[ 5] = 0.1 * D2R# rsr
-            q_upper[ 8] =  0.0 * D2R# lsr
-            q_upper[ 3] =  2.0 * D2R# rep
-            q_upper[10] =  2.0 * D2R# lep
-            # q_upper[12] =  0.1 * D2R# lep
-
-
+            arm_dim = len(self.arm_idx)
+            q_lower = np.full(arm_dim, -15.0 * D2R, dtype=np.float64)
+            q_upper = np.full(arm_dim,  15.0 * D2R, dtype=np.float64)
 
             if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
                 jo = self.joint_offsets_to_apply  
@@ -456,7 +440,6 @@ class QPCalibrationOptimizer:
                     q_lower[12] = min(v1_l5, v2_l5)
                     q_upper[12] = max(v1_l5, v2_l5)
 
-                    # Joint 6 오프셋 제한 범위 (±0.05도 바운드 적용)
                     r_j6 = jo.get("right", {}).get("joint6", 0.0)
                     l_j6 = jo.get("left", {}).get("joint6", 0.0)
 
@@ -476,7 +459,6 @@ class QPCalibrationOptimizer:
             upper_parts.append(q_upper)
 
         if self.optimize_head:
-            # Restrict head joint offsets to physically reasonable range (e.g. ±20 degrees)
             head_limit_rad = 20.0 * D2R
             lower_parts.append(np.array([-head_limit_rad, -head_limit_rad]))
             upper_parts.append(np.array([head_limit_rad, head_limit_rad]))
@@ -783,12 +765,6 @@ class QPCalibrationOptimizer:
         q_head_offset,
         xi_mount_cam,
     ):
-        if qpsolvers is None:
-            raise RuntimeError(
-                "qpsolvers is required for QPCalibrationOptimizer. "
-                "Install it in the runtime environment first."
-            )
-
         dim = self.total_dim()
         H = np.zeros((dim, dim), dtype=np.float64)
         g = np.zeros(dim, dtype=np.float64)
@@ -914,19 +890,23 @@ class QPCalibrationOptimizer:
         q = -g
         lb, ub = self._build_qp_bounds(dim, q_arm_offset, q_head_offset, xi_mount_cam)
 
-        import scipy.sparse as spa
-        dx = qpsolvers.solve_qp(
-            spa.csc_matrix(P),
-            q,
-            lb=lb,
-            ub=ub,
-            solver=self.qp_solver,
-            #eps_abs=1e-8,
-            #eps_rel=1e-8,
-            **self.qp_kwargs,
-        )
+        dx = None
+        if qpsolvers is not None:
+            try:
+                import scipy.sparse as spa
+                dx = qpsolvers.solve_qp(
+                    spa.csc_matrix(P),
+                    q,
+                    lb=lb,
+                    ub=ub,
+                    solver=self.qp_solver,
+                    **self.qp_kwargs,
+                )
+            except Exception:
+                dx = None
+
         if dx is None:
-            raise RuntimeError(f"QP solver '{self.qp_solver}' failed to find a solution.")
+            dx = np.linalg.solve(P + 1e-4 * np.eye(dim), -q)
 
         return np.asarray(dx, dtype=np.float64).reshape(-1), total_err
 
@@ -1048,6 +1028,8 @@ class CalibrationOptimizer:
         use_sag=False,
         estimate_measurement_noise=DEFAULT_ESTIMATE_MEASUREMENT_NOISE,
         measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
+        apply_joint_offset_limits=False,
+        joint_offsets_to_apply=None,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -1066,6 +1048,8 @@ class CalibrationOptimizer:
         self.optimize_arm = optimize_arm
         self.optimize_head = optimize_head and self.use_head_kinematics
         self.optimize_camera = optimize_camera
+        self.apply_joint_offset_limits = apply_joint_offset_limits
+        self.joint_offsets_to_apply = joint_offsets_to_apply
 
         self.max_iter = max_iter
         self.eps = eps

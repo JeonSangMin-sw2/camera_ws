@@ -5458,6 +5458,10 @@ class UnifiedCalibrationApp(QWidget):
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
                 estimate_measurement_noise=True,
+                apply_joint_offset_limits=apply_limits,
+                joint_offsets_to_apply=joint_offsets,
+                eps=1e-7,
+                max_iter=50,
             )
 
             q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
