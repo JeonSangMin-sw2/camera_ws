@@ -340,7 +340,7 @@ class QPCalibrationOptimizer:
         self.ee_to_marker_nom = dict(ee_to_marker_nom)
         self.camera_link = camera_link
 
-        self.use_head_kinematics = (self.head_idx is not None) and optimize_head
+        self.use_head_kinematics = (self.head_idx is not None)
         self.optimize_arm = optimize_arm
         self.optimize_head = optimize_head
         self.optimize_camera = optimize_camera
@@ -532,10 +532,10 @@ class QPCalibrationOptimizer:
             q_nominal=self.q_nominal,
             arm_idx=self.arm_idx,
             q_cmd=q_arm,
-            q_offset=q_arm_offset if self.optimize_arm else None,
+            q_offset=q_arm_offset,
             head_idx=self.head_idx,
             q_head=q_head,
-            q_head_offset=q_head_offset if self.optimize_head else None,
+            q_head_offset=q_head_offset,
         )
 
         state = self.dyn_model.make_state(
@@ -555,7 +555,7 @@ class QPCalibrationOptimizer:
         T_mount_to_cam_nom = self.get_nominal_mount_to_cam()
         T_mount_to_cam = (
             T_mount_to_cam_nom @ se3_exp(xi_mount_cam)
-            if self.optimize_camera else T_mount_to_cam_nom
+            if xi_mount_cam is not None else T_mount_to_cam_nom
         )
         T_ee_to_marker = self.get_nominal_ee_to_marker(arm_side)
 

@@ -5489,8 +5489,10 @@ class UnifiedCalibrationApp(QWidget):
                 q_arm_list[:, 7:], q_head_list, T_meas_l
             )
 
-            # Stage 3: Dual-Arm Unified Fine Integration (Warm Start from Stages 1 & 2)
-            self.log_msg("[STAGE 3/3] Dual-Arm Unified Fine Integration (Warm Start, max_iter=50, eps=1e-7)...")
+            # Stage 3: Dual-Arm Unified Fine Integration (Head & Camera Anchored to Stages 1 & 2)
+            self.log_msg("[STAGE 3/3] Dual-Arm Unified Fine Integration (Anchored Head/Camera, max_iter=50, eps=1e-7)...")
+            q_head_anchor = 0.5 * (hr + hl) if (hr is not None and hl is not None) else (hr if hr is not None else hl)
+            xi_cam_anchor = 0.5 * (xir + xil)
             opt_st3 = QPCalibrationOptimizer(
                 robot=self.robot,
                 arm_idx=cfg["arm_idx"],
@@ -5500,8 +5502,8 @@ class UnifiedCalibrationApp(QWidget):
                 ee_to_marker_nom=ee_to_marker_nom,
                 active_arms=active_arms,
                 optimize_arm=True,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
+                optimize_head=False,
+                optimize_camera=False,
                 head_idx=head_cfg["head_idx"],
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
@@ -5515,14 +5517,14 @@ class UnifiedCalibrationApp(QWidget):
                 max_iter=50,
             )
             q_arm_init = np.concatenate([qr, ql])
-            q_head_init = 0.5 * (hr + hl) if (hr is not None and hl is not None) else (hr if hr is not None else hl)
-            xi_cam_init = 0.5 * (xir + xil)
-            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = opt_st3.optimize(
+            q_arm_offset, _, _, mount_to_cam_new, head_base_to_cam_new = opt_st3.optimize(
                 q_arm_list, q_head_list, T_meas_list,
                 q_arm_offset_init=q_arm_init,
-                q_head_offset_init=q_head_init,
-                xi_mount_cam_init=xi_cam_init,
+                q_head_offset_init=q_head_anchor,
+                xi_mount_cam_init=xi_cam_anchor,
             )
+            q_head_offset = q_head_anchor
+            xi_cam = xi_cam_anchor
             optimizer = opt_st3
         else:
             self.log_msg("\n[INFO] === SINGLE-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
