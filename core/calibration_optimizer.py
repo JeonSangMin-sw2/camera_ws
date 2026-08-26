@@ -841,7 +841,7 @@ class QPCalibrationOptimizer:
         # Apply Soft Anchor Penalty to Step 1 calibrated joints (J3, J5, J6) to prevent hard wall clamping
         if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
             jo = self.joint_offsets_to_apply
-            anchor_weight = 5000.0  # Strong anchor penalty weight pulling Step 1 joints toward Step 1 values (< 0.02 deg error)
+            anchor_weight = 1e7  # Strong anchor penalty weight locking Step 1 joints to Step 1 calibrated values (< 0.02 deg)
             if len(self.active_arms) == 1:
                 side = self.active_arms[0]
                 anchors = [
@@ -1279,7 +1279,7 @@ class CalibrationOptimizer:
         # Apply Soft Anchor Penalty to Step 1 calibrated joints (J3, J5, J6)
         if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
             jo = self.joint_offsets_to_apply
-            anchor_weight = 5000.0
+            anchor_weight = 1e7  # Strong anchor penalty weight locking Step 1 joints to Step 1 calibrated values (< 0.02 deg)
             if len(self.active_arms) == 1:
                 side = self.active_arms[0]
                 anchors = [
