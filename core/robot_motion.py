@@ -536,118 +536,23 @@ def send_auto_motion_cmd(
     elbow_angle_deg=None,
 ):
     """
-    Sends motion command with automatic sequencing when head pitch changes:
-    - When tilting UP (head pitch decreases): Move Head first, then move Arm (marker).
-    - When tilting DOWN (head pitch increases): Move Arm (marker) first, then move Head.
-    - Otherwise (no significant head pitch change): Move Arm and Head simultaneously.
+    Sends a unified motion command moving Arm and Head simultaneously in parallel.
+    Data capture occurs cleanly after both arm and head arrive and settle at the target pose.
     """
-    state = robot.get_state()
-    q_full = np.array(state.position) if (state is not None and getattr(state, 'position', None) is not None) else None
-    model = robot.model() if robot is not None else None
-    head_idx = list(model.head_idx[:2]) if (model is not None and hasattr(model, 'head_idx') and len(model.head_idx) >= 2) else None
-    q_head_curr = np.array([float(q_full[i]) for i in head_idx], dtype=np.float64) if (q_full is not None and head_idx is not None) else None
-
-    # Check if sequential execution is needed for head tilt vs arm motion
-    need_sequential = False
-    head_up_first = False
-    if head_position is not None and q_head_curr is not None:
-        pitch_diff = float(head_position[1] - q_head_curr[1])
-        # Pitch sign convention: negative is UP (looking up), positive is DOWN (looking down)
-        if pitch_diff < -np.deg2rad(0.3):
-            need_sequential = True
-            head_up_first = True   # Looking UP -> Move Head First
-        elif pitch_diff > np.deg2rad(0.3):
-            need_sequential = True
-            head_up_first = False  # Looking DOWN -> Move Arm (marker) First
-
-    if not need_sequential:
-        cmd = make_dual_arm_head_cmd(
-            T_right=T_right,
-            T_left=T_left,
-            active_arms=active_arms,
-            head_position=head_position,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
-            q_right=q_right,
-            q_left=q_left,
-            elbow_angle_deg=elbow_angle_deg,
-        )
-        rv = robot.send_command(cmd, config.priority).get()
-        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
-        return
-
-    # Sequential execution:
-    # Current joint positions for holding arms during head-first move
-    q_right_curr = q_full[model.right_arm_idx[:7]].copy() if q_full is not None else None
-    q_left_curr = q_full[model.left_arm_idx[:7]].copy() if q_full is not None else None
-
-    if head_up_first:
-        # 1. Head tilts UP first (holding current arm positions)
-        cmd_head = make_dual_arm_head_cmd(
-            T_right=None,
-            T_left=None,
-            active_arms=active_arms,
-            head_position=head_position,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
-            q_right=q_right_curr if "right" in active_arms else None,
-            q_left=q_left_curr if "left" in active_arms else None,
-        )
-        rv1 = robot.send_command(cmd_head, config.priority).get()
-        if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion head-up command failed: {rv1.finish_code}")
-        time.sleep(0.05)
-
-        # 2. Arm moves to target (keeping target head position)
-        cmd_arm = make_dual_arm_head_cmd(
-            T_right=T_right,
-            T_left=T_left,
-            active_arms=active_arms,
-            head_position=head_position,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
-            q_right=q_right,
-            q_left=q_left,
-            elbow_angle_deg=elbow_angle_deg,
-        )
-        rv2 = robot.send_command(cmd_arm, config.priority).get()
-        if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion arm command failed: {rv2.finish_code}")
-
-    else:
-        # 1. Arm moves to target first (holding current head position)
-        cmd_arm = make_dual_arm_head_cmd(
-            T_right=T_right,
-            T_left=T_left,
-            active_arms=active_arms,
-            head_position=q_head_curr,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
-            q_right=q_right,
-            q_left=q_left,
-            elbow_angle_deg=elbow_angle_deg,
-        )
-        rv1 = robot.send_command(cmd_arm, config.priority).get()
-        if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion arm command failed: {rv1.finish_code}")
-        time.sleep(0.05)
-
-        # 2. Head tilts DOWN to target (keeping target arm positions)
-        cmd_head = make_dual_arm_head_cmd(
-            T_right=T_right,
-            T_left=T_left,
-            active_arms=active_arms,
-            head_position=head_position,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
-            q_right=q_right,
-            q_left=q_left,
-            elbow_angle_deg=elbow_angle_deg,
-        )
-        rv2 = robot.send_command(cmd_head, config.priority).get()
-        if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion head-down command failed: {rv2.finish_code}")
+    cmd = make_dual_arm_head_cmd(
+        T_right=T_right,
+        T_left=T_left,
+        active_arms=active_arms,
+        head_position=head_position,
+        min_time=config.move_time,
+        hold_time=config.hold_time,
+        q_right=q_right,
+        q_left=q_left,
+        elbow_angle_deg=elbow_angle_deg,
+    )
+    rv = robot.send_command(cmd, config.priority).get()
+    if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+        raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
 
 def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, include_head_motion=True):
     global _motion_state
