@@ -24,6 +24,8 @@ import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
 from pathlib import Path
 
+D2R = np.pi / 180.0
+
 # Import custom calibrator logic
 from marker_detection import Marker_Detection, Marker_Transform
 from calibration.Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
@@ -54,6 +56,7 @@ try:
         DEFAULT_LAMBDA_CAM_ROT,
         CalibrationOptimizer,
         QPCalibrationOptimizer,
+        D2R,
     )
     from core.robot_motion import (
         AutoCollectionConfig,
@@ -78,6 +81,7 @@ except ImportError:
         DEFAULT_LAMBDA_CAM_ROT,
         CalibrationOptimizer,
         QPCalibrationOptimizer,
+        D2R,
     )
     from robot_motion import (
         AutoCollectionConfig,
