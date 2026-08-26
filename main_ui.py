@@ -4729,6 +4729,7 @@ class UnifiedCalibrationApp(QWidget):
                     self.auto_config.position_step_m = float(self.step2_pos_step.text())
                     self.auto_config.step_x_m = float(self.step2_step_x.text())
                     self.auto_config.max_x = float(self.step2_max_x.text())
+                    self.auto_config.max_loops = 1
 
                     active_arms = ["right", "left"]
                     temp_plan = build_incremental_motion_plan(
@@ -5820,6 +5821,7 @@ class UnifiedCalibrationApp(QWidget):
                         self.auto_config.step_x_m = float(self.step2_step_x.text())
                     if hasattr(self, 'step2_max_x'):
                         self.auto_config.max_x = float(self.step2_max_x.text())
+                    self.auto_config.max_loops = 1
                 except Exception as e:
                     self.log_msg(f"Failed to read auto config: {e}. Using default values.")
 
