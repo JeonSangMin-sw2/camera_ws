@@ -129,7 +129,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     model = robot.model()
     head_idx = model.head_idx[:2] if (len(model.head_idx) >= 2 and include_head_motion) else None
     has_head = head_idx is not None
-    q_head_0 = q_full[head_idx].copy() if head_idx is not None else None
+    q_head_0 = np.zeros(2, dtype=np.float64) if has_head else None
     
     try:
         _, T_head_0 = compute_fk(robot, dyn_model, q_full, "link_head_2", "link_torso_5")
@@ -339,13 +339,18 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     q_ready = np.concatenate([q_torso, q_right, q_left])
     
     print("Step 1: Moving to Joint Ready Pose...")
-    cmd1 = rby.RobotCommandBuilder().set_command(
-        rby.ComponentBasedCommandBuilder().set_body_command(
+    comp1 = rby.ComponentBasedCommandBuilder().set_body_command(
+        rby.JointPositionCommandBuilder()
+        .set_position(q_ready)
+        .set_minimum_time(minimum_time)
+    )
+    if has_head:
+        comp1.set_head_command(
             rby.JointPositionCommandBuilder()
-            .set_position(q_ready)
+            .set_position(np.zeros(2, dtype=np.float64))
             .set_minimum_time(minimum_time)
         )
-    )
+    cmd1 = rby.RobotCommandBuilder().set_command(comp1)
     rv1 = robot.send_command(cmd1, priority).get()
     if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 1: Joint Ready Pose.")
@@ -414,9 +419,14 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
         body2.set_left_arm_command(left_joint)
 
     print("Step 2: Moving to Cartesian Checking Pose...")
-    cmd2 = rby.RobotCommandBuilder().set_command(
-        rby.ComponentBasedCommandBuilder().set_body_command(body2)
-    )
+    comp2 = rby.ComponentBasedCommandBuilder().set_body_command(body2)
+    if has_head:
+        comp2.set_head_command(
+            rby.JointPositionCommandBuilder()
+            .set_position(np.zeros(2, dtype=np.float64))
+            .set_minimum_time(minimum_time)
+        )
+    cmd2 = rby.RobotCommandBuilder().set_command(comp2)
     rv2 = robot.send_command(cmd2, priority).get()
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 2: Cartesian Checking Pose.")
@@ -640,8 +650,8 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
 
         if include_head_motion and _motion_state["q_head_baseline"] is None:
             head_idx = model.head_idx[:2] if len(model.head_idx) >= 2 else None
-            _motion_state["q_head_baseline"] = q_full[head_idx].copy() if head_idx is not None else None
-            _motion_state["q_head_0"] = _motion_state["q_head_baseline"].copy() if _motion_state["q_head_baseline"] is not None else None
+            _motion_state["q_head_baseline"] = np.zeros(2, dtype=np.float64) if head_idx is not None else None
+            _motion_state["q_head_0"] = np.zeros(2, dtype=np.float64) if head_idx is not None else None
 
             _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
             _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
@@ -706,13 +716,12 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
             elif "head_tilt_offset_deg" in motion_plan_step or "head_pan_offset_deg" in motion_plan_step:
                 d_pan = np.radians(motion_plan_step.get("head_pan_offset_deg", 0.0))
                 d_tilt = np.radians(motion_plan_step.get("head_tilt_offset_deg", 0.0))
-                base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else np.zeros(2)
+                base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else np.zeros(2, dtype=np.float64)
                 head_q = np.array([base_head[0] + d_pan, base_head[1] + d_tilt], dtype=np.float64)
             else:
                 # For regular joint sweeps (Joint 1, 2, 4, diagonal sweeps, elbow sweeps),
-                # keep head strictly at baseline neutral orientation (q_head_0)
-                base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else _motion_state.get("q_head_baseline", None)
-                head_q = base_head.copy() if base_head is not None else None
+                # keep head strictly at 0 neutral orientation
+                head_q = np.zeros(2, dtype=np.float64)
 
         send_auto_motion_cmd(
             robot=robot,
@@ -728,14 +737,14 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
 
     elif step_type == "restore_baseline":
         if _motion_state["q_right_baseline"] is not None:
-            base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else _motion_state.get("q_head_baseline", None)
+            base_head = np.zeros(2, dtype=np.float64) if include_head_motion else None
             send_auto_motion_cmd(
                 robot=robot,
                 config=config,
                 active_arms=active_arms,
                 q_right=_motion_state["q_right_baseline"] if "right" in active_arms else None,
                 q_left=_motion_state["q_left_baseline"] if "left" in active_arms else None,
-                head_position=base_head if include_head_motion else None,
+                head_position=base_head,
             )
 
         time.sleep(config.settle_time)
