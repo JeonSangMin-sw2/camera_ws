@@ -162,47 +162,19 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             break
         loop_count += 1
             
-        if has_head:
-            full_ang = getattr(config, 'angle_step_deg', 5.0)
-            half_ang = full_ang / 2.0
-            
-            # 1. User-configured J0 x Head Tilt Cross Grid Sweeps
-            j0_tilt_targets = [
-                (  0.0,  -5.0),
-                ( -5.0,  -5.0),
-                ( -5.0, -10.0),
-                (-10.0, -10.0),
-                (  5.0,   0.0),
-                (  5.0,   5.0),
-                ( 10.0,   5.0),
-                ( 10.0,  10.0),
-            ]
-            
-            for j0_off, tilt_off in j0_tilt_targets:
-                plan.append({
-                    "type": "joint",
-                    "joint_idx": 0,
-                    "offset_deg": j0_off,
-                    "head_tilt_offset_deg": tilt_off,
-                    "T_right": T_curr_right.copy() if T_curr_right is not None else None,
-                    "T_left": T_curr_left.copy() if T_curr_left is not None else None,
-                    "desc": f"J0 ({j0_off:+.1f}deg) + Head Tilt ({tilt_off:+.1f}deg)"
-                })
-        else:
-            # Fixed camera (no head): clamp angle to 3.5 deg to avoid FOV clipping
-            full_ang = min(getattr(config, 'angle_step_deg', 5.0), 3.5)
-            half_ang = full_ang / 2.0
-            
-            # Pure J0 joint sweeps for fixed camera
-            for j0_off in [-half_ang, -full_ang, half_ang, full_ang]:
-                plan.append({
-                    "type": "joint",
-                    "joint_idx": 0,
-                    "offset_deg": j0_off,
-                    "T_right": T_curr_right.copy() if T_curr_right is not None else None,
-                    "T_left": T_curr_left.copy() if T_curr_left is not None else None,
-                    "desc": f"Joint 0 Offset: {j0_off:+.1f}deg"
-                })
+        full_ang = getattr(config, 'angle_step_deg', 5.0)
+        half_ang = full_ang / 2.0
+
+        # 1. Pure J0 (Shoulder Pitch) independent sweeps with head stationary at baseline
+        for j0_off in [-half_ang, -full_ang, half_ang, full_ang]:
+            plan.append({
+                "type": "joint",
+                "joint_idx": 0,
+                "offset_deg": j0_off,
+                "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+                "T_left": T_curr_left.copy() if T_curr_left is not None else None,
+                "desc": f"Joint 0 Offset: {j0_off:+.1f}deg"
+            })
 
         # Restore baseline pose after J0 sweeps so next joint steps start from neutral pose
         plan.append({
