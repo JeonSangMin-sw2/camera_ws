@@ -165,25 +165,35 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         half_ang = config.angle_step_deg / 2.0
         full_ang = config.angle_step_deg
 
-        # 1. Interleaved J0 x Head Tilt Cross Grid Sweeps for robust decoupling
-        # (J0 rotates in horizontal plane, Head Tilt rotates in vertical plane -> 90 deg orthogonal decoupling)
-        j0_targets = [-full_ang, 0.0, full_ang]
-        tilt_offsets = [-full_ang, 0.0, full_ang]
+        # 1. User-configured J0 x Head Tilt Cross Grid Sweeps
+        j0_tilt_targets = [
+            (-5.0, -5.0),
+            ( 0.0, -5.0),
+            ( 0.0,  0.0),
+            ( 0.0,  5.0),
+            ( 5.0,  0.0),
+            ( 5.0,  5.0),
+            ( 5.0, 10.0),
+        ]
         
-        for j0_off in j0_targets:
-            for tilt_off in tilt_offsets:
-                # Skip the neutral (0, 0) since baseline handles it
-                if abs(j0_off) < 1e-3 and abs(tilt_off) < 1e-3:
-                    continue
-                plan.append({
-                    "type": "joint",
-                    "joint_idx": 0,
-                    "offset_deg": j0_off,
-                    "head_tilt_offset_deg": tilt_off,
-                    "T_right": T_curr_right.copy() if T_curr_right is not None else None,
-                    "T_left": T_curr_left.copy() if T_curr_left is not None else None,
-                    "desc": f"J0 ({j0_off:+.1f}deg) + Head Tilt ({tilt_off:+.1f}deg)"
-                })
+        for j0_off, tilt_off in j0_tilt_targets:
+            plan.append({
+                "type": "joint",
+                "joint_idx": 0,
+                "offset_deg": j0_off,
+                "head_tilt_offset_deg": tilt_off,
+                "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+                "T_left": T_curr_left.copy() if T_curr_left is not None else None,
+                "desc": f"J0 ({j0_off:+.1f}deg) + Head Tilt ({tilt_off:+.1f}deg)"
+            })
+
+        # Restore baseline pose after J0 x Head Tilt sweeps so next joint steps start from neutral head & arms
+        plan.append({
+            "type": "restore_baseline",
+            "T_right": T_curr_right.copy() if T_curr_right is not None else None,
+            "T_left": T_curr_left.copy() if T_curr_left is not None else None,
+            "desc": "Restore Baseline Pose"
+        })
 
         # 1.2 Other Joint steps for joint 1, 2, and 4
         for joint_idx in [1, 2, 4]:
@@ -224,12 +234,12 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             "desc": "Restore Baseline Pose"
         })
 
-        # 2. Elbow-bent joint targets for robust J2 and J4 decoupling (with matching wrist compensation)
+        # 2. Extension-only elbow targets (positive J3 only, with safe outward decoupling)
         elbow_joint_targets = [
-            ({3: -15.0, 5: 15.0}, "Elbow Deep Bend (J3 -15deg, J5 +15deg)"),
-            ({3:  15.0, 5: -15.0}, "Elbow Extended (J3 +15deg, J5 -15deg)"),
-            ({3: -15.0, 2: 5.0, 4: -5.0}, "Elbow Bent + Cross Yaw (+5deg)"),
-            ({3: -15.0, 2: -5.0, 4: 5.0}, "Elbow Bent + Cross Yaw (-5deg)"),
+            ({3:  2.0, 5: -2.0}, "Elbow Extension Low (J3 +2deg, J5 -2deg)"),
+            ({3:  4.0, 5: -4.0}, "Elbow Extension Mid (J3 +4deg, J5 -4deg)"),
+            ({3:  2.0, 2:  3.0, 4: -3.0}, "Elbow Extension + Outward Yaw (+3deg)"),
+            ({3:  2.0, 2:  6.0, 4: -6.0}, "Elbow Extension + Outward Wide Yaw (+6deg)"),
         ]
         for off_dict, desc in elbow_joint_targets:
             plan.append({
@@ -351,7 +361,7 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
 
     # Step 2: Cartesian Checking Pose (Lower Z to 0.18m for fixed chest camera vs 0.3m for head)
     z_height = 0.18 if not has_head else 0.3
-    y_val = 0.11 if is_v13 else 0.13
+    y_val = 0.11 if is_v13 else 0.14
     
     T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -y_val, z_height])
     T_right[:3, :3] = T_right[:3, :3] @ rot_z(180*D2R)
@@ -485,6 +495,131 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         )
     return rby.RobotCommandBuilder().set_command(cmd)
 
+def send_auto_motion_cmd(
+    robot,
+    config,
+    active_arms,
+    T_right=None,
+    T_left=None,
+    q_right=None,
+    q_left=None,
+    head_position=None,
+    elbow_angle_deg=None,
+):
+    """
+    Sends motion command with automatic sequencing when head pitch changes:
+    - When tilting UP (head pitch decreases): Move Head first, then move Arm (marker).
+    - When tilting DOWN (head pitch increases): Move Arm (marker) first, then move Head.
+    - Otherwise (no significant head pitch change): Move Arm and Head simultaneously.
+    """
+    state = robot.get_state()
+    q_full = np.array(state.position) if (state is not None and getattr(state, 'position', None) is not None) else None
+    model = robot.model() if robot is not None else None
+    head_idx = model.head_idx[:2] if (model is not None and hasattr(model, 'head_idx') and len(model.head_idx) >= 2) else None
+    q_head_curr = q_full[head_idx].copy() if (q_full is not None and head_idx is not None) else None
+
+    # Check if sequential execution is needed for head tilt vs arm motion
+    need_sequential = False
+    head_up_first = False
+    if head_position is not None and q_head_curr is not None:
+        pitch_diff = float(head_position[1] - q_head_curr[1])
+        # Pitch sign convention: negative is UP (looking up), positive is DOWN (looking down)
+        if pitch_diff < -np.deg2rad(0.3):
+            need_sequential = True
+            head_up_first = True   # Looking UP -> Move Head First
+        elif pitch_diff > np.deg2rad(0.3):
+            need_sequential = True
+            head_up_first = False  # Looking DOWN -> Move Arm (marker) First
+
+    if not need_sequential:
+        cmd = make_dual_arm_head_cmd(
+            T_right=T_right,
+            T_left=T_left,
+            active_arms=active_arms,
+            head_position=head_position,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+            q_right=q_right,
+            q_left=q_left,
+            elbow_angle_deg=elbow_angle_deg,
+        )
+        rv = robot.send_command(cmd, config.priority).get()
+        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
+        return
+
+    # Sequential execution:
+    # Current joint positions for holding arms during head-first move
+    q_right_curr = q_full[model.right_arm_idx[:7]].copy() if q_full is not None else None
+    q_left_curr = q_full[model.left_arm_idx[:7]].copy() if q_full is not None else None
+
+    if head_up_first:
+        # 1. Head tilts UP first (holding current arm positions)
+        cmd_head = make_dual_arm_head_cmd(
+            T_right=None,
+            T_left=None,
+            active_arms=active_arms,
+            head_position=head_position,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+            q_right=q_right_curr if "right" in active_arms else None,
+            q_left=q_left_curr if "left" in active_arms else None,
+        )
+        rv1 = robot.send_command(cmd_head, config.priority).get()
+        if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion head-up command failed: {rv1.finish_code}")
+        time.sleep(0.05)
+
+        # 2. Arm moves to target (keeping target head position)
+        cmd_arm = make_dual_arm_head_cmd(
+            T_right=T_right,
+            T_left=T_left,
+            active_arms=active_arms,
+            head_position=head_position,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+            q_right=q_right,
+            q_left=q_left,
+            elbow_angle_deg=elbow_angle_deg,
+        )
+        rv2 = robot.send_command(cmd_arm, config.priority).get()
+        if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion arm command failed: {rv2.finish_code}")
+
+    else:
+        # 1. Arm moves to target first (holding current head position)
+        cmd_arm = make_dual_arm_head_cmd(
+            T_right=T_right,
+            T_left=T_left,
+            active_arms=active_arms,
+            head_position=q_head_curr,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+            q_right=q_right,
+            q_left=q_left,
+            elbow_angle_deg=elbow_angle_deg,
+        )
+        rv1 = robot.send_command(cmd_arm, config.priority).get()
+        if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion arm command failed: {rv1.finish_code}")
+        time.sleep(0.05)
+
+        # 2. Head tilts DOWN to target (keeping target arm positions)
+        cmd_head = make_dual_arm_head_cmd(
+            T_right=T_right,
+            T_left=T_left,
+            active_arms=active_arms,
+            head_position=head_position,
+            min_time=config.move_time,
+            hold_time=config.hold_time,
+            q_right=q_right,
+            q_left=q_left,
+            elbow_angle_deg=elbow_angle_deg,
+        )
+        rv2 = robot.send_command(cmd_head, config.priority).get()
+        if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"Auto motion head-down command failed: {rv2.finish_code}")
+
 def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, include_head_motion=True):
     global _motion_state
 
@@ -574,57 +709,34 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
                 base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else np.zeros(2)
                 head_q = np.array([base_head[0] + d_pan, base_head[1] + d_tilt], dtype=np.float64)
             else:
-                q_full_temp = q_full.copy()
-                q_full_temp[model.right_arm_idx[:7]] = q_right_target
-                q_full_temp[model.left_arm_idx[:7]] = q_left_target
+                # For regular joint sweeps (Joint 1, 2, 4, diagonal sweeps, elbow sweeps),
+                # keep head strictly at baseline neutral orientation (q_head_0)
+                base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else _motion_state.get("q_head_baseline", None)
+                head_q = base_head.copy() if base_head is not None else None
 
-                _, T_right_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_right", "link_torso_5")
-                _, T_left_fk = compute_fk(robot, dyn_model, q_full_temp, "ee_left", "link_torso_5")
-
-                head_q = compute_head_tracking_q(
-                    T_right_fk,
-                    T_left_fk,
-                    active_arms,
-                    _motion_state["p_neck"],
-                    _motion_state["q_head_0"],
-                    _motion_state["p_marker_0"]
-                )
-
-        cmd = make_dual_arm_head_cmd(
-            T_right=None,
-            T_left=None,
+        send_auto_motion_cmd(
+            robot=robot,
+            config=config,
             active_arms=active_arms,
-            head_position=head_q,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
             q_right=q_right_target if "right" in active_arms else None,
             q_left=q_left_target if "left" in active_arms else None,
+            head_position=head_q,
         )
-        rv = robot.send_command(cmd, config.priority).get()
-        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion joint command failed: {rv.finish_code}")
 
         time.sleep(config.settle_time)
         return motion_plan_step
 
     elif step_type == "restore_baseline":
         if _motion_state["q_right_baseline"] is not None:
-            cmd = make_dual_arm_head_cmd(
-                T_right=None,
-                T_left=None,
+            base_head = _motion_state["q_head_0"] if _motion_state["q_head_0"] is not None else _motion_state.get("q_head_baseline", None)
+            send_auto_motion_cmd(
+                robot=robot,
+                config=config,
                 active_arms=active_arms,
-                head_position=_motion_state["q_head_baseline"] if include_head_motion else None,
-                min_time=config.move_time,
-                hold_time=config.hold_time,
-                q_right=_motion_state["q_right_baseline"],
-                q_left=_motion_state["q_left_baseline"]
+                q_right=_motion_state["q_right_baseline"] if "right" in active_arms else None,
+                q_left=_motion_state["q_left_baseline"] if "left" in active_arms else None,
+                head_position=base_head if include_head_motion else None,
             )
-            rv = robot.send_command(cmd, config.priority).get()
-            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-                raise RuntimeError(f"Restore baseline command failed: {rv.finish_code}")
-
-            # Maintain the baseline state for remaining steps in the plan
-            pass
 
         time.sleep(config.settle_time)
         return motion_plan_step
@@ -636,18 +748,15 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
         head_q = motion_plan_step.get("head_q", None) if include_head_motion else None
         elbow_bias_deg = motion_plan_step.get("elbow_bias_deg", None)
 
-        cmd = make_dual_arm_head_cmd(
+        send_auto_motion_cmd(
+            robot=robot,
+            config=config,
+            active_arms=active_arms,
             T_right=T_right,
             T_left=T_left,
-            active_arms=active_arms,
             head_position=head_q,
-            min_time=config.move_time,
-            hold_time=config.hold_time,
             elbow_angle_deg=elbow_bias_deg,
         )
-        rv = robot.send_command(cmd, config.priority).get()
-        if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-            raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
 
         time.sleep(config.settle_time)
         return motion_plan_step
