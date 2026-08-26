@@ -154,11 +154,11 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     T_curr_left = T_base_left.copy() if T_base_left is not None else None
     
     loop_count = 0
-    max_loops = getattr(config, 'max_loops', 1)
+    max_loops = getattr(config, 'max_loops', 10)
 
     while loop_count < max_loops:
         curr_x = T_curr_right[0, 3]
-        if curr_x > config.max_x:
+        if curr_x > config.max_x + 1e-4:
             break
         loop_count += 1
         full_ang = getattr(config, 'angle_step_deg', 5.0)
