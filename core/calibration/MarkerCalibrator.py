@@ -412,6 +412,10 @@ class MarkerCalibrator(BaseCalibrator):
         if arm_side == "right" and yaw_e < 0 and abs(yaw_e - 270.0) < 45.0:
             yaw_e += 360.0
 
+        # v1.3: X-axis Roll is co-axial with Joint 6 (Flange Roll).
+        # Lock bracket roll to CAD nominal (90.0 deg) so 100% of physical roll offset is assigned to Joint 6.
+        roll_e = float(nominal_rpy[0])
+
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
 
@@ -706,6 +710,7 @@ class MarkerCalibrator(BaseCalibrator):
             if arm_side == "right" and yaw_e < 0:
                 yaw_e += 360.0
         else:
+            roll_e = float(nominal_vec[3])
             if arm_side == "right" and yaw_e < 0 and abs(yaw_e - 270.0) < 45.0:
                 yaw_e += 360.0
 
