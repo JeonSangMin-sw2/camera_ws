@@ -367,7 +367,7 @@ class MarkerCalibrator(BaseCalibrator):
         # Joint 5 Pitch Offset Calculation
         cross_64 = np.cross(n6_marker_actual, n4_marker_actual)
         sign_5 = np.sign(np.dot(n5_marker_actual, cross_64)) if np.linalg.norm(cross_64) > 1e-4 else 1.0
-        pitch_corr = float((ang_46 - 90.0) * sign_5)
+        pitch_corr = -float((ang_46 - 90.0) * sign_5)
         opt_delta_5 = (calib_pitch_deg if calib_pitch_deg is not None else 0.0) + pitch_corr
 
         # Solve for Translation (x_e, y_e, z_e) in mm
