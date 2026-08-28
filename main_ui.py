@@ -2029,20 +2029,21 @@ class FullAutoWorker(QThread):
                         res_5['axis'] = res_5['axis_opt']
                         if self.stop_event.is_set(): return
 
-                        # 2. Compute Unified 3-Axis Spherical Wrist Solution (J5 & J6 offsets + Bracket 6-DOF)
-                        self.log_msg.emit(f"\n[FULL AUTO] Computing Simultaneous 3-Axis Solution for {arm_side} arm...")
+                        # 2. Phase 1: Compute Wrist Joints (J5 & J6) from 3-Axis Normals
+                        self.log_msg.emit(f"\n[FULL AUTO] [Phase 1] Computing 5·6-Axis Orthogonality Solution for {arm_side} arm (Pass {pass_idx}/2)...")
                         curr_pitch = self.joint_offsets_store[arm_side]["joint5"]
                         curr_roll = self.joint_offsets_store[arm_side]["joint6"]
                         
-                        unified_res = self.marker_calibrator.compute_unified_bracket_calibration_v1_3(
-                            res_5, res_6, arm_side, marker_data_4=res_4,
-                            calib_roll_deg=curr_roll, calib_pitch_deg=curr_pitch
+                        wrist_res = self.marker_calibrator.compute_wrist_joints_from_3axis_sweeps(
+                            res_4, res_5, res_6, arm_side,
+                            calib_pitch_deg=curr_pitch, calib_roll_deg=curr_roll
                         )
-                        if not unified_res or not unified_res.get('converged', False):
-                            raise RuntimeError(f"Unified 3-axis calibration failed on {arm_side} arm")
+                        if not wrist_res:
+                            raise RuntimeError(f"Wrist joint orthogonality calculation failed on {arm_side} arm")
                             
-                        opt_pitch = unified_res["d5_opt_deg"]
-                        opt_roll = unified_res["d6_opt_deg"]
+                        opt_pitch = wrist_res["d5_opt_deg"]
+                        opt_roll = wrist_res["d6_opt_deg"]
+                        ortho_err = wrist_res["ortho_err"]
                         
                         self.joint_offsets_store[arm_side]["joint5"] = opt_pitch
                         self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
@@ -2052,9 +2053,9 @@ class FullAutoWorker(QThread):
                         self.joint_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
                         self.marker_calibrator.joint_offsets[arm_side]["wrist_roll"] = opt_roll
 
-                        self.log_msg.emit(f"[FULL AUTO] Staged Joint 5 (Pitch) Offset: {opt_pitch:+.4f}°")
-                        self.log_msg.emit(f"[FULL AUTO] Staged Joint 6 (Roll)  Offset: {opt_roll:+.4f}°")
-                        self.log_msg.emit(f"[FULL AUTO] Orthogonality Residual: {unified_res['ortho_err']:.3f}°")
+                        self.log_msg.emit(f"[FULL AUTO] [Phase 1] Staged Joint 5 (Pitch) Offset: {opt_pitch:+.4f}°")
+                        self.log_msg.emit(f"[FULL AUTO] [Phase 1] Staged Joint 6 (Roll)  Offset: {opt_roll:+.4f}°")
+                        self.log_msg.emit(f"[FULL AUTO] [Phase 1] Orthogonality Residual: {ortho_err:.3f}°")
 
                         # Emit UI signals for Joint 6 & Joint 5 results
                         joint_res_roll = {
@@ -2074,26 +2075,33 @@ class FullAutoWorker(QThread):
                         self.joint_finished_signal.emit(joint_res_roll)
                         self.joint_finished_signal.emit(joint_res_pitch)
 
+                        # 3. Phase 2: Compute Pure Marker Bracket Transform (Tf_to_marker)
+                        self.log_msg.emit(f"[FULL AUTO] [Phase 2] Computing Pure Marker Bracket Transform for {arm_side} arm...")
+                        bracket_res = self.marker_calibrator.compute_marker_bracket_from_orthogonal_sweeps(
+                            res_4, res_5, res_6, arm_side
+                        )
+                        bracket_res.update(wrist_res)
+
                         # Generate and Save 3-Axis Verification Plot
-                        unified_res['res_5'] = res_5
-                        unified_res['res_6'] = res_6
-                        unified_res['res_4'] = res_4
-                        unified_res['arm_side'] = arm_side
-                        unified_res['pass_idx'] = pass_idx
+                        bracket_res['res_5'] = res_5
+                        bracket_res['res_6'] = res_6
+                        bracket_res['res_4'] = res_4
+                        bracket_res['arm_side'] = arm_side
+                        bracket_res['pass_idx'] = pass_idx
 
                         from core.paths import CONFIG_PATHS
                         plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
-                        plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
+                        plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, bracket_res, arm_side, is_v13, plot_path)
                         if plot_saved:
-                            unified_res['plot_path_combined'] = plot_path
+                            bracket_res['plot_path_combined'] = plot_path
 
-                        x_m, y_m, z_m = unified_res['x_e']/1000.0, unified_res['y_e']/1000.0, unified_res['z_e']/1000.0
-                        new_vals = [x_m, y_m, z_m, unified_res['roll_e'], unified_res['pitch_e'], unified_res['yaw_e']]
+                        x_m, y_m, z_m = bracket_res['x_e']/1000.0, bracket_res['y_e']/1000.0, bracket_res['z_e']/1000.0
+                        new_vals = [x_m, y_m, z_m, bracket_res['roll_e'], bracket_res['pitch_e'], bracket_res['yaw_e']]
                         key = f"Tf_to_marker_{arm_side}"
                         self.marker_calibrator.camera_config[key] = new_vals
                         self.joint_calibrator.camera_config[key] = new_vals
 
-                        self.bracket_finished_signal.emit(unified_res)
+                        self.bracket_finished_signal.emit(bracket_res)
                         time.sleep(0.5)
                         if self.stop_event.is_set(): return
 

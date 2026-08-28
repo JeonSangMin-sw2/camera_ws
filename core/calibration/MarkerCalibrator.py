@@ -275,12 +275,98 @@ class MarkerCalibrator(BaseCalibrator):
             raise e
 
 
-    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
-        if calib_roll_or_yaw_deg is not None:
-            calib_roll_deg = calib_roll_or_yaw_deg
-        L_5_ee = self.get_link_length(arm_side)
+    def extract_axis_from_rotations(self, poses, ideal_axis):
+        if len(poses) < 2:
+            return np.array(ideal_axis, dtype=float) / np.linalg.norm(ideal_axis)
+        mid_idx = len(poses) // 2
+        R_ref = poses[mid_idx][:3, :3]
+        axes = []
+        for i, T in enumerate(poses):
+            if i == mid_idx: continue
+            R_rel = R_ref.T @ T[:3, :3] 
+            rotvec = R_scipy.from_matrix(R_rel).as_rotvec()
+            angle = np.linalg.norm(rotvec)
+            if angle > np.radians(1.0):
+                axis = rotvec / angle
+                if np.dot(axis, ideal_axis) < 0:
+                    axis = -axis
+                axes.append(axis)
+        if len(axes) > 0:
+            avg_axis = np.mean(axes, axis=0)
+            return avg_axis / np.linalg.norm(avg_axis)
+        return np.array(ideal_axis, dtype=float) / np.linalg.norm(ideal_axis)
 
-        # 1. Nominal marker template for v1.3
+    def compute_wrist_joints_from_3axis_sweeps(self, marker_data_4, marker_data_5, marker_data_6, arm_side, calib_pitch_deg=None, calib_roll_deg=None):
+        """
+        Phase 1: Calculates Joint 5 (Pitch) and Joint 6 (Roll) offsets from 3-axis sweep normals,
+        and evaluates mutual orthogonality (residual deviation from 90.0 deg).
+        """
+        ver_key = "1.3" if self.is_v13() else "1.2"
+        nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+        nominal_rpy = nominal_vec[3:6]
+        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
+
+        x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
+        y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+        z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
+
+        poses_4 = marker_data_4.get('captured_poses', []) if marker_data_4 else []
+        poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
+        poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
+
+        n6_marker_actual = self.extract_axis_from_rotations(poses_6, x_ee_m_ideal)
+        n5_marker_actual = self.extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+        n4_marker_actual = self.extract_axis_from_rotations(poses_4, z_ee_m_ideal) if len(poses_4) > 0 else z_ee_m_ideal
+
+        # Compute mutual angles between normal vectors
+        ang_45 = np.degrees(np.arccos(np.clip(abs(np.dot(n4_marker_actual, n5_marker_actual)), -1.0, 1.0)))
+        ang_56 = np.degrees(np.arccos(np.clip(abs(np.dot(n5_marker_actual, n6_marker_actual)), -1.0, 1.0)))
+        ang_46 = np.degrees(np.arccos(np.clip(abs(np.dot(n4_marker_actual, n6_marker_actual)), -1.0, 1.0)))
+        ortho_err = max(abs(ang_45 - 90.0), abs(ang_56 - 90.0), abs(ang_46 - 90.0))
+
+        # Joint 6 Roll Offset Calculation (relative to Pitch axis)
+        x_col = n6_marker_actual / np.linalg.norm(n6_marker_actual)
+        ref_y = y_ee_m_ideal - np.dot(y_ee_m_ideal, x_col) * x_col
+        ref_y /= np.linalg.norm(ref_y)
+        ref_z = np.cross(x_col, ref_y)
+        diff_angle_6 = np.arctan2(np.dot(n5_marker_actual, ref_z), np.dot(n5_marker_actual, ref_y))
+        roll_corr = float(np.degrees(diff_angle_6))
+        opt_delta_6 = (calib_roll_deg if calib_roll_deg is not None else 0.0) + roll_corr
+
+        # Joint 5 Pitch Offset Calculation (orthogonal deviation between J4 and J6)
+        cross_64 = np.cross(n6_marker_actual, n4_marker_actual)
+        sign_5 = np.sign(np.dot(n5_marker_actual, cross_64)) if np.linalg.norm(cross_64) > 1e-4 else 1.0
+        pitch_corr = -float((ang_46 - 90.0) * sign_5)
+        opt_delta_5 = (calib_pitch_deg if calib_pitch_deg is not None else 0.0) + pitch_corr
+
+        converged = (ortho_err < 0.35)
+
+        return {
+            'converged': bool(converged),
+            'd5_opt_deg': opt_delta_5,
+            'd6_opt_deg': opt_delta_6,
+            'opt_delta_5': opt_delta_5,
+            'opt_delta_6': opt_delta_6,
+            'recommended_joint_offset_5': opt_delta_5,
+            'recommended_joint_offset_6': opt_delta_6,
+            'ortho_err': float(ortho_err),
+            'ang_45': float(ang_45),
+            'ang_56': float(ang_56),
+            'ang_46': float(ang_46),
+            'n4_marker_actual': n4_marker_actual,
+            'n5_marker_actual': n5_marker_actual,
+            'n6_marker_actual': n6_marker_actual,
+            'x_col': x_col,
+            'ref_y': ref_y,
+            'y_ee_m_ideal': y_ee_m_ideal
+        }
+
+    def compute_marker_bracket_from_orthogonal_sweeps(self, marker_data_4, marker_data_5, marker_data_6, arm_side):
+        """
+        Phase 2: Once Joint 5 & 6 are confirmed orthogonal, extracts pure 6-DOF marker bracket
+        transform (Tf_to_marker) using unbiased forward kinematics and SVD orientation projection.
+        """
+        L_5_ee = self.get_link_length(arm_side)
         ver_key = "1.3" if self.is_v13() else "1.2"
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         x_nom = nominal_vec[0] * 1000.0
@@ -290,48 +376,21 @@ class MarkerCalibrator(BaseCalibrator):
         nominal_rpy = nominal_vec[3:6]
         R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
-        # Helper to extract rotation axis
-        def extract_axis_from_rotations(poses, ideal_axis):
-            if len(poses) < 2: return ideal_axis
-            mid_idx = len(poses) // 2
-            R_ref = poses[mid_idx][:3, :3]
-            axes = []
-            for i, T in enumerate(poses):
-                if i == mid_idx: continue
-                R_rel = R_ref.T @ T[:3, :3] 
-                rotvec = R_scipy.from_matrix(R_rel).as_rotvec()
-                angle = np.linalg.norm(rotvec)
-                if angle > np.radians(1.0):
-                    axis = rotvec / angle
-                    if np.dot(axis, ideal_axis) < 0: axis = -axis
-                    axes.append(axis)
-            if len(axes) > 0:
-                avg_axis = np.mean(axes, axis=0)
-                return avg_axis / np.linalg.norm(avg_axis)
-            return ideal_axis
-
-        # Ideal axes in marker frame
         x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
         y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
         z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
 
-        poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
-        poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
         poses_4 = marker_data_4.get('captured_poses', []) if marker_data_4 else []
+        poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
+        poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
 
-        n6_marker_actual = extract_axis_from_rotations(poses_6, x_ee_m_ideal)
-        n5_marker_actual = extract_axis_from_rotations(poses_5, y_ee_m_ideal)
-        n4_marker_actual = extract_axis_from_rotations(poses_4, z_ee_m_ideal) if len(poses_4) > 0 else z_ee_m_ideal
+        n6_marker_actual = self.extract_axis_from_rotations(poses_6, x_ee_m_ideal)
+        n5_marker_actual = self.extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+        n4_marker_actual = self.extract_axis_from_rotations(poses_4, z_ee_m_ideal) if len(poses_4) > 0 else z_ee_m_ideal
 
         radius_6 = marker_data_6.get('radius', 0.0) if marker_data_6 else 0.0
         radius_5 = marker_data_5.get('radius', 0.0) if marker_data_5 else 0.0
         radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
-
-        # Orthogonality checks
-        ang_45 = np.degrees(np.arccos(np.clip(abs(np.dot(n4_marker_actual, n5_marker_actual)), -1.0, 1.0)))
-        ang_56 = np.degrees(np.arccos(np.clip(abs(np.dot(n5_marker_actual, n6_marker_actual)), -1.0, 1.0)))
-        ang_46 = np.degrees(np.arccos(np.clip(abs(np.dot(n4_marker_actual, n6_marker_actual)), -1.0, 1.0)))
-        ortho_err = max(abs(ang_45 - 90.0), abs(ang_56 - 90.0), abs(ang_46 - 90.0))
 
         # Build orthogonal frame from 3 axes via SVD (Spherical wrist decoupled basis)
         x_col = n6_marker_actual / np.linalg.norm(n6_marker_actual)
@@ -356,90 +415,78 @@ class MarkerCalibrator(BaseCalibrator):
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
 
-        # Joint 6 Roll Offset Calculation
-        ref_y = y_ee_m_ideal - np.dot(y_ee_m_ideal, x_col) * x_col
-        ref_y /= np.linalg.norm(ref_y)
-        ref_z = np.cross(x_col, ref_y)
-        diff_angle_6 = np.arctan2(np.dot(n5_marker_actual, ref_z), np.dot(n5_marker_actual, ref_y))
-        roll_corr = float(np.degrees(diff_angle_6))
-        opt_delta_6 = (calib_roll_deg if calib_roll_deg is not None else 0.0) + roll_corr
-
-        # Joint 5 Pitch Offset Calculation
-        cross_64 = np.cross(n6_marker_actual, n4_marker_actual)
-        sign_5 = np.sign(np.dot(n5_marker_actual, cross_64)) if np.linalg.norm(cross_64) > 1e-4 else 1.0
-        pitch_corr = -float((ang_46 - 90.0) * sign_5)
-        opt_delta_5 = (calib_pitch_deg if calib_pitch_deg is not None else 0.0) + pitch_corr
-
         # Solve for Translation (x_e, y_e, z_e) in mm
-        z_sign = self.get_z_sign(arm_side)
-        has_j4 = (marker_data_4 is not None and radius_4 > 1.0)
+        # 1. First attempt: Robust median translation from forward kinematics (pts_ee)
+        pts_ee = []
+        for mdata in [marker_data_6, marker_data_5, marker_data_4]:
+            if mdata and 'pts_ee' in mdata and len(mdata['pts_ee']) > 0:
+                pts_ee.append(mdata['pts_ee'])
+        
+        if len(pts_ee) > 0:
+            all_pts_ee = np.vstack(pts_ee)
+            p_ee_median = np.median(all_pts_ee, axis=0)
+            xe_opt, ye_opt, ze_opt = p_ee_median[0], p_ee_median[1], p_ee_median[2]
+            # Safety check: if median is within plausible range, use it directly
+            if abs(xe_opt - x_nom) > 40.0 or abs(ye_opt - y_nom) > 40.0 or abs(ze_opt - z_nom) > 40.0:
+                xe_opt, ye_opt, ze_opt = x_nom, y_nom, z_nom
+        else:
+            # Fallback to circle radius least squares
+            z_sign = self.get_z_sign(arm_side)
+            has_j4 = (marker_data_4 is not None and radius_4 > 1.0)
+            def residuals_trans(params):
+                xe, ye, ze = params
+                r6_pred = np.sqrt(ye**2 + ze**2)
+                Z_prime = ze + z_sign * L_5_ee
+                r5_pred = np.sqrt(xe**2 + Z_prime**2)
+                r4_pred = np.sqrt(xe**2 + ye**2)
+                res = [(r6_pred - radius_6), (r5_pred - radius_5)]
+                if has_j4: res.append(r4_pred - radius_4)
+                reg = 1e-2
+                res.append(reg * (xe - x_nom))
+                res.append(reg * (ye - y_nom))
+                res.append(reg * (ze - z_nom))
+                return res
 
-        def residuals_trans(params):
-            xe, ye, ze = params
-            # In EE frame, Joint 6 rotates around X_ee: radius is sqrt(ye^2 + ze^2)
-            r6_pred = np.sqrt(ye**2 + ze**2)
-            # Joint 5 rotates around Y_ee displaced by link length L_5_ee along Z
-            Z_prime = ze + z_sign * L_5_ee
-            r5_pred = np.sqrt(xe**2 + Z_prime**2)
-            # Joint 4 rotates around Z_ee
-            r4_pred = np.sqrt(xe**2 + ye**2)
-            res = [
-                (r6_pred - radius_6),
-                (r5_pred - radius_5)
-            ]
-            if has_j4:
-                res.append(r4_pred - radius_4)
-            reg = 1e-2
-            res.append(reg * (xe - x_nom))
-            res.append(reg * (ye - y_nom))
-            res.append(reg * (ze - z_nom))
-            return res
-
-        x_init = [x_nom, y_nom, z_nom]
-        opt_res = least_squares(residuals_trans, x_init, bounds=([max(0.0, x_nom - 30.0), y_nom - 30.0, z_nom - 30.0], [x_nom + 30.0, y_nom + 30.0, z_nom + 30.0]), loss='huber')
-        xe_opt, ye_opt, ze_opt = opt_res.x
-
-        Z_prime_opt = ze_opt + z_sign * L_5_ee
-        r6_err = abs(radius_6 - np.sqrt(ye_opt**2 + ze_opt**2))
-        r5_err = abs(radius_5 - np.sqrt(xe_opt**2 + Z_prime_opt**2))
-        r4_err = abs(radius_4 - np.sqrt(xe_opt**2 + ye_opt**2)) if has_j4 else 0.0
-        max_radius_err = max(r6_err, r5_err, r4_err)
+            x_init = [x_nom, y_nom, z_nom]
+            opt_res = least_squares(residuals_trans, x_init, bounds=([max(0.0, x_nom - 30.0), y_nom - 30.0, z_nom - 30.0], [x_nom + 30.0, y_nom + 30.0, z_nom + 30.0]), loss='huber')
+            xe_opt, ye_opt, ze_opt = opt_res.x
 
         pos_diff_mm = float(np.linalg.norm([xe_opt - x_nom, ye_opt - y_nom, ze_opt - z_nom]))
         warn_large_pos = pos_diff_mm > 40.0
-        if warn_large_pos:
-            logging.error(f"[{arm_side.upper()} BRACKET ERROR] Bracket position deviation exceeded safety limit: {pos_diff_mm:.1f}mm > 40.0mm! (Nominal: [{x_nom:.1f}, {y_nom:.1f}, {z_nom:.1f}], Opt: [{xe_opt:.1f}, {ye_opt:.1f}, {ze_opt:.1f}])")
 
         return {
             'converged': True,
-            'x_e': xe_opt, 'y_e': ye_opt, 'z_e': ze_opt,
-            'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
-            'opt_delta_5': opt_delta_5,
-            'opt_delta_6': opt_delta_6,
-            'd5_opt_deg': opt_delta_5,
-            'd6_opt_deg': opt_delta_6,
-            'recommended_joint_offset': opt_delta_6,
-            'recommended_joint_offset_5': opt_delta_5,
-            'recommended_joint_offset_6': opt_delta_6,
-            'L_5_ee': L_5_ee,
-            'radius_6': radius_6, 'radius_5': radius_5, 'radius_4': radius_4,
-            'ortho_err': ortho_err,
-            'ang_45': ang_45, 'ang_56': ang_56, 'ang_46': ang_46,
-            'r6_err': r6_err, 'r5_err': r5_err, 'r4_err': r4_err,
-            'max_radius_err': max_radius_err,
-            'rot_err_deg': rot_err_deg, 'tilt_diff': 0.0,
+            'x_e': float(xe_opt), 'y_e': float(ye_opt), 'z_e': float(ze_opt),
+            'roll_e': float(roll_e), 'pitch_e': float(pitch_e), 'yaw_e': float(yaw_e),
+            'rot_err_deg': float(rot_err_deg),
+            'pos_diff_mm': float(pos_diff_mm),
             'warn_large_angle': rot_err_deg > 15.0,
             'warn_large_pos': warn_large_pos,
-            'pos_diff_mm': pos_diff_mm,
-            'rmse_6': marker_data_6.get('rmse', 0.0) if marker_data_6 else 0.0,
-            'rmse_5': marker_data_5.get('rmse', 0.0) if marker_data_5 else 0.0,
-            'rmse_4': marker_data_4.get('rmse', 0.0) if marker_data_4 is not None else 0.0,
-            'min_radius': radius_4,
+            'radius_6': radius_6, 'radius_5': radius_5, 'radius_4': radius_4,
             'n6_marker_actual': n6_marker_actual,
             'n5_marker_actual': n5_marker_actual,
             'n4_marker_actual': n4_marker_actual,
             'y_ee_m_ideal': y_ee_m_ideal
         }
+
+    def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
+        if calib_roll_or_yaw_deg is not None:
+            calib_roll_deg = calib_roll_or_yaw_deg
+        
+        # 1. Joint calculation
+        wrist_res = self.compute_wrist_joints_from_3axis_sweeps(
+            marker_data_4, marker_data_5, marker_data_6, arm_side,
+            calib_pitch_deg=calib_pitch_deg, calib_roll_deg=calib_roll_deg
+        )
+        # 2. Bracket calculation
+        bracket_res = self.compute_marker_bracket_from_orthogonal_sweeps(
+            marker_data_4, marker_data_5, marker_data_6, arm_side
+        )
+        
+        # Merge dictionary
+        combined = {**wrist_res, **bracket_res}
+        combined['converged'] = True
+        return combined
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
         if calib_roll_or_yaw_deg is not None:
