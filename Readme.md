@@ -7,7 +7,7 @@ This is a camera calibration tool for the robot to calibrate joint offsets and c
 - **OS**: Ubuntu 22.04
 - **SDK compatibility**: rby1-sdk 0.10.x and later
 - **Python version**: 3.10
-- **Camera**: Intel RealSense D405,D435 (Resolution: 1280x720, 30 FPS)
+- **Camera**: Intel RealSense Series (we recommand D405) (Resolution: 1280x720, 30 FPS)
 - **Markers**: AprilTag (Plate Marker: Size 80mm. ID: Left (7), Right (8))
 
 > [!IMPORTANT]

@@ -1,61 +1,62 @@
 import numpy as np
-from scipy.spatial.transform import Rotation as R
 
-def make_transform(vec):
-    pos = vec[:3]
-    rpy = vec[3:6]
-    rot = R.from_euler('ZYX', [rpy[2], rpy[1], rpy[0]], degrees=True).as_matrix()
-    T = np.eye(4)
-    T[:3, :3] = rot
-    T[:3, 3] = pos
-    return T
+# Let's test the sign convention!
+# At Link 4: Joint 4 axis is Z4 = [0, 0, 1] (Sweep B)
+# Joint 5 axis is Y5 = [0, 1, 0] (Candidate joint, a_cand)
+# When Joint 5 has a positive angle delta (q5 > 0):
+# Joint 6 axis X6 rotates around Y by +delta:
+# X6 = [cos(delta), 0, -sin(delta)] (Sweep A)
+# Then:
+# n_A = [cos(delta), 0, -sin(delta)]
+# n_B = [0, 0, 1]
+# Dot product: n_A . n_B = -sin(delta)
+# If delta > 0 (e.g. +5 deg = +0.087 rad):
+# dot = -sin(5 deg) = -0.08715
+# arccos(dot) = 90 deg - (-5 deg) = 95.0 deg!
+# So angle_between_normals = 95.0 deg ( > 90 deg).
+# Now let's check cross product:
+# cross(n_A, n_B) = [cos(d), 0, -sin(d)] x [0, 0, 1]
+#                 = [0 * 1 - (-sin(d))*0, -sin(d)*0 - cos(d)*1, cos(d)*0 - 0*0]
+#                 = [0, -cos(d), 0]
+# Since d is small, cos(d) > 0, so cross = [0, -1, 0]!
+# And a_cand = [0, 1, 0] (Y axis)!
+# So dot(cross, a_cand) = [0, -1, 0] . [0, 1, 0] = -1 < 0!
+# So sin_sign = -1!
+# Then formula calculates:
+# optimal_offset_deg = (angle_between_normals - 90.0) * sin_sign
+#                    = (95.0 - 90.0) * (-1) = -5.0 deg!
+#
+# But wait! If the physical angle is +5.0 deg (i.e. robot is at +5 deg when commanded 0),
+# the home offset needed to compensate is -5.0 deg.
+# But how does perform_joint_calibration update staged_offset?
+# In perform_joint_calibration (lines 222-223):
+# staged_offset += step_correction
+# So staged_offset becomes 0 + (-5.0) = -5.0 deg.
+# In the NEXT sweep:
+# q_cand[5] = ready_pose[5] + (-5.0 deg) = -5.0 deg.
+# So physical angle becomes 0!
+#
+# BUT WAIT! What happens when camera coordinates transform n_A and n_B?
+# In camera coordinates:
+# R_torso_to_cam has det = +1.
+# Does R_torso_to_cam preserve cross product? Yes (SO(3) preserves cross product).
+# BUT what if n_A or n_B has sign flipped in line 915-916?
+# Lines 915-916:
+# n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
+# n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
+# And what is angle_between_normals?
+# Line 912: angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
 
-# Nominal right arm v1.2
-nom_val = [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
-T_nom = make_transform(nom_val)
-
-# GT right arm bracket offset
-gt_pos = [0.0005, 0.0, 0.002]
-gt_rpy = [-0.1, -0.1, 0.05]
-T_bracket = make_transform(list(gt_pos) + list(gt_rpy))
-
-# In simulation: T_ee_actual_to_marker = T_bracket @ T_nom
-T_cal = T_bracket @ T_nom
-
-# Let's extract the calculated bracket offset: T_bracket_calc = T_cal @ inv(T_nom)
-T_bracket_calc = T_cal @ np.linalg.inv(T_nom)
-calc_pos_offset = T_bracket_calc[:3, 3]
-calc_rot_offset = R.from_matrix(T_bracket_calc[:3, :3]).as_euler('ZYX', degrees=True)[::-1]
-
-# Print differences
-print("Right Arm:")
-print("GT Bracket Pos:", gt_pos)
-print("Calc Bracket Pos Offset:", calc_pos_offset)
-print("GT Bracket RPY:", gt_rpy)
-print("Calc Bracket RPY Offset:", calc_rot_offset)
-print("Nominal RPY:", nom_val[3:6])
-print("Calibrated RPY:", calc_rpy)
-print("Difference (Cal - Nom):", calc_rpy - nom_val[3:6])
-print("GT Bracket RPY:", gt_rpy)
-
-# Nominal left arm v1.2
-nom_val_l = [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
-T_nom_l = make_transform(nom_val_l)
-
-# GT left arm bracket offset
-gt_pos_l = [0.001, 0.0005, -0.002]
-gt_rpy_l = [0.1, 0.1, 0.0]
-T_bracket_l = make_transform(list(gt_pos_l) + list(gt_rpy_l))
-
-# In simulation: T_ee_actual_to_marker = T_bracket @ T_nom
-T_cal_l = T_bracket_l @ T_nom_l
-
-# Let's extract position and euler ZYX from T_cal
-calc_pos_l = T_cal_l[:3, 3]
-calc_rpy_l = R.from_matrix(T_cal_l[:3, :3]).as_euler('ZYX', degrees=True)[::-1] # ZYX to XYZ(RPY)
-
-print("\nLeft Arm:")
-print("Nominal RPY:", nom_val_l[3:6])
-print("Calibrated RPY:", calc_rpy_l)
-print("Difference (Cal - Nom):", calc_rpy_l - nom_val_l[3:6])
-print("GT Bracket RPY:", gt_rpy_l)
+print("Testing with real data values:")
+# Real data from right arm:
+# In right arm ready pose:
+# a_cand_t5 = [0.0713, 0.5783, -0.8127]
+# In iteration 1 of right wrist pitch:
+# angle_between_normals = 90.8649 deg
+# optimal_offset = -0.8649 deg
+# staged_offset in iter 2 was -0.8649 deg
+# In iteration 2: angle_between_normals = 89.3302 deg -> offset = +0.6698 deg
+# staged_offset in iter 3 was -0.3291 deg
+# In iteration 3: angle_between_normals = 90.7384 deg -> offset = -0.7384 deg
+# staged_offset in iter 4 was -0.8016 deg
+# It was OSCILLATING between -0.8° and -0.3°!
