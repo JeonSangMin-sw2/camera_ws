@@ -1963,9 +1963,9 @@ class FullAutoWorker(QThread):
                 res_5 = None
                 res_6 = None
 
-                for pass_idx in [1, 2]:
+                for pass_idx in range(1, 4):
                     self.log_msg.emit("\n" + "="*50)
-                    self.log_msg.emit(f"   STARTING PASS {pass_idx}/2 FOR {arm_side.upper()} ARM")
+                    self.log_msg.emit(f"   STARTING PASS {pass_idx}/3 FOR {arm_side.upper()} ARM")
                     self.log_msg.emit("="*50 + "\n")
                     self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
 
@@ -1985,7 +1985,7 @@ class FullAutoWorker(QThread):
                     if is_v13:
                         # === v1.3 UNIFIED 3-AXIS SPHERICAL WRIST SEQUENCE ===
                         # 1. 3-Axis Continuous Sweeps (Axis 4: Yaw, Axis 6: Roll, Axis 5: Pitch)
-                        self.log_msg.emit(f"[FULL AUTO] Starting Unified 3-Axis Sweeps for {arm_side} arm (Pass {pass_idx}/2)...")
+                        self.log_msg.emit(f"[FULL AUTO] Starting Unified 3-Axis Sweeps for {arm_side} arm (Pass {pass_idx})...")
                         self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to marker ready pose...")
                         if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
@@ -2030,7 +2030,7 @@ class FullAutoWorker(QThread):
                         if self.stop_event.is_set(): return
 
                         # 2. Phase 1: Compute Wrist Joints (J5 & J6) from 3-Axis Normals
-                        self.log_msg.emit(f"\n[FULL AUTO] [Phase 1] Computing 5·6-Axis Orthogonality Solution for {arm_side} arm (Pass {pass_idx}/2)...")
+                        self.log_msg.emit(f"\n[FULL AUTO] [Phase 1] Computing 5·6-Axis Orthogonality Solution for {arm_side} arm (Pass {pass_idx})...")
                         curr_pitch = self.joint_offsets_store[arm_side]["joint5"]
                         curr_roll = self.joint_offsets_store[arm_side]["joint6"]
                         
@@ -2375,47 +2375,48 @@ class FullAutoWorker(QThread):
                             self.joint_finished_signal.emit(joint_res_elbow)
                             time.sleep(0.5)
 
-                    # Pass 1 Evaluation & Early Exit Check
-                    if pass_idx == 1:
-                        j6_change = abs(self.joint_offsets_store[arm_side]["joint6"] - prev_j6)
-                        j5_change = abs(self.joint_offsets_store[arm_side]["joint5"] - prev_j5)
-                        j3_change = abs(self.joint_offsets_store[arm_side]["joint3"] - prev_j3)
+                    # Pass Evaluation & Convergence Check
+                    j6_change = abs(self.joint_offsets_store[arm_side]["joint6"] - prev_j6)
+                    j5_change = abs(self.joint_offsets_store[arm_side]["joint5"] - prev_j5)
+                    j3_change = abs(self.joint_offsets_store[arm_side]["joint3"] - prev_j3)
+                    
+                    tf_vec_now = self.marker_calibrator.camera_config.get(f"Tf_to_marker_{arm_side}")
+                    if tf_vec_now is not None and len(tf_vec_now) == 6:
+                        now_bracket_pos = np.array(tf_vec_now[:3]) * 1000.0
+                        now_bracket_rot = np.array(tf_vec_now[3:])
+                    else:
+                        now_bracket_pos = prev_bracket_pos
+                        now_bracket_rot = prev_bracket_rot
                         
-                        tf_vec_now = self.marker_calibrator.camera_config.get(f"Tf_to_marker_{arm_side}")
-                        if tf_vec_now is not None and len(tf_vec_now) == 6:
-                            now_bracket_pos = np.array(tf_vec_now[:3]) * 1000.0
-                            now_bracket_rot = np.array(tf_vec_now[3:])
-                        else:
-                            now_bracket_pos = prev_bracket_pos
-                            now_bracket_rot = prev_bracket_rot
-                            
-                        pos_change = np.linalg.norm(now_bracket_pos - prev_bracket_pos)
-                        
-                        # Compute rotation change in degrees
-                        R_prev = R_scipy.from_euler('ZYX', [prev_bracket_rot[2], prev_bracket_rot[1], prev_bracket_rot[0]], degrees=True)
-                        R_now = R_scipy.from_euler('ZYX', [now_bracket_rot[2], now_bracket_rot[1], now_bracket_rot[0]], degrees=True)
-                        rot_change = np.rad2deg(np.linalg.norm((R_now * R_prev.inv()).as_rotvec()))
-                        
-                        self.log_msg.emit(f"\n[PASS 1 EVALUATION] Staged parameter changes for {arm_side.upper()} Arm:")
-                        self.log_msg.emit(f"  * Joint 6 Change      : {j6_change:.4f}°")
-                        self.log_msg.emit(f"  * Joint 5 Change      : {j5_change:.4f}°")
-                        self.log_msg.emit(f"  * Joint 3 Change      : {j3_change:.4f}°")
-                        self.log_msg.emit(f"  * Bracket Pos Change  : {pos_change:.4f} mm")
-                        self.log_msg.emit(f"  * Bracket Rot Change  : {rot_change:.4f}°")
-                        
-                        # Early Exit Thresholds: joints < 0.05°, bracket pos < 0.5 mm, bracket rot < 0.1°
-                        if j6_change < 0.05 and j5_change < 0.05 and j3_change < 0.05 and pos_change < 0.5 and rot_change < 0.1:
-                            self.log_msg.emit(f"[PASS 1 EVALUATION] All changes are within tolerance thresholds.")
-                            self.log_msg.emit(f"[PASS 1 EVALUATION] Skipping Pass 2 (Early Exit) for {arm_side.upper()} Arm.")
+                    pos_change = np.linalg.norm(now_bracket_pos - prev_bracket_pos)
+                    
+                    # Compute rotation change in degrees
+                    R_prev = R_scipy.from_euler('ZYX', [prev_bracket_rot[2], prev_bracket_rot[1], prev_bracket_rot[0]], degrees=True)
+                    R_now = R_scipy.from_euler('ZYX', [now_bracket_rot[2], now_bracket_rot[1], now_bracket_rot[0]], degrees=True)
+                    rot_change = np.rad2deg(np.linalg.norm((R_now * R_prev.inv()).as_rotvec()))
+                    
+                    self.log_msg.emit(f"\n[PASS {pass_idx} EVALUATION] Staged parameter changes for {arm_side.upper()} Arm:")
+                    self.log_msg.emit(f"  * Joint 6 Change      : {j6_change:.4f}°")
+                    self.log_msg.emit(f"  * Joint 5 Change      : {j5_change:.4f}°")
+                    self.log_msg.emit(f"  * Joint 3 Change      : {j3_change:.4f}°")
+                    self.log_msg.emit(f"  * Bracket Pos Change  : {pos_change:.4f} mm")
+                    self.log_msg.emit(f"  * Bracket Rot Change  : {rot_change:.4f}°")
+                    
+                    # Convergence Criteria on Pass >= 2: joints < 0.10°, bracket pos < 0.5 mm, bracket rot < 0.15°
+                    if pass_idx >= 2:
+                        if j6_change < 0.10 and j5_change < 0.10 and j3_change < 0.10 and pos_change < 0.5 and rot_change < 0.15:
+                            self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] All parameters converged physically (Step changes < 0.10°).")
+                            self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] Calibration completed in Pass {pass_idx}!")
                             break
-                        else:
-                            self.log_msg.emit(f"[PASS 1 EVALUATION] Some changes exceed thresholds. Proceeding to Pass 2 for refinement.")
-                            # Update prev values for Pass 2 check
-                            prev_j6 = self.joint_offsets_store[arm_side]["joint6"]
-                            prev_j5 = self.joint_offsets_store[arm_side]["joint5"]
-                            prev_j3 = self.joint_offsets_store[arm_side]["joint3"]
-                            prev_bracket_pos = now_bracket_pos
-                            prev_bracket_rot = now_bracket_rot
+                        elif pass_idx < 3:
+                            self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] Step changes exceed tolerance (J6: {j6_change:.3f}°, J5: {j5_change:.3f}°). Proceeding to Pass {pass_idx + 1} for verification refinement.")
+                    
+                    # Update prev values for next pass check
+                    prev_j6 = self.joint_offsets_store[arm_side]["joint6"]
+                    prev_j5 = self.joint_offsets_store[arm_side]["joint5"]
+                    prev_j3 = self.joint_offsets_store[arm_side]["joint3"]
+                    prev_bracket_pos = now_bracket_pos
+                    prev_bracket_rot = now_bracket_rot
                             
                 self.log_msg.emit(f"[INFO] {arm_side.upper()} arm sequential calibration completed successfully.")
                 if self.stop_event.is_set(): return
@@ -5433,43 +5434,13 @@ class UnifiedCalibrationApp(QWidget):
                 q_arm_list[:, 7:], q_head_list, T_meas_l
             )
 
-            # Stage 3: Dual-Arm Unified Fine Integration (Head & Camera Anchored to Stages 1 & 2)
-            self.log_msg("[STAGE 3/3] Dual-Arm Unified Fine Integration (Anchored Head/Camera, max_iter=50, eps=1e-7)...")
-            q_head_anchor = 0.5 * (hr + hl) if (hr is not None and hl is not None) else (hr if hr is not None else hl)
-            xi_cam_anchor = 0.5 * (xir + xil)
-            opt_st3 = QPCalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg["arm_idx"],
-                ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom=ee_to_marker_nom,
-                active_arms=active_arms,
-                optimize_arm=True,
-                optimize_head=False,
-                optimize_camera=False,
-                head_idx=head_cfg["head_idx"],
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=lambda_cam_rot,
-                use_sag=use_sag,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-                camera_pos_bound_m=0.005,
-                camera_rot_bound_rad=2.0 * D2R,
-                eps=1e-7,
-                max_iter=50,
-            )
-            q_arm_init = np.concatenate([qr, ql])
-            q_arm_offset, _, _, mount_to_cam_new, head_base_to_cam_new = opt_st3.optimize(
-                q_arm_list, q_head_list, T_meas_list,
-                q_arm_offset_init=q_arm_init,
-                q_head_offset_init=q_head_anchor,
-                xi_mount_cam_init=xi_cam_anchor,
-            )
-            q_head_offset = q_head_anchor
-            xi_cam = xi_cam_anchor
-            optimizer = opt_st3
+            # Combine Independent Anchor Results (Unified 2-Stage Pipeline)
+            q_arm_offset = np.concatenate([qr, ql])
+            q_head_offset = 0.5 * (hr + hl) if (hr is not None and hl is not None) else (hr if hr is not None else hl)
+            xi_cam = 0.5 * (xir + xil)
+            mount_to_cam_new = opt_r.get_calibrated_mount_to_cam(xi_cam)
+            head_base_to_cam_new = opt_r.get_calibrated_head_base_to_cam(xi_cam)
+            optimizer = opt_r
         else:
             self.log_msg("\n[INFO] === SINGLE-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
             opt_single = QPCalibrationOptimizer(
