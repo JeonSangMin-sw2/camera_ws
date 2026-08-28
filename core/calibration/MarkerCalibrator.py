@@ -412,8 +412,12 @@ class MarkerCalibrator(BaseCalibrator):
         if arm_side == "right" and yaw_e < 0 and abs(yaw_e - 270.0) < 45.0:
             yaw_e += 360.0
 
-        # v1.3: X-axis Roll is co-axial with Joint 6 (Flange Roll).
-        # Lock bracket roll to CAD nominal (90.0 deg) so 100% of physical roll offset is assigned to Joint 6.
+        # v1.3: In ZYX Euler angle representation with Yaw = -90 deg:
+        # - pitch_e rotates around Flange X_ee (co-axial with Joint 6 Roll).
+        # - roll_e rotates around Flange -Y_ee (co-axial with Joint 5 Pitch).
+        # Lock pitch_e to nominal CAD (0.0 deg) and roll_e to nominal CAD (90.0 deg)
+        # so that 100% of the physical joint offsets are assigned to Joint 6 and Joint 5.
+        pitch_e = float(nominal_rpy[1])
         roll_e = float(nominal_rpy[0])
 
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
@@ -710,6 +714,10 @@ class MarkerCalibrator(BaseCalibrator):
             if arm_side == "right" and yaw_e < 0:
                 yaw_e += 360.0
         else:
+            # v1.3: In ZYX Euler angle representation with Yaw = -90 deg:
+            # - pitch_e rotates around Flange X_ee (co-axial with Joint 6 Roll).
+            # - roll_e rotates around Flange -Y_ee (co-axial with Joint 5 Pitch).
+            pitch_e = float(nominal_vec[4])
             roll_e = float(nominal_vec[3])
             if arm_side == "right" and yaw_e < 0 and abs(yaw_e - 270.0) < 45.0:
                 yaw_e += 360.0
