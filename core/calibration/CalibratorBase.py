@@ -224,8 +224,12 @@ class BaseCalibrator:
     def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None):
         try:
             if T_mount_to_cam is None:
-                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                T_mount_to_cam = self.make_transform(mount_to_cam)
+                if self.is_head_active():
+                    mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                    T_mount_to_cam = self.make_transform(mount_to_cam)
+                else:
+                    head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
+                    T_mount_to_cam = self.make_transform(head_base_to_cam)
             from core.paths import CONFIG_PATHS
             result_txt_dir = CONFIG_PATHS["txt_dir"]
             os.makedirs(result_txt_dir, exist_ok=True)
@@ -255,8 +259,15 @@ class BaseCalibrator:
                     
                     T_cam_to_marker = pose
                     T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    if self.is_head_active():
+                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+                        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                    else:
+                        try:
+                            T_t5_to_head_0 = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_0", "link_torso_5")
+                        except Exception:
+                            T_t5_to_head_0 = np.eye(4)
+                        T_t5_to_cam = T_t5_to_head_0 @ T_mount_to_cam
                     p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
                     p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
                     T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker

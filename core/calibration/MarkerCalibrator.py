@@ -254,7 +254,7 @@ class MarkerCalibrator(BaseCalibrator):
             if save_debug:
                 dataset = list(zip(captured_q_full, captured_poses))
                 self.save_debug_points(
-                    arm_side, axis_mode, dataset, initial_joint_pos, ee_name, dyn_model, T_t5_to_cam_fixed, "marker", log_callback
+                    arm_side, axis_mode, dataset, initial_joint_pos, ee_name, dyn_model, T_cam_fixed, "marker", log_callback
                 )
             return res
         finally:
