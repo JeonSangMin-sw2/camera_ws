@@ -813,21 +813,55 @@ class Marker_Transform:
                 try:
                     with open(info_file, "r") as inf:
                         info_data = yaml.safe_load(inf) or {}
-                    if self.camera_model in info_data:
-                        self.temp_supported = info_data[self.camera_model].get("temp_supported", False)
                 except Exception as e:
-                    print(f"[WARNING] Failed to read temp_supported from camera_info.yaml: {e}")
+                    print(f"[WARNING] Failed to read camera_info.yaml: {e}")
 
-            if self.camera_model and self.camera_model != yaml_device_name:
-                print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Updating...")
-                if info_data and self.camera_model in info_data:
-                    cam_ext = info_data[self.camera_model]
-                    camera_config["device_name"] = self.camera_model
-                    camera_config["head_base_to_cam"] = cam_ext.get("head_base_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
-                    camera_config["mount_to_cam"] = cam_ext.get("mount_to_cam", [0.0, 0.0, 0.0, -90.0, 0.0, -90.0])
-                    camera_config["camera_mount_link"] = cam_ext.get("camera_mount_link", "link_head_2")
+            target_model = self.camera_model or yaml_device_name
+            matched_info_key = None
+            if target_model and info_data:
+                for k in info_data:
+                    if k.lower() == target_model.lower():
+                        matched_info_key = k
+                        break
+
+            if matched_info_key:
+                self.temp_supported = info_data[matched_info_key].get("temp_supported", False)
+                cam_ext = info_data[matched_info_key]
+                info_head_base = cam_ext.get("head_base_to_cam")
+                info_mount = cam_ext.get("mount_to_cam")
+                info_mount_link = cam_ext.get("camera_mount_link", "link_head_2")
+
+                current_dev = camera_config.get("device_name")
+                current_head_base = camera_config.get("head_base_to_cam")
+                current_mount = camera_config.get("mount_to_cam")
+                current_mount_link = camera_config.get("camera_mount_link")
+
+                def is_diff(v1, v2):
+                    if v1 is None or v2 is None:
+                        return v1 != v2
+                    try:
+                        return not np.allclose(v1, v2, atol=1e-5)
+                    except Exception:
+                        return v1 != v2
+
+                dev_diff = (self.camera_model is not None and current_dev != self.camera_model)
+                pos_diff = is_diff(current_head_base, info_head_base) or is_diff(current_mount, info_mount) or (current_mount_link != info_mount_link)
+
+                if dev_diff or pos_diff:
+                    if dev_diff:
+                        print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Updating...")
+                    if pos_diff:
+                        print(f"[INFO] Camera extrinsics for '{matched_info_key}' in camera_info.yaml differ from setting.yaml. Syncing values...")
+
+                    camera_config["device_name"] = self.camera_model or matched_info_key
+                    if info_head_base is not None:
+                        camera_config["head_base_to_cam"] = info_head_base
+                    if info_mount is not None:
+                        camera_config["mount_to_cam"] = info_mount
+                    if info_mount_link is not None:
+                        camera_config["camera_mount_link"] = info_mount_link
                     config_data["camera"] = camera_config
-                    
+
                     class PrettyDumper(yaml.SafeDumper):
                         pass
                     PrettyDumper.add_representer(
@@ -836,12 +870,12 @@ class Marker_Transform:
                     )
                     with open(setting_config_path, "w") as wf:
                         yaml.dump(config_data, wf, Dumper=PrettyDumper, default_flow_style=False, sort_keys=False)
-                    print(f"[INFO] Updated setting.yaml extrinsics for {self.camera_model} from camera_info.yaml")
-                else:
-                    if not os.path.exists(info_file):
-                        print(f"[WARNING] camera_info.yaml not found at {info_file}")
-                    else:
-                        print(f"[WARNING] Match '{self.camera_model}' not found in camera_info.yaml")
+                    print(f"[INFO] Updated setting.yaml extrinsics for {matched_info_key} from camera_info.yaml (head_base_to_cam: {camera_config.get('head_base_to_cam')}, mount_to_cam: {camera_config.get('mount_to_cam')})")
+            else:
+                if not os.path.exists(info_file):
+                    print(f"[WARNING] camera_info.yaml not found at {info_file}")
+                elif target_model:
+                    print(f"[WARNING] Match '{target_model}' not found in camera_info.yaml")
             
             self.camera_config = camera_config
             self.markers_config = config_data.get("marker", config_data)

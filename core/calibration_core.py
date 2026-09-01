@@ -48,18 +48,36 @@ from core.calibration_optimizer import (
 # ============================================================
 # Config / helpers
 # ============================================================
-def create_robot(ip, model_name="a", power_regex=".*", servo_regex=".*"):
+def create_robot(ip, model_name="a", power_regex="48v", servo_regex="^(?!.*wheel).*$"):
     robot = rby.create_robot(ip, model_name)
     robot.connect()
     time.sleep(1)
     if not robot.is_power_on(power_regex):
         robot.power_on(power_regex)
         time.sleep(1)
-    if not robot.is_servo_on(servo_regex):
+    
+    cm_state = robot.get_control_manager_state().state
+    if cm_state in [
+        rby.ControlManagerState.State.MajorFault,
+        rby.ControlManagerState.State.MinorFault,
+    ]:
+        robot.reset_fault_control_manager()
+        time.sleep(0.5)
+
+    is_servo_ok = robot.is_servo_on(servo_regex)
+    cm_state = robot.get_control_manager_state().state
+    is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
+
+    if not is_servo_ok:
+        if is_cm_enabled:
+            robot.disable_control_manager()
+            time.sleep(0.5)
         robot.servo_on(servo_regex)
-    time.sleep(1) 
-    robot.reset_fault_control_manager()
-    robot.enable_control_manager(False)
+        time.sleep(0.5)
+
+    if not robot.is_control_manager_enabled():
+        robot.enable_control_manager(unlimited_mode_enabled=True)
+        time.sleep(0.5)
     return robot
 
 def load_npz_dataset(path):

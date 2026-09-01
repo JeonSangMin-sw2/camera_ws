@@ -179,7 +179,7 @@ def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_t
     return True
 
 
-def initialize_robot(address, model, power=".*", servo=".*"):
+def initialize_robot(address, model, power="48v", servo="^(?!.*wheel).*$"):
     robot = rby.create_robot(address, model)
 
     if not robot.connect():
@@ -188,10 +188,7 @@ def initialize_robot(address, model, power=".*", servo=".*"):
     if not robot.is_power_on(power):
         if not robot.power_on(power):
             raise RuntimeError("Power on failed")
-
-    if not robot.is_servo_on(servo):
-        if not robot.servo_on(servo):
-            raise RuntimeError("Servo on failed")
+        time.sleep(1.0)
 
     cm_state = robot.get_control_manager_state().state
     if cm_state in [
@@ -199,11 +196,29 @@ def initialize_robot(address, model, power=".*", servo=".*"):
         rby.ControlManagerState.State.MinorFault,
     ]:
         robot.reset_fault_control_manager()
+        time.sleep(0.5)
 
-    robot.enable_control_manager()
+    is_servo_ok = robot.is_servo_on(servo)
+    cm_state = robot.get_control_manager_state().state
+    is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
+
+    if not is_servo_ok:
+        if is_cm_enabled:
+            robot.disable_control_manager()
+            time.sleep(0.5)
+        if not robot.servo_on(servo):
+            raise RuntimeError("Servo on failed")
+        time.sleep(0.5)
+
+    if not robot.is_control_manager_enabled():
+        robot.enable_control_manager()
+        time.sleep(0.5)
+
     return robot
 
-def move_robot_to_zero_pose(address, model_name, arm, power=".*", servo=".*", include_head=True):
+def move_robot_to_zero_pose(address, model_name, arm, power="48v", servo=None, include_head=True):
+    if servo is None:
+        servo = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
     robot = initialize_robot(address, model_name, power, servo)
     model = robot.model()
 
@@ -558,10 +573,12 @@ def apply_home_offset(
     arm,
     offset_rad,
     head_offset_rad=None,
-    power=".*",
-    servo=".*",
+    power="48v",
+    servo=None,
     include_head=True,
 ):
+    if servo is None:
+        servo = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
     robot = initialize_robot(address, model_name, power, servo)
     model = robot.model()
 

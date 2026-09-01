@@ -301,6 +301,7 @@ class QPCalibrationOptimizer:
         ee_to_marker_nom=None,
         head_idx=None,
         camera_link="link_head_2",
+        use_head_kinematics=True,
         max_iter=500,
         eps=1e-7,
         lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
@@ -340,9 +341,9 @@ class QPCalibrationOptimizer:
         self.ee_to_marker_nom = dict(ee_to_marker_nom)
         self.camera_link = camera_link
 
-        self.use_head_kinematics = (self.head_idx is not None)
+        self.use_head_kinematics = use_head_kinematics and (self.head_idx is not None)
         self.optimize_arm = optimize_arm
-        self.optimize_head = optimize_head
+        self.optimize_head = optimize_head and self.use_head_kinematics
         self.optimize_camera = optimize_camera
 
         self.max_iter = max_iter
@@ -971,9 +972,10 @@ class QPCalibrationOptimizer:
 
     def optimize(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset_init=None, q_head_offset_init=None, xi_mount_cam_init=None):
         if self.use_head_kinematics and q_head_list is None:
-            raise RuntimeError(
-                "Head kinematics are enabled for this ndof, but q_head_list is missing."
-            )
+            self.use_head_kinematics = False
+            self.optimize_head = False
+            self.base_link = "link_head_0"
+            self.T_mount_to_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
 
         q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
         if self.optimize_head:
@@ -1404,9 +1406,10 @@ class CalibrationOptimizer:
 
     def optimize(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset_init=None, q_head_offset_init=None, xi_cam_init=None):
         if self.use_head_kinematics and q_head_list is None:
-            raise RuntimeError(
-                "Head kinematics are enabled for this ndof, but q_head_list is missing."
-            )
+            self.use_head_kinematics = False
+            self.optimize_head = False
+            self.base_link = "link_head_0"
+            self.T_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
 
         q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
         if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:

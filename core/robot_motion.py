@@ -347,8 +347,8 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     # Step 1: Joint Ready Pose (go_to_ready_pose 기준)
     q_torso = np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R
     
-    # Lower Shoulder Pitch (Joint 0) by 15 deg if no 2-DOF head (fixed chest camera)
-    j0_pitch = -30.0 if not has_head else -45.0
+    # Lower Shoulder Pitch (Joint 0) by ~19 deg if no 2-DOF head (fixed chest camera)
+    j0_pitch = -26.0 if not has_head else -45.0
     
     if "right" in active_arms:
         q_right = np.array([j0_pitch, -30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
@@ -388,8 +388,8 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
         joint_cnt = len(getattr(model, 'robot_joint_names', []))
         is_v13 = (model_name == 'm' or joint_cnt == 26)
 
-    # Step 2: Cartesian Checking Pose (Lower Z to 0.18m for fixed chest camera vs 0.3m for head)
-    z_height = 0.18 if not has_head else 0.27
+    # Step 2: Cartesian Checking Pose (Lower Z to 0.15m for lowered fixed chest camera vs 0.27m for head)
+    z_height = 0.15 if not has_head else 0.27
     y_val = 0.11 if is_v13 else 0.13
     
     T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -y_val, z_height])

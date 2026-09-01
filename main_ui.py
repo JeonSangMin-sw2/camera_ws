@@ -1803,10 +1803,11 @@ class JointCalibrationWorker(QThread):
 
 
 class SimulatedMarkerTransform:
-    def __init__(self, robot, camera_config, robot_version="1.2"):
+    def __init__(self, robot, camera_config, robot_version="1.2", include_head_motion=True):
         self.robot = robot
         self.camera_config = camera_config
         self.robot_version = robot_version
+        self.include_head_motion = include_head_motion
         
         class DummyCamera:
             def stream_off(self): pass
@@ -1859,25 +1860,6 @@ class SimulatedMarkerTransform:
             q_actual[arm_idx[5]] += np.radians(j5_gt)
             q_actual[arm_idx[6]] += np.radians(j6_gt)
                     
-            # Apply simulated head joint offsets to head kinematics to match real-robot uncalibrated state
-            q_actual_head = np.array(q)
-            head_idx = model.head_idx if hasattr(model, 'head_idx') else []
-            if len(head_idx) >= 2:
-                head_gt = BaseCalibrator.MOCK_GT_OFFSETS.get("head", {"pan": 0.0, "tilt": 0.0})
-                q_actual_head[head_idx[0]] += np.radians(head_gt.get("pan", 0.0))
-                q_actual_head[head_idx[1]] += np.radians(head_gt.get("tilt", 0.0))
-                    
-            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual, ee_name, "link_torso_5")
-            
-            try:
-                T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual_head, "link_head_2", "link_torso_5")
-            except Exception:
-                try:
-                    # Try alternative link name for v1.2 head camera mount
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual_head, "link_head", "link_torso_5")
-                except Exception:
-                    T_t5_to_head = np.eye(4)
-            
             # Apply simulated bracket offset to simulate bracket misalignment
             bracket_pos = mock_gt.get("bracket_pos")
             bracket_rpy = mock_gt.get("bracket_rpy")
@@ -1886,9 +1868,38 @@ class SimulatedMarkerTransform:
             bracket_offset_vec = list(bracket_pos) + list(bracket_rpy)
             T_bracket_offset = BaseCalibrator.make_transform(bracket_offset_vec)
                 
-            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-            T_head_to_cam = BaseCalibrator.make_transform(mount_to_cam)
-            T_t5_to_cam = T_t5_to_head @ T_head_to_cam
+            include_head = getattr(self, 'include_head_motion', True)
+            head_idx = model.head_idx if hasattr(model, 'head_idx') else []
+            has_head = include_head and len(head_idx) >= 2
+
+            if has_head:
+                q_actual_head = np.array(q)
+                head_gt = BaseCalibrator.MOCK_GT_OFFSETS.get("head", {"pan": 0.0, "tilt": 0.0})
+                q_actual_head[head_idx[0]] += np.radians(head_gt.get("pan", 0.0))
+                q_actual_head[head_idx[1]] += np.radians(head_gt.get("tilt", 0.0))
+                
+                try:
+                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual_head, "link_head_2", "link_torso_5")
+                except Exception:
+                    try:
+                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual_head, "link_head", "link_torso_5")
+                    except Exception:
+                        T_t5_to_head = np.eye(4)
+                
+                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                T_head_to_cam = BaseCalibrator.make_transform(mount_to_cam)
+                T_t5_to_cam = T_t5_to_head @ T_head_to_cam
+            else:
+                try:
+                    T_t5_to_head_0 = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual, "link_head_0", "link_torso_5")
+                except Exception:
+                    T_t5_to_head_0 = np.eye(4)
+                
+                head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
+                T_head_base_to_cam = BaseCalibrator.make_transform(head_base_to_cam)
+                T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam
+            
+            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_actual, ee_name, "link_torso_5")
             
             ver_key = "1.3" if is_v13 else "1.2"
             suffix = "_v13" if is_v13 else "_v12"
@@ -2089,7 +2100,6 @@ class FullAutoWorker(QThread):
                         bracket_res['arm_side'] = arm_side
                         bracket_res['pass_idx'] = pass_idx
 
-                        from core.paths import CONFIG_PATHS
                         plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
                         plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, bracket_res, arm_side, is_v13, plot_path)
                         if plot_saved:
@@ -3951,7 +3961,6 @@ class UnifiedCalibrationApp(QWidget):
 
     def _write_step2_log(self, msg):
         import os
-        from core.paths import CONFIG_PATHS
         log_file = os.path.join(CONFIG_PATHS["txt_dir"], "step2_capture_log.txt")
         try:
             os.makedirs(CONFIG_PATHS["txt_dir"], exist_ok=True)
@@ -3991,6 +4000,8 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator.include_head_motion = checked
         if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
             self.marker_calibrator.include_head_motion = checked
+        if hasattr(self, 'marker_st') and self.marker_st and type(self.marker_st).__name__ == "SimulatedMarkerTransform":
+            self.marker_st.include_head_motion = checked
 
         if hasattr(self, 'chk_servo_head'):
             self.chk_servo_head.blockSignals(True)
@@ -4259,33 +4270,20 @@ class UnifiedCalibrationApp(QWidget):
             except Exception as e:
                 self.log_msg(f"[ERROR] Safety check failed: {e}")
 
-            # 3. Turn on power if not already ON
+            # 3. Check and turn on 48V power if not already ON
             try:
-                power_pattern = ".*" if self.include_head_motion else "^(?!head_joint_).*$"
+                power_pattern = "48v"
                 if not robot.is_power_on(power_pattern):
-                    self.log_msg(f"[INFO] Power is not ON. Turning power ({power_pattern}) on...")
+                    self.log_msg(f"[INFO] 48V Power is not ON. Turning 48V power on...")
                     if not robot.power_on(power_pattern):
-                        raise RuntimeError("Failed to turn power on.")
-                    time.sleep(1)
+                        raise RuntimeError("Failed to turn 48V power on.")
+                    time.sleep(1.0)
                 else:
-                    self.log_msg("[INFO] Power is already ON.")
+                    self.log_msg("[INFO] 48V Power is already ON.")
             except Exception as e:
                 self.log_msg(f"[ERROR] Power configuration failed: {e}")
 
-            # 4. Turn on servos if not already ON
-            try:
-                servo_pattern = ".*" if self.include_head_motion else "^(?!head_joint_).*$"
-                if not robot.is_servo_on(servo_pattern):
-                    self.log_msg(f"[INFO] Turning servos ({servo_pattern}) on...")
-                    if not robot.servo_on(servo_pattern):
-                        raise RuntimeError("Failed to turn servos on.")
-                    time.sleep(1)
-                else:
-                    self.log_msg("[INFO] Servos are ON.")
-            except Exception as e:
-                self.log_msg(f"[ERROR] Servo configuration failed: {e}")
-
-            # 5. Enable control manager with False (standard mode, unlimited mode disabled)
+            # 4. Check and reset Control Manager Fault state if needed
             try:
                 cm_state = robot.get_control_manager_state()
                 if cm_state.state in [
@@ -4295,19 +4293,44 @@ class UnifiedCalibrationApp(QWidget):
                     self.log_msg("[WARNING] Control manager is in fault state. Resetting...")
                     robot.reset_fault_control_manager()
                     time.sleep(0.5)
+            except Exception as e:
+                self.log_msg(f"[WARNING] Failed to check/reset fault state: {e}")
 
+            # 5. Check desired servos and configure Control Manager
+            try:
+                servo_pattern = "^(?!.*wheel).*$" if self.include_head_motion else "^(?!.*(head|wheel)).*$"
+                is_servo_ok = robot.is_servo_on(servo_pattern)
+                
                 cm_state = robot.get_control_manager_state()
-                if cm_state.state == rby.ControlManagerState.State.Enabled:
-                    self.log_msg("[INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
-                    robot.disable_control_manager()
+                is_cm_enabled = (cm_state.state == rby.ControlManagerState.State.Enabled)
+
+                if is_servo_ok:
+                    self.log_msg(f"[INFO] Required servos ({servo_pattern}) are already ON.")
+                    if is_cm_enabled:
+                        self.log_msg("[INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
+                        robot.disable_control_manager()
+                        time.sleep(0.5)
+                    self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=True...")
+                    if not robot.enable_control_manager(unlimited_mode_enabled=True):
+                        raise RuntimeError("Failed to enable control manager.")
+                    time.sleep(1.0)
+                else:
+                    self.log_msg(f"[INFO] Required servos are not fully ON. Disabling Control Manager first to turn on servos ({servo_pattern})...")
+                    if is_cm_enabled:
+                        robot.disable_control_manager()
+                        time.sleep(0.5)
+                    
+                    self.log_msg(f"[INFO] Turning servos ({servo_pattern}) on...")
+                    if not robot.servo_on(servo_pattern):
+                        raise RuntimeError("Failed to turn servos on.")
                     time.sleep(0.5)
 
-                self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=True...")
-                if not robot.enable_control_manager(unlimited_mode_enabled=True):
-                    raise RuntimeError("Failed to enable control manager.")
-                time.sleep(1)
+                    self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=True...")
+                    if not robot.enable_control_manager(unlimited_mode_enabled=True):
+                        raise RuntimeError("Failed to enable control manager.")
+                    time.sleep(1.0)
             except Exception as e:
-                self.log_msg(f"[ERROR] Control manager configuration failed: {e}")
+                self.log_msg(f"[ERROR] Servo/Control Manager configuration failed: {e}")
 
             self.robot = robot
                 
@@ -4379,7 +4402,12 @@ class UnifiedCalibrationApp(QWidget):
 
                 # Setup SimulatedMarkerTransform if simulator is connected in UI Mode
                 if self.ui_only and not self.is_mock:
-                    self.marker_st = SimulatedMarkerTransform(self.robot, self.marker_calibrator.camera_config, self.robot_version)
+                    self.marker_st = SimulatedMarkerTransform(
+                        self.robot,
+                        self.marker_calibrator.camera_config,
+                        self.robot_version,
+                        include_head_motion=self.include_head_motion
+                    )
                     self.marker_calibrator.marker_st = self.marker_st
                     self.joint_calibrator.marker_st = self.marker_st
                     self.log_msg("[INFO] Configured SimulatedMarkerTransform for simulation motion.")
@@ -5355,6 +5383,14 @@ class UnifiedCalibrationApp(QWidget):
                 self.log_msg(f"[INFO] Using calibrated marker bracket values for {side}: {ee_to_marker_nom[side]}")
 
         head_cfg = get_head_config(self.model)
+        use_head_kinematics = (
+            getattr(self, 'include_head_motion', True) and
+            (q_head_list is not None) and
+            (head_cfg.get("head_idx") is not None) and
+            len(head_cfg.get("head_idx", [])) >= 2
+        )
+        head_idx = head_cfg["head_idx"] if use_head_kinematics else None
+        optimize_head = optimize_head and use_head_kinematics
 
         apply_limits = getattr(self, "apply_joint_offset_flag", False)
         joint_offsets = None
@@ -5386,7 +5422,8 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_arm=True,
                 optimize_head=optimize_head,
                 optimize_camera=optimize_camera,
-                head_idx=head_cfg["head_idx"],
+                head_idx=head_idx,
+                use_head_kinematics=use_head_kinematics,
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
@@ -5417,7 +5454,8 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_arm=True,
                 optimize_head=optimize_head,
                 optimize_camera=optimize_camera,
-                head_idx=head_cfg["head_idx"],
+                head_idx=head_idx,
+                use_head_kinematics=use_head_kinematics,
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,
@@ -5454,7 +5492,8 @@ class UnifiedCalibrationApp(QWidget):
                 optimize_arm=True,
                 optimize_head=optimize_head,
                 optimize_camera=optimize_camera,
-                head_idx=head_cfg["head_idx"],
+                head_idx=head_idx,
+                use_head_kinematics=use_head_kinematics,
                 lambda_cam_pos=lambda_cam_pos,
                 lambda_cam_rot=lambda_cam_rot,
                 use_sag=use_sag,

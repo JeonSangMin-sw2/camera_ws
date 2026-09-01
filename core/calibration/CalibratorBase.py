@@ -161,11 +161,14 @@ class BaseCalibrator:
             else:
                 val = val["marker"][f"{arm_side}_arm"]
             val_arr = np.array(val, dtype=np.float64).copy()
-            # If Head is disabled or robot has no 2-DOF head (fixed chest camera), lower Shoulder Pitch (Joint 0) by 15 deg
-            # to ensure markers stay within the fixed camera FOV instead of rising above it.
+            # If Head is disabled or robot has no 2-DOF head (fixed chest camera), lower Shoulder Pitch (Joint 0)
+            # and adjust Elbow (Joint 3) in negative direction to keep marker perpendicular to camera FOV without tilting backward.
             if not self.is_head_active() and len(val_arr) >= 7:
-                val_arr[0] += 15.0  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -40 deg)
-                msg = f"[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 pitch lowered by +15° ({val_arr[0]:.1f}°) for {arm_side}_arm ({type_key})"
+                j0_delta = 19.0
+                elbow_delta = -4.0 if (type_key == "marker" or mode_key in ["wrist_pitch", "wrist_yaw2", "wrist_roll", "wrist_pitch_v13", "wrist_roll_v13"]) else 0.0
+                val_arr[0] += j0_delta  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -36 deg)
+                val_arr[3] += elbow_delta  # Joint 3 negative offset flexes elbow to prevent marker from tilting backwards
+                msg = f"[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 lowered by +{j0_delta:.1f}° ({val_arr[0]:.1f}°), Elbow adjusted by {elbow_delta:+.1f}° ({val_arr[3]:.1f}°) for {arm_side}_arm ({type_key}/{mode_key})"
                 print(msg)
                 logging.info(msg)
 
@@ -296,26 +299,36 @@ class BaseCalibrator:
             robot.disconnect()
             return None
 
-        # Check if overall power is ON; if not, turn on overall power
+        # Check if 48V power is ON; if not, turn on 48V power
         try:
-            if not robot.is_power_on(".*"):
-                logging.info("Power is not ON. Turning overall power on...")
-                if not robot.power_on(".*"):
-                    logging.error("Failed to turn power on.")
+            power_pattern = "48v"
+            if not robot.is_power_on(power_pattern):
+                logging.info(f"48V Power is not ON. Turning 48V power on...")
+                if not robot.power_on(power_pattern):
+                    logging.error("Failed to turn 48V power on.")
                     robot.disconnect()
                     return None
+                time.sleep(1.0)
             else:
-                logging.info("Power is already ON.")
+                logging.info("48V Power is already ON.")
         except Exception as e:
-            logging.error(f"Failed to check or set power status: {e}")
+            logging.error(f"Failed to check or set 48V power status: {e}")
             robot.disconnect()
             return None
 
         # Wait 1 second
         time.sleep(1.0)
 
-        # Check control manager status
+        # Check and reset control manager fault if necessary
         try:
+            cm_state = robot.get_control_manager_state().state
+            if cm_state in [
+                rby.ControlManagerState.State.MajorFault,
+                rby.ControlManagerState.State.MinorFault,
+            ]:
+                logging.warning("Control manager is in fault state. Resetting...")
+                robot.reset_fault_control_manager()
+                time.sleep(0.5)
             cm_state = robot.get_control_manager_state().state
             is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
         except Exception as e:
@@ -328,7 +341,7 @@ class BaseCalibrator:
             if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
                 include_head = self.app.include_head_motion
             
-            pattern = ".*" if include_head else "^(?!head_joint_).*$"
+            pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
             is_servo_ok = robot.is_servo_on(pattern)
         except Exception as e:
             logging.warning(f"Failed to check servo status: {e}")
@@ -379,7 +392,7 @@ class BaseCalibrator:
             include_head = getattr(self, 'include_head_motion', True)
             if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
                 include_head = self.app.include_head_motion
-            pattern = ".*" if include_head else "^(?!head_joint_).*$"
+            pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
             if not robot.servo_on(pattern):
                 logging.error("Failed to turn servos on.")
             else:
@@ -492,11 +505,19 @@ class BaseCalibrator:
         
         T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
         
-        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        T_head_to_cam_gt = self.make_transform(mount_to_cam)
-        
-        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_2", "link_torso_5")
-        T_t5_to_cam = T_t5_to_head @ T_head_to_cam_gt
+        if self.is_head_active():
+            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+            T_head_to_cam_gt = self.make_transform(mount_to_cam)
+            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_head_to_cam_gt
+        else:
+            head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
+            T_head_base_to_cam_gt = self.make_transform(head_base_to_cam)
+            try:
+                T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_0", "link_torso_5")
+            except Exception:
+                T_t5_to_head_0 = np.eye(4)
+            T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam_gt
         
         T_cam_to_marker = np.linalg.inv(T_t5_to_cam) @ T_t5_to_marker
         
