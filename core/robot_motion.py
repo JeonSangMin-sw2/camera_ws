@@ -347,16 +347,13 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     # Step 1: Joint Ready Pose (go_to_ready_pose 기준)
     q_torso = np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R
     
-    # Lower Shoulder Pitch (Joint 0) by ~19 deg if no 2-DOF head (fixed chest camera)
-    j0_pitch = -26.0 if not has_head else -45.0
-    
     if "right" in active_arms:
-        q_right = np.array([j0_pitch, -30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
+        q_right = np.array([-45, -30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
     else:
         q_right = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
         
     if "left" in active_arms:
-        q_left = np.array([j0_pitch, 30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
+        q_left = np.array([-45, 30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
     else:
         q_left = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
         

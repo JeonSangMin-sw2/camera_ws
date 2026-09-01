@@ -1388,7 +1388,7 @@ class Step2ZeroPoseCheckWorker(QThread):
             
             right_zero_pose = np.zeros(len(self.model.right_arm_idx))
             left_zero_pose = np.zeros(len(self.model.left_arm_idx))
-            head_zero_pose = np.zeros(len(self.model.head_idx)) if self.include_head else None
+            head_zero_pose = np.zeros(len(self.model.head_idx)) if (self.include_head and hasattr(self.model, 'head_idx') and self.model.head_idx is not None and len(self.model.head_idx) >= 2) else None
 
             self.log_signal.emit("Moving robot to zero pose...")
             ok = movej(
@@ -2522,6 +2522,8 @@ class UnifiedCalibrationApp(QWidget):
         # Core Calibrator Instances
         self.marker_calibrator = MarkerCalibrator(marker_st, robot)
         self.joint_calibrator = JointCalibrator(marker_st, robot)
+        self.marker_calibrator.app = self
+        self.joint_calibrator.app = self
         self.robot_version = "1.2"
         
         # Intrinsics Calibrator (Tab 3 용)
@@ -4235,6 +4237,12 @@ class UnifiedCalibrationApp(QWidget):
             # Read head checkbox state (like calibration_ui's servo_head)
             head_enabled = self.chk_servo_head.isChecked() if hasattr(self, 'chk_servo_head') else True
             self.include_head_motion = head_enabled
+            if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
+                self.marker_calibrator.app = self
+                self.marker_calibrator.include_head_motion = head_enabled
+            if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
+                self.joint_calibrator.app = self
+                self.joint_calibrator.include_head_motion = head_enabled
             
             # Update connection button to loading state
             self.btn_connect.setText("CONNECTING...")

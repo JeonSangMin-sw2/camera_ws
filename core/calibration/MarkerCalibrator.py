@@ -201,11 +201,15 @@ class MarkerCalibrator(BaseCalibrator):
             n_nom = mcfg["n_nom_v13"] if self.is_v13() else mcfg["n_nom_v12"]
             res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom, robust=not self.is_mock)
             
-            # Load mount_to_cam (transform from head mount "link_head_2" to camera)
-            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-            # Force camera translation components to zero as requested and use fixed rotation
-            mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
-            T_t5_to_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+            # Load camera transform relative to mount link
+            if self.is_head_active():
+                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
+                T_cam_fixed = self.make_transform(mount_to_cam_rot_only)
+            else:
+                head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
+                head_base_rot_only = [0.0, 0.0, 0.0] + list(head_base_to_cam[3:])
+                T_cam_fixed = self.make_transform(head_base_rot_only)
             
             ee_name = f"ee_{arm_side}"
             pts_ee = []
@@ -223,8 +227,15 @@ class MarkerCalibrator(BaseCalibrator):
                         else:
                             q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
                     
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_t5_to_cam_fixed
+                    if self.is_head_active():
+                        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
+                        T_t5_to_cam = T_t5_to_head @ T_cam_fixed
+                    else:
+                        try:
+                            T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_0", "link_torso_5")
+                        except Exception:
+                            T_t5_to_head_0 = np.eye(4)
+                        T_t5_to_cam = T_t5_to_head_0 @ T_cam_fixed
                     
                     T_t5_to_marker = T_t5_to_cam @ pose_cam_to_marker
                     T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_mod, ee_name, "link_torso_5")

@@ -864,11 +864,23 @@ class JointCalibrator(BaseCalibrator):
         logging.debug(f"       a_B_t5    = {a_B_t5.tolist()}")
 
         # Calculate accurate transformation from torso to camera frame
-        mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-        T_mount_to_cam = self.make_transform(mount_to_cam)
-        q_init = dataset_A[0][0]
-        T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
-        T_torso_to_cam = np.linalg.inv(T_t5_to_head @ T_mount_to_cam)
+        if self.is_head_active():
+            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+            T_mount_to_cam = self.make_transform(mount_to_cam)
+            q_init = dataset_A[0][0]
+            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
+            T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+        else:
+            head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
+            T_head_base_to_cam = self.make_transform(head_base_to_cam)
+            q_init = dataset_A[0][0]
+            try:
+                T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_init, "link_head_0", "link_torso_5")
+            except Exception:
+                T_t5_to_head_0 = np.eye(4)
+            T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam
+
+        T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
         R_torso_to_cam = T_torso_to_cam[:3, :3]
 
         # Define nominal axes in the camera frame
@@ -1023,11 +1035,23 @@ class JointCalibrator(BaseCalibrator):
                 # Robust Center-Distance Method for parallel joints
                 # The normal vector of a small arc is highly sensitive to vibrations.
                 # However, the distance between the rotation centers is extremely robust and proportional to the angle error.
-                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                T_mount_to_cam = self.make_transform(mount_to_cam)
-                q_init = dataset_A[0][0]
-                T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
-                T_torso_to_cam = np.linalg.inv(T_t5_to_head @ T_mount_to_cam)
+                if self.is_head_active():
+                    mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+                    T_mount_to_cam = self.make_transform(mount_to_cam)
+                    q_init = dataset_A[0][0]
+                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
+                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
+                else:
+                    head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
+                    T_head_base_to_cam = self.make_transform(head_base_to_cam)
+                    q_init = dataset_A[0][0]
+                    try:
+                        T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_init, "link_head_0", "link_torso_5")
+                    except Exception:
+                        T_t5_to_head_0 = np.eye(4)
+                    T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam
+
+                T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
                 
                 arm_side_str = "left" if arm_side == "left" else "right"
                 

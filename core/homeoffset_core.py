@@ -227,7 +227,7 @@ def move_robot_to_zero_pose(address, model_name, arm, power="48v", servo=None, i
 
     right_zero_pose = np.zeros(len(model.right_arm_idx))
     left_zero_pose = np.zeros(len(model.left_arm_idx))
-    head_zero_pose = np.zeros(len(model.head_idx)) if include_head else None
+    head_zero_pose = np.zeros(len(model.head_idx)) if (include_head and hasattr(model, 'head_idx') and model.head_idx is not None and len(model.head_idx) >= 2) else None
 
     ok = movej(
         robot,

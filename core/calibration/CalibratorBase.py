@@ -86,6 +86,8 @@ class BaseCalibrator:
             "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0},
             "left":  {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0}
         }
+        self.app = None
+        self.include_head_motion = True
         self.user_taught_ready_poses = {}
         self.stop_requested = False
 
@@ -133,12 +135,15 @@ class BaseCalibrator:
             return False
         if getattr(self, 'head_enabled', None) is False:
             return False
-        if hasattr(self, 'app') and getattr(self.app, 'include_head_motion', None) is False:
-            return False
-        if hasattr(self, 'app') and hasattr(self.app, 'chk_servo_head') and not self.app.chk_servo_head.isChecked():
-            return False
+        if hasattr(self, 'app') and self.app is not None:
+            if getattr(self.app, 'include_head_motion', None) is False:
+                return False
+            if hasattr(self.app, 'chk_servo_head') and not self.app.chk_servo_head.isChecked():
+                return False
         model = getattr(self.robot, 'model', lambda: None)() if hasattr(self, 'robot') and self.robot else None
-        return model is not None and hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2
+        if model is not None:
+            return hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2
+        return getattr(self, 'include_head_motion', True)
 
     def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
         if not self.ready_poses:
