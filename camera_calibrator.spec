@@ -1,18 +1,34 @@
 # -*- mode: python ; coding: utf-8 -*-
+from PyInstaller.utils.hooks import collect_all
+import platform
 
+datas_rby, binaries_rby, hiddenimports_rby = collect_all('rby1_sdk')
+
+datas = [
+    ('config', 'config'),
+    ('img', 'img'),
+] + datas_rby
+
+binaries = [] + binaries_rby
+hiddenimports = [
+    'osqp.ext_builtin',
+    'mpl_toolkits.mplot3d',
+    'mpl_toolkits.mplot3d.axes3d',
+    'scipy.special._cdflib',
+    'rby1_sdk',
+    'rby1_sdk._bindings',
+    'rby1_sdk._robot_command',
+    'rby1_sdk.dynamics',
+    'rby1_sdk.math',
+    'rby1_sdk.upc',
+] + hiddenimports_rby
 
 a = Analysis(
     ['main_ui.py'],
     pathex=['core'],
-    binaries=[],
-    datas=[
-        ('config/i18n.yaml', 'config'),
-        ('config/setting.yaml', 'config'),
-        ('config/ready_poses.yaml', 'config'),
-        ('config/camera_intrinsics.yaml', 'config'),
-        ('img/*', 'img')
-    ],
-    hiddenimports=['osqp.ext_builtin'],
+    binaries=binaries,
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

@@ -197,8 +197,18 @@ class BaseCalibrator:
             with open(yaml_path, "r", encoding="utf-8") as f:
                 config_data = yaml.safe_load(f) or {}
             self.camera_config = config_data.get("camera", {})
-            self.markers_config = config_data.get("marker", {})
+            self.markers_config = config_data.get("marker", {}) or {}
             
+            # Legacy compatibility: if marker keys are under camera section, copy to markers_config
+            legacy_keys = [
+                "Tf_to_marker_left", "Tf_to_marker_right",
+                "Tf_to_marker_left_v12", "Tf_to_marker_right_v12",
+                "Tf_to_marker_left_v13", "Tf_to_marker_right_v13"
+            ]
+            for k in legacy_keys:
+                if k not in self.markers_config and k in self.camera_config:
+                    self.markers_config[k] = self.camera_config[k]
+
             # Strict validation for marker configurations in setting.yaml
             required_keys = ["Tf_to_marker_left_v13", "Tf_to_marker_right_v13", "Tf_to_marker_left_v12", "Tf_to_marker_right_v12"]
             missing_keys = [k for k in required_keys if k not in self.markers_config]
@@ -315,20 +325,23 @@ class BaseCalibrator:
             robot.disconnect()
             return None
 
-        # Check if 48V power is ON; if not, turn on 48V power
+        # Check if connecting to localhost/simulator
+        is_local = any(loc in str(address) for loc in ["127.0.0.1", "localhost", "0.0.0.0"])
+
+        # Check if power is ON; if not, turn on power
         try:
-            power_pattern = "48v"
+            power_pattern = ".*" if is_local else "48v"
             if not robot.is_power_on(power_pattern):
-                logging.info(f"48V Power is not ON. Turning 48V power on...")
+                logging.info(f"Power ({power_pattern}) is not ON. Turning power on...")
                 if not robot.power_on(power_pattern):
-                    logging.error("Failed to turn 48V power on.")
+                    logging.error(f"Failed to turn power ({power_pattern}) on.")
                     robot.disconnect()
                     return None
                 time.sleep(1.0)
             else:
-                logging.info("48V Power is already ON.")
+                logging.info(f"Power ({power_pattern}) is already ON.")
         except Exception as e:
-            logging.error(f"Failed to check or set 48V power status: {e}")
+            logging.error(f"Failed to check or set power status: {e}")
             robot.disconnect()
             return None
 
@@ -351,13 +364,16 @@ class BaseCalibrator:
             logging.warning(f"Failed to check control manager state: {e}")
             is_cm_enabled = False
 
-        # Check if both arms' servos are ON
+        # Check if servos are ON
         try:
-            include_head = getattr(self, 'include_head_motion', True)
-            if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
-                include_head = self.app.include_head_motion
-            
-            pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
+            if is_local:
+                pattern = ".*"
+            else:
+                include_head = getattr(self, 'include_head_motion', True)
+                if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
+                    include_head = self.app.include_head_motion
+                
+                pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
             is_servo_ok = robot.is_servo_on(pattern)
         except Exception as e:
             logging.warning(f"Failed to check servo status: {e}")

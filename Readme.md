@@ -104,14 +104,28 @@ you can simple start to click start wizard button.
 
 If you want to run the calibration tool as a standalone portable application on other PCs without installing Python or setting up source environments:
 
-### 1. Prerequisites
-Install PyInstaller within your python environment:
-```bash
-pip install pyinstaller
-```
+### 1. Automated One-Click Build Scripts
 
-### 2. Compilation Command
-Build the executable using the provided `camera_calibrator.spec` configuration:
+#### 🪟 Windows Build
+On a Windows PC with Python 3.10+ installed, simply double-click or run:
+```cmd
+build_windows.bat
+```
+or in PowerShell:
+```powershell
+.\build_windows.ps1
+```
+The script will automatically create a `.venv`, install all dependencies (`rby1-sdk`, `pyrealsense2`, `PySide6`, etc.), and generate `dist\camera_calibrator_AMD64.exe`.
+
+#### 🐧 Linux Build (Ubuntu / Jetson)
+On Linux:
+```bash
+./build_linux.sh
+```
+The script will automatically set up the virtual environment and output `dist/camera_calibrator_x86_64` (or `camera_calibrator_aarch64` on Jetson).
+
+### 2. Manual Compilation Command
+If building manually using PyInstaller:
 ```bash
 pyinstaller camera_calibrator.spec
 ```

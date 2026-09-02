@@ -726,11 +726,13 @@ class Marker_Transform:
 
         # [NEW] Apply calibrated camera intrinsics setting (camera_intrinsics.yaml)
         if use_calib_int:
-            # Search for config in current dir or parent dir (to support both source and installed structures)
-            base_dir = os.path.dirname(os.path.abspath(__file__))
-            calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
-            if not os.path.exists(calib_file):
-                calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
+            from core.paths import CONFIG_PATHS
+            calib_file = CONFIG_PATHS.get("camera_intrinsics")
+            if not calib_file or not os.path.exists(calib_file):
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
+                if not os.path.exists(calib_file):
+                    calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
             if os.path.exists(calib_file):
                 try:
                     with open(calib_file, "r") as f:
@@ -785,10 +787,13 @@ class Marker_Transform:
         return self.camera.get_actual_exposure()
 
     def _load_all_configs(self):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        setting_config_path = os.path.join(base_dir, "config", "setting.yaml")
-        if not os.path.exists(setting_config_path):
-            setting_config_path = os.path.join(os.path.dirname(base_dir), "config", "setting.yaml")
+        from core.paths import CONFIG_PATHS
+        setting_config_path = CONFIG_PATHS.get("setting_yaml")
+        if not setting_config_path or not os.path.exists(setting_config_path):
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            setting_config_path = os.path.join(base_dir, "config", "setting.yaml")
+            if not os.path.exists(setting_config_path):
+                setting_config_path = os.path.join(os.path.dirname(base_dir), "config", "setting.yaml")
             
         try:
             with open(setting_config_path, "r") as f:
@@ -807,7 +812,12 @@ class Marker_Transform:
                         break
             
             self.temp_supported = False
-            info_file = os.path.join(os.path.dirname(setting_config_path), "camera_info.yaml")
+            info_file = CONFIG_PATHS.get("camera_info")
+            if not info_file or not os.path.exists(info_file):
+                info_file = os.path.join(os.path.dirname(setting_config_path), "camera_info.yaml")
+                if not os.path.exists(info_file) and getattr(sys, 'frozen', False):
+                    info_file = os.path.join(sys._MEIPASS, "config", "camera_info.yaml")
+
             info_data = {}
             if os.path.exists(info_file):
                 try:
@@ -878,7 +888,11 @@ class Marker_Transform:
                     print(f"[WARNING] Match '{target_model}' not found in camera_info.yaml")
             
             self.camera_config = camera_config
-            self.markers_config = config_data.get("marker", config_data)
+            self.markers_config = config_data.get("marker", {}) or {}
+            # Legacy fallback
+            for lk in ["Tf_to_marker_left", "Tf_to_marker_right", "Tf_to_marker_left_v12", "Tf_to_marker_right_v12", "Tf_to_marker_left_v13", "Tf_to_marker_right_v13"]:
+                if lk not in self.markers_config and lk in camera_config:
+                    self.markers_config[lk] = camera_config[lk]
             self.marker_detection.markers_config = self.markers_config
             print(f"- Loaded Setting Config from {os.path.basename(setting_config_path)}")
             print(f"  * head_base_to_cam: {camera_config.get('head_base_to_cam')}")
@@ -887,9 +901,12 @@ class Marker_Transform:
             # Check camera intrinsics model mismatch
             self.intrinsics_mismatch = False
             self.calib_device_name = ""
-            calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
-            if not os.path.exists(calib_file):
-                calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
+            calib_file = CONFIG_PATHS.get("camera_intrinsics")
+            if not calib_file or not os.path.exists(calib_file):
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
+                if not os.path.exists(calib_file):
+                    calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
             if os.path.exists(calib_file):
                 try:
                     with open(calib_file, "r") as f:

@@ -3161,7 +3161,7 @@ class UnifiedCalibrationApp(QWidget):
         btn_row = QHBoxLayout()
         self.btn_home_reset = QPushButton("Home Offset Reset")
         self.btn_home_reset.setStyleSheet("background-color: #c0392b; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
-        self.btn_home_reset.clicked.connect(self.home_offset_reset)
+        self.btn_home_reset.clicked.connect(lambda: self.home_offset_reset(confirm_dialog=True))
         self.btn_home_reset.setFixedHeight(28)
         btn_row.addWidget(self.btn_home_reset)
 
@@ -4278,16 +4278,19 @@ class UnifiedCalibrationApp(QWidget):
             except Exception as e:
                 self.log_msg(f"[ERROR] Safety check failed: {e}")
 
-            # 3. Check and turn on 48V power if not already ON
+            # Check if connecting to localhost/simulator
+            is_local = any(loc in addr for loc in ["127.0.0.1", "localhost", "0.0.0.0"])
+
+            # 3. Check and turn on power if not already ON
             try:
-                power_pattern = "48v"
+                power_pattern = ".*" if is_local else "48v"
                 if not robot.is_power_on(power_pattern):
-                    self.log_msg(f"[INFO] 48V Power is not ON. Turning 48V power on...")
+                    self.log_msg(f"[INFO] Power ({power_pattern}) is not ON. Turning power on...")
                     if not robot.power_on(power_pattern):
-                        raise RuntimeError("Failed to turn 48V power on.")
+                        raise RuntimeError(f"Failed to turn power ({power_pattern}) on.")
                     time.sleep(1.0)
                 else:
-                    self.log_msg("[INFO] 48V Power is already ON.")
+                    self.log_msg(f"[INFO] Power ({power_pattern}) is already ON.")
             except Exception as e:
                 self.log_msg(f"[ERROR] Power configuration failed: {e}")
 
@@ -4306,7 +4309,10 @@ class UnifiedCalibrationApp(QWidget):
 
             # 5. Check desired servos and configure Control Manager
             try:
-                servo_pattern = "^(?!.*wheel).*$" if self.include_head_motion else "^(?!.*(head|wheel)).*$"
+                if is_local:
+                    servo_pattern = ".*"
+                else:
+                    servo_pattern = "^(?!.*wheel).*$" if self.include_head_motion else "^(?!.*(head|wheel)).*$"
                 is_servo_ok = robot.is_servo_on(servo_pattern)
                 
                 cm_state = robot.get_control_manager_state()
@@ -4330,7 +4336,7 @@ class UnifiedCalibrationApp(QWidget):
                     
                     self.log_msg(f"[INFO] Turning servos ({servo_pattern}) on...")
                     if not robot.servo_on(servo_pattern):
-                        raise RuntimeError("Failed to turn servos on.")
+                        raise RuntimeError(f"Failed to turn servos ({servo_pattern}) on.")
                     time.sleep(0.5)
 
                     self.log_msg("[INFO] Enabling control manager with unlimited_mode_enabled=True...")
@@ -6561,22 +6567,23 @@ class UnifiedCalibrationApp(QWidget):
             QMessageBox.critical(self, "Apply Home Offset Error", str(e))
             self.log_msg(f"[ERROR] Apply home offset failed: {e}")
 
-    def home_offset_reset(self, confirm_dialog=True) -> bool:
+    def home_offset_reset(self, *args, confirm_dialog=True, **kwargs) -> bool:
         if not self.ui_only and not self.robot:
             QMessageBox.critical(self, "Error", "Robot is not connected.")
             return False
 
         if confirm_dialog:
             msg = (
-                "Warning: Home Offset Reset will physically redefine the zero offset positions of your robot joints.\n\n"
-                "Steps:\n"
-                "1. Manually teach/move BOTH arms close to their home pose using direct teaching.\n"
-                "2. Ensure the head is also centered/aligned if you want to reset head offsets.\n"
-                "3. Click OK to start the process.\n\n"
-                "During this, the control manager will disable, 48v power will cycle, and the robot connection will automatically restart."
+                "⚠️ [경고] Home Offset Reset 알림\n\n"
+                "Home Offset Reset을 진행하면 현재 로봇 관절의 물리적 위치가 새로운 0도(Home Position)로 재설정됩니다.\n\n"
+                "진행 순서:\n"
+                "1. Direct Teaching 등을 사용하여 양 팔을 홈 자세(Home Pose) 위치에 정확히 맞춥니다.\n"
+                "2. 헤드 오프셋도 초기화하려면 헤드를 정면 중앙으로 정렬합니다.\n"
+                "3. [확인 (OK)]을 누르면 리셋 프로세스가 시작됩니다.\n\n"
+                "※ 리셋 도중 Control Manager가 일시 중지되고 48V 전원이 재인가되며 로봇 연결이 재시작됩니다."
             )
             dialog = QDialog(self)
-            dialog.setWindowTitle("Confirm Home Offset Reset")
+            dialog.setWindowTitle("Home Offset Reset 확인")
             dialog.setStyleSheet(DARK_STYLESHEET)
             layout = QVBoxLayout(dialog)
 
