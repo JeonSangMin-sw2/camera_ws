@@ -12,9 +12,9 @@ setup(
     },
     install_requires=[
         "numpy>=2.0.1",
-        "opencv-python",
+        "opencv-contrib-python",
         "PySide6",
         "scipy",
         "pyyaml",
     ],
-)
+)

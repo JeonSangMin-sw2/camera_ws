@@ -22,7 +22,8 @@ echo "[3/4] Installing dependencies..."
 python3 -m pip install --upgrade pip
 pip install -r requirements.txt
 pip install pyinstaller
-pip install -e .
+pip install --no-deps -e .
+
 
 # 3. Build with PyInstaller
 echo "[4/4] Building with PyInstaller..."

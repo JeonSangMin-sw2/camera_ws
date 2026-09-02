@@ -14,7 +14,6 @@ hiddenimports = [
     'osqp.ext_builtin',
     'mpl_toolkits.mplot3d',
     'mpl_toolkits.mplot3d.axes3d',
-    'scipy.special._cdflib',
     'rby1_sdk',
     'rby1_sdk._bindings',
     'rby1_sdk._robot_command',
@@ -38,8 +37,7 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
-import platform
-arch = platform.machine()  # 'x86_64' 또는 Jetson의 'aarch64'
+arch = platform.machine()  # 'x86_64' (Linux) or 'AMD64' (Windows) or 'aarch64' (Jetson)
 exe_name = f'camera_calibrator_{arch}'
 
 exe = EXE(
@@ -62,3 +60,4 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
+

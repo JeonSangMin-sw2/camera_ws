@@ -2,7 +2,7 @@ Metadata-Version: 2.4
 Name: camera_ws
 Version: 0.1
 Requires-Dist: numpy>=2.0.1
-Requires-Dist: opencv-python
+Requires-Dist: opencv-contrib-python
 Requires-Dist: PySide6
 Requires-Dist: scipy
 Requires-Dist: pyyaml
