@@ -1101,7 +1101,7 @@ class CalibrationWizardWidget(QWidget):
     def on_wiz_apply_exp_clicked(self):
         auto_mode = self.chk_wiz_auto_exp.isChecked()
         exp_val = self.spin_wiz_exp.value()
-        if self.parent_app.marker_st is not None:
+        if self.parent_app.marker_st is not None and hasattr(self.parent_app.marker_st, 'set_camera_exposure'):
             self.parent_app.marker_st.set_camera_exposure(exp_val, auto_exposure=auto_mode)
         if auto_mode:
             self.lbl_wiz_exp_status.setText("Status: Applied AUTO exposure mode.")
@@ -1413,11 +1413,21 @@ class CalibrationWizardWidget(QWidget):
             self.btn_step3_reset.setEnabled(not busy)
 
     # -----------------------------------------
-    # Unified Step 1 & Step 2 Calibration Execution
+    # Unified Step 1, Step 1.5 & Step 2 Calibration Execution
     # -----------------------------------------
     def start_unified_calibration(self):
         self.unified_elapsed = 0
-        self.lbl_step4_status.setText("Status: [Step 1/2] Full Auto In Progress (00:00)")
+        has_head = getattr(self.parent_app, 'include_head_motion', True)
+        if hasattr(self.parent_app, 'robot') and hasattr(self.parent_app.robot, 'model'):
+            try:
+                m = self.parent_app.robot.model()
+                has_head = has_head and (hasattr(m, 'head_idx') and m.head_idx is not None and len(m.head_idx) >= 2)
+            except Exception:
+                pass
+
+        step_prefix = "[Step 1/3]" if has_head else "[Step 1/2]"
+        self.unified_phase_str = f"{step_prefix} Full Auto In Progress"
+        self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} (00:00)")
         self.lbl_step4_status.setStyleSheet("color: #1e88e5; font-weight: bold; font-size: 16px;")
         if hasattr(self, 'btn_start_unified'):
             self.btn_start_unified.setEnabled(False)
@@ -1435,14 +1445,11 @@ class CalibrationWizardWidget(QWidget):
         m = self.unified_elapsed // 60
         s = self.unified_elapsed % 60
         curr_text = self.lbl_step4_status.text()
-        if "Step 1/2" in curr_text:
-            self.lbl_step4_status.setText(f"Status: [Step 1/2] Full Auto In Progress ({m:02d}:{s:02d})")
-        elif "Moving to Init Pose" in curr_text:
-            self.lbl_step4_status.setText(f"Status: [Step 2/2] Moving to Init Pose ({m:02d}:{s:02d})")
-        elif "Auto Motion In Progress" in curr_text:
-            self.lbl_step4_status.setText(f"Status: [Step 2/2] Auto Motion In Progress ({m:02d}:{s:02d})")
-        elif "Optimization" in curr_text:
-            self.lbl_step4_status.setText(f"Status: [Step 2/2] Hand-Eye Optimization Calculation ({m:02d}:{s:02d})")
+        if hasattr(self, 'unified_phase_str') and self.unified_phase_str:
+            self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} ({m:02d}:{s:02d})")
+        else:
+            prefix = curr_text.split("(")[0].strip() if "(" in curr_text else curr_text
+            self.lbl_step4_status.setText(f"{prefix} ({m:02d}:{s:02d})")
 
     def on_unified_step1_finished(self):
         was_stopped = False
@@ -1451,27 +1458,140 @@ class CalibrationWizardWidget(QWidget):
         error_msg = getattr(self.parent_app, "last_full_auto_error", None)
 
         if not was_stopped and not error_msg:
-            m = self.unified_elapsed // 60
-            s = self.unified_elapsed % 60
-            self.lbl_step4_status.setText(f"Status: [Step 2/2] Moving to Init Pose ({m:02d}:{s:02d})")
-            
             # Automatically apply Step 1 joint offsets & marker brackets (silent)
             self.parent_app.apply_full_auto_results(silent=True)
-            
-            # Start Step 2 Init Pose
-            self.parent_app.step2_init_pose(silent=True)
-            if hasattr(self.parent_app, 'auto_motion_thread') and self.parent_app.auto_motion_thread:
-                self.parent_app.auto_motion_thread.finished_signal.connect(self.on_unified_init_finished)
+
+            has_head = getattr(self.parent_app, 'include_head_motion', True)
+            if hasattr(self.parent_app, 'robot') and hasattr(self.parent_app.robot, 'model'):
+                try:
+                    m = self.parent_app.robot.model()
+                    has_head = has_head and (hasattr(m, 'head_idx') and m.head_idx is not None and len(m.head_idx) >= 2)
+                except Exception:
+                    pass
+
+            if has_head and hasattr(self.parent_app, 'head_camera_calibrator') and self.parent_app.head_camera_calibrator is not None:
+                self.start_unified_step1_5()
             else:
-                self.stop_unified_calibration_error("Step 2 Init worker not started")
+                self.start_unified_step2()
         else:
             self.stop_unified_calibration_error(error_msg or "Cancelled by User")
 
+    def start_unified_step1_5(self):
+        m = self.unified_elapsed // 60
+        s = self.unified_elapsed % 60
+        self.unified_phase_str = "[Step 2/3] Moving to Head-Cam Ready Pose"
+        self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} ({m:02d}:{s:02d})")
+
+        from main_ui import HeadCamReadyWorker
+        import threading
+        if not hasattr(self.parent_app, 'head_cam_stop_event') or self.parent_app.head_cam_stop_event is None:
+            self.parent_app.head_cam_stop_event = threading.Event()
+        self.parent_app.head_cam_stop_event.clear()
+
+        self.step1_5_ready_worker = HeadCamReadyWorker(
+            self.parent_app.head_camera_calibrator,
+            self.parent_app.head_cam_stop_event
+        )
+        self.step1_5_ready_worker.log_signal.connect(self.parent_app.log_msg)
+        self.step1_5_ready_worker.finished_signal.connect(self.on_unified_step1_5_ready_finished)
+        self.step1_5_ready_worker.start()
+
+    def on_unified_step1_5_ready_finished(self, success, err_msg):
+        was_stopped = False
+        if hasattr(self.parent_app, "head_cam_stop_event") and self.parent_app.head_cam_stop_event is not None:
+            was_stopped = self.parent_app.head_cam_stop_event.is_set()
+
+        if was_stopped:
+            self.stop_unified_calibration_error("Cancelled by User")
+            return
+
+        if not success:
+            self.stop_unified_calibration_error(err_msg or "Failed to reach Head & Camera Ready Pose")
+            return
+
+        m = self.unified_elapsed // 60
+        s = self.unified_elapsed % 60
+        self.unified_phase_str = "[Step 2/3] Head & Camera Sweeping"
+        self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} ({m:02d}:{s:02d})")
+
+        from main_ui import HeadCamSweepWorker
+        pan_r = 15.0
+        tilt_r = 10.0
+        n_steps = 11
+        if hasattr(self.parent_app, 'step1_5_pan_range') and hasattr(self.parent_app.step1_5_pan_range, 'text'):
+            try:
+                pan_r = float(self.parent_app.step1_5_pan_range.text())
+                tilt_r = float(self.parent_app.step1_5_tilt_range.text())
+                n_steps = int(self.parent_app.step1_5_num_steps.text())
+            except Exception:
+                pass
+
+        self.step1_5_sweep_worker = HeadCamSweepWorker(
+            self.parent_app.head_camera_calibrator,
+            pan_range=pan_r,
+            tilt_range=tilt_r,
+            num_steps=n_steps,
+            stop_event=self.parent_app.head_cam_stop_event
+        )
+        self.step1_5_sweep_worker.log_signal.connect(self.parent_app.log_msg)
+        self.step1_5_sweep_worker.finished_signal.connect(self.on_unified_step1_5_sweep_finished)
+        self.step1_5_sweep_worker.start()
+
+    def on_unified_step1_5_sweep_finished(self, success, results):
+        was_stopped = False
+        if hasattr(self.parent_app, "head_cam_stop_event") and self.parent_app.head_cam_stop_event is not None:
+            was_stopped = self.parent_app.head_cam_stop_event.is_set()
+
+        if was_stopped:
+            self.stop_unified_calibration_error("Cancelled by User")
+            return
+
+        if success and results and results.get("success"):
+            self.parent_app.head_camera_calibrator.apply_calibration_results(results, log_callback=self.parent_app.log_msg)
+            if hasattr(self.parent_app, '_update_step1_5_tables'):
+                self.parent_app._update_step1_5_tables(results)
+            self.start_unified_step2()
+        else:
+            err = results.get("error", "Head & Camera Sweep calibration failed") if isinstance(results, dict) else "Sweep failed"
+            self.stop_unified_calibration_error(err)
+
+    def start_unified_step2(self):
+        has_head = getattr(self.parent_app, 'include_head_motion', True)
+        if hasattr(self.parent_app, 'robot') and hasattr(self.parent_app.robot, 'model'):
+            try:
+                m = self.parent_app.robot.model()
+                has_head = has_head and (hasattr(m, 'head_idx') and m.head_idx is not None and len(m.head_idx) >= 2)
+            except Exception:
+                pass
+
+        step_prefix = "[Step 3/3]" if has_head else "[Step 2/2]"
+        m = self.unified_elapsed // 60
+        s = self.unified_elapsed % 60
+        self.unified_phase_str = f"{step_prefix} Moving to Init Pose"
+        self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} ({m:02d}:{s:02d})")
+
+        # Start Step 2 Init Pose
+        self.parent_app.step2_init_pose(silent=True)
+        if hasattr(self.parent_app, 'auto_motion_thread') and self.parent_app.auto_motion_thread:
+            self.parent_app.auto_motion_thread.finished_signal.connect(self.on_unified_init_finished)
+        else:
+            self.stop_unified_calibration_error("Step 2 Init worker not started")
+
     def on_unified_init_finished(self, success, err):
         if success:
+            has_head = getattr(self.parent_app, 'include_head_motion', True)
+            if hasattr(self.parent_app, 'robot') and hasattr(self.parent_app.robot, 'model'):
+                try:
+                    m = self.parent_app.robot.model()
+                    has_head = has_head and (hasattr(m, 'head_idx') and m.head_idx is not None and len(m.head_idx) >= 2)
+                except Exception:
+                    pass
+
+            step_prefix = "[Step 3/3]" if has_head else "[Step 2/2]"
             m = self.unified_elapsed // 60
             s = self.unified_elapsed % 60
-            self.lbl_step4_status.setText(f"Status: [Step 2/2] Auto Motion In Progress ({m:02d}:{s:02d})")
+            self.unified_phase_str = f"{step_prefix} Auto Motion In Progress"
+            self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} ({m:02d}:{s:02d})")
             
             # Ensure previous worker status is reset before launching step 2 auto motion
             self.parent_app.auto_motion_running = False
@@ -1488,9 +1608,19 @@ class CalibrationWizardWidget(QWidget):
 
     def on_unified_auto_motion_finished(self, success, err_msg=""):
         if success:
+            has_head = getattr(self.parent_app, 'include_head_motion', True)
+            if hasattr(self.parent_app, 'robot') and hasattr(self.parent_app.robot, 'model'):
+                try:
+                    m = self.parent_app.robot.model()
+                    has_head = has_head and (hasattr(m, 'head_idx') and m.head_idx is not None and len(m.head_idx) >= 2)
+                except Exception:
+                    pass
+
+            step_prefix = "[Step 3/3]" if has_head else "[Step 2/2]"
             m = self.unified_elapsed // 60
             s = self.unified_elapsed % 60
-            self.lbl_step4_status.setText(f"Status: [Step 2/2] Hand-Eye Optimization Calculation ({m:02d}:{s:02d})")
+            self.unified_phase_str = f"{step_prefix} Hand-Eye Optimization Calculation"
+            self.lbl_step4_status.setText(f"Status: {self.unified_phase_str} ({m:02d}:{s:02d})")
         else:
             self.stop_unified_calibration_error(err_msg)
 
@@ -1510,6 +1640,8 @@ class CalibrationWizardWidget(QWidget):
 
     def stop_unified_calibration(self):
         self.parent_app.stop_full_auto()
+        if hasattr(self.parent_app, 'head_cam_stop_event') and self.parent_app.head_cam_stop_event is not None:
+            self.parent_app.head_cam_stop_event.set()
         self.parent_app.request_stop_all_auto_motion()
         self.stop_unified_calibration_error("Cancelled by User")
 

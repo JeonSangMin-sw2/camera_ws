@@ -28,7 +28,7 @@ D2R = np.pi / 180.0
 
 # Import custom calibrator logic
 from marker_detection import Marker_Detection, Marker_Transform
-from calibration.Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator
+from calibration.Calibrator import MarkerCalibrator, JointCalibrator, BaseCalibrator, HeadCameraCalibrator
 from calibration.IntrinsicsCalibrator import IntrinsicsCalibrator
 from core.wizard_widget import CalibrationWizardWidget
 from core.i18n import I18nManager, tr
@@ -1224,6 +1224,61 @@ class ApplyCurrentPoseWorker(QThread):
             self.log_signal.emit(f"[ERROR] Apply current pose failed: {e}")
             self.finished_signal.emit({"success": False, "error": str(e)})
 
+class HeadCamReadyWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str)
+
+    def __init__(self, calibrator, stop_event=None, parent=None):
+        super().__init__(parent)
+        self.calibrator = calibrator
+        self.stop_event = stop_event
+
+    def run(self):
+        try:
+            ok = self.calibrator.perform_move_to_ready_pose(
+                arm_side="both",
+                log_callback=self.log_signal.emit,
+                stop_event=self.stop_event
+            )
+            self.finished_signal.emit(ok, "" if ok else "Failed to reach Head & Camera Ready Pose")
+        except Exception as e:
+            self.finished_signal.emit(False, str(e))
+
+Step1_5ReadyWorker = HeadCamReadyWorker
+
+class HeadCamSweepWorker(QThread):
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, dict)
+
+    def __init__(self, calibrator, pan_range=15.0, tilt_range=10.0, num_steps=11, stop_event=None, parent=None):
+        super().__init__(parent)
+        self.calibrator = calibrator
+        self.pan_range = pan_range
+        self.tilt_range = tilt_range
+        self.num_steps = num_steps
+        self.stop_event = stop_event
+
+    def run(self):
+        try:
+            results = self.calibrator.perform_head_sweep(
+                arm_side="auto",
+                pan_range_deg=self.pan_range,
+                tilt_range_deg=self.tilt_range,
+                num_steps=self.num_steps,
+                step_delay=0.6,
+                log_callback=self.log_signal.emit,
+                stop_event=self.stop_event
+            )
+            if results and results.get("success"):
+                self.finished_signal.emit(True, results)
+            else:
+                self.finished_signal.emit(False, {})
+        except Exception as e:
+            self.log_signal.emit(f"[ERROR] Head sweep failed: {e}")
+            self.finished_signal.emit(False, {"error": str(e)})
+
+Step1_5HeadSweepWorker = HeadCamSweepWorker
+
 class Step2InitPoseWorker(QThread):
     log_signal = Signal(str)
     finished_signal = Signal(bool, str)
@@ -1288,10 +1343,14 @@ class Step2InitPoseWorker(QThread):
                         head_idx = head_cfg.get("head_idx")
                         if head_idx is not None and len(head_idx) >= 2:
                             pts = []
-                            if right_check is not None:
-                                pts.append(right_check[:3, 3])
-                            if left_check is not None:
-                                pts.append(left_check[:3, 3])
+                            if right_check is not None and len(right_check) > 0:
+                                T_r = np.array(right_check[0]) if (isinstance(right_check, list) and isinstance(right_check[0], list)) else np.array(right_check)
+                                if T_r.ndim == 2 and T_r.shape == (4, 4):
+                                    pts.append(T_r[:3, 3])
+                            if left_check is not None and len(left_check) > 0:
+                                T_l = np.array(left_check[0]) if (isinstance(left_check, list) and isinstance(left_check[0], list)) else np.array(left_check)
+                                if T_l.ndim == 2 and T_l.shape == (4, 4):
+                                    pts.append(T_l[:3, 3])
                             if len(pts) > 0:
                                 p_mid = np.mean(pts, axis=0)  # [X_cam, Y_cam, Z_cam] in camera frame
                                 pitch_err_rad = np.arctan2(p_mid[1], p_mid[2])
@@ -1808,10 +1867,52 @@ class SimulatedMarkerTransform:
         self.camera_config = camera_config
         self.robot_version = robot_version
         self.include_head_motion = include_head_motion
+        self.exposure_val = 6000
+        self.auto_exposure = True
         
         class DummyCamera:
+            def __init__(self):
+                self.device_name = "Simulated RealSense D405"
+                self.exposure_val = 6000
+                self.auto_exposure = True
+            def stream_on(self, fps=30): pass
             def stream_off(self): pass
+            def capture_image(self): pass
+            def get_color_image(self): return None
+            def get_depth_image(self): return None
+            def get_camera_temperature(self): return 25.0
+            def set_exposure(self, exposure_val, auto_exposure=False):
+                self.exposure_val = exposure_val
+                self.auto_exposure = auto_exposure
+            def get_exposure(self):
+                return self.exposure_val, self.auto_exposure
+            def get_actual_exposure(self):
+                return self.exposure_val
+
         self.camera = DummyCamera()
+
+        class DummyDetection:
+            def set_marker_type(self, marker_type="plate"): pass
+            def detect(self, *args, **kwargs): return None
+
+        self.marker_detection = DummyDetection()
+        self.detection = self.marker_detection
+
+    def set_camera_exposure(self, exposure_val, auto_exposure=False):
+        self.exposure_val = exposure_val
+        self.auto_exposure = auto_exposure
+        if hasattr(self.camera, 'set_exposure'):
+            self.camera.set_exposure(exposure_val, auto_exposure)
+
+    def get_camera_exposure(self):
+        return self.exposure_val, self.auto_exposure
+
+    def get_actual_exposure(self):
+        return self.exposure_val
+
+    def set_marker_type(self, marker_type="plate"):
+        if hasattr(self.marker_detection, 'set_marker_type'):
+            self.marker_detection.set_marker_type(marker_type)
 
     def get_marker_transform(self, sampling_time=0, side="right", use_filter=False):
         if side == "all":
@@ -2522,8 +2623,10 @@ class UnifiedCalibrationApp(QWidget):
         # Core Calibrator Instances
         self.marker_calibrator = MarkerCalibrator(marker_st, robot)
         self.joint_calibrator = JointCalibrator(marker_st, robot)
+        self.head_camera_calibrator = HeadCameraCalibrator(marker_st, robot)
         self.marker_calibrator.app = self
         self.joint_calibrator.app = self
+        self.head_camera_calibrator.app = self
         self.robot_version = "1.2"
         
         # Intrinsics Calibrator (Tab 3 용)
@@ -2666,7 +2769,7 @@ class UnifiedCalibrationApp(QWidget):
         self.saved_camera_auto_exposure = True
         self.saved_camera_exposure_value = 6000
 
-        if self.marker_st is not None:
+        if self.marker_st is not None and hasattr(self.marker_st, 'set_camera_exposure'):
             self.marker_st.set_camera_exposure(6000, auto_exposure=True)
             self.log_msg("[Camera] Initialized camera exposure to AUTO mode.")
 
@@ -2681,7 +2784,7 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'slider_exposure'):
             self.slider_exposure.setEnabled(False)
             
-        if self.marker_st is not None:
+        if self.marker_st is not None and hasattr(self.marker_st, 'set_camera_exposure'):
             self.marker_st.set_camera_exposure(6000, auto_exposure=True)
         self.log_msg("[Camera] Switched to AUTO exposure mode.")
 
@@ -2713,7 +2816,7 @@ class UnifiedCalibrationApp(QWidget):
         self.saved_camera_auto_exposure = auto_mode
         self.saved_camera_exposure_value = exp_val
         
-        if self.marker_st is not None:
+        if self.marker_st is not None and hasattr(self.marker_st, 'set_camera_exposure'):
             self.marker_st.set_camera_exposure(exp_val, auto_exposure=auto_mode)
             
         if auto_mode:
@@ -2743,7 +2846,7 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'lbl_exposure_ms'):
             self.lbl_exposure_ms.setText(f"{self.saved_camera_exposure_value / 1000.0:.1f} ms")
             
-        if self.marker_st is not None:
+        if self.marker_st is not None and hasattr(self.marker_st, 'set_camera_exposure'):
             self.marker_st.set_camera_exposure(self.saved_camera_exposure_value, auto_exposure=self.saved_camera_auto_exposure)
         self.log_msg("[Camera] Exposure changes cancelled. Restored previous setting.")
 
@@ -2790,13 +2893,19 @@ class UnifiedCalibrationApp(QWidget):
                         self.joint_offsets_store[arm]["joint3"] = float(arm_data.get("joint3", 0.0))
                         self.joint_offsets_store[arm]["joint5"] = float(arm_data.get("joint5", 0.0))
                         self.joint_offsets_store[arm]["joint6"] = float(arm_data.get("joint6", 0.0))
+                if "head" in jo and isinstance(jo["head"], dict):
+                    self.joint_offsets_store["head"] = {
+                        "pan": float(jo["head"].get("pan", 0.0)),
+                        "tilt": float(jo["head"].get("tilt", 0.0)),
+                    }
+                head_str = f" Head[Pan={self.joint_offsets_store['head']['pan']:.4f}°, Tilt={self.joint_offsets_store['head']['tilt']:.4f}°]" if "head" in self.joint_offsets_store else ""
                 self.log_msg(f"[INFO] Loaded joint offsets from setting.yaml: "
                              f"R[J3={self.joint_offsets_store['right']['joint3']:.4f}°, "
                              f"J5={self.joint_offsets_store['right']['joint5']:.4f}°, "
                              f"J6={self.joint_offsets_store['right']['joint6']:.4f}°] "
                              f"L[J3={self.joint_offsets_store['left']['joint3']:.4f}°, "
                              f"J5={self.joint_offsets_store['left']['joint5']:.4f}°, "
-                             f"J6={self.joint_offsets_store['left']['joint6']:.4f}°]")
+                             f"J6={self.joint_offsets_store['left']['joint6']:.4f}°]{head_str}")
             else:
                 self.log_msg("[INFO] setting.yaml not found. Initialized all joint offsets to 0.0°.")
         except Exception as e:
@@ -2851,6 +2960,10 @@ class UnifiedCalibrationApp(QWidget):
                 lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
                 lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
                 lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
+                if "head" in self.joint_offsets_store:
+                    lines.append("  head:\n")
+                    lines.append(f"    pan: {self.joint_offsets_store['head'].get('pan', 0.0)}\n")
+                    lines.append(f"    tilt: {self.joint_offsets_store['head'].get('tilt', 0.0)}\n")
             else:
                 # joint_offset 블록이 끝나는 지점(들여쓰기가 없는 다음 라인 또는 파일 끝)을 찾습니다.
                 block_end = len(lines)
@@ -2874,6 +2987,10 @@ class UnifiedCalibrationApp(QWidget):
                     f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n",
                     f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n"
                 ]
+                if "head" in self.joint_offsets_store:
+                    new_jo_lines.append("  head:\n")
+                    new_jo_lines.append(f"    pan: {self.joint_offsets_store['head'].get('pan', 0.0)}\n")
+                    new_jo_lines.append(f"    tilt: {self.joint_offsets_store['head'].get('tilt', 0.0)}\n")
                 lines = lines[:jo_idx] + new_jo_lines + lines[block_end:]
 
             with open(config_path, "w") as f:
@@ -3124,11 +3241,61 @@ class UnifiedCalibrationApp(QWidget):
         full_auto_sublayout.addWidget(self.btn_full_auto_apply)
         full_auto_sublayout.addStretch()
         full_auto_subtab.setLayout(full_auto_sublayout)
+
+        # Sub-tab 4: Head & Camera Extrinsics Calibration
+        head_cam_subtab = QWidget()
+        head_cam_sublayout = QVBoxLayout()
+        head_cam_sublayout.setSpacing(6)
+
+        pan_row = QHBoxLayout()
+        pan_row.addWidget(QLabel("Pan Range (±deg):"))
+        self.step1_5_pan_range = QLineEdit("10.0")
+        self.step1_5_pan_range.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        pan_row.addWidget(self.step1_5_pan_range)
+        head_cam_sublayout.addLayout(pan_row)
+
+        tilt_row = QHBoxLayout()
+        tilt_row.addWidget(QLabel("Tilt Range (±deg):"))
+        self.step1_5_tilt_range = QLineEdit("8.0")
+        self.step1_5_tilt_range.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        tilt_row.addWidget(self.step1_5_tilt_range)
+        head_cam_sublayout.addLayout(tilt_row)
+
+        steps_row = QHBoxLayout()
+        steps_row.addWidget(QLabel("Sweep Steps:"))
+        self.step1_5_num_steps = QLineEdit("11")
+        self.step1_5_num_steps.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
+        steps_row.addWidget(self.step1_5_num_steps)
+        head_cam_sublayout.addLayout(steps_row)
+
+        self.btn_step1_5_ready = QPushButton("1) MOVE TO READY")
+        self.btn_step1_5_ready.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
+        self.btn_step1_5_ready.setFixedHeight(28)
+        self.btn_step1_5_ready.clicked.connect(self.move_to_ready_pose_step1_5)
+        head_cam_sublayout.addWidget(self.btn_step1_5_ready)
+
+        self.btn_step1_5_start = QPushButton("2) START HEAD SWEEP")
+        self.btn_step1_5_start.setStyleSheet("background-color: #27ae60; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
+        self.btn_step1_5_start.setFixedHeight(28)
+        self.btn_step1_5_start.clicked.connect(self.start_calibration_step1_5)
+        head_cam_sublayout.addWidget(self.btn_step1_5_start)
+
+        self.btn_step1_5_apply = QPushButton("3) APPLY RESULTS")
+        self.btn_step1_5_apply.setStyleSheet("background-color: #d35400; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
+        self.btn_step1_5_apply.setFixedHeight(28)
+        self.btn_step1_5_apply.setEnabled(False)
+        self.btn_step1_5_apply.clicked.connect(self.apply_results_step1_5)
+        head_cam_sublayout.addWidget(self.btn_step1_5_apply)
+
+        head_cam_sublayout.addStretch()
+        head_cam_subtab.setLayout(head_cam_sublayout)
         
-        # Add workflow subtabs in order of: Full Auto, Joint Calib, Marker Calib
+        # Add workflow subtabs in order of: Full Auto, Joint Calib, Marker Calib, Head & Cam
         self.workflow_tabs.addTab(full_auto_subtab, "Auto")
         self.workflow_tabs.addTab(joint_subtab, "Joint")
         self.workflow_tabs.addTab(marker_subtab, "Marker")
+        self.workflow_tabs.addTab(head_cam_subtab, "Head & Cam")
+        self.workflow_tabs.currentChanged.connect(self._on_workflow_tab_changed)
         
         workflow_layout.addWidget(self.workflow_tabs)
         workflow_box.setLayout(workflow_layout)
@@ -3186,7 +3353,7 @@ class UnifiedCalibrationApp(QWidget):
         dash_layout.setSpacing(4)
         dash_layout.setContentsMargins(8, 4, 8, 4)
         
-        # Monitoring Table
+        # Monitoring Table (Arm Joint Offsets)
         self.tbl_offset_monitor = QTableWidget(2, 3)
         self.tbl_offset_monitor.setHorizontalHeaderLabels(["Joint 6 (Roll/Yaw 2)", "Joint 5 (Wrist Pitch)", "Joint 3 (Elbow)"])
         self.tbl_offset_monitor.setVerticalHeaderLabels(["Right Arm", "Left Arm"])
@@ -3212,7 +3379,6 @@ class UnifiedCalibrationApp(QWidget):
                 border: 1px solid #2d2d2d;
             }
         """)
-        dash_layout.addWidget(self.tbl_offset_monitor)
         
         # Marker Bracket Design Offset UI GroupBox (Nested inside dash_box)
         bracket_box = QGroupBox("Marker Bracket Design Offset (Tf_to_marker)")
@@ -3293,7 +3459,6 @@ class UnifiedCalibrationApp(QWidget):
         bracket_layout.addWidget(self.btn_apply_bracket)
         
         bracket_box.setLayout(bracket_layout)
-        dash_layout.addWidget(bracket_box)
         
         # Apply & Clear buttons for Joint offsets
         btn_joint_layout = QHBoxLayout()
@@ -3311,8 +3476,113 @@ class UnifiedCalibrationApp(QWidget):
         
         btn_joint_layout.addWidget(self.btn_joint_apply)
         btn_joint_layout.addWidget(self.btn_joint_clear)
-        
-        dash_layout.addLayout(btn_joint_layout)
+
+        # Page 0: Arm & Marker Monitoring View
+        dash_page_arm_marker = QWidget()
+        dash_am_layout = QVBoxLayout()
+        dash_am_layout.setContentsMargins(0, 0, 0, 0)
+        dash_am_layout.setSpacing(4)
+        dash_am_layout.addWidget(self.tbl_offset_monitor)
+        dash_am_layout.addWidget(bracket_box)
+        dash_am_layout.addLayout(btn_joint_layout)
+        dash_page_arm_marker.setLayout(dash_am_layout)
+
+        # Page 1: Head & Camera Parameter Status View
+        dash_page_head_cam = QWidget()
+        dash_hc_layout = QVBoxLayout()
+        dash_hc_layout.setContentsMargins(0, 0, 0, 0)
+        dash_hc_layout.setSpacing(6)
+
+        lbl_head_tbl = QLabel("Head Joint Offsets:")
+        lbl_head_tbl.setStyleSheet("font-weight: bold; color: #2979ff;")
+        dash_hc_layout.addWidget(lbl_head_tbl)
+
+        self.tbl_step1_5_head_monitor = QTableWidget(2, 2)
+        self.tbl_step1_5_head_monitor.setHorizontalHeaderLabels(["Nominal / Current", "Calibrated Offset"])
+        self.tbl_step1_5_head_monitor.setVerticalHeaderLabels(["Head Pan (Joint 0)", "Head Tilt (Joint 1)"])
+        self.tbl_step1_5_head_monitor.setFixedHeight(85)
+        self.tbl_step1_5_head_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_step1_5_head_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_step1_5_head_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_step1_5_head_monitor.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                gridline-color: #2d2d2d;
+                font-weight: bold;
+                border: 1px solid #2d2d2d;
+                border-radius: 4px;
+            }
+            QHeaderView::section {
+                background-color: #263238;
+                color: #b0bec5;
+                font-weight: bold;
+                padding: 3px;
+                border: 1px solid #2d2d2d;
+            }
+        """)
+        dash_hc_layout.addWidget(self.tbl_step1_5_head_monitor)
+
+        lbl_cam_tbl = QLabel("Camera Extrinsic Parameters (Mount to Cam):")
+        lbl_cam_tbl.setStyleSheet("font-weight: bold; color: #00e676;")
+        dash_hc_layout.addWidget(lbl_cam_tbl)
+
+        self.tbl_step1_5_cam_monitor = QTableWidget(6, 2)
+        self.tbl_step1_5_cam_monitor.setHorizontalHeaderLabels(["Nominal CAD", "Calibrated Value"])
+        self.tbl_step1_5_cam_monitor.setVerticalHeaderLabels(["Roll (°)", "Pitch (°)", "Yaw (°)", "X (mm)", "Y (mm)", "Z (mm)"])
+        self.tbl_step1_5_cam_monitor.setFixedHeight(180)
+        self.tbl_step1_5_cam_monitor.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.tbl_step1_5_cam_monitor.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_step1_5_cam_monitor.verticalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.tbl_step1_5_cam_monitor.setStyleSheet("""
+            QTableWidget {
+                background-color: #1e1e1e;
+                color: #ffffff;
+                gridline-color: #2d2d2d;
+                font-weight: bold;
+                border: 1px solid #2d2d2d;
+                border-radius: 4px;
+            }
+            QHeaderView::section {
+                background-color: #263238;
+                color: #b0bec5;
+                font-weight: bold;
+                padding: 3px;
+                border: 1px solid #2d2d2d;
+            }
+        """)
+        dash_hc_layout.addWidget(self.tbl_step1_5_cam_monitor)
+
+        step1_5_diag_box = QGroupBox("Fit Quality Diagnostics")
+        step1_5_diag_box.setStyleSheet("QGroupBox { border: 1px solid #333333; border-radius: 4px; } QGroupBox::title { color: #b0bec5; font-size: 11px; }")
+        diag_layout = QGridLayout()
+        diag_layout.setSpacing(4)
+        diag_layout.addWidget(QLabel("Tilt Plane RMSE:"), 0, 0)
+        self.lbl_step1_5_rmse_tilt = QLabel("-")
+        self.lbl_step1_5_rmse_tilt.setStyleSheet("color: #00e5ff; font-weight: bold;")
+        diag_layout.addWidget(self.lbl_step1_5_rmse_tilt, 0, 1)
+
+        diag_layout.addWidget(QLabel("Pan Plane RMSE:"), 0, 2)
+        self.lbl_step1_5_rmse_pan = QLabel("-")
+        self.lbl_step1_5_rmse_pan.setStyleSheet("color: #00e5ff; font-weight: bold;")
+        diag_layout.addWidget(self.lbl_step1_5_rmse_pan, 0, 3)
+
+        diag_layout.addWidget(QLabel("Axis Orthogonality Error:"), 1, 0)
+        self.lbl_step1_5_ortho_err = QLabel("-")
+        self.lbl_step1_5_ortho_err.setStyleSheet("color: #ffca28; font-weight: bold;")
+        diag_layout.addWidget(self.lbl_step1_5_ortho_err, 1, 1)
+
+        step1_5_diag_box.setLayout(diag_layout)
+        dash_hc_layout.addWidget(step1_5_diag_box)
+        dash_hc_layout.addStretch()
+
+        dash_page_head_cam.setLayout(dash_hc_layout)
+
+        # Stack to hold both pages
+        self.dash_stack = QStackedWidget()
+        self.dash_stack.addWidget(dash_page_arm_marker)
+        self.dash_stack.addWidget(dash_page_head_cam)
+        dash_layout.addWidget(self.dash_stack)
         dash_box.setLayout(dash_layout)
 
         col2_layout.addWidget(home_offset_box)
@@ -3622,7 +3892,7 @@ class UnifiedCalibrationApp(QWidget):
         
         self.left_tabs.addTab(overview_tab, "Overview")
         self.left_tabs.addTab(step1_tab, "Step 1")
-        
+
         # ==========================================
         # Step 2 Tab: Shared widgets + empty Box1
         # ==========================================
@@ -4004,6 +4274,13 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_calibrator.include_head_motion = checked
         if hasattr(self, 'marker_st') and self.marker_st and type(self.marker_st).__name__ == "SimulatedMarkerTransform":
             self.marker_st.include_head_motion = checked
+        if hasattr(self, 'head_camera_calibrator') and self.head_camera_calibrator:
+            self.head_camera_calibrator.include_head_motion = checked
+
+        if hasattr(self, 'btn_step1_5_ready'):
+            self.btn_step1_5_ready.setEnabled(checked)
+        if hasattr(self, 'btn_step1_5_start'):
+            self.btn_step1_5_start.setEnabled(checked)
 
         if hasattr(self, 'chk_servo_head'):
             self.chk_servo_head.blockSignals(True)
@@ -4220,6 +4497,8 @@ class UnifiedCalibrationApp(QWidget):
             self.marker_calibrator.robot_version = "1.2"
             self.joint_calibrator.robot = None
             self.joint_calibrator.robot_version = "1.2"
+            self.head_camera_calibrator.robot = None
+            self.head_camera_calibrator.robot_version = "1.2"
             self.update_joint_modes()
             self.load_offsets_from_yaml()
             self.update_applied_offset_label()
@@ -4355,6 +4634,7 @@ class UnifiedCalibrationApp(QWidget):
                     self.sim_q_full = np.zeros(len(self.model.robot_joint_names))
                 self.marker_calibrator.robot = self.robot
                 self.joint_calibrator.robot = self.robot
+                self.head_camera_calibrator.robot = self.robot
                 
                 # Determine version classification automatically
                 detected_version = "1.2"
@@ -4407,6 +4687,7 @@ class UnifiedCalibrationApp(QWidget):
                 # Configure calibrators version
                 self.marker_calibrator.robot_version = detected_version
                 self.joint_calibrator.robot_version = detected_version
+                self.head_camera_calibrator.robot_version = detected_version
 
                 # Update UI modes and offsets based on version classification
                 self.update_joint_modes()
@@ -4424,6 +4705,7 @@ class UnifiedCalibrationApp(QWidget):
                     )
                     self.marker_calibrator.marker_st = self.marker_st
                     self.joint_calibrator.marker_st = self.marker_st
+                    self.head_camera_calibrator.marker_st = self.marker_st
                     self.log_msg("[INFO] Configured SimulatedMarkerTransform for simulation motion.")
                     
                 if self.ui_only:
@@ -4656,6 +4938,14 @@ class UnifiedCalibrationApp(QWidget):
                 if not self.ui_only and self.marker_st is not None:
                     self.poll_timer.start(200)
 
+    def _on_workflow_tab_changed(self, index):
+        """Automatically toggle Column 2 Dashboard between Arm/Marker and Head/Camera."""
+        if hasattr(self, 'dash_stack') and self.dash_stack is not None:
+            if index == 3:  # Head & Cam subtab
+                self.dash_stack.setCurrentIndex(1)
+            else:
+                self.dash_stack.setCurrentIndex(0)
+
     def _reparent_shared_widgets(self, top_tab_index):
         """Move shared GroupBoxes between Step 1 Main and Step 2 layouts."""
         if not hasattr(self, 'conn_head_box') or self.conn_head_box is None:
@@ -4665,33 +4955,133 @@ class UnifiedCalibrationApp(QWidget):
 
         if top_tab_index == 2:  # Switching TO Step 2
             # Move shared widgets into Step 2 layout
-            # Top row: conn_head_box, home_offset_box, status_box
             self.step2_top_row.insertWidget(0, self.conn_head_box)
             self.step2_top_row.insertWidget(1, self.home_offset_box)
             self.step2_top_row.insertWidget(2, self.status_box)
 
-            # Right column: log_box
             self.step2_right_col.insertWidget(0, self.log_box)
-            # Set stretch for log_box in step2
             self.step2_right_col.setStretchFactor(self.log_box, 1)
 
-            # Hide "Show Calibration Plot" button in Step 2
             if hasattr(self, 'btn_show_plot'):
                 self.btn_show_plot.hide()
 
         else:  # Switching TO Step 1 (or any other tab)
-            # Move shared widgets back into Step 1 Main columns
             self._step1_col1.insertWidget(0, self.conn_head_box)
-
             self._step1_col2.insertWidget(0, self.home_offset_box)
-
             self._step1_col3.insertWidget(0, self.status_box)
             self._step1_col3.insertWidget(1, self.log_box)
             self._step1_col3.setStretchFactor(self.log_box, 1)
 
-            # Show "Show Calibration Plot" button back in Step 1
             if hasattr(self, 'btn_show_plot'):
                 self.btn_show_plot.show()
+
+    # =============================================
+    # Head & Camera Extrinsics Action Handlers
+    # =============================================
+
+    def move_to_ready_pose_step1_5(self):
+        if not getattr(self, 'include_head_motion', True):
+            self.log_msg("[INFO] Headless mode: Robot has no head. Step 1.5 Head & Camera calibration is not required.")
+            return
+
+        self.log_msg("\n[Head & Camera] Moving to Ready Pose (Dual-arm Init Pose)...")
+        self.btn_step1_5_ready.setEnabled(False)
+        self.btn_step1_5_start.setEnabled(False)
+        self.stop_requested = False
+        if not hasattr(self, 'head_cam_stop_event') or self.head_cam_stop_event is None:
+            self.head_cam_stop_event = threading.Event()
+        self.head_cam_stop_event.clear()
+        
+        self.step1_5_ready_worker = HeadCamReadyWorker(self.head_camera_calibrator, self.head_cam_stop_event)
+        self.step1_5_ready_worker.log_signal.connect(self.log_msg)
+        self.step1_5_ready_worker.finished_signal.connect(self._on_step1_5_ready_finished)
+        self.step1_5_ready_worker.start()
+
+    def _on_step1_5_ready_finished(self, success, err_msg):
+        self.btn_step1_5_ready.setEnabled(True)
+        self.btn_step1_5_start.setEnabled(True)
+        if success:
+            self.log_msg("[Head & Camera] [SUCCESS] Ready Pose reached. Stationary arm markers verified.")
+        else:
+            self.log_msg(f"[Head & Camera] [ERROR] Ready pose move failed: {err_msg}")
+
+    def start_calibration_step1_5(self):
+        if not getattr(self, 'include_head_motion', True):
+            self.log_msg("[INFO] Headless mode: Robot has no head. Step 1.5 Head & Camera calibration is not required.")
+            return
+
+        try:
+            pan_r = float(self.step1_5_pan_range.text())
+            tilt_r = float(self.step1_5_tilt_range.text())
+            n_steps = int(self.step1_5_num_steps.text())
+        except ValueError:
+            self.log_msg("[ERROR] Invalid numeric parameters for Head Sweep.")
+            return
+
+        self.btn_step1_5_ready.setEnabled(False)
+        self.btn_step1_5_start.setEnabled(False)
+        self.btn_step1_5_apply.setEnabled(False)
+        self.stop_requested = False
+        if not hasattr(self, 'head_cam_stop_event') or self.head_cam_stop_event is None:
+            self.head_cam_stop_event = threading.Event()
+        self.head_cam_stop_event.clear()
+
+        self.step1_5_sweep_worker = HeadCamSweepWorker(
+            self.head_camera_calibrator, pan_r, tilt_r, n_steps, self.head_cam_stop_event
+        )
+        self.step1_5_sweep_worker.log_signal.connect(self.log_msg)
+        self.step1_5_sweep_worker.finished_signal.connect(self._on_step1_5_sweep_finished)
+        self.step1_5_sweep_worker.start()
+
+    def _on_step1_5_sweep_finished(self, success, results):
+        self.btn_step1_5_ready.setEnabled(True)
+        self.btn_step1_5_start.setEnabled(True)
+        if not success or not results or not results.get("success"):
+            self.log_msg("[Head & Camera] [ERROR] Head Sweep Calibration failed or aborted.")
+            return
+
+        self.btn_step1_5_apply.setEnabled(True)
+        self.log_msg("[Head & Camera] Calibration complete. Updating monitoring tables...")
+        self._update_step1_5_tables(results)
+
+    def _update_step1_5_tables(self, results):
+        head_offsets = results.get("head_offsets_deg", {})
+        pan_off = head_offsets.get("pan", 0.0)
+        tilt_off = head_offsets.get("tilt", 0.0)
+
+        self.tbl_step1_5_head_monitor.setItem(0, 0, QTableWidgetItem("0.000°"))
+        self.tbl_step1_5_head_monitor.setItem(0, 1, QTableWidgetItem(f"{pan_off:+.3f}°"))
+
+        self.tbl_step1_5_head_monitor.setItem(1, 0, QTableWidgetItem("0.000°"))
+        self.tbl_step1_5_head_monitor.setItem(1, 1, QTableWidgetItem(f"{tilt_off:+.3f}°"))
+
+        nom = results.get("nominal_mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
+        cal = results.get("calibrated_mount_to_cam", nom)
+
+        rpy_rows = [
+            ("Roll (°)", nom[3], cal[3]),
+            ("Pitch (°)", nom[4], cal[4]),
+            ("Yaw (°)", nom[5], cal[5]),
+            ("X (mm)", nom[0]*1000.0, cal[0]*1000.0),
+            ("Y (mm)", nom[1]*1000.0, cal[1]*1000.0),
+            ("Z (mm)", nom[2]*1000.0, cal[2]*1000.0),
+        ]
+        for row_idx, (name, val_nom, val_cal) in enumerate(rpy_rows):
+            self.tbl_step1_5_cam_monitor.setItem(row_idx, 0, QTableWidgetItem(f"{val_nom:+.3f}"))
+            self.tbl_step1_5_cam_monitor.setItem(row_idx, 1, QTableWidgetItem(f"{val_cal:+.3f}"))
+
+        q = results.get("quality", {})
+        self.lbl_step1_5_rmse_tilt.setText(f"{q.get('rmse_tilt_plane_mm', 0.0):.3f} mm")
+        self.lbl_step1_5_rmse_pan.setText(f"{q.get('rmse_pan_plane_mm', 0.0):.3f} mm")
+        self.lbl_step1_5_ortho_err.setText(f"{q.get('ortho_error_deg', 0.0):.3f}°")
+
+    def apply_results_step1_5(self):
+        ok = self.head_camera_calibrator.apply_calibration_results(log_callback=self.log_msg)
+        if ok:
+            self.log_msg("[Head & Camera] [SUCCESS] Applied calibrated parameters to setting.yaml and memory.")
+            self.btn_step1_5_apply.setEnabled(False)
+        else:
+            self.log_msg("[Head & Camera] [ERROR] Failed to apply calibration results.")
 
     # =============================================
     # Step 2 Action Handlers
@@ -5406,7 +5796,15 @@ class UnifiedCalibrationApp(QWidget):
         head_idx = head_cfg["head_idx"] if use_head_kinematics else None
         optimize_head = optimize_head and use_head_kinematics
 
-        apply_limits = getattr(self, "apply_joint_offset_flag", False)
+        # Determine initial head offsets if previously calibrated
+        q_head_offset_init = None
+        head_stored = getattr(self, 'joint_offsets_store', {}).get("head", {})
+        if head_stored and head_idx and len(head_idx) >= 2:
+            q_head_offset_init = np.radians([head_stored.get("pan", 0.0), head_stored.get("tilt", 0.0)])
+            self.log_msg(f"[INFO] Using locked/calibrated head offsets for Step 2 optimization: {head_stored}")
+
+        has_step1_offsets = bool(self.joint_offsets_store.get("right") or self.joint_offsets_store.get("left"))
+        apply_limits = getattr(self, "apply_joint_offset_flag", False) or has_step1_offsets
         joint_offsets = None
         if apply_limits:
             joint_offsets = {}
@@ -5419,87 +5817,56 @@ class UnifiedCalibrationApp(QWidget):
                 }
             self.log_msg(f"[INFO] Applying joint offset bounds: {joint_offsets}")
 
+        # Check if Step 1.5 camera results are present
+        mount_cam_from_step1_5 = None
+        if hasattr(self, 'head_camera_calibrator') and self.head_camera_calibrator is not None:
+            res15 = getattr(self.head_camera_calibrator, 'calibrated_results', None)
+            if res15 and not res15.get("skipped", False) and "calibrated_mount_to_cam" in res15:
+                mount_cam_from_step1_5 = res15["calibrated_mount_to_cam"]
+
         if len(active_arms) == 2 and q_arm_list.shape[1] >= 14:
-            self.log_msg("\n[INFO] === SEQUENTIAL 3-STAGE JOINT-CAMERA CALIBRATION WORKFLOW ===")
-
-            # Stage 1: Right Arm + Head + Camera Extrinsics (Independent Anchor)
-            self.log_msg("[STAGE 1/3] Right Arm + Head + Camera Alignment (max_iter=50, eps=1e-7)...")
-            cfg_r = get_arm_config(self.model, "right", version=self.get_robot_version())
-            opt_r = QPCalibrationOptimizer(
+            self.log_msg("\n[INFO] === UNIFIED DUAL-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
+            cfg_both = get_both_arm_config(self.model, version=self.get_robot_version())
+            mount_cam_init = mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg_both["mount_to_cam_nom"])
+            if mount_cam_from_step1_5:
+                self.log_msg(f"[INFO] Using Step 1.5 calibrated mount_to_cam as fixed baseline: {mount_cam_init}")
+            optimizer = QPCalibrationOptimizer(
                 robot=self.robot,
-                arm_idx=cfg_r["arm_idx"],
-                ee_links={"right": cfg_r["ee_link"]},
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom={"right": ee_to_marker_nom["right"]},
-                active_arms=["right"],
+                arm_idx=cfg_both["arm_idx"],
+                ee_links=cfg_both["ee_links"],
+                mount_to_cam_nom=mount_cam_init,
+                head_base_to_cam_nom=cfg_both.get("head_base_to_cam_nom"),
+                ee_to_marker_nom=ee_to_marker_nom,
+                active_arms=["right", "left"],
                 optimize_arm=True,
                 optimize_head=optimize_head,
                 optimize_camera=optimize_camera,
                 head_idx=head_idx,
                 use_head_kinematics=use_head_kinematics,
                 lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=lambda_cam_rot,
+                lambda_cam_rot=1.0,
                 use_sag=use_sag,
                 estimate_measurement_noise=True,
                 apply_joint_offset_limits=apply_limits,
                 joint_offsets_to_apply=joint_offsets,
-                camera_pos_bound_m=0.005,
-                camera_rot_bound_rad=2.0 * D2R,
+                camera_pos_bound_m=0.010,
+                camera_rot_bound_rad=3.0 * D2R,
                 eps=1e-7,
                 max_iter=50,
             )
-            T_meas_r = T_meas_list[:, 0] if T_meas_list.ndim == 4 else T_meas_list
-            qr, hr, xir, mount_to_cam_r, head_base_to_cam_r = opt_r.optimize(
-                q_arm_list[:, :7], q_head_list, T_meas_r
+            q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new = optimizer.optimize(
+                q_arm_list, q_head_list, T_meas_list, q_head_offset_init=q_head_offset_init
             )
-
-            # Stage 2: Left Arm + Head + Camera Extrinsics (Independent Anchor)
-            self.log_msg("[STAGE 2/3] Left Arm + Head + Camera Alignment (max_iter=50, eps=1e-7)...")
-            cfg_l = get_arm_config(self.model, "left", version=self.get_robot_version())
-            opt_l = QPCalibrationOptimizer(
-                robot=self.robot,
-                arm_idx=cfg_l["arm_idx"],
-                ee_links={"left": cfg_l["ee_link"]},
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
-                head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
-                ee_to_marker_nom={"left": ee_to_marker_nom["left"]},
-                active_arms=["left"],
-                optimize_arm=True,
-                optimize_head=optimize_head,
-                optimize_camera=optimize_camera,
-                head_idx=head_idx,
-                use_head_kinematics=use_head_kinematics,
-                lambda_cam_pos=lambda_cam_pos,
-                lambda_cam_rot=lambda_cam_rot,
-                use_sag=use_sag,
-                estimate_measurement_noise=True,
-                apply_joint_offset_limits=apply_limits,
-                joint_offsets_to_apply=joint_offsets,
-                camera_pos_bound_m=0.005,
-                camera_rot_bound_rad=2.0 * D2R,
-                eps=1e-7,
-                max_iter=50,
-            )
-            T_meas_l = T_meas_list[:, 1] if T_meas_list.ndim == 4 else T_meas_list
-            ql, hl, xil, mount_to_cam_l, head_base_to_cam_l = opt_l.optimize(
-                q_arm_list[:, 7:], q_head_list, T_meas_l
-            )
-
-            # Combine Independent Anchor Results (Unified 2-Stage Pipeline)
-            q_arm_offset = np.concatenate([qr, ql])
-            q_head_offset = 0.5 * (hr + hl) if (hr is not None and hl is not None) else (hr if hr is not None else hl)
-            xi_cam = 0.5 * (xir + xil)
-            mount_to_cam_new = opt_r.get_calibrated_mount_to_cam(xi_cam)
-            head_base_to_cam_new = opt_r.get_calibrated_head_base_to_cam(xi_cam)
-            optimizer = opt_r
         else:
             self.log_msg("\n[INFO] === SINGLE-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
+            mount_cam_init = mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg["mount_to_cam_nom"])
+            if mount_cam_from_step1_5:
+                self.log_msg(f"[INFO] Using Step 1.5 calibrated mount_to_cam as fixed baseline: {mount_cam_init}")
             opt_single = QPCalibrationOptimizer(
                 robot=self.robot,
                 arm_idx=cfg["arm_idx"],
                 ee_links=ee_links,
-                mount_to_cam_nom=cfg["mount_to_cam_nom"],
+                mount_to_cam_nom=mount_cam_init,
                 head_base_to_cam_nom=cfg.get("head_base_to_cam_nom"),
                 ee_to_marker_nom=ee_to_marker_nom,
                 active_arms=active_arms,
@@ -5551,7 +5918,7 @@ class UnifiedCalibrationApp(QWidget):
         if q_head_offset is not None:
             self.log_msg(f"Head joint offset (deg): {np.rad2deg(q_head_offset)}")
         
-        if optimize_head:
+        if use_head_kinematics:
             self.log_msg(f"mount_to_cam xi: {xi_cam}")
             self.log_msg(f"mount_to_cam_new: {mount_to_cam_new}")
         else:
@@ -5574,7 +5941,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.last_home_reset_path is not None and Path(self.last_home_reset_path).exists():
             result_dict["home_reset_baseline_path"] = str(self.last_home_reset_path)
 
-        if optimize_head:
+        if use_head_kinematics:
             result_dict["xi_mount_cam"] = result_dict["xi_cam"]
         else:
             result_dict["xi_head_base_cam"] = result_dict["xi_cam"]
@@ -5912,17 +6279,29 @@ class UnifiedCalibrationApp(QWidget):
             mode = self.step2_mode_sel.currentText().strip()
             self.log_msg(f"\n[Step2] Calculate requested (Active Mode: '{mode}').")
             active_arms = ["right", "left"]
-            optimize_head = self.include_head_motion
-            if not self.include_head_motion and optimize_head:
-                optimize_head = False
-                self.log_msg("Headless mode selected; optimize_head changed to False.")
+            has_step1_5 = self.include_head_motion and (
+                hasattr(self, 'head_camera_calibrator') and
+                self.head_camera_calibrator is not None and
+                self.head_camera_calibrator.calibrated_results is not None and
+                not self.head_camera_calibrator.calibrated_results.get("skipped", False)
+            )
 
-            camera_cfg = getattr(self.marker_calibrator, "camera_config", {})
-            if not optimize_head:
+            if has_step1_5:
+                optimize_head = self.include_head_motion
                 optimize_camera = False
-                self.log_msg("[INFO] Headless mode: Camera extrinsics optimization is DISABLED (Locked to CAD nominal).")
+                self.log_msg("[INFO] Step 1.5 Camera parameters detected. Camera mount is LOCKED to calibrated mount_to_cam. Head and Arm joints will be optimized together in Step 2.")
             else:
-                optimize_camera = True
+                optimize_head = self.include_head_motion
+                if not self.include_head_motion and optimize_head:
+                    optimize_head = False
+                    self.log_msg("Headless mode selected; optimize_head changed to False.")
+
+                camera_cfg = getattr(self.marker_calibrator, "camera_config", {})
+                if not optimize_head:
+                    optimize_camera = False
+                    self.log_msg("[INFO] Headless mode: Camera extrinsics optimization is DISABLED (Locked to CAD nominal).")
+                else:
+                    optimize_camera = True
                 
             lambda_cam_pos = 1.0
             lambda_cam_rot = 1e6
@@ -6176,6 +6555,10 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event:
             self.full_auto_stop_event.set()
 
+        # 4. Stop Head & Camera calibration
+        if hasattr(self, 'head_cam_stop_event') and self.head_cam_stop_event:
+            self.head_cam_stop_event.set()
+
     def clear_joint_offset(self):
         reply = QMessageBox.question(
             self, 
@@ -6195,13 +6578,17 @@ class UnifiedCalibrationApp(QWidget):
                 self.joint_offsets[arm]["wrist_yaw2"] = 0.0
                 self.joint_offsets[arm]["elbow"] = 0.0
                 
+            self.joint_offsets_store["head"] = {"pan": 0.0, "tilt": 0.0}
+            if hasattr(self, 'head_camera_calibrator') and self.head_camera_calibrator:
+                self.head_camera_calibrator.calibrated_results = None
+
             self.joint_calibrator.joint_offsets = self.joint_offsets
             self.marker_calibrator.joint_offsets = self.joint_offsets
             
             self.save_offsets_to_yaml()
             self.update_applied_offset_label()
             
-            self.log_msg("[CLEAR] Staged and saved offsets cleared to 0.0 for BOTH Arms.")
+            self.log_msg("[CLEAR] Staged and saved offsets cleared to 0.0 for BOTH Arms and Head.")
 
     def load_bracket_design_values(self):
         config_path = CONFIG_PATHS["setting_yaml"]
@@ -6440,6 +6827,10 @@ class UnifiedCalibrationApp(QWidget):
         
         if hasattr(self, 'chk_servo_head'):
             self.chk_servo_head.setEnabled(enabled)
+        if hasattr(self, 'btn_step1_5_ready'):
+            self.btn_step1_5_ready.setEnabled(enabled)
+        if hasattr(self, 'btn_step1_5_start'):
+            self.btn_step1_5_start.setEnabled(enabled)
             
         self.btn_connect.setEnabled(enabled)
         self.model_input.setEnabled(enabled)
@@ -6747,13 +7138,19 @@ class UnifiedCalibrationApp(QWidget):
                 for k in self.joint_offsets[arm]:
                     self.joint_offsets[arm][k] = 0.0
 
+        # Reset head joint offsets and clear previous head-camera calibration so Full Auto starts clean
+        if hasattr(self, 'joint_offsets_store'):
+            self.joint_offsets_store["head"] = {"pan": 0.0, "tilt": 0.0}
+        if hasattr(self, 'head_camera_calibrator') and self.head_camera_calibrator:
+            self.head_camera_calibrator.calibrated_results = None
+
         if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
             self.joint_calibrator.joint_offsets = self.joint_offsets
         if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
             self.marker_calibrator.joint_offsets = self.joint_offsets
 
         self.update_applied_offset_label()
-        self.log_msg("[FULL AUTO] Initial joint offsets reset to 0.0 before starting calibration.")
+        self.log_msg("[FULL AUTO] Initial arm & head joint offsets reset to 0.0 before starting calibration.")
         if self.ui_only:
             self.log_msg("[MOCK GT] Simulated Ground-Truth Offsets:")
             is_v13 = self.get_robot_version() == "1.3"

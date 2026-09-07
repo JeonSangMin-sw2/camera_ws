@@ -534,9 +534,9 @@ class QPCalibrationOptimizer:
             arm_idx=self.arm_idx,
             q_cmd=q_arm,
             q_offset=q_arm_offset,
-            head_idx=self.head_idx,
-            q_head=q_head,
-            q_head_offset=q_head_offset,
+            head_idx=self.head_idx if self.use_head_kinematics else None,
+            q_head=q_head if self.use_head_kinematics else None,
+            q_head_offset=q_head_offset if self.use_head_kinematics else None,
         )
 
         state = self.dyn_model.make_state(
@@ -978,7 +978,9 @@ class QPCalibrationOptimizer:
             self.T_mount_to_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
 
         q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
-        if self.optimize_head:
+        if not self.use_head_kinematics:
+            q_head_offset = None
+        elif self.optimize_head:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else np.zeros(len(self.head_idx))
         else:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
@@ -1130,9 +1132,9 @@ class CalibrationOptimizer:
             arm_idx=self.arm_idx,
             q_cmd=q_arm,
             q_offset=q_arm_offset if self.optimize_arm else None,
-            head_idx=self.head_idx,
-            q_head=q_head,
-            q_head_offset=q_head_offset if self.optimize_head else None,
+            head_idx=self.head_idx if self.use_head_kinematics else None,
+            q_head=q_head if self.use_head_kinematics else None,
+            q_head_offset=q_head_offset if self.use_head_kinematics else None,
         )
 
         state = self.dyn_model.make_state(
@@ -1433,7 +1435,9 @@ class CalibrationOptimizer:
             for idx, target_val in anchors:
                 if idx < len(q_arm_offset):
                     q_arm_offset[idx] = target_val
-        if self.optimize_head:
+        if not self.use_head_kinematics:
+            q_head_offset = None
+        elif self.optimize_head:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else np.zeros(len(self.head_idx))
         else:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None

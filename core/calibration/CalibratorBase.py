@@ -302,7 +302,7 @@ class BaseCalibrator:
 
 
     @staticmethod
-    def initialize_robot(address, model, power=".*", servo=".*"):
+    def initialize_robot(address, model, power=".*", servo=None, include_head=True):
         robot = rby.create_robot(address, model)
         if not robot.connect():
             logging.error(f"Failed to connect robot {address}")
@@ -364,17 +364,17 @@ class BaseCalibrator:
             logging.warning(f"Failed to check control manager state: {e}")
             is_cm_enabled = False
 
+        # Configure servo pattern based on include_head flag (independent of physical hardware)
+        if servo is not None and servo != ".*":
+            target_servo_pattern = servo
+        elif is_local:
+            target_servo_pattern = ".*"
+        else:
+            target_servo_pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
+
         # Check if servos are ON
         try:
-            if is_local:
-                pattern = ".*"
-            else:
-                include_head = getattr(self, 'include_head_motion', True)
-                if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
-                    include_head = self.app.include_head_motion
-                
-                pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
-            is_servo_ok = robot.is_servo_on(pattern)
+            is_servo_ok = robot.is_servo_on(target_servo_pattern)
         except Exception as e:
             logging.warning(f"Failed to check servo status: {e}")
             is_servo_ok = False
@@ -420,13 +420,9 @@ class BaseCalibrator:
                 except Exception as e:
                     logging.warning(f"Failed to disable control manager: {e}")
             
-            logging.info("Turning servos on...")
-            include_head = getattr(self, 'include_head_motion', True)
-            if hasattr(self, 'app') and hasattr(self.app, 'include_head_motion'):
-                include_head = self.app.include_head_motion
-            pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
-            if not robot.servo_on(pattern):
-                logging.error("Failed to turn servos on.")
+            logging.info(f"Turning servos on with pattern '{target_servo_pattern}'...")
+            if not robot.servo_on(target_servo_pattern):
+                logging.error(f"Failed to turn servos on with pattern '{target_servo_pattern}'.")
             else:
                 time.sleep(0.5)
             
