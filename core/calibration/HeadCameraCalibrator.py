@@ -367,18 +367,37 @@ class HeadCameraCalibrator(BaseCalibrator):
         nom_yaw = float(nominal_mount_to_cam[5])
 
         # ----------------------------------------------------
+        # ----------------------------------------------------
         # Phase C: Mathematical Solution for Head-Camera Calibration
         # ----------------------------------------------------
         # Align measured sweep plane normals with nominal head axes via symmetric SVD Procrustes projection
-        # In mount frame (link_head_2), tilt axis is [0, 1, 0] (y), pan axis is [0, 0, 1] (z)
-        # In camera optical frame, v_c = R_mount_to_cam.T @ v_m
+        # In mount frame (link_head_2):
+        # 1. Tilt axis is [0, 1, 0] (y). In camera optical frame: v_c_y = n_tilt_cam / ||n_tilt_cam||
+        # 2. Pan axis is [0, 0, 1] in link_head_1, but link_head_2 is rotated around y by delta_tilt.
+        #    Therefore, in link_head_2, the Pan axis is: [sin(delta_tilt), 0, cos(delta_tilt)].
+        #    Using the nominal CAD rotation R_nom, we project n_pan_cam into mount frame:
+        #    v_pan_in_mount = R_nom @ v_c_z
+        #    delta_tilt_est = arcsin(clip(v_pan_in_mount[0], -1.0, 1.0))
+        # 3. Un-tilt n_pan_cam around the true tilt axis v_c_y by -delta_tilt_est to obtain the pure Z-axis of link_head_2:
+        #    v_c_z_untilted = v_c_z * cos(-delta_tilt) + (v_c_y x v_c_z) * sin(-delta_tilt)
         v_c_y = n_tilt_cam / np.linalg.norm(n_tilt_cam)
         v_c_z = n_pan_cam / np.linalg.norm(n_pan_cam)
-        v_c_x = np.cross(v_c_y, v_c_z)
+
+        v_pan_mount_proj = R_nom @ v_c_z
+        delta_tilt_est_rad = np.arcsin(np.clip(v_pan_mount_proj[0], -1.0, 1.0))
+        head_tilt_offset_deg = float(np.degrees(delta_tilt_est_rad))
+
+        # Rotate v_c_z back around the true tilt axis (v_c_y) by -delta_tilt_est_rad
+        # using Rodrigues rotation formula to obtain the pure Z-axis of link_head_2:
+        theta = -delta_tilt_est_rad
+        v_c_z_untilted = v_c_z * np.cos(theta) + np.cross(v_c_y, v_c_z) * np.sin(theta)
+        v_c_z_untilted /= np.linalg.norm(v_c_z_untilted)
+
+        v_c_x = np.cross(v_c_y, v_c_z_untilted)
         v_c_x = v_c_x / np.linalg.norm(v_c_x)
 
-        # SVD Procrustes projection: finds the closest exact SO(3) rotation matrix without asymmetric bias
-        A = np.column_stack([v_c_x, v_c_y, v_c_z])
+        # SVD Procrustes projection with untilted Pan normal:
+        A = np.column_stack([v_c_x, v_c_y, v_c_z_untilted])
         U, _, Vt = np.linalg.svd(A)
         R_cam_T = U @ np.diag([1.0, 1.0, np.linalg.det(U @ Vt)]) @ Vt
         R_cam_est = R_cam_T.T
@@ -393,10 +412,8 @@ class HeadCameraCalibrator(BaseCalibrator):
         diff_pitch = est_pitch_deg - nom_pitch
         diff_yaw = est_yaw_deg - nom_yaw
 
-        # Note: Head joint zero offsets (Pan & Tilt) are naturally decoupled and resolved in Step 2
-        # through 64 multi-channel 3D poses without soft anchoring.
+        # Head Pan zero offset is refined in Step 2 through 64 multi-channel 3D poses without soft anchoring
         head_pan_offset_deg = 0.0
-        head_tilt_offset_deg = 0.0
         decoupled_success = True
         rmse_3d_marker_mm = float(np.sqrt(rmse_tilt_plane**2 + rmse_pan_plane**2))
 
