@@ -1,4 +1,6 @@
-import pyrealsense2 as rs
+import hashlib
+from pathlib import Path
+
 import numpy as np
 import cv2
 import socket
@@ -12,9 +14,12 @@ import os, yaml
 #debugging flag : must be all false in production
 imshow_when_detect = False
 tcpip_send = False
-use_calib_int = False # Whether to use the finely calibrated intrinsics file (camera_intrinsics.yaml)
 # see_depth_sensors_depth = False
 # see_stereo_depth = False
+
+class CameraUnavailableError(RuntimeError):
+    """No camera hardware or RealSense driver is available."""
+
 
 # Utility classes
 class TCPClient:
@@ -59,18 +64,28 @@ class RealSenseCamera:
     # serial_number : Use camera with this serial, if not specified, use the first camera
     """Camera serial number can be searched via realsense_check.py"""
     def __init__(self, serial_number=None):
+        global rs
+        try:
+            import pyrealsense2 as rs
+        except ModuleNotFoundError as exc:
+            if exc.name != 'pyrealsense2':
+                raise
+            raise CameraUnavailableError('RealSense driver is unavailable') from exc
         # Search for connected cameras
         ctx = rs.context()
         devices = ctx.query_devices()
         if len(devices) == 0:
             print("No RealSense devices found!")
-            raise RuntimeError("No RealSense connected")
+            raise CameraUnavailableError("No RealSense connected")
         # Camera selection: use specified serial number if given, otherwise use the first device
         for i, dev in enumerate(devices):
             print(f"[{i}] {dev.get_info(rs.camera_info.name)} (Serial: {dev.get_info(rs.camera_info.serial_number)})")
             if serial_number == dev.get_info(rs.camera_info.serial_number) or serial_number is None:
                 self.device_number = i
                 break
+
+        if not hasattr(self, 'device_number'):
+            raise CameraUnavailableError(f'RealSense serial {serial_number} is unavailable')
 
         # Reconnect selected camera for safe usage
         print("Resetting Realsense device...")
@@ -111,6 +126,7 @@ class RealSenseCamera:
 
         # Image storage variables
         self.color_image = None
+        self.color_frame_received_at = None
         self.depth_image = None
         # Default resolution
         self.width = 1280 # 848
@@ -149,32 +165,11 @@ class RealSenseCamera:
             # Start pipeline
             self.profile = self.pipeline.start(self.config)
         except Exception as e:
-            print(f"Failed to start pipeline with {self.width}x{self.height}@{self.fps}. Error: {e}")
-            print("Attempting fallback resolution (848x480 @ 30fps)...")
-            try:
-                self.config = rs.config() # Reset config
-                self.config.enable_device(self.serial_number)
-                self.width, self.height, self.fps = 848, 480, 30
-                # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-                self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-                self.profile = self.pipeline.start(self.config)
-            except Exception as e2:
-                print(f"Fallback 1 failed: {e2}. Attempting 640x480 @ 30fps...")
-                try:
-                    self.config = rs.config()
-                    self.config.enable_device(self.serial_number)
-                    self.width, self.height, self.fps = 640, 480, 30
-                    # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-                    self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-                    self.profile = self.pipeline.start(self.config)
-                except Exception as e3:
-                    print(f"All profile attempts failed: {e3}")
-                    raise e3
+            raise RuntimeError(f'Camera profile {self.width}x{self.height}@{self.fps} rejected: {e}') from e
 
         try:
-            # Discard first 10 frames to allow camera exposure to stabilize
             for i in range(10):
-                self.pipeline.wait_for_frames()
+                self.pipeline.wait_for_frames(timeout_ms=1000)
             
             # [NEW] Sensor Auto Exposure configuration - adaptive to diverse environments
             device = self.profile.get_device()
@@ -295,14 +290,15 @@ class RealSenseCamera:
         except:
             pass
 
-    def capture_image(self):
+    def capture_image(self, timeout_ms=100):
         # Completely remove complex thread checking logic.
         if not self.camera_running:
+            self._invalidate_frame()
             return
 
         # This function runs solely inside the stream_on background thread.
         try:
-            frames = self.pipeline.wait_for_frames()
+            frames = self.pipeline.wait_for_frames(timeout_ms=timeout_ms)
             
             # [LEGACY] RealSense CPU Depth Align & Filter (Not used for PnP detection but causes 25ms bottleneck -> Commented out)
             # align_to = rs.stream.color
@@ -318,8 +314,7 @@ class RealSenseCamera:
             color_frame = frames.get_color_frame()
             # depth_frame = frames.get_depth_frame()
             if not color_frame: # or not depth_frame:
-                print("no frame")
-                return
+                raise RuntimeError('No color frame received')
             color_data = np.asanyarray(color_frame.get_data())
             
             # Read actual exposure metadata from color frame
@@ -333,6 +328,7 @@ class RealSenseCamera:
         
             with self.lock:
                 self.color_image = color_data
+                self.color_frame_received_at = time.monotonic()
                 self.actual_exposure = cur_act_exp
                 # self.depth_image = depth_data
                 # if self.Infrared:
@@ -341,14 +337,23 @@ class RealSenseCamera:
                 #     if ir_frame_left and ir_frame_right:
                 #         self.left_ir_image = np.asanyarray(ir_frame_left.get_data())
                 #         self.right_ir_image = np.asanyarray(ir_frame_right.get_data())
-        except Exception as e:
-            pass # Ignore intermittent frame drops
+        except Exception:
+            self._invalidate_frame()
+
+    def _invalidate_frame(self):
+        with self.lock:
+            self.color_image = None
+            self.depth_image = None
+            self.color_frame_received_at = None
 
 
     # Functions that must be called for calculation
     def get_color_image(self):
         with self.lock:
-            if self.color_image is None:
+            received_at = self.color_frame_received_at
+            maximum_age = max(.1, 3.0 / max(float(self.fps), 1.0))
+            if (not self.camera_running or self.color_image is None or received_at is None
+                    or time.monotonic() - received_at > maximum_age):
                 return None
             return self.color_image.copy()
 
@@ -688,82 +693,97 @@ class Marker_Detection:
 
 
 class Marker_Transform:
-    def __init__(self, serial_number = None):
-        # Initialize
-        self.camera = RealSenseCamera(serial_number=serial_number)
+    def __init__(self, serial_number=None, *, sim=False, robot=None, robot_version='1.2'):
+        self.sim = bool(sim)
+        self.camera = None
+        self.robot = None
+        self.robot_version = str(robot_version).removeprefix('v')
         self.marker_detection = Marker_Detection()
-        
-        # Load configs globally in the wrapper class
         self._load_all_configs()
-        
-        # Setup Transforms
-        tf_vec_l = self.markers_config.get("Tf_to_marker_left", self.markers_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
-        tf_vec_r = self.markers_config.get("Tf_to_marker_right", self.markers_config.get("Tf_to_marker", [0.022, 0.0, 0.18, 180.0, 0.0, -90.0]))
-        head_base_vec = self.camera_config.get("head_base_to_cam", [0.009, -0.09, -0.085, 159.0, 0.0, 180.0])
-        print(tf_vec_l)
-        
-        self.Tf_to_marker_tf_left = self.make_transform(tf_vec_l)
-        self.Tf_to_marker_tf_right = self.make_transform(tf_vec_r)
-        self.head_base_to_cam_tf = self.make_transform(head_base_vec)
-        
-        self.width = self.camera_config.get("width", 1280)
-        self.height = self.camera_config.get("height", 720)
-        self.fps = self.camera_config.get("fps", 30)
-        
-        print("Initializing Camera...")
-        self.camera.initialize_camera(self.width, self.height, self.fps)
-        
-        intrinsics = self.camera.get_principal_point_and_focal_length()
-        self.marker_detection.set_intrinsics_param(intrinsics)
-
-        depth_resolution = self.camera.get_depth_resolution()
-        self.marker_detection.set_depth_resolution(depth_resolution)
-
-        dist_coeffs = self.camera.get_dist_coeffs()
-        self.marker_detection.set_dist_coeffs(dist_coeffs)
-
-        self.marker_detection.set_baseline(self.camera.baseline)
-        
-
-        from core.camera_intrinsics import select_intrinsics
-        from core.paths import CONFIG_PATHS
-        selected, selected_dist, self.intrinsics_metadata = select_intrinsics(
-            self.camera_config.get("intrinsics_source", "factory"),
-            intrinsics, dist_coeffs, self.width, self.height,
-            CONFIG_PATHS["camera_intrinsics"])
-        self.marker_detection.set_intrinsics_param(selected)
-        self.marker_detection.set_dist_coeffs(selected_dist)
-        self.intrinsics_metadata["capture_temperature_c"] = self.camera.get_camera_temperature()
-        print(f"[INTRINSICS] {self.intrinsics_metadata}")
-        
-        # Always default to Auto Exposure on initialization
-        self.camera.set_exposure(6000.0, auto_exposure=True)
-
+        self.width = self.camera_config.get('width', 1280)
+        self.height = self.camera_config.get('height', 720)
+        self.fps = self.camera_config.get('fps', 30)
+        # Configuration errors must never silently change the observation source.
+        self.reload_intrinsics()
+        if not self.sim:
+            try:
+                self.camera = RealSenseCamera(serial_number=serial_number)
+            except CameraUnavailableError:
+                self.sim = True
+            if self.camera is not None:
+                self._load_all_configs()
+                self.camera.initialize_camera(self.width, self.height, self.fps)
+                self.marker_detection.set_depth_resolution(self.camera.get_depth_resolution())
+                self.marker_detection.set_baseline(self.camera.baseline)
+                self.camera.set_exposure(6000.0, auto_exposure=True)
+        self.temp_supported = bool(self.camera is not None and self.temp_supported)
         self.temp_history = []
+        self.Tf_to_marker_tf_left = self.make_transform(self.markers_config.get(
+            'Tf_to_marker_left', self.markers_config.get('Tf_to_marker', [0.022, 0, 0.18, 180, 0, -90])))
+        self.Tf_to_marker_tf_right = self.make_transform(self.markers_config.get(
+            'Tf_to_marker_right', self.markers_config.get('Tf_to_marker', [0.022, 0, 0.18, 180, 0, -90])))
+        self.head_base_to_cam_tf = self.make_transform(self.camera_config.get(
+            'head_base_to_cam', [0.009, -0.09, -0.085, 159, 0, 180]))
+        self.simulation_model = None
+        self.bind_robot(robot, self.robot_version)
+
+    def bind_robot(self, robot, robot_version):
+        version = str(robot_version).removeprefix('v')
+        if self.sim and (self.simulation_model is None or self.simulation_model.version != version):
+            self.simulation_model = SimulationModel.create(version)
+            self.rng = np.random.default_rng(self.simulation_model.config['seed'])
+        self.robot, self.robot_version = robot, version
+
+    def _validate_intrinsics(self, config):
+        if not isinstance(config, dict):
+            raise ValueError('Camera intrinsics must be a mapping')
+        for key in ('width', 'height'):
+            dimension = float(config.get(key, 0))
+            if not np.isfinite(dimension) or dimension <= 0 or dimension != int(dimension):
+                raise ValueError('Intrinsics dimensions must be finite positive integers')
+        if config.get('width') != self.width or config.get('height') != self.height:
+            raise ValueError('Intrinsics resolution mismatch; implicit scaling is disabled')
+        matrix = np.asarray(config['camera_matrix'], dtype=float)
+        distortion = np.asarray(config['dist_coeffs'], dtype=float).ravel()
+        if (matrix.shape != (3, 3) or not np.all(np.isfinite(matrix))
+                or matrix[0, 0] <= 0 or matrix[1, 1] <= 0
+                or not np.allclose(matrix[2], [0, 0, 1])
+                or distortion.size not in (4, 5, 8, 12, 14)
+                or not np.all(np.isfinite(distortion))):
+            raise ValueError('Invalid camera calibration matrix/distortion')
+        return matrix, distortion
+
+    def reload_intrinsics(self):
+        from core.paths import CONFIG_PATHS
+        path = Path(CONFIG_PATHS['camera_intrinsics'])
+        raw = path.read_bytes()
+        config = yaml.safe_load(raw)
+        matrix, distortion = self._validate_intrinsics(config)
+        self.marker_detection.set_intrinsics_param(
+            [matrix[0, 2], matrix[1, 2], matrix[0, 0], matrix[1, 1]])
+        self.marker_detection.set_dist_coeffs(distortion)
+        self.intrinsics_metadata = {
+            'source': 'config/camera_intrinsics.yaml', 'width': self.width, 'height': self.height,
+            'file': str(path.resolve()), 'file_sha256': hashlib.sha256(raw).hexdigest(),
+            'camera_matrix': matrix.tolist(), 'dist_coeffs': distortion.tolist(),
+            'calibration_temperature_c': config.get('calibration_temperature_c')}
+        return self.intrinsics_metadata
+
+    def save_intrinsics(self, config):
+        from core.paths import CONFIG_PATHS
+        from core.config_store import update_yaml
+        self._validate_intrinsics(config)
+        update_yaml(CONFIG_PATHS['camera_intrinsics'], config)
+        return self.reload_intrinsics()
 
     def set_camera_exposure(self, exposure_val, auto_exposure=False):
-        return self.camera.set_exposure(exposure_val, auto_exposure)
-
-    def apply_intrinsics_source(self, source, persist=None):
-        from core.camera_intrinsics import select_intrinsics
-        from core.paths import CONFIG_PATHS
-        values, distortion, metadata = select_intrinsics(
-            source, self.camera.get_principal_point_and_focal_length(),
-            self.camera.get_dist_coeffs(),
-            self.width, self.height, CONFIG_PATHS['camera_intrinsics'])
-        # Validate/select first, persist next, publish after persistence succeeds.
-        if persist is not None:
-            persist()
-        self.marker_detection.set_intrinsics_param(values)
-        self.marker_detection.set_dist_coeffs(distortion)
-        self.intrinsics_metadata = metadata
-        self.camera_config['intrinsics_source'] = source
+        return self.camera.set_exposure(exposure_val, auto_exposure) if self.camera else None
 
     def get_camera_exposure(self):
-        return self.camera.get_exposure()
+        return self.camera.get_exposure() if self.camera else None
 
     def get_actual_exposure(self):
-        return self.camera.get_actual_exposure()
+        return self.camera.get_actual_exposure() if self.camera else None
 
     def _load_all_configs(self):
         from core.paths import CONFIG_PATHS
@@ -891,7 +911,7 @@ class Marker_Transform:
         cp = math.cos(pitch); sp = math.sin(pitch)
         cy = math.cos(yaw); sy = math.sin(yaw)
         
-        m = np.eye(4, dtype=np.float32)
+        m = np.eye(4, dtype=float)
         m[0, 0] = cy * cp
         m[0, 1] = sr * sp * cy - cr * sy
         m[0, 2] = cr * sp * cy + sr * sy
@@ -921,9 +941,6 @@ class Marker_Transform:
                 cam_to_tool_tf = camera_to_marker_tf
             cam_to_tool_vec = cam_to_tool_tf.flatten()
             
-            cam_to_tool_vec[3] /= 1000
-            cam_to_tool_vec[7] /= 1000
-            cam_to_tool_vec[11] /= 1000
             if tcpip_send and len(cam_to_tool_vec) > 0:
                 self.marker_detection.tcp_client.send_pose(cam_to_tool_vec) 
             return cam_to_tool_vec
@@ -931,14 +948,18 @@ class Marker_Transform:
             print("Singular matrix, cannot invert")
             return None
 
-    def get_marker_transform(self, sampling_time=0, side="left", use_filter=None):
+    def get_marker_transform(self, sampling_time=0, side="left", use_filter=None, *, q_encoder=None):
+        if not np.isfinite(sampling_time) or sampling_time < 0:
+            raise ValueError('sampling_time must be finite and nonnegative')
+        if self.sim and self.robot is None:
+            raise RuntimeError('A connected SDK robot is required for simulated observations')
         if use_filter is None:
             use_filter = (sampling_time == 0)
         lpf = False
         # Collection array for sampling -> dict of lists
         collected_transforms = {} # { marker_id: [tf_vectors...] }
         sampled_temps = []
-        start_time = time.time()
+        start_time = time.monotonic()
 
         if sampling_time > 0:
             self.marker_detection.prev_pts_dict = {}
@@ -946,16 +967,27 @@ class Marker_Transform:
 
         while True:
             try:
-                if not self.camera.camera_monitoring:
-                    self.camera.capture_image()
-                color_img = self.camera.get_color_image()
-                depth_img = self.camera.get_depth_image()
-                if color_img is None:
-                    time.sleep(0.01)
-                    if sampling_time == 0 : return None
-                    continue
-                
-                marker_transforms = self.marker_detection.detect(color_img, lpf=lpf, depth_image=depth_img, use_filter=use_filter)
+                if self.sim:
+                    q = np.asarray(q_encoder if q_encoder is not None else self.robot.get_state().position)
+                    sides = ['right', 'left'] if side == 'all' else [side]
+                    marker_transforms = [
+                        ('plate_' + arm, self.simulation_model.marker_pose(self.robot, q, arm, self.rng).ravel())
+                        for arm in sides]
+                else:
+                    if not self.camera.camera_monitoring:
+                        self.camera.capture_image()
+                    color_img = self.camera.get_color_image()
+                    depth_img = self.camera.get_depth_image()
+                    marker_transforms = [] if color_img is None else self.marker_detection.detect(
+                        color_img, lpf=lpf, depth_image=depth_img, use_filter=use_filter)
+                    # Real detector coordinates are millimetres. Normalize at
+                    # the observation boundary, before common aggregation.
+                    normalized = []
+                    for marker_id, values in marker_transforms:
+                        transform = np.asarray(values, dtype=float).reshape(4, 4).copy()
+                        transform[:3, 3] /= 1000.
+                        normalized.append((marker_id, transform.ravel()))
+                    marker_transforms = normalized
                 for marker_id_or_group, tf_list in marker_transforms:
                     if marker_id_or_group not in collected_transforms:
                         collected_transforms[marker_id_or_group] = []
@@ -963,7 +995,7 @@ class Marker_Transform:
                 # -------------------------------------------------------------
                 
                 # Check timeout if sampling
-                if sampling_time == 0 or (sampling_time > 0 and (time.time() - start_time > sampling_time)):
+                if sampling_time == 0 or (sampling_time > 0 and (time.monotonic() - start_time >= sampling_time)):
                     break
                         
             except KeyboardInterrupt:
@@ -1006,7 +1038,7 @@ class Marker_Transform:
                     U[:, 2] *= -1
                     final_R = U @ Vt
                 
-                avg_cam_to_marker_tf = np.eye(4, dtype=np.float32)
+                avg_cam_to_marker_tf = np.eye(4, dtype=float)
                 avg_cam_to_marker_tf[0:3, 0:3] = final_R
                 avg_cam_to_marker_tf[0:3, 3] = final_translation
                 
@@ -1019,7 +1051,7 @@ class Marker_Transform:
             for marker_id, tfs in collected_transforms.items():
                 # For sampling_time == 0, there is only one frame of transforms
                 # and thus tfs should have only length 1
-                camera_to_marker_tf = np.array(tfs[-1], dtype=np.float32).reshape(4, 4)
+                camera_to_marker_tf = np.array(tfs[-1], dtype=float).reshape(4, 4)
                 
                 calc_side = "left" if "left" in str(marker_id) else "right"
                 cam_to_tool_vec = self.calc_cam_to_tool(camera_to_marker_tf, side=calc_side)
@@ -1044,3 +1076,89 @@ class Marker_Transform:
             return final_results
         else:
             return None
+
+
+from dataclasses import dataclass
+import hashlib
+import json
+from pathlib import Path
+
+import numpy as np
+import yaml
+
+from core.paths import CONFIG_PATHS
+
+
+def load_truth_config():
+    with open(CONFIG_PATHS['simulation_yaml'], encoding='utf-8') as stream:
+        return yaml.safe_load(stream)
+
+
+def uses_head_camera(camera_config, model):
+    mode = camera_config.get('camera_mount_mode', 'head')
+    if mode not in ('head', 'fixed'):
+        raise ValueError('camera_mount_mode must be head or fixed')
+    return mode == 'head' and len(getattr(model, 'head_idx', [])) >= 2
+
+
+@dataclass(frozen=True)
+class SimulationModel:
+    version: str
+    config_json: str
+
+    @classmethod
+    def create(cls, version='1.2', config=None):
+        config = load_truth_config() if config is None else config
+        version = str(version).removeprefix('v')
+        if version not in config['brackets']:
+            raise ValueError(f'No simulation geometry for robot v{version}')
+        return cls(version, json.dumps(config, sort_keys=True, allow_nan=False))
+
+    @property
+    def config(self):
+        # Callers receive a detached copy, not writable truth storage.
+        return json.loads(self.config_json)
+
+    def arm_offsets(self, side):
+        values = self.config['offsets'][side]
+        return np.deg2rad([values[f'joint{i}' if i != 5 else
+                                 ('joint5_v13' if self.version == '1.3' else 'joint5_v12')]
+                          for i in range(7)])
+
+    def bracket_transform(self, side):
+        from core.calibration_optimizer import make_transform
+        cfg = self.config
+        nominal = make_transform(cfg['brackets'][self.version][side])
+        error = cfg['offsets'][side]
+        # Assembly translation is in flange axes; do not rotate nominal lever arm.
+        nominal[:3, 3] += np.asarray(error['bracket_pos'])
+        nominal[:3, :3] = make_transform([0, 0, 0] + error['bracket_rpy'])[:3, :3] @ nominal[:3, :3]
+        return nominal
+
+    def marker_pose(self, robot, q_encoder, side, rng=None, noisy=True):
+        from core.calibration_optimizer import compute_fk, make_transform, so3_exp
+        cfg, model = self.config, robot.model()
+        q = np.array(q_encoder, dtype=float, copy=True)
+        q[getattr(model, f'{side}_arm_idx')] += self.arm_offsets(side)
+        head = uses_head_camera(cfg, model)
+        if head:
+            offsets = cfg['offsets']['head']
+            q[model.head_idx] += np.deg2rad([offsets['pan'], offsets['tilt']])
+        base = 'link_head_2' if head else 'link_head_0'
+        camera = make_transform(cfg['mount_to_cam' if head else 'head_base_to_cam'])
+        _, fk = compute_fk(robot, robot.get_dynamics(), q, f'ee_{side}', base_link=base)
+        result = np.linalg.inv(camera) @ fk @ self.bracket_transform(side)
+        if noisy:
+            if rng is None:
+                raise ValueError('A session RNG is required for reproducible sensor noise')
+            result[:3, 3] += rng.normal(0, cfg['position_noise_std_m'], 3)
+            result[:3, :3] = so3_exp(np.deg2rad(rng.normal(0, cfg['orientation_noise_std_deg'], 3))) @ result[:3, :3]
+        return result
+
+    def metadata(self, urdf_path=None):
+        return {'schema_version': 1, 'source': 'simulation_pose_sensor',
+                'robot_version': self.version, 'truth': self.config,
+                'truth_sha256': hashlib.sha256(self.config_json.encode()).hexdigest(),
+                'urdf_sha256': hashlib.sha256(Path(urdf_path).read_bytes()).hexdigest() if urdf_path else None,
+                'offset_convention': 'q_physical = q_encoder + delta; correction = -delta',
+                'image_detection_verified': False}

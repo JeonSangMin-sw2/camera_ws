@@ -17,9 +17,9 @@ from scipy.linalg import expm
 from scipy.spatial.transform import Rotation
 
 from core.calibration_optimizer import QPCalibrationOptimizer, make_transform, se3_exp, se3_log
-from core.calibration_core import load_npz_dataset, save_npz_dataset, generate_sim_measurements
-from core.simulation_model import SimulationModel
-from core.camera_intrinsics import select_intrinsics
+from core.calibration_core import load_npz_dataset, save_npz_dataset
+from core.marker_detection import SimulationModel
+from core.marker_detection import Marker_Transform
 from core.homeoffset_core import load_offset_from_json
 
 
@@ -92,14 +92,15 @@ class MathTests(unittest.TestCase):
 
     def test_intrinsics_selection(self):
         path = Path(__file__).resolve().parents[1] / 'config/camera_intrinsics.yaml'
-        _, _, metadata = select_intrinsics('calibrated', [0, 0, 1, 1], np.zeros(5), 1280, 720, path)
+        provider = Marker_Transform(sim=True)
+        metadata = provider.intrinsics_metadata
         self.assertEqual(metadata['calibration_temperature_c'], 38)
         self.assertNotIn('connected_serial', metadata)
-        for alias in ('per_device', 'transferred'):
-            _, _, legacy = select_intrinsics(alias, [], [], 1280, 720, path)
-            self.assertEqual(legacy['source'], 'calibrated')
+        self.assertEqual(metadata['file'], str(path))
+        self.assertEqual(metadata['source'], 'config/camera_intrinsics.yaml')
+        provider.width = 640
         with self.assertRaises(ValueError):
-            select_intrinsics('calibrated', [], [], 640, 480, path)
+            provider.reload_intrinsics()
 
     def test_gauge_head_home_export_is_excluded(self):
         with tempfile.TemporaryDirectory() as folder:
@@ -119,19 +120,16 @@ class KinematicsTests(unittest.TestCase):
         detached['mount_to_cam'][0] += .02
         self.assertEqual(before, sim.metadata()['truth_sha256'])
         qa, qh, _ = data(robot, sim, 3)
-        kwargs = dict(robot=robot, dyn_model=robot.get_dynamics(), q_arm_list=qa, q_head_list=qh,
-            arm_idx=robot.model().right_arm_idx + robot.model().left_arm_idx,
-            head_idx=robot.model().head_idx, q_nominal=robot.get_state().position,
-            active_arms=['right', 'left'], ee_links={}, mount_to_cam_nom=[], head_base_to_cam_nom=[], ee_to_marker_nom={},
-            simulation_model=sim, camera_position_noise_std_m=0, camera_orientation_noise_std_deg=0)
-        a = generate_sim_measurements(**kwargs, optimize_arm=True, optimize_head=True, optimize_camera=True)
-        b = generate_sim_measurements(**kwargs, optimize_arm=False, optimize_head=False, optimize_camera=False)
+        a = data(robot, sim, 3)[2]
+        # Estimator switches cannot mutate an immutable sensor session.
+        optimizer(robot, sim, head=True, free_camera=True)
+        optimizer(robot, sim, head=False, free_camera=False)
+        b = data(robot, sim, 3)[2]
         np.testing.assert_array_equal(a, b)
-        from core.calibration.CalibratorBase import BaseCalibrator
-        base = BaseCalibrator.__new__(BaseCalibrator)
-        base.robot, base.robot_version, base.marker_st = robot, '1.2', None
+        from core.marker_detection import Marker_Transform
+        provider = Marker_Transform(sim=True, robot=robot)
         q = robot.get_state().position
-        np.testing.assert_allclose(base.get_simulated_marker_pose('right', noisy=False), sim.marker_pose(robot, q, 'right', noisy=False))
+        np.testing.assert_allclose(provider.simulation_model.marker_pose(robot, q, 'right', noisy=False), sim.marker_pose(robot, q, 'right', noisy=False))
 
     def test_jacobian_against_independent_difference(self):
         robot, sim = OfflineRobot(), SimulationModel.create()
@@ -217,26 +215,31 @@ class KinematicsTests(unittest.TestCase):
                         q = robot.get_state().position.copy()
                         q[idx] = center
                         q[idx[axis]] += np.deg2rad(angle)
-                        samples.append((q, sim.marker_pose(robot, q, side, noisy=False)))
+                        samples.append(sim.marker_pose(robot, q, side, noisy=False))
                     return samples
                 with contextlib.redirect_stdout(io.StringIO()):
-                    j6 = joint.compute_calibration_results(side, mode, sweep(6, ready), sweep(5, ready), ready)
-                correction = j6['recommended_joint_offset']
+                    j6 = joint.compute_calibration_results(side, mode, sweep(6, ready), sweep(5, ready))
+                correction = j6['optimal_offset']
                 j6_references[side] = -correction
                 marker.joint_offsets[side]['wrist_roll' if version == '1.3' else 'wrist_yaw2'] = correction
                 center = marker.get_ready_pose(f'v{version}', 'marker', '', side)
+                declared_j6 = float(np.rad2deg(center[6]))
+                center[6] += np.deg2rad(correction)
                 sweeps = []
                 for axis in (4, 5, 6):
                     samples = sweep(axis, center)
-                    sweeps.append({'captured_poses': [p for _, p in samples], 'captured_q_full': [q for q, _ in samples]})
+                    observed = marker.fit_observed_circle(samples)
+                    observed.update(captured_poses=samples, commanded_reference_j6_deg=declared_j6)
+                    sweeps.append(observed)
                 # Joint estimation is separate from bracket fitting. This
                 # algebraic test supplies known J5; connected tests measure it.
                 j5 = np.rad2deg(sim.arm_offsets(side)[5])
-                fitted = marker.fit_encoder_bracket(*sweeps, side, correction, -j5)
+                fitted = marker.fit_observed_bracket(*sweeps, side)
+                self.assertTrue(fitted['measurement_accepted'], fitted)
                 effective_brackets[side] = [fitted[k]/1000 for k in ('x_e', 'y_e', 'z_e')] + [fitted[k] for k in ('roll_e', 'pitch_e', 'yaw_e')]
-                self.assertEqual(fitted['data_rank'], 6)
+                self.assertEqual(fitted['data_rank'], 3)
                 self.assertNotIn('opt_delta_5', fitted)
-                self.assertEqual(fitted['fixed_j5_correction_deg'], -j5)
+                self.assertLess(fitted['axis_intersection_rms_mm'], .0001)
             qa, qh, obs = data(robot, sim)
             opt = optimizer(robot, sim)
             opt.ee_to_marker_nom = effective_brackets

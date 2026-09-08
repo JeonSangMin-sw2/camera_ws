@@ -995,7 +995,7 @@ class QPCalibrationOptimizer:
             self.optimize_head and (not self.head_tilt_gauge or self.head_tilt_reference_rad is not None))
         if (self.optimize_head and self.head_zero_convention == 'camera_forward'
                 and self.last_diagnostics['converged'] and self.last_diagnostics['observable']):
-            from core.head_camera_zero import camera_forward_zero
+            from core.calibration.HeadCameraCalibrator import camera_forward_zero
             def head_fk(head):
                 q = self.q_nominal.copy()
                 q[self.head_idx] = head

@@ -9,6 +9,7 @@ import unittest
 from unittest.mock import patch, Mock
 
 import yaml
+import numpy as np
 from PySide6.QtWidgets import QApplication, QLineEdit
 from main_ui import UnifiedCalibrationApp
 from core.calibration.HeadCameraCalibrator import HeadCameraCalibrator
@@ -23,7 +24,7 @@ BROKEN = 'camera: {}\nmarker:\n  pose: [1, 2, 3, 4, 5, 6]\n    90.1, 0.2, 0.3]\n
 
 
 def app_double():
-    app = SimpleNamespace(logs=[], ui_only=True, marker_st=None,
+    app = SimpleNamespace(logs=[], sim=True, marker_st=None,
         last_full_auto_error=None, last_full_auto_converged=True,
         get_robot_version=lambda: '1.2', update_applied_offset_label=lambda: None,
         joint_offsets_store={s: {'joint3': .1, 'joint5': .2, 'joint6': .3} for s in ('left', 'right')},
@@ -47,16 +48,202 @@ class PersistenceRegressionTests(unittest.TestCase):
 
     def test_intrinsics_save_failure_keeps_detector_unchanged(self):
         from core.marker_detection import Marker_Transform
-        obj = SimpleNamespace(camera=Mock(), width=640, height=480,
-            marker_detection=Mock(), intrinsics_metadata={'source': 'factory'},
-            camera_config={'intrinsics_source': 'factory'})
-        persist = Mock(side_effect=OSError('disk full'))
-        with patch('core.camera_intrinsics.select_intrinsics', return_value=([1]*4, [0]*5, {'source': 'calibrated'})):
+        obj = Marker_Transform(sim=True)
+        before = deepcopy(obj.intrinsics_metadata)
+        data = yaml.safe_load(Path(CONFIG_PATHS['camera_intrinsics']).read_text())
+        with patch('core.config_store.os.replace', side_effect=OSError('disk full')):
             with self.assertRaises(OSError):
-                Marker_Transform.apply_intrinsics_source(obj, 'calibrated', persist=persist)
-        obj.marker_detection.set_intrinsics_param.assert_not_called()
-        self.assertEqual(obj.intrinsics_metadata, {'source': 'factory'})
-        self.assertEqual(obj.camera_config['intrinsics_source'], 'factory')
+                obj.save_intrinsics(data)
+        self.assertEqual(obj.intrinsics_metadata, before)
+
+    def test_missing_camera_selects_sim_but_runtime_failure_propagates(self):
+        from core.marker_detection import Marker_Transform, CameraUnavailableError
+        with patch('core.marker_detection.RealSenseCamera', side_effect=CameraUnavailableError('missing')):
+            self.assertTrue(Marker_Transform().sim)
+        with patch('core.marker_detection.RealSenseCamera', side_effect=RuntimeError('stream failed')):
+            with self.assertRaisesRegex(RuntimeError, 'stream failed'):
+                Marker_Transform()
+
+    def test_application_import_and_sim_start_without_realsense_driver(self):
+        import subprocess
+        import sys
+        command = "import sys; sys.modules['pyrealsense2'] = None; import main_ui; from core.marker_detection import Marker_Transform; assert Marker_Transform(sim=True).sim"
+        result = subprocess.run([sys.executable, '-c', command], cwd=Path(__file__).resolve().parents[1],
+                                capture_output=True, text=True, timeout=15)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_sim_intrinsics_are_fixed_yaml_and_invalid_reload_preserves_state(self):
+        from core.marker_detection import Marker_Transform
+        obj = Marker_Transform(sim=True)
+        self.assertAlmostEqual(obj.marker_detection.fx, 660.3380121560385)
+        before = deepcopy(obj.intrinsics_metadata)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'camera_intrinsics.yaml'
+            data = yaml.safe_load(Path(CONFIG_PATHS['camera_intrinsics']).read_text())
+            data['camera_matrix'][0][0] = float('nan')
+            path.write_text(yaml.safe_dump(data))
+            with patch.dict(CONFIG_PATHS, camera_intrinsics=str(path)):
+                with self.assertRaises(ValueError):
+                    obj.reload_intrinsics()
+        self.assertEqual(obj.intrinsics_metadata, before)
+
+    def test_intrinsics_reject_nonfinite_or_nonpositive_dimensions(self):
+        from core.marker_detection import Marker_Transform
+        obj = Marker_Transform(sim=True)
+        data = yaml.safe_load(Path(CONFIG_PATHS['camera_intrinsics']).read_text())
+        for width in (float('inf'), 0, -1, 640.5):
+            obj.width = data['width'] = width
+            with self.assertRaises(ValueError):
+                obj._validate_intrinsics(data)
+
+    def test_sim_requires_encoder_source_and_returns_flat_metres(self):
+        from core.marker_detection import Marker_Transform
+        obj = Marker_Transform(sim=True)
+        obj.set_marker_type('plate')
+        with self.assertRaisesRegex(RuntimeError, 'robot'):
+            obj.get_marker_transform()
+        robot = SimpleNamespace(get_state=lambda: SimpleNamespace(position=np.zeros(24)))
+        obj.bind_robot(robot, '1.2')
+        right, left = np.eye(4), np.eye(4)
+        right[0, 3], left[0, 3] = 0.4, -0.3
+        with patch.object(type(obj.simulation_model), 'marker_pose', side_effect=lambda robot, q, side, rng: right if side == 'right' else left):
+            observed = obj.get_marker_transform(side='all')
+        self.assertEqual(np.asarray(observed).shape, (2, 16))
+        self.assertEqual(observed[0][3], 0.4)
+        self.assertEqual(observed[1][3], -0.3)
+
+    def test_numeric_field_keeps_unchanged_precision(self):
+        from main_ui import set_numeric_field, read_numeric_field
+        field = QLineEdit()
+        set_numeric_field(field, OLD[0])
+        self.assertEqual(read_numeric_field(field), OLD[0])
+        field.setText('0.25')
+        self.assertEqual(read_numeric_field(field), 0.25)
+
+    def test_disconnected_home_workers_report_failure(self):
+        from main_ui import HomeOffsetResetWorker, MoveHomeOffsetWorker, ApplyCurrentPoseWorker
+        workers = [HomeOffsetResetWorker(None, None, 'm', False),
+                   MoveHomeOffsetWorker(None, None, 'both', '/unused', False, 'preview'),
+                   ApplyCurrentPoseWorker(None, None, 'both', False)]
+        for worker in workers:
+            outcomes = []
+            worker.finished_signal.connect(outcomes.append)
+            worker.run()
+            self.assertEqual(len(outcomes), 1)
+            result = outcomes[0]
+            self.assertFalse(result.get('success') if isinstance(result, dict) else result)
+
+    def test_real_missing_frames_timeout_and_real_translations_use_metres(self):
+        import time
+        from core.marker_detection import Marker_Transform
+        obj = Marker_Transform(sim=True)
+        obj.set_marker_type('plate')
+        obj.sim = False
+        obj.camera = SimpleNamespace(camera_monitoring=True, get_color_image=lambda: None,
+                                     get_depth_image=lambda: None)
+        started = time.monotonic()
+        self.assertIsNone(obj.get_marker_transform(sampling_time=.03))
+        self.assertLess(time.monotonic() - started, .25)
+        obj.camera.get_color_image = lambda: np.zeros((2, 2, 3), dtype=np.uint8)
+        transform = np.eye(4)
+        transform[0, 3] = 400.0
+        with patch.object(obj.marker_detection, 'detect', return_value=[('plate_right', transform.ravel())]):
+            observed = obj.get_marker_transform(side='right')
+        self.assertEqual(np.asarray(observed).shape, (1, 16))
+        self.assertEqual(observed[0][3], .4)
+
+    def test_camera_rejects_profile_failure_without_resolution_fallback(self):
+        from core.marker_detection import RealSenseCamera
+        camera = SimpleNamespace(config=Mock(), serial_number='offline',
+                                 pipeline=SimpleNamespace(start=Mock(side_effect=[RuntimeError('profile rejected'), RuntimeError('fallback attempted'), RuntimeError('fallback attempted')])) )
+        rs = SimpleNamespace(stream=SimpleNamespace(color=1), format=SimpleNamespace(bgr8=2), config=Mock)
+        with patch('core.marker_detection.rs', rs, create=True):
+            with self.assertRaisesRegex(RuntimeError, 'profile rejected'):
+                RealSenseCamera.initialize_camera(camera, 1280, 720, 30)
+
+    def test_capture_failure_never_reuses_cached_marker_frame(self):
+        import threading
+        import time
+        from core.marker_detection import Marker_Transform, RealSenseCamera
+        camera = RealSenseCamera.__new__(RealSenseCamera)
+        camera.camera_running = True
+        camera.camera_monitoring = False
+        camera.color_image = np.zeros((2, 2, 3), dtype=np.uint8)
+        camera.color_frame_received_at = time.monotonic()
+        camera.depth_image = None
+        camera.fps = 30
+        camera.lock = threading.Lock()
+        camera.pipeline = SimpleNamespace(wait_for_frames=Mock(side_effect=RuntimeError('camera disconnected')))
+        provider = Marker_Transform(sim=True)
+        provider.sim = False
+        provider.camera = camera
+        provider.set_marker_type('plate')
+        pose = np.eye(4)
+        pose[0, 3] = 400.
+        with patch.object(provider.marker_detection, 'detect', return_value=[('plate_right', pose.ravel())]):
+            self.assertIsNone(provider.get_marker_transform(.03, side='right'))
+        self.assertIsNone(camera.get_color_image())
+        self.assertFalse(provider.sim)
+
+    def test_monitored_camera_expires_old_frame_and_rejects_stopped_camera(self):
+        import threading
+        import time
+        from core.marker_detection import RealSenseCamera
+        camera = RealSenseCamera.__new__(RealSenseCamera)
+        camera.camera_running = True
+        camera.camera_monitoring = True
+        camera.color_image = np.zeros((2, 2, 3), dtype=np.uint8)
+        camera.color_frame_received_at = time.monotonic() - 10
+        camera.fps = 30
+        camera.lock = threading.Lock()
+        self.assertIsNone(camera.get_color_image())
+        camera.color_frame_received_at = time.monotonic()
+        self.assertIsNotNone(camera.get_color_image())
+        camera.camera_running = False
+        self.assertIsNone(camera.get_color_image())
+
+    def test_reconnect_during_sample_session_preserves_all_consumers(self):
+        app = SimpleNamespace(logs=[], shared_arm_q_list=[np.zeros(14)], marker_st=object())
+        app.log_msg = app.logs.append
+        app.camera_source_busy = MethodType(UnifiedCalibrationApp.camera_source_busy, app)
+        previous = app.marker_st
+        self.assertFalse(UnifiedCalibrationApp.reconnect_camera(app, show_dialog=False))
+        self.assertIs(app.marker_st, previous)
+
+    def test_intrinsics_calibrator_save_reloads_provider(self):
+        from core.marker_detection import Marker_Transform
+        from core.calibration.IntrinsicsCalibrator import IntrinsicsCalibrator
+        provider = Marker_Transform(sim=True)
+        calibrator = IntrinsicsCalibrator()
+        calibrator.marker_st = provider
+        calibrator.cameraMatrix = np.array([[700., 0, 630], [0, 701, 350], [0, 0, 1]])
+        calibrator.distCoeffs = np.zeros(5)
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'camera_intrinsics.yaml'
+            path.write_bytes(Path(CONFIG_PATHS['camera_intrinsics']).read_bytes())
+            with patch.dict(CONFIG_PATHS, camera_intrinsics=str(path)):
+                calibrator._save_results(str(path), 1280, 720)
+                self.assertEqual(provider.marker_detection.fx, 700.)
+                self.assertEqual(provider.intrinsics_metadata['file'], str(path))
+
+    def test_app_inherits_provider_version_and_rebinds_every_consumer(self):
+        from core.marker_detection import Marker_Transform
+        provider = Marker_Transform(sim=True, robot_version='1.3')
+        app = UnifiedCalibrationApp(provider, None)
+        try:
+            self.assertEqual(app.get_robot_version(), '1.3')
+            for calibrator in (app.joint_calibrator, app.marker_calibrator, app.head_camera_calibrator):
+                self.assertIs(calibrator.marker_st, provider)
+                self.assertEqual(calibrator.robot_version, '1.3')
+            replacement = Marker_Transform(sim=True, robot_version='1.3')
+            with patch('main_ui.Marker_Transform', return_value=replacement):
+                self.assertTrue(app.reconnect_camera(show_dialog=False))
+            self.assertIs(app.marker_detector, replacement.marker_detection)
+            self.assertIs(app.intrinsics_calibrator.marker_st, replacement)
+            for calibrator in (app.joint_calibrator, app.marker_calibrator, app.head_camera_calibrator):
+                self.assertIs(calibrator.marker_st, replacement)
+        finally:
+            app.close()
 
     def test_clear_failure_preserves_staged_and_applied_offsets(self):
         from PySide6.QtWidgets import QMessageBox

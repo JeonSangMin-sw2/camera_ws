@@ -9,13 +9,12 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import pyrealsense2 as rs
 import rby1_sdk as rby
 import yaml
 
-from marker_detection import Marker_Transform
-from homeoffset_core import reset_home_offsets
-from robot_motion import check_calibration_state
+from core.marker_detection import Marker_Transform
+from core.homeoffset_core import reset_home_offsets
+from core.robot_motion import check_calibration_state
 
 
 np.set_printoptions(suppress=True, precision=6)
@@ -256,7 +255,7 @@ def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=1, side="
     q_arm = q_full[arm_idx].copy()
     q_head = np.array([float(q_full[i]) for i in list(head_idx)], dtype=np.float64) if head_idx is not None else None
 
-    result = marker_transform.get_marker_transform(sampling_time=sampling_time, side=side)
+    result = marker_transform.get_marker_transform(sampling_time=sampling_time, side=side, q_encoder=q_full)
     if result is None:
         return None, None, None
 
@@ -284,52 +283,3 @@ def capture_one_sample(robot, arm_idx, marker_transform, sampling_time=1, side="
             f"Expected marker transform with 16 values for side='{side}', got shape {np.asarray(result).shape}"
         )
     return q_arm, q_head, T_meas.reshape(4, 4)
-
-
-
-# ============================================================
-# Optimizer
-# ============================================================
-
-def generate_sim_measurements(
-    robot,
-    dyn_model,
-    q_arm_list,
-    q_head_list,
-    arm_idx,
-    head_idx,
-    q_nominal,
-    optimize_arm,
-    optimize_head,
-    optimize_camera,
-    active_arms,
-    ee_links,
-    mount_to_cam_nom,
-    head_base_to_cam_nom,
-    ee_to_marker_nom,
-    camera_link="link_head_2",
-    camera_position_noise_std_m=None,
-    camera_orientation_noise_std_deg=None,
-    simulation_model=None,
-    version="1.2",
-    seed=None,
-):
-    from core.simulation_model import SimulationModel
-    # Optimizer switches affect estimation, never the physical sensor.
-    simulation = simulation_model or SimulationModel.create(version)
-    cfg = simulation.config
-    if camera_position_noise_std_m is not None:
-        cfg["position_noise_std_m"] = camera_position_noise_std_m
-    if camera_orientation_noise_std_deg is not None:
-        cfg["orientation_noise_std_deg"] = camera_orientation_noise_std_deg
-    simulation = SimulationModel.create(simulation.version, cfg)
-    rng = np.random.default_rng(cfg["seed"] if seed is None else seed)
-    samples = []
-    for i, qa in enumerate(q_arm_list):
-        q = np.array(q_nominal, copy=True)
-        q[arm_idx] = qa
-        if q_head_list is not None and head_idx is not None:
-            q[head_idx] = q_head_list[i]
-        pair = [simulation.marker_pose(robot, q, side, rng) for side in active_arms]
-        samples.append(pair[0] if len(pair) == 1 else np.stack(pair))
-    return np.asarray(samples)

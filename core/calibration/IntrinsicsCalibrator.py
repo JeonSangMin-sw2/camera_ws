@@ -382,8 +382,15 @@ class IntrinsicsCalibrator:
             "dist_coeffs": self.distCoeffs.flatten().tolist()
         }
         data.update(getattr(self, 'capture_metadata', {}))
-        with open(output_yaml, "w") as f:
-            yaml.dump(data, f, default_flow_style=False)
+        from pathlib import Path
+        from core.paths import CONFIG_PATHS
+        from core.marker_detection import Marker_Transform
+        if Path(output_yaml).resolve() != Path(CONFIG_PATHS['camera_intrinsics']).resolve():
+            raise ValueError('Intrinsics must be saved to config/camera_intrinsics.yaml')
+        provider = getattr(self, 'marker_st', None)
+        if provider is None:
+            provider = Marker_Transform(sim=True)
+        provider.save_intrinsics(data)
         print(f"Results saved to {output_yaml} ({width}x{height})")
 
     def generate_verification_image(self, test_img, save_path):

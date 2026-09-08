@@ -5,10 +5,7 @@ import os
 import yaml
 import numpy as np
 import rby1_sdk as rby
-import matplotlib
 import threading
-matplotlib.use('Agg')
-import matplotlib.pyplot as plt
 from scipy.optimize import least_squares
 from scipy.spatial.transform import Rotation as R_scipy
 
@@ -33,8 +30,6 @@ class BaseCalibrator:
         "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -30.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
         "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
-    from core.simulation_model import load_truth_config as _load_truth_config
-    MOCK_GT_OFFSETS = _load_truth_config()["offsets"]
     NOMINAL_BRACKET_TEMPLATES = {
         "1.3": {
             "left":  [0.067, 0.0, 0.0, 90.0, 0.0, -90.0],
@@ -99,10 +94,6 @@ class BaseCalibrator:
         """Returns the robot version as a string: '1.0', '1.1', '1.2', or '1.3'."""
         return str(getattr(self, "robot_version", "1.2"))
 
-    @property
-    def is_mock(self) -> bool:
-        return self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform"
-
     def is_v13(self) -> bool:
         """Returns True only for model-m v1.3 robots."""
         return self.get_robot_version() == "1.3"
@@ -123,7 +114,7 @@ class BaseCalibrator:
         return getattr(self, 'include_head_motion', True)
 
     def uses_head_camera(self):
-        from core.simulation_model import uses_head_camera
+        from core.marker_detection import uses_head_camera
         return uses_head_camera(self.camera_config, self.robot.model())
 
     def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
@@ -212,78 +203,18 @@ class BaseCalibrator:
             logging.error(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
             raise RuntimeError(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
 
-    def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None):
-        try:
-            if T_mount_to_cam is None:
-                if self.is_head_active():
-                    mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                    T_mount_to_cam = self.make_transform(mount_to_cam)
-                else:
-                    head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
-                    T_mount_to_cam = self.make_transform(head_base_to_cam)
-            from core.paths import CONFIG_PATHS
-            result_txt_dir = CONFIG_PATHS["txt_dir"]
-            os.makedirs(result_txt_dir, exist_ok=True)
-            if not self.robot:
-                raise RuntimeError("Robot instance is not initialized")
-            arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
-            
-            filename = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{type_key}_axis_{axis_num}.txt")
-            
-            # Determine prefix for header
-            if type_key == "joint_A":
-                angle_header_name = "Joint_A"
-            elif type_key == "joint_B":
-                angle_header_name = "Joint_B"
-            else:
-                angle_header_name = f"Joint_{axis_num}"
-            file_exists = os.path.exists(filename)
-            with open(filename, "a") as f:
-                if file_exists:
-                    f.write("\n=== NEW ITERATION ===\n")
-                f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
-                        "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
-                for q_full, pose in dataset:
-                    q_val = q_full[arm_idx[axis_num]]
-                    s_deg = np.degrees(q_val - initial_joint_pos[axis_num])
-                    p_cam = pose[:3, 3]
-                    
-                    T_cam_to_marker = pose
-                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, ee_name)
-                    if self.is_head_active():
-                        T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                        T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                    else:
-                        try:
-                            T_t5_to_head_0 = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_0", "link_torso_5")
-                        except Exception:
-                            T_t5_to_head_0 = np.eye(4)
-                        T_t5_to_cam = T_t5_to_head_0 @ T_mount_to_cam
-                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                    p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
-                    T_t5_to_marker = T_t5_to_cam @ T_cam_to_marker
-                    T_ee_to_marker = np.linalg.inv(T_t5_to_ee) @ T_t5_to_marker
-                    
-                    T_cam_flat_str = ", ".join(f"{v:.6f}" for v in T_cam_to_marker.flatten())
-                    T_t5_flat_str = ", ".join(f"{v:.6f}" for v in T_t5_to_marker.flatten())
-                    T_ee_flat_str = ", ".join(f"{v:.6f}" for v in T_ee_to_marker.flatten())
-                    
-                    f.write(f"{s_deg:.4f}, {p_cam[0]*1000.0:.4f}, {p_cam[1]*1000.0:.4f}, {p_cam[2]*1000.0:.4f}, "
-                            f"{p_meas_t5[0]*1000.0:.4f}, {p_meas_t5[1]*1000.0:.4f}, {p_meas_t5[2]*1000.0:.4f}, "
-                            f"{p_ee[0]*1000.0:.4f}, {p_ee[1]*1000.0:.4f}, {p_ee[2]*1000.0:.4f}, "
-                            f"{T_cam_flat_str}, {T_t5_flat_str}, {T_ee_flat_str}\n")
-            if log_callback:
-                if type_key == "marker":
-                    log_callback(f"[DEBUG] Saved Axis {axis_num} marker sweep debug points to {os.path.basename(filename)}")
-                else:
-                    log_callback(f"[DEBUG] Saved Axis {axis_num} debug points to {os.path.basename(filename)}")
-        except Exception as e:
-            if log_callback:
-                log_callback(f"[ERROR] Failed to save debug points: {e}")
-
+    def save_observed_points(self, arm_side, axis_num, poses, label):
+        """Camera poses only. No inferred physical pose or encoder columns."""
+        from core.paths import CONFIG_PATHS
+        directory = CONFIG_PATHS['txt_dir']
+        os.makedirs(directory, exist_ok=True)
+        path = os.path.join(directory, f'sweep_points_{arm_side}_{label}_axis_{axis_num}.txt')
+        with open(path, 'a', encoding='utf-8') as stream:
+            np.savetxt(stream, np.asarray(poses).reshape(-1, 16),
+                       header='ordered T_camera_marker; translation metres; no encoder/FK')
 
     @staticmethod
-    def initialize_robot(address, model, power=".*", servo=None, include_head=True):
+    def initialize_robot(address, model, servo=None, include_head=True):
         robot = rby.create_robot(address, model)
         if not robot.connect():
             logging.error(f"Failed to connect robot {address}")
@@ -307,7 +238,8 @@ class BaseCalibrator:
             return None
 
         # Check if connecting to localhost/simulator
-        is_local = any(loc in str(address) for loc in ["127.0.0.1", "localhost", "0.0.0.0"])
+        endpoint_host = str(address).rsplit(":", 1)[0].strip("[]").lower()
+        is_local = endpoint_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
 
         # Check if power is ON; if not, turn on power
         try:
@@ -348,8 +280,6 @@ class BaseCalibrator:
         # Configure servo pattern based on include_head flag (independent of physical hardware)
         if servo is not None and servo != ".*":
             target_servo_pattern = servo
-        elif is_local:
-            target_servo_pattern = ".*" if include_head else "^(?!.*head).*$"
         else:
             target_servo_pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
         if not include_head:
@@ -455,25 +385,6 @@ class BaseCalibrator:
 
 
 
-    def get_simulation_model(self):
-        from core.simulation_model import SimulationModel
-        shared = getattr(self.marker_st, "simulation_model", None)
-        if shared is not None:
-            return shared
-        if not hasattr(self, "_simulation_model") or self._simulation_model.version != self.get_robot_version():
-            self._simulation_model = SimulationModel.create(self.get_robot_version())
-        return self._simulation_model
-
-    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None, q_actual=None, noisy=True):
-        if self.robot is None or not hasattr(self.robot, "get_state"):
-            raise RuntimeError("Simulation requires a connected kinematics model.")
-        q = self.robot.get_state().position if q_actual is None else q_actual
-        simulation = self.get_simulation_model()
-        if not hasattr(self, '_simulation_rng'):
-            self._simulation_rng = np.random.default_rng(simulation.config['seed'])
-        rng = getattr(self.marker_st, 'rng', self._simulation_rng)
-        return simulation.marker_pose(self.robot, q, arm_side, rng, noisy=noisy)
-
     def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
         if getattr(self, 'stop_requested', False):
             return False
@@ -572,460 +483,126 @@ class BaseCalibrator:
             return False
 
     @staticmethod
-    def fit_circle_3d(points, robust=True):
-        """
-        Fits a 3D circle to points.
-        If robust is True, applies robust worst-inlier outlier rejection and moving median filter.
-        Otherwise, performs a smooth closed-form algebraic fit for noise-free kinematics.
-        Returns (center_3d, R_circle, radius, rmse, pts_2d, uc, vc)
-        """
-        points = np.array(points)
-        
-        if not robust:
-            centroid = np.mean(points, axis=0)
-            pts_centered = points - centroid
-            _, _, vh = np.linalg.svd(pts_centered)
-            normal = vh[2, :]
-            ex = vh[0, :]
-            ey = vh[1, :]
-            pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
-            A = np.c_[2 * pts_2d[:, 0], 2 * pts_2d[:, 1], np.ones(len(pts_2d))]
-            b = pts_2d[:, 0]**2 + pts_2d[:, 1]**2
-            res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-            uc, vc = res[0], res[1]
-            center_3d = centroid + uc * ex + vc * ey
-            R_circle = np.column_stack((ex, ey, normal))
-            radius_3d = np.mean(np.linalg.norm(points - center_3d, axis=1))
-            return center_3d, R_circle, radius_3d, 0.0, pts_2d, uc, vc
-        
-        # Apply 3D Moving Median Filter (window size 5) to smooth out camera sensor jitter
-        if len(points) >= 5:
-            smoothed = np.copy(points)
-            for i in range(2, len(points) - 2):
-                smoothed[i] = np.median(points[i - 2 : i + 3], axis=0)
-            points = smoothed
-            
-        inlier_mask = np.ones(len(points), dtype=bool)
-        
-        for out_iter in range(15):
-            pts_in = points[inlier_mask]
-            if len(pts_in) < 10:
-                break
-                
-            centroid = np.mean(pts_in, axis=0)
-            pts_centered = pts_in - centroid
-            
-            _, _, vh = np.linalg.svd(pts_centered)
-            normal = vh[2, :]
-            ex = vh[0, :]
-            ey = vh[1, :]
-            pts_2d_in = np.dot(pts_centered, np.vstack((ex, ey)).T)
+    def fit_observed_circle(poses, sweep_direction=1):
+        """Fit ordered camera observations (metres), without angles or FK.
 
-            A = np.c_[2 * pts_2d_in[:, 0], 2 * pts_2d_in[:, 1], np.ones(len(pts_2d_in))]
-            b = pts_2d_in[:, 0]**2 + pts_2d_in[:, 1]**2
-            res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-            uc, vc = res[0], res[1]
-            radius = np.sqrt(max(0.001, res[2] + uc**2 + vc**2))
-            
-            def residuals(params):
-                u, v, R = params
-                return np.sqrt((pts_2d_in[:, 0] - u)**2 + (pts_2d_in[:, 1] - v)**2) - R
-                
-            opt = least_squares(residuals, [uc, vc, radius], loss='huber')
-            uc_opt, vc_opt, R_opt = opt.x
-            
-            # Recompute errors for all original points
-            all_errors = []
-            for pt in points:
-                pt_centered_all = pt - centroid
-                u_all = np.dot(pt_centered_all, ex)
-                v_all = np.dot(pt_centered_all, ey)
-                dist_to_center = np.sqrt((u_all - uc_opt)**2 + (v_all - vc_opt)**2)
-                err = abs(dist_to_center - R_opt)
-                all_errors.append(err)
-            all_errors = np.array(all_errors)
-            
-            # Find worst point among inliers
-            inlier_indices = np.where(inlier_mask)[0]
-            inlier_errors = all_errors[inlier_mask]
-            worst_inlier_idx_in_inliers = np.argmax(inlier_errors)
-            worst_global_idx = inlier_indices[worst_inlier_idx_in_inliers]
-            worst_error = inlier_errors[worst_inlier_idx_in_inliers]
-            
-            if worst_error > 0.1:
-                inlier_mask[worst_global_idx] = False
-            else:
-                break
-                
-        # Final fit on clean inliers
-        pts_in = points[inlier_mask]
-        centroid = np.mean(pts_in, axis=0)
-        pts_centered = pts_in - centroid
-        _, _, vh = np.linalg.svd(pts_centered)
-        normal = vh[2, :]
-        ex = vh[0, :]
-        ey = vh[1, :]
-        pts_2d_in = np.dot(pts_centered, np.vstack((ex, ey)).T)
-        A = np.c_[2 * pts_2d_in[:, 0], 2 * pts_2d_in[:, 1], np.ones(len(pts_2d_in))]
-        b = pts_2d_in[:, 0]**2 + pts_2d_in[:, 1]**2
-        res, _, _, _ = np.linalg.lstsq(A, b, rcond=None)
-        uc, vc = res[0], res[1]
-        radius = np.sqrt(max(0.001, res[2] + uc**2 + vc**2))
-        
-        def residuals_final(params):
-            u, v, R = params
-            return np.sqrt((pts_2d_in[:, 0] - u)**2 + (pts_2d_in[:, 1] - v)**2) - R
-            
-        opt = least_squares(residuals_final, [uc, vc, radius], loss='huber')
-        uc_opt, vc_opt, R_opt = opt.x
-        rmse = np.sqrt(np.mean(opt.fun**2))
-        center_3d = centroid + uc_opt * ex + vc_opt * ey
-        
-        # 2D representation for all points
-        pts_centered_all = points - centroid
-        pts_2d_all = np.dot(pts_centered_all, np.vstack((ex, ey)).T)
-        
-        R_circle = np.column_stack((ex, ey, normal))
-        
-        radius_3d = np.mean(np.linalg.norm(pts_in - center_3d, axis=1))
-        
-        return center_3d, R_circle, radius_3d, rmse, pts_2d_all, uc_opt, vc_opt
+        The ordered cross products fix the plane-normal ambiguity; the sign
+        of the commanded sweep maps that normal to the positive joint axis.
+        """
+        poses = np.asarray(poses, dtype=float)
+        if (poses.ndim != 3 or poses.shape[1:] != (4, 4) or len(poses) < 10
+                or not np.all(np.isfinite(poses)) or sweep_direction not in (-1, 1)):
+            raise ValueError('At least ten finite ordered marker poses and a sweep direction are required')
+        points = poses[:, :3, 3]
+        rotations = poses[:, :3, :3]
+        if (not np.allclose(poses[:, 3], [0., 0., 0., 1.], atol=1e-6)
+                or np.max(np.abs(rotations.transpose(0,2,1) @ rotations - np.eye(3))) > 1e-3
+                or np.max(np.abs(np.linalg.det(rotations)-1.)) > 1e-3):
+            raise ValueError('Marker observations must be proper SE(3) transforms')
+        origin = points.mean(axis=0)
+        _, singular, vh = np.linalg.svd(points - origin, full_matrices=False)
+        if singular[1] < 1e-5 or singular[1] < singular[0] * 1e-3:
+            raise ValueError('Stationary or collinear marker trace; circle is unobservable')
+        basis, normal = vh[:2].T, vh[2]
+        xy = (points - origin) @ basis
+        algebra, _, _, _ = np.linalg.lstsq(
+            np.c_[2 * xy, np.ones(len(xy))], np.sum(xy**2, axis=1), rcond=None)
+        initial_radius = np.sqrt(max(0., algebra[2] + np.dot(algebra[:2], algebra[:2])))
+        fit = least_squares(lambda x: np.linalg.norm(xy - x[:2], axis=1) - x[2],
+                            [*algebra[:2], initial_radius], loss='soft_l1', f_scale=.0001)
+        center = origin + basis @ fit.x[:2]
+        radius = float(fit.x[2])
+        radial = points - center
+        radial -= np.outer(radial @ normal, normal)
+        lag = max(1, len(points) // 5)
+        crosses = np.cross(radial[:-lag], radial[lag:]) @ normal
+        if radius < .001 or abs(np.sum(crosses)) < 1e-8:
+            raise ValueError('Insufficient rotation to determine circle direction')
+        if np.mean(crosses * np.sign(np.sum(crosses)) > 0) < .9:
+            raise ValueError('Ambiguous or reversing sweep direction')
+        normal *= np.sign(np.sum(crosses)) * sweep_direction
+        angles = np.unwrap(np.arctan2(xy[:, 1] - fit.x[1], xy[:, 0] - fit.x[0]))
+        arc_deg = float(np.rad2deg(np.ptp(angles)))
+        residual = np.hypot((points-center) @ normal,
+                            np.linalg.norm(radial, axis=1)-radius)
+        rms = float(np.sqrt(np.mean(residual**2)))
+        if arc_deg < 5 or rms > .0005 or not fit.success:
+            raise ValueError(f'Poor circle observation: arc={arc_deg:.2f} deg, RMS={rms*1000:.3f} mm')
+        return dict(center_m=center, axis=normal, radius_m=radius,
+                    residual_rms_m=rms, arc_deg=arc_deg, frames=len(poses),
+                    c_opt=center*1000., axis_opt=normal, radius=radius*1000.,
+                    rmse=rms*1000., pts_2d=xy*1000., uc_opt=fit.x[0]*1000.,
+                    vc_opt=fit.x[1]*1000., measurement_accepted=True)
 
     @staticmethod
-    def fit_circle_3d_and_6dof_misalignment(relative_poses, captured_angles, axis_prior=None, return_plot_data=False, robust=True):
-        points = np.array([T[:3, 3] * 1000.0 for T in relative_poses])
-        angles_rad_base = np.radians(captured_angles)
-        
-        # Robust check for NaN or Inf in inputs
-        if len(points) == 0:
-            raise ValueError("fit_circle_3d_and_6dof_misalignment: Input points list is empty.")
-        if np.any(np.isnan(points)) or np.any(np.isinf(points)):
-            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Input points contain NaN or Inf values! points={points}")
-        if np.any(np.isnan(angles_rad_base)) or np.any(np.isinf(angles_rad_base)):
-            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Input captured_angles contain NaN or Inf values! angles={captured_angles}")
-            
-        # Initial Center and Normal estimation using unified circle fit
-        c_fit, R_fit, radius_fit, rmse_fit, _, _, _ = BaseCalibrator.fit_circle_3d(points, robust=robust)
-        
-        # Check if initial circle fit yielded valid numbers
-        if np.any(np.isnan(c_fit)) or np.any(np.isinf(c_fit)) or np.isnan(radius_fit):
-            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: Initial circle fit (fit_circle_3d) returned NaN or Inf values! c_fit={c_fit}, radius_fit={radius_fit}")
-        
-        # Nominal Normal
-        if axis_prior is not None:
-            n_nominal = np.array(axis_prior, dtype=float)
-            n_nominal /= np.linalg.norm(n_nominal)
-        else:
-            n_nominal = np.array([0.0, 0.0, 1.0])
-            
-        # Initial Normal
-        if axis_prior is not None:
-            best_normal = n_nominal.copy()
-        else:
-            best_normal = R_fit[:, 2] # Normal is the Z-axis of R_fit
-            
-        centroid = np.mean(points, axis=0)
-        ex = R_fit[:, 0]
-        ey = R_fit[:, 1]
+    def refine_adjacent_circles(datasets, circles, sweep_directions=(1, 1, 1)):
+        """Fit observed A/B/C with the two fixed adjacent-axis constraints.
 
-        # Sagitta formula
-        C_chord_vec = points[-1] - points[0]
-        C_chord = np.linalg.norm(C_chord_vec)
-        p_mid_chord = (points[0] + points[-1]) / 2.0
-        p_mid_arc = points[len(points) // 2]
-        v_sag = p_mid_arc - p_mid_chord
-        H_sag = np.linalg.norm(v_sag)
-        
-        if H_sag > 0.05 and C_chord > 1.0:
-            R_geom = (C_chord ** 2) / (8.0 * H_sag) + H_sag / 2.0
-        else:
-            R_geom = 280.0 if (axis_prior is not None and abs(axis_prior[2]) > 0.8) else 75.0
-            
-        R_init = np.clip(R_geom, 50.0, 800.0)
-        
-        if 50.0 <= R_geom <= 800.0 and H_sag > 0.05:
-            u_sag = v_sag / H_sag
-            c_init = p_mid_arc - R_init * u_sag
-        else:
-            R_init = np.clip(radius_fit, 50.0, 800.0)
-            c_init = c_fit
-        
-        best_opt = None
-        best_rmse = float('inf')
-        best_sign = 1
-        
-        for sign in [1, -1]:
-            angles_rad = angles_rad_base * sign
-            r_dir_init = points[0] - c_init
-            r_dir_init -= np.dot(r_dir_init, best_normal) * best_normal
-            if np.linalg.norm(r_dir_init) > 1e-6:
-                r_dir_init /= np.linalg.norm(r_dir_init)
-            
-            init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
-            lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
-            # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
-            init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
-            
-            def total_residuals(params):
-                c = params[0:3]
-                axis = params[3:6]
-                axis_norm = np.linalg.norm(axis)
-                if axis_norm > 1e-6:
-                    axis = axis / axis_norm
-                    
-                r_init = params[6:9]
-                r_init -= np.dot(r_init, axis) * axis
-                r_init_norm = np.linalg.norm(r_init)
-                if r_init_norm > 1e-6:
-                    r_init = r_init / r_init_norm
-                R = params[9]
-                
-                cos_t = np.cos(angles_rad)[:, None]
-                sin_t = np.sin(angles_rad)[:, None]
-                cross_term = np.cross(axis, r_init)
-                dot_term = np.dot(axis, r_init)
-                
-                pred_pts = c + R * (r_init[None, :] * cos_t + 
-                                   cross_term[None, :] * sin_t + 
-                                   (axis * dot_term)[None, :] * (1.0 - cos_t))
-                return (points - pred_pts).ravel()
-                
-            try:
-                opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
-            except ValueError as e:
-                raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 1 failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
-            rmse = np.sqrt(np.mean(opt_res.fun**2))
-            if rmse < best_rmse:
-                # [FIX] If axis_prior is given, accept the fitted axis only if it lies in the same half-space as the prior direction.
-                # -> Prevents cases where noise overfitting results in a mathematically lower RMSE with the wrong sign (-1).
-                if axis_prior is not None:
-                    axis_candidate = opt_res.x[3:6]
-                    axis_candidate_norm = axis_candidate / (np.linalg.norm(axis_candidate) + 1e-9)
-                    if np.dot(axis_candidate_norm, n_nominal) > 0:
-                        best_rmse = rmse
-                        best_opt = opt_res
-                        best_sign = sign
-                else:
-                    best_rmse = rmse
-                    best_opt = opt_res
-                    best_sign = sign
+        All sweeps must share camera/upstream posture. Axis C is measured,
+        not an encoder/FK prior. All three
+        centers and radii remain independent: coincidence is tested AFTER
+        fitting, never imposed to manufacture joint convergence.
+        """
+        if len(sweep_directions) != 3 or any(d not in (-1, 1) for d in sweep_directions):
+            raise ValueError('Three commanded sweep directions are required')
+        points = [np.asarray(poses)[:, :3, 3] for poses in datasets]
+        nc = circles[2]['axis']
+        projected = circles[0]['axis'] - (circles[0]['axis'] @ nc)*nc
+        projected_b = circles[1]['axis'] - (circles[1]['axis'] @ nc)*nc
+        if min(np.linalg.norm(projected), np.linalg.norm(projected_b)) < .5:
+            raise ValueError('Direction-reference circle is not independent')
+        ex = projected / np.linalg.norm(projected)
+        ey = np.cross(nc, ex)
+        frame = np.column_stack((ex, ey, nc))
+        theta = np.arctan2(circles[1]['axis'] @ ey, circles[1]['axis'] @ ex)
+        initial = np.r_[np.zeros(3), theta,
+                        np.concatenate([c['center_m'] for c in circles]),
+                        [c['radius_m'] for c in circles]]
 
-        # Fallback: if axis_prior direction check rejected all candidates (edge case),
-        # fall back to the lowest-RMSE result to avoid best_opt being None
-        if best_opt is None:
-            for sign in [1, -1]:
-                angles_rad = angles_rad_base * sign
-                r_dir_init = points[0] - c_init
-                r_dir_init -= np.dot(r_dir_init, best_normal) * best_normal
-                if np.linalg.norm(r_dir_init) > 1e-6:
-                    r_dir_init /= np.linalg.norm(r_dir_init)
-                init_params = np.hstack([c_init, best_normal, r_dir_init, [R_init]])
-                lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-                upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
-                init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
-                try:
-                    opt_res = least_squares(total_residuals, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
-                    rmse = np.sqrt(np.mean(opt_res.fun**2))
-                    if rmse < best_rmse:
-                        best_rmse = rmse
-                        best_opt = opt_res
-                        best_sign = sign
-                except Exception:
-                    pass
+        def axes(parameters):
+            basis = R_scipy.from_rotvec(parameters[:3]).as_matrix() @ frame
+            return (basis[:, 0], basis @ [np.cos(parameters[3]), np.sin(parameters[3]), 0.], basis[:, 2])
 
-        # Extract optimal
-        c_init = best_opt.x[0:3]
-        best_normal = best_opt.x[3:6]
-        best_normal /= np.linalg.norm(best_normal)
-        r_final_dir = best_opt.x[6:9]
-        r_final_dir -= np.dot(r_final_dir, best_normal) * best_normal
-        if np.linalg.norm(r_final_dir) > 1e-6:
-            r_final_dir /= np.linalg.norm(r_final_dir)
-        R_init = best_opt.x[9]
-        
-        # Worst-outlier rejection
-        inlier_mask = np.ones(len(points), dtype=bool)
-        for out_iter in range(3):
-            angles_rad = angles_rad_base * best_sign
-            pts_in = points[inlier_mask]
-            rad_in = angles_rad[inlier_mask]
-            
-            if len(pts_in) < 6:
-                break
-                
-            init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
-            lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-            upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
-            # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
-            init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
-            
-            def total_residuals_in(params):
-                c = params[0:3]
-                axis = params[3:6]
-                axis_norm = np.linalg.norm(axis)
-                if axis_norm > 1e-6:
-                    axis = axis / axis_norm
-                r_init = params[6:9]
-                r_init -= np.dot(r_init, axis) * axis
-                r_init_norm = np.linalg.norm(r_init)
-                if r_init_norm > 1e-6:
-                    r_init = r_init / r_init_norm
-                R = params[9]
-                
-                cos_t = np.cos(rad_in)[:, None]
-                sin_t = np.sin(rad_in)[:, None]
-                cross_term = np.cross(axis, r_init)
-                dot_term = np.dot(axis, r_init)
-                
-                pred_pts = c + R * (r_init[None, :] * cos_t + 
-                                   cross_term[None, :] * sin_t + 
-                                   (axis * dot_term)[None, :] * (1.0 - cos_t))
-                return (pts_in - pred_pts).ravel()
-                
-            try:
-                opt_res = least_squares(total_residuals_in, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
-            except ValueError as e:
-                raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 2 (outlier loop) failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
-            c_init = opt_res.x[0:3]
-            best_normal = opt_res.x[3:6]
-            best_normal /= np.linalg.norm(best_normal)
-            r_final_dir = opt_res.x[6:9]
-            r_final_dir -= np.dot(r_final_dir, best_normal) * best_normal
-            if np.linalg.norm(r_final_dir) > 1e-6:
-                r_final_dir /= np.linalg.norm(r_final_dir)
-            R_init = opt_res.x[9]
-            
-            cos_t = np.cos(angles_rad)[:, None]
-            sin_t = np.sin(angles_rad)[:, None]
-            cross_term = np.cross(best_normal, r_final_dir)
-            dot_term = np.dot(best_normal, r_final_dir)
-            
-            pred_pts = c_init + R_init * (r_final_dir[None, :] * cos_t + 
-                                         cross_term[None, :] * sin_t + 
-                                         (best_normal * dot_term)[None, :] * (1.0 - cos_t))
-            all_errors = np.linalg.norm(points - pred_pts, axis=1)
-            
-            inlier_indices = np.where(inlier_mask)[0]
-            inlier_errors = all_errors[inlier_mask]
-            worst_inlier_idx_in_inliers = np.argmax(inlier_errors)
-            worst_global_idx = inlier_indices[worst_inlier_idx_in_inliers]
-            worst_error = inlier_errors[worst_inlier_idx_in_inliers]
-            
-            if worst_error > 0.5:
-                inlier_mask[worst_global_idx] = False
-            else:
-                break
-                
-        # Final Optimization
-        pts_in = points[inlier_mask]
-        rad_in = angles_rad_base[inlier_mask] * best_sign
-        init_params = np.hstack([c_init, best_normal, r_final_dir, [R_init]])
-        
-        def total_residuals_final(params):
-            c = params[0:3]
-            axis = params[3:6]
-            axis_norm = np.linalg.norm(axis)
-            if axis_norm > 1e-6:
-                axis = axis / axis_norm
-            r_init = params[6:9]
-            r_init -= np.dot(r_init, axis) * axis
-            r_init_norm = np.linalg.norm(r_init)
-            if r_init_norm > 1e-6:
-                r_init = r_init / r_init_norm
-            R = params[9]
-            
-            cos_t = np.cos(rad_in)[:, None]
-            sin_t = np.sin(rad_in)[:, None]
-            cross_term = np.cross(axis, r_init)
-            dot_term = np.dot(axis, r_init)
-            
-            pred_pts = c + R * (r_init[None, :] * cos_t + 
-                               cross_term[None, :] * sin_t + 
-                               (axis * dot_term)[None, :] * (1.0 - cos_t))
-            return (pts_in - pred_pts).ravel()
-            
-        lower_bounds = np.hstack([c_init - 200.0, [-np.inf, -np.inf, -np.inf], [-np.inf, -np.inf, -np.inf], [50.0]])
-        upper_bounds = np.hstack([c_init + 200.0, [np.inf, np.inf, np.inf], [np.inf, np.inf, np.inf], [800.0]])
-        # Ensure init_params strictly respects bound constraints to prevent SciPy's x0 bound violation error
-        init_params = np.clip(init_params, lower_bounds + 1e-5, upper_bounds - 1e-5)
-        
-        try:
-            opt_res = least_squares(total_residuals_final, init_params, bounds=(lower_bounds, upper_bounds), loss='huber', diff_step=1e-4)
-        except ValueError as e:
-            raise ValueError(f"fit_circle_3d_and_6dof_misalignment: least_squares stage 3 (final) failed: {e}\n  init_params: {init_params}\n  lower_bounds: {lower_bounds}\n  upper_bounds: {upper_bounds}")
-        c_opt = opt_res.x[0:3]
-        axis_opt = opt_res.x[3:6]
-        axis_opt /= np.linalg.norm(axis_opt)
-        
-        r_init_opt = opt_res.x[6:9]
-        r_init_opt -= np.dot(r_init_opt, axis_opt) * axis_opt
-        r_init_opt /= np.linalg.norm(r_init_opt)
-        radius_opt = opt_res.x[9]
-        
-        rmse = np.sqrt(np.mean(opt_res.fun**2))
-        
-        # Coordinate frames for plotting
-        if axis_opt[0] < 0.9:
-            ex = np.cross(axis_opt, [1, 0, 0])
-        else:
-            ex = np.cross(axis_opt, [0, 1, 0])
-        ex /= np.linalg.norm(ex)
-        ey = np.cross(axis_opt, ex)
-        
-        pts_centered = points - c_opt
-        pts_2d = np.dot(pts_centered, np.vstack((ex, ey)).T)
-        uc_opt = 0.0
-        vc_opt = 0.0
-        
-        # Calculate 6-DOF misalignment
-        tilt_angle = np.rad2deg(np.arccos(np.clip(np.dot(axis_opt, n_nominal), -1.0, 1.0)))
-        
-        # Projection for yaw
-        n_proj = axis_opt - np.dot(axis_opt, n_nominal) * n_nominal
-        if np.linalg.norm(n_proj) > 1e-6:
-            n_proj /= np.linalg.norm(n_proj)
-            if n_nominal[2] > 0.8:
-                yaw_angle = np.rad2deg(np.arctan2(n_proj[1], n_proj[0]))
-            else:
-                yaw_angle = 0.0
-        else:
-            yaw_angle = 0.0
-            
-        # Calculate individual tilt angles for each pose to compute jitter/stddev
-        tilt_list = []
-        for T in relative_poses:
-            if axis_prior is not None:
-                if abs(axis_prior[0]) > 0.8:
-                    axis_i = T[:3, 0]
-                elif abs(axis_prior[1]) > 0.8:
-                    axis_i = T[:3, 1]
-                else:
-                    axis_i = T[:3, 2]
-            else:
-                axis_i = T[:3, 2]
-            axis_norm = np.linalg.norm(axis_i)
-            if axis_norm > 1e-6:
-                axis_i /= axis_norm
-            tilt_i = np.rad2deg(np.arccos(np.clip(np.dot(axis_i, n_nominal), -1.0, 1.0)))
-            tilt_list.append(tilt_i)
-            
-        res_dict = {
-            'c_opt': c_opt,
-            'axis_opt': axis_opt,
-            'radius': radius_opt,
-            'rmse': rmse,
-            'tilt': tilt_angle,
-            'yaw': yaw_angle,
-            'pts_2d': pts_2d,
-            'uc_opt': uc_opt,
-            'vc_opt': vc_opt,
-            'inlier_mask': inlier_mask,
-            'tilt_list': tilt_list
-        }
-        return res_dict
+        def residual(parameters):
+            terms = []
+            for i, (pts, normal) in enumerate(zip(points, axes(parameters))):
+                delta = pts - parameters[4+3*i:7+3*i]
+                plane = delta @ normal
+                radial = np.linalg.norm(delta - np.outer(plane, normal), axis=1) - parameters[13+i]
+                terms.extend((plane, radial))
+            return np.concatenate(terms)
 
-
+        fit = least_squares(residual, initial, loss='soft_l1', f_scale=.0001,
+                            x_scale='jac', ftol=1e-11, xtol=1e-11, gtol=1e-11, max_nfev=100)
+        scales = np.linalg.norm(fit.jac, axis=0)
+        if not fit.success or np.any(scales < 1e-12):
+            raise ValueError('Coupled observed-circle fit did not converge')
+        singular = np.linalg.svd(fit.jac / scales, compute_uv=False)
+        if singular[-1] < 1e-6:
+            raise ValueError('Coupled observed-circle geometry is unobservable')
+        refined = []
+        for i, (pts, normal, previous) in enumerate(zip(points, axes(fit.x), circles)):
+            center, radius = fit.x[4+3*i:7+3*i], float(fit.x[13+i])
+            delta = pts - center
+            plane = delta @ normal
+            radial = delta - np.outer(plane, normal)
+            lag = max(1, len(pts)//5)
+            crosses = np.cross(radial[:-lag], radial[lag:]) @ normal
+            direction = np.sign(np.sum(crosses))
+            if radius < .001 or abs(np.sum(crosses)) < 1e-8 or np.mean(crosses*direction > 0) < .9:
+                raise ValueError('Ambiguous refined observed-circle direction')
+            normal = normal*direction*sweep_directions[i]
+            u = radial[np.argmax(np.linalg.norm(radial, axis=1))]
+            u = u / np.linalg.norm(u)
+            xy = radial @ np.column_stack((u, np.cross(normal, u)))
+            arc = float(np.rad2deg(np.ptp(np.unwrap(np.arctan2(xy[:, 1], xy[:, 0])))))
+            rms = float(np.sqrt(np.mean(plane**2 + (np.linalg.norm(radial, axis=1)-radius)**2)))
+            if arc < 5. or rms > .0005:
+                raise ValueError('Observed circles violate adjacent-joint geometry')
+            refined.append(dict(previous, center_m=center, axis=normal, radius_m=radius,
+                residual_rms_m=rms, arc_deg=arc, c_opt=center*1000., axis_opt=normal,
+                radius=radius*1000., rmse=rms*1000., pts_2d=xy*1000., uc_opt=0., vc_opt=0.))
+        return refined
 
     def perform_move_to_ready_pose(self, arm_side, mode="marker", log_callback=None):
         if not self.robot:
@@ -1095,194 +672,6 @@ class BaseCalibrator:
             log_callback("[INFO] Ready Pose Reached.")
         return success
 
-    def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None):
-        try:
-            import os
-            import numpy as np
-            import matplotlib.pyplot as plt
-
-            fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-
-            def extract_plot_dict(res_obj, default_stage="first"):
-                if not res_obj or not isinstance(res_obj, dict):
-                    return {}
-                if '_plot_data' in res_obj:
-                    return res_obj
-                if default_stage == "first":
-                    if 'first_res' in res_obj and isinstance(res_obj['first_res'], dict):
-                        return extract_plot_dict(res_obj['first_res'], "first")
-                    if 'final_res' in res_obj and isinstance(res_obj['final_res'], dict):
-                        return extract_plot_dict(res_obj['final_res'], "final")
-                else:
-                    if 'final_res' in res_obj and isinstance(res_obj['final_res'], dict):
-                        return extract_plot_dict(res_obj['final_res'], "final")
-                    if 'first_res' in res_obj and isinstance(res_obj['first_res'], dict):
-                        return extract_plot_dict(res_obj['first_res'], "first")
-                return res_obj
-
-            first_res_actual = extract_plot_dict(first_res, "first")
-            final_res_actual = extract_plot_dict(final_res, "final")
-
-            def plot_column(res, col_idx, stage_name):
-                plot_data = res.get('_plot_data', res)
-                pts_a = plot_data.get('pts_a_cam')
-                pts_b = plot_data.get('pts_b_cam')
-                c_A = plot_data.get('c_A')
-                c_B = plot_data.get('c_B')
-                n_A = plot_data.get('n_A')
-                n_B = plot_data.get('n_B')
-                r_A = plot_data.get('r_A', res.get('r_A', 1.0))
-                r_B = plot_data.get('r_B', res.get('r_B', 1.0))
-                angle_error = plot_data.get('angle_between_normals', res.get('angle_between_normals', 0.0))
-                center_dist = plot_data.get('center_dist', res.get('center_dist', 0.0))
-
-                if pts_a is None or c_A is None or n_A is None:
-                    for row in range(2):
-                        axes[row, col_idx].set_title(f'[{stage_name}] No plot data')
-                        axes[row, col_idx].axis('off')
-                    return
-
-                # Compute local frames algebraically from normals (Z axes)
-                def get_local_vectors(n):
-                    n = n / np.linalg.norm(n)
-                    if abs(n[0]) < 0.9:
-                        u = np.cross(n, [1, 0, 0])
-                    else:
-                        u = np.cross(n, [0, 1, 0])
-                    u = u / np.linalg.norm(u)
-                    v = np.cross(n, u)
-                    v = v / np.linalg.norm(v)
-                    return u, v
-
-                u_A, v_A = get_local_vectors(n_A)
-                u_B, v_B = get_local_vectors(n_B)
-
-                theta = np.linspace(0, 2 * np.pi, 200)
-                circle_pts_a = c_A + r_A * (np.cos(theta)[:, None] * u_A + np.sin(theta)[:, None] * v_A)
-                circle_pts_b = c_B + r_B * (np.cos(theta)[:, None] * u_B + np.sin(theta)[:, None] * v_B)
-
-                # --- 1. TOP VIEW (Row 0, Col col_idx): X-Y Projection ---
-                ax_top = axes[0, col_idx]
-                ax_top.scatter(pts_a[:, 0], pts_a[:, 1], c='red', s=15, alpha=0.5, label='Sweep A Raw')
-                ax_top.scatter(pts_b[:, 0], pts_b[:, 1], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
-                ax_top.plot(circle_pts_a[:, 0], circle_pts_a[:, 1], 'r-', linewidth=1.5, label='Sweep A Fit')
-                ax_top.plot(circle_pts_b[:, 0], circle_pts_b[:, 1], 'b-', linewidth=1.5, label='Sweep B Fit')
-                ax_top.scatter([c_A[0]], [c_A[1]], c='darkred', marker='X', s=100, label='Center A')
-                ax_top.scatter([c_B[0]], [c_B[1]], c='darkblue', marker='X', s=100, label='Center B')
-                ax_top.plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
-                
-                # Normal vector arrows on X-Y
-                scale = min(r_A, r_B) * 0.4
-                ax_top.arrow(c_A[0], c_A[1], n_A[0]*scale, n_A[1]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
-                ax_top.arrow(c_B[0], c_B[1], n_B[0]*scale, n_B[1]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
-
-                ax_top.set_xlabel('X (mm)')
-                ax_top.set_ylabel('Y (mm)')
-                ax_top.set_title(f'[{stage_name}] Top View (X-Y Projection)', fontsize=15, fontweight='bold')
-                ax_top.set_aspect('equal')
-                ax_top.grid(True)
-                if col_idx == 0:
-                    ax_top.legend(loc='upper right', fontsize=10)
-
-                # --- 2. SIDE VIEW (Row 1, Col col_idx): Y-Z Projection ---
-                ax_side = axes[1, col_idx]
-                ax_side.scatter(pts_a[:, 1], pts_a[:, 2], c='red', s=15, alpha=0.5, label='Sweep A Raw')
-                ax_side.scatter(pts_b[:, 1], pts_b[:, 2], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
-                ax_side.plot(circle_pts_a[:, 1], circle_pts_a[:, 2], 'r-', linewidth=1.5, label='Sweep A Fit')
-                ax_side.plot(circle_pts_b[:, 1], circle_pts_b[:, 2], 'b-', linewidth=1.5, label='Sweep B Fit')
-                ax_side.scatter([c_A[1]], [c_A[2]], c='darkred', marker='X', s=100, label='Center A')
-                ax_side.scatter([c_B[1]], [c_B[2]], c='darkblue', marker='X', s=100, label='Center B')
-                ax_side.plot([c_A[1], c_B[1]], [c_A[2], c_B[2]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
-
-                # Normal vector arrows on Y-Z
-                ax_side.arrow(c_A[1], c_A[2], n_A[1]*scale, n_A[2]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
-                ax_side.arrow(c_B[1], c_B[2], n_B[1]*scale, n_B[2]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
-
-                ax_side.set_xlabel('Y (mm)')
-                ax_side.set_ylabel('Z (mm)')
-                ax_side.set_title(f'[{stage_name}] Side View (Y-Z Projection)\nAngle Dev: {angle_error:.3f}° | Center Dist: {center_dist:.2f}mm', fontsize=15, fontweight='bold')
-                ax_side.set_aspect('equal')
-                ax_side.grid(True)
-
-            def compute_shortest_distance_between_lines(cA, nA, cB, nB):
-                nA_norm = nA / np.linalg.norm(nA)
-                nB_norm = nB / np.linalg.norm(nB)
-                cross = np.cross(nA_norm, nB_norm)
-                cross_norm = np.linalg.norm(cross)
-                diff = cB - cA
-                if cross_norm > 1e-4:
-                    return abs(np.dot(diff, cross)) / cross_norm
-                else:
-                    return np.linalg.norm(diff - np.dot(diff, nA_norm) * nA_norm)
-
-            nominal_dist_35 = None
-            if mode == "wrist_pitch_v13" and self.robot:
-                try:
-                    dyn_model = self.robot.get_dynamics()
-                    names = self.robot.model().robot_joint_names
-                    state_3_5 = dyn_model.make_state(
-                        [f"link_{arm_side}_arm_3", f"link_{arm_side}_arm_5"],
-                        names
-                    )
-                    state_3_5.set_q(np.zeros(len(names)))
-                    dyn_model.compute_forward_kinematics(state_3_5)
-                    T_3_5 = dyn_model.compute_transformation(state_3_5, 0, 1)
-                    nominal_dist_35 = np.linalg.norm(T_3_5[:3, 3]) * 1000.0
-                except Exception:
-                    pass
-
-            plot_column(first_res_actual, 0, "BEFORE")
-            plot_column(final_res_actual, 1, "AFTER")
-
-            before_dist_str = ""
-            after_dist_str = ""
-            if mode == "wrist_pitch_v13":
-                first_pd = first_res_actual.get('_plot_data', first_res_actual)
-                final_pd = final_res_actual.get('_plot_data', final_res_actual)
-                if all(k in first_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
-                    dist_before = compute_shortest_distance_between_lines(
-                        first_pd['c_A'], first_pd['n_A'], first_pd['c_B'], first_pd['n_B']
-                    )
-                    before_dist_str = f" | Axis 3-5 Dist = {dist_before:.2f} mm"
-                if all(k in final_pd for k in ('c_A', 'n_A', 'c_B', 'n_B')):
-                    dist_after = compute_shortest_distance_between_lines(
-                        final_pd['c_A'], final_pd['n_A'], final_pd['c_B'], final_pd['n_B']
-                    )
-                    after_dist_str = f" | Axis 3-5 Dist = {dist_after:.2f} mm"
-                    if nominal_dist_35 is not None:
-                        after_dist_str += f" (Nom: {nominal_dist_35:.2f} mm)"
-
-            first_pd = first_res_actual.get('_plot_data', first_res_actual)
-            final_pd = final_res_actual.get('_plot_data', final_res_actual)
-            fig.suptitle(
-                f"Joint Calibration: {arm_side.upper()} Arm - {mode.upper()}\n"
-                f"Before: Angle Dev = {first_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {first_pd.get('center_dist', 0.0):.2f} mm{before_dist_str}\n"
-                f"After : Angle Dev = {final_pd.get('angle_between_normals', 0.0):.3f}°, Center Dist = {final_pd.get('center_dist', 0.0):.2f} mm{after_dist_str}",
-                fontsize=16, fontweight='bold'
-            )
-            plt.tight_layout()
-
-            from core.paths import CONFIG_PATHS
-            result_dir = CONFIG_PATHS["plot_dir"]
-            os.makedirs(result_dir, exist_ok=True)
-            plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
-            plt.savefig(plot_save_path, dpi=150)
-            plt.close()
-
-            if log_callback:
-                log_callback(f"[SUCCESS] Saved combined calibration comparison plot to: {plot_save_path}")
-            return plot_save_path
-        except Exception as e:
-            if log_callback:
-                log_callback(f"[ERROR] Failed to save combined calibration comparison plot: {e}")
-            import traceback
-            if log_callback:
-                log_callback(traceback.format_exc())
-            return None
-
-    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None, cand_joint=None, sweep_joint_A=None, sweep_joint_B=None):
-        raise NotImplementedError("compute_calibration_results must be implemented in subclasses.")
-
     def perform_single_joint_sweep(self, arm_side, sweep_joint, q_center, start_deg, end_deg, sweep_duration, q_head=None, label="Joint Sweep", log_callback=None, **kwargs):
         if getattr(self, 'stop_requested', False):
             return None
@@ -1311,7 +700,8 @@ class BaseCalibrator:
             if log_callback: log_callback("[ERROR] Robot is not connected.")
             return None
 
-        is_camera_mock = self.is_mock
+        if self.marker_st is None:
+            raise RuntimeError("Marker provider is not initialized")
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
 
@@ -1346,6 +736,10 @@ class BaseCalibrator:
                 log_callback(f"[WARN] End angle ({np.degrees(q_end_val):.2f}°) exceeds max limit ({np.degrees(q_max):.2f}°). Clamping to {np.degrees(q_end_val_new):.2f}°.")
             q_end_val = q_end_val_new
 
+        q_start_val = float(np.clip(q_start_val, q_min+safety_margin, q_max-safety_margin))
+        q_end_val = float(np.clip(q_end_val, q_min+safety_margin, q_max-safety_margin))
+        if (q_end_val-q_start_val)*(end_deg-start_deg) <= 0:
+            raise ValueError('Joint limits leave no valid sweep span')
         q_start = list(q_center)
         q_start[sweep_joint] = q_start_val
         q_end = list(q_center)
@@ -1369,10 +763,7 @@ class BaseCalibrator:
             if log_callback: log_callback(f"[ERROR] Failed to move {label} to start pose or stop requested.")
             return None
 
-        if self.robot and self.robot != "mock_robot":
-            time.sleep(0.5)
-        else:
-            time.sleep(0.01)
+        time.sleep(0.5)
 
         # 2. Continuous sweep from start to end position
         logging.info(f"[INFO] Commencing continuous sweep on {label} (duration={sweep_duration}s)...")
@@ -1390,58 +781,24 @@ class BaseCalibrator:
         t_start = time.time()
         move_thread.start()
 
-        # Capture poses and joint positions at high frequency
-        while move_thread.is_alive():
-            if getattr(self, 'stop_requested', False):
-                self.robot.cancel_control()
-                move_thread.join()
-                return None
-
-            q_full_captured = None
-            for retry in range(3):
-                try:
-                    state_obj = self.robot.get_state()
-                    if state_obj is not None and getattr(state_obj, 'position', None) is not None:
-                        q_full_captured = np.array(state_obj.position)
-                        break
-                except Exception as e:
-                    if retry == 2:
-                        logging.warning(f"get_state() failed after 3 retries: {e}")
-                    time.sleep(0.005)
-            if q_full_captured is None:
-                # Missing feedback is a dropped sample, not a fabricated encoder pose.
-                continue
-
-            if is_camera_mock:
-                if hasattr(self, 'get_simulated_marker_pose'):
-                    try:
-                        pose = self.get_simulated_marker_pose(
-                            arm_side, sweep_joint=sweep_joint, 
-                            current_offset_deg=kwargs.get('current_offset_deg', 0.0), 
-                            cand_joint=kwargs.get('cand_joint', None),
-                            q_actual=q_full_captured
-                        )
-                    except TypeError:
-                        pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint, q_actual=q_full_captured)
-                else:
-                    pose = np.eye(4)
-                res = [pose.tolist()] if pose is not None else None
-            else:
+        # Sensor boundary is identical for real and synthetic observations.
+        # Motion feedback never enters the Step1 measurement dataset.
+        try:
+            while move_thread.is_alive():
+                if getattr(self, 'stop_requested', False):
+                    return None
                 res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
-
-            if res:
-                pose_flat = res[0] if isinstance(res, list) else list(res.values())[0]
-                pose_mat = np.array(pose_flat).reshape(4, 4)
-
-                if np.linalg.norm(pose_mat[:3, 3]) > 0.01:
-                    # Deduplicate: Only append if the pose is actually new (camera updated)
-                    if len(dataset) == 0 or not np.allclose(dataset[-1][1], pose_mat, atol=1e-5):
-                        dataset.append((q_full_captured, pose_mat))
-
-            if is_camera_mock:
-                time.sleep(0.005 if sweep_duration <= 2.0 else 0.033)
-            else:
-                time.sleep(0.01)
+                if res:
+                    pose = np.asarray(res[0] if isinstance(res, list) else next(iter(res.values())), dtype=float).reshape(4, 4)
+                    if not np.all(np.isfinite(pose)):
+                        raise ValueError('Non-finite marker observation during sweep')
+                    if len(dataset) == 0 or not np.array_equal(dataset[-1], pose):
+                        dataset.append(pose)
+                time.sleep(.01)
+        finally:
+            if move_thread.is_alive():
+                self.robot.cancel_control()
+            move_thread.join()
 
         move_thread.join()
         if not move_thread.success:

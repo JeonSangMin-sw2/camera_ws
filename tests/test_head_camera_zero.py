@@ -10,9 +10,9 @@ import unittest
 import numpy as np
 
 from core.calibration_optimizer import compute_fk, make_transform
-from core.head_camera_zero import camera_forward_zero, camera_command_to_encoder
+from core.calibration.HeadCameraCalibrator import camera_forward_zero, camera_command_to_encoder
 from core.homeoffset_core import load_offset_from_json
-from core.simulation_model import SimulationModel
+from core.marker_detection import SimulationModel
 from test_calibration_regression import OfflineRobot, data, optimizer
 
 

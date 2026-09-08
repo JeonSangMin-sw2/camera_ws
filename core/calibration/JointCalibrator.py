@@ -2,13 +2,98 @@ import time
 import logging
 import os
 import numpy as np
-import rby1_sdk as rby
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from scipy.optimize import least_squares, minimize_scalar
 from scipy.spatial.transform import Rotation as R_scipy
 from .CalibratorBase import BaseCalibrator
+# Gross pose-consistency limits, independent of the 0.06 degree joint
+# convergence rule. A constant pose bias can pass these checks.
+AXIS_CONSISTENCY_DEG = 0.5
+MIN_INLIER_FRACTION = 0.8
+MIN_FRAMES = 10
+
+
+def _unit(vector):
+    vector = np.asarray(vector, dtype=float)
+    norm = np.linalg.norm(vector)
+    if vector.shape != (3,) or not np.all(np.isfinite(vector)) or norm < 1e-8:
+        raise ValueError('Invalid or degenerate sweep axis')
+    return vector / norm
+
+
+def _distance_deg(a, b):
+    return np.rad2deg(np.arccos(np.clip(np.asarray(a) @ b, -1., 1.)))
+
+
+def _marker_axis(poses, camera_axis):
+    poses = np.asarray(poses, dtype=float)
+    if poses.ndim != 3 or poses.shape[1:] != (4,4) or len(poses) < MIN_FRAMES:
+        raise ValueError(f'At least {MIN_FRAMES} camera poses are required per sweep')
+    if not np.all(np.isfinite(poses)):
+        raise ValueError('Non-finite camera pose')
+    rotations = poses[:, :3, :3]
+    if (np.max(np.abs(rotations.transpose(0,2,1) @ rotations - np.eye(3))) > 1e-3
+            or np.max(np.abs(np.linalg.det(rotations) - 1.)) > 1e-3):
+        raise ValueError('Invalid camera rotation matrix')
+    vectors = np.einsum('nji,j->ni', rotations, _unit(camera_axis))
+    vectors /= np.linalg.norm(vectors, axis=1)[:, None]
+    center = _unit(np.median(vectors, axis=0))
+    distances = _distance_deg(vectors, center)
+    inliers = distances <= AXIS_CONSISTENCY_DEG
+    fraction = float(np.mean(inliers))
+    # A smooth drift or two different branches must not be hidden by an
+    # average, even if individual frames form locally tight groups.
+    width = max(1, len(vectors)//3)
+    early = _unit(np.median(vectors[:width], axis=0))
+    late = _unit(np.median(vectors[-width:], axis=0))
+    early_late = float(_distance_deg(early, late))
+    accepted = fraction >= MIN_INLIER_FRACTION and early_late <= AXIS_CONSISTENCY_DEG
+    diagnostics = dict(accepted=bool(accepted), frames=len(vectors),
+        inlier_fraction=fraction, p90_deviation_deg=float(np.percentile(distances,90)),
+        early_late_deg=early_late, consistency_limit_deg=AXIS_CONSISTENCY_DEG)
+    if not accepted:
+        return None, diagnostics
+    axis = _unit(np.mean(vectors[inliers], axis=0))
+    return axis, diagnostics
+
+
+def estimate_j6_reference(poses_a, axis_a, poses_b, axis_b,
+                          nominal_rotation):
+    """Return the measured DELTA correction at the current staged command.
+
+    Positive axes must come from ordered marker circles. Coaxial bracket
+    twist remains inseparable from J6; this is an effective reference only.
+    """
+    diagnostics = {}
+    try:
+        nominal = np.asarray(nominal_rotation, dtype=float)
+        if (nominal.shape != (3,3) or not np.all(np.isfinite(nominal))
+                or not np.allclose(nominal.T @ nominal, np.eye(3), atol=1e-6)
+                or not np.isclose(np.linalg.det(nominal), 1., atol=1e-6)):
+            raise ValueError('Invalid nominal bracket rotation')
+        ref_j5 = nominal.T @ [0.,1.,0.]
+        n6, diagnostics['j6_sweep'] = _marker_axis(poses_a, axis_a)
+        n5, diagnostics['j5_sweep'] = _marker_axis(poses_b, axis_b)
+        if n6 is None or n5 is None:
+            raise ValueError('Inconsistent marker-frame sweep axes; no unique stable reference selected')
+        if abs(float(_distance_deg(n5, n6))-90.) > AXIS_CONSISTENCY_DEG:
+            raise ValueError('Observed J5/J6 axes violate the fixed perpendicular wrist geometry')
+        actual = _unit(n5 - np.dot(n5,n6)*n6)
+        reference = _unit(ref_j5 - np.dot(ref_j5,n6)*n6)
+        cross = _unit(np.cross(n6,reference))
+        raw = float(np.rad2deg(np.arctan2(np.dot(actual,cross), np.dot(actual,reference))))
+        return dict(measurement_accepted=True, raw_diff_deg=raw,
+                    optimal_offset=raw,
+                    n6_marker_actual=n6, n5_marker_actual=n5,
+                    quality_diagnostics=diagnostics, j6_mode='effective_bracket_reference')
+    except ValueError as error:
+        # Deliberately omit optimal_offset. The caller must not manufacture
+        # a zero correction or issue another inner-iteration correction.
+        return dict(measurement_accepted=False, failure_reason=str(error),
+                    quality_diagnostics=diagnostics, j6_mode='effective_bracket_reference')
+
+
 class DebugLogger:
     def __init__(self, original_log_callback, file_path):
         self.original_log_callback = original_log_callback
@@ -51,13 +136,11 @@ class DebugLogger:
 class JointCalibrator(BaseCalibrator):
     def __init__(self, marker_st=None, robot=None):
         super().__init__(marker_st, robot)
-        self.use_angle_based_fitting = True
 
-    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
+
+    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, save_debug=False, pass_idx=1, pass1_res=None):
         if sweep_duration is None:
             sweep_duration = BaseCalibrator.JOINT_SWEEP_SECONDS[mode]
-        if use_angle_based_fitting is None:
-            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
         config_dir = os.path.abspath(os.path.dirname(__file__))
         from core.paths import CONFIG_PATHS
@@ -108,7 +191,7 @@ class JointCalibrator(BaseCalibrator):
                 return self.perform_calibration_sweep_continuous(
                     arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                     current_offset_deg=offset, sweep_duration=sweep_duration,
-                    use_angle_based_fitting=use_angle_based_fitting, save_debug=save_debug,
+                    save_debug=save_debug,
                     first_starting_pose=first_starting_pose
                 )
                 
@@ -144,7 +227,7 @@ class JointCalibrator(BaseCalibrator):
                 if log_callback:
                     log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
                 
-                # Perform physical sweep (or simulated sweep in mock mode) at the current staged offset
+                # Same SDK motion and sensor interface for either marker source.
                 res = run_single_sweep(staged_offset)
                 if not res:
                     if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
@@ -198,10 +281,8 @@ class JointCalibrator(BaseCalibrator):
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
                 
-                # Normalize absolute J6 targets to relative, measured corrections.
-                raw_delta = (raw_optimal_offset - staged_offset
-                             if mode in ("wrist_roll_v13", "wrist_yaw2")
-                             else raw_optimal_offset)
+                # Every solver returns a measured relative correction; staging is command-only.
+                raw_delta = raw_optimal_offset
                 if not np.isfinite(raw_delta):
                     raise ValueError("Non-finite joint correction; calibration rejected")
                 if i > 1 and raw_delta * prev_step_correction < 0:
@@ -311,166 +392,6 @@ class JointCalibrator(BaseCalibrator):
 
 
 
-
-    def save_debug_orthogonal_plot(self, arm_side, frame, dataset_A, dataset_B, dyn_model, T_mount_to_cam, optimal_offset_rad, ee_name, arm_idx, cand_joint, angle_error_deg=None, log_callback=None):
-        return
-        try:
-            pts_a = []
-            pts_b = []
-            
-            # Project points depending on frame
-            for q_full, pose in dataset_A:
-                p_cam = pose[:3, 3]
-                if frame == "camera":
-                    pts_a.append(p_cam * 1000.0)
-                elif frame == "torso":
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                    pts_a.append(p_meas_t5 * 1000.0)
-                elif frame == "ee":
-                    q_mod = np.array(q_full)
-                    q_mod[arm_idx[cand_joint]] += optimal_offset_rad
-                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                    p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
-                    pts_a.append(p_ee * 1000.0)
-
-            for q_full, pose in dataset_B:
-                p_cam = pose[:3, 3]
-                if frame == "camera":
-                    pts_b.append(p_cam * 1000.0)
-                elif frame == "torso":
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                    pts_b.append(p_meas_t5 * 1000.0)
-                elif frame == "ee":
-                    q_mod = np.array(q_full)
-                    q_mod[arm_idx[cand_joint]] += optimal_offset_rad
-                    T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_mod, ee_name)
-                    T_t5_to_head = BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                    p_meas_t5 = T_t5_to_cam[:3, :3] @ p_cam + T_t5_to_cam[:3, 3]
-                    p_ee = T_t5_to_ee[:3, :3].T @ (p_meas_t5 - T_t5_to_ee[:3, 3])
-                    pts_b.append(p_ee * 1000.0)
-
-            pts_a = np.array(pts_a)
-            pts_b = np.array(pts_b)
-            
-            # 3D fit circles
-            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a, robust=True)
-            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b, robust=True)
-            
-            n_A = R_c_A[:, 2]
-            n_B = R_c_B[:, 2]
-            u_A = R_c_A[:, 0]
-            v_A = R_c_A[:, 1]
-            u_B = R_c_B[:, 0]
-            v_B = R_c_B[:, 1]
-
-            angle_between_normals = np.degrees(np.arccos(np.clip(abs(np.dot(n_A, n_B)), -1.0, 1.0)))
-            diff_centers = c_B - c_A
-            center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A) * n_A)
-            
-            fig, axes = plt.subplots(2, 2, figsize=(14, 12))
-            
-            def generate_circle_pts(center, normal, radius, u, v, num_points=100):
-                theta = np.linspace(0, 2*np.pi, num_points)
-                circle_pts = []
-                for t in theta:
-                    p = center + radius * (np.cos(t) * u + np.sin(t) * v)
-                    circle_pts.append(p)
-                return np.array(circle_pts)
-
-            circle_pts_a = generate_circle_pts(c_A, n_A, r_A, u_A, v_A)
-            circle_pts_b = generate_circle_pts(c_B, n_B, r_B, u_B, v_B)
-            
-            # Subplot 1 (Top-Left): Sweep A Circle Fit (2D plane projection)
-            theta_fit = np.linspace(0, 2*np.pi, 200)
-            fit_x = uc_A + r_A * np.cos(theta_fit)
-            fit_y = vc_A + r_A * np.sin(theta_fit)
-            axes[0, 0].scatter(pts_2d_A[:, 0], pts_2d_A[:, 1], c='red', s=15, alpha=0.6, label='Raw Points')
-            axes[0, 0].plot(fit_x, fit_y, 'r--', linewidth=2, label=f'Fit Circle (r={r_A:.1f}mm)')
-            axes[0, 0].scatter([uc_A], [vc_A], c='darkred', marker='X', s=80, label='Center')
-            axes[0, 0].set_xlabel('U (mm)')
-            axes[0, 0].set_ylabel('V (mm)')
-            axes[0, 0].set_title(f'Sweep A Local 2D Circle Fit (RMSE: {rmse_A:.4f} mm)')
-            axes[0, 0].set_aspect('equal')
-            axes[0, 0].grid(True)
-            axes[0, 0].legend()
-            
-            # Subplot 2 (Top-Right): Sweep B Circle Fit (2D plane projection)
-            fit_x_b = uc_B + r_B * np.cos(theta_fit)
-            fit_y_b = vc_B + r_B * np.sin(theta_fit)
-            axes[0, 1].scatter(pts_2d_B[:, 0], pts_2d_B[:, 1], c='blue', s=15, alpha=0.6, label='Raw Points')
-            axes[0, 1].plot(fit_x_b, fit_y_b, 'b--', linewidth=2, label=f'Fit Circle (r={r_B:.1f}mm)')
-            axes[0, 1].scatter([uc_B], [vc_B], c='darkblue', marker='X', s=80, label='Center')
-            axes[0, 1].set_xlabel('U (mm)')
-            axes[0, 1].set_ylabel('V (mm)')
-            axes[0, 1].set_title(f'Sweep B Local 2D Circle Fit (RMSE: {rmse_B:.4f} mm)')
-            axes[0, 1].set_aspect('equal')
-            axes[0, 1].grid(True)
-            axes[0, 1].legend()
-
-            # Subplot 3 (Bottom-Left): Comparison Top View (X-Y Projection)
-            axes[1, 0].scatter(pts_a[:, 0], pts_a[:, 1], c='red', s=15, alpha=0.5, label='Sweep A Raw')
-            axes[1, 0].scatter(pts_b[:, 0], pts_b[:, 1], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
-            axes[1, 0].plot(circle_pts_a[:, 0], circle_pts_a[:, 1], 'r-', linewidth=1.5, label='Sweep A Fit')
-            axes[1, 0].plot(circle_pts_b[:, 0], circle_pts_b[:, 1], 'b-', linewidth=1.5, label='Sweep B Fit')
-            axes[1, 0].scatter([c_A[0]], [c_A[1]], c='darkred', marker='X', s=100, label='Center A')
-            axes[1, 0].scatter([c_B[0]], [c_B[1]], c='darkblue', marker='X', s=100, label='Center B')
-            axes[1, 0].plot([c_A[0], c_B[0]], [c_A[1], c_B[1]], color='purple', linestyle=':', linewidth=2, label='Center Shift')
-            axes[1, 0].set_xlabel('X (mm)')
-            axes[1, 0].set_ylabel('Y (mm)')
-            axes[1, 0].set_title('Top View Comparison (X-Y Projection)')
-            axes[1, 0].set_aspect('equal')
-            axes[1, 0].grid(True)
-            axes[1, 0].legend()
-
-            # Subplot 4 (Bottom-Right): Comparison Side View (Y-Z Projection)
-            axes[1, 1].scatter(pts_a[:, 1], pts_a[:, 2], c='red', s=15, alpha=0.5, label='Sweep A Raw')
-            axes[1, 1].scatter(pts_b[:, 1], pts_b[:, 2], c='blue', s=15, alpha=0.5, label='Sweep B Raw')
-            axes[1, 1].plot(circle_pts_a[:, 1], circle_pts_a[:, 2], 'r-', linewidth=1.5, label='Sweep A Fit')
-            axes[1, 1].plot(circle_pts_b[:, 1], circle_pts_b[:, 2], 'b-', linewidth=1.5, label='Sweep B Fit')
-            axes[1, 1].scatter([c_A[1]], [c_A[2]], c='darkred', marker='X', s=100, label='Center A')
-            axes[1, 1].scatter([c_B[1]], [c_B[2]], c='darkblue', marker='X', s=100, label='Center B')
-            
-            # Normal Vectors Projection
-            scale = min(r_A, r_B) * 0.4
-            axes[1, 1].arrow(c_A[1], c_A[2], n_A[1]*scale, n_A[2]*scale, color='darkred', head_width=2, width=0.5, label='Normal A')
-            axes[1, 1].arrow(c_B[1], c_B[2], n_B[1]*scale, n_B[2]*scale, color='darkblue', head_width=2, width=0.5, label='Normal B')
-            axes[1, 1].set_xlabel('Y (mm)')
-            axes[1, 1].set_ylabel('Z (mm)')
-            axes[1, 1].set_title('Side View Comparison (Y-Z Projection)')
-            axes[1, 1].set_aspect('equal')
-            axes[1, 1].grid(True)
-            axes[1, 1].legend()
-
-            display_angle = angle_error_deg if angle_error_deg is not None else angle_between_normals
-            status_text = "PASS" if (display_angle < 0.1 and center_dist < 0.1) else "WARNING"
-            fig.suptitle(
-                f"Orthogonal Multi-View Analysis ({arm_side.upper()} Arm, {frame.upper()} Frame)\n"
-                f"Status: {status_text} | Axis Angle Error: {display_angle:.4f}° (Target < 0.1°)\n"
-                f"Axis Center Distance: {center_dist:.4f} mm (Target < 0.1 mm)",
-                fontsize=14, fontweight='bold'
-            )
-            plt.tight_layout()
-            
-            from core.paths import CONFIG_PATHS
-            result_dir = CONFIG_PATHS["plot_dir"]
-            os.makedirs(result_dir, exist_ok=True)
-            plot_save_path = os.path.abspath(os.path.join(result_dir, f"debug_orthogonal_circles_{arm_side}_{frame}.png"))
-            plt.savefig(plot_save_path, dpi=150)
-            plt.close()
-            if log_callback:
-                log_callback(f"[SUCCESS] Orthogonal debug plot saved to: {plot_save_path}")
-                log_callback(f"  * Alignment check: {status_text} (Angle error = {display_angle:.4f}°, Center distance = {center_dist:.4f} mm)")
-        except Exception as e:
-            if log_callback:
-                log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
 
     def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None, force_overwrite=False):
         if final_res and not final_res.get('measurement_accepted', True):
@@ -660,463 +581,101 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None):
-        if sweep_duration is None:
-            sweep_duration = BaseCalibrator.JOINT_SWEEP_SECONDS[mode]
-        if getattr(self, 'stop_requested', False):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None,
+            current_offset_deg=0.0, sweep_duration=None,
+            save_debug=False, first_starting_pose=None):
+        if self.stop_requested or not self.robot or self.marker_st is None:
             return None
-
-        if use_angle_based_fitting is None:
-            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
-
-        if log_callback:
-            log_callback("\n" + "="*50)
-            log_callback(f"   STARTING {mode.upper()} CONTINUOUS OFFSET CALIBRATION SWEEP")
-            if current_offset_deg != 0.0:
-                log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
-            log_callback("="*50)
-
-        is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
-
-        if not is_camera_mock:
-            # Pre-check marker visibility after settling delay
-            time.sleep(1.0)
-            initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
-            if not initial_check:
-                if log_callback: log_callback("[ERROR] Marker is not visible.")
-                if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
-                    if log_callback: log_callback("[INFO] Prompting user for manual teaching due to marker visibility error...")
-                    resolved = self.marker_problem_callback(arm_side)
-                    if resolved:
-                        self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
-                        time.sleep(1.0)
-                        initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
-                if not initial_check:
-                    if status_callback: status_callback(False)
-                    return None
-            if status_callback: status_callback(True)
-        else:
-            if status_callback: status_callback(True)
-
-        if not self.robot:
-            if log_callback: log_callback("[ERROR] Robot is not connected.")
+        duration = sweep_duration or self.JOINT_SWEEP_SECONDS[mode]
+        cfg = self.JOINT_CONFIGS[mode]
+        # Encoder feedback is used to construct a motion command, never passed
+        # to the geometric estimator.
+        indices = getattr(self.robot.model(), arm_side + '_arm_idx')
+        baseline = np.array(first_starting_pose if first_starting_pose is not None
+                            else self.robot.get_state().position[indices], copy=True)
+        nominal = self.get_ready_pose('v' + self.get_robot_version(), 'joint', mode, arm_side)
+        key = cfg['offset_key']
+        taught = getattr(self, 'user_taught_ready_poses', {}).get(arm_side, {}).get(key)
+        if taught is not None:
+            baseline = np.array(taught, copy=True)
+        baseline[cfg['cand_joint']] = nominal[cfg['cand_joint']] + np.deg2rad(current_offset_deg)
+        if not self.marker_st.get_marker_transform(sampling_time=2., side=arm_side):
+            if status_callback: status_callback(False)
+            if log_callback: log_callback('[ERROR] Marker is not visible in ready pose')
             return None
+        if status_callback: status_callback(True)
+        datasets = []
+        for label in ('A', 'B'):
+            axis, span = cfg['sweep_joint_' + label], cfg['sweep_range_' + label]
+            poses = self.perform_single_joint_sweep(arm_side, axis, baseline, -span, span, duration,
+                        label='Joint ' + label, log_callback=log_callback, mode=mode)
+            if poses is None: return None
+            if save_debug:
+                self.save_observed_points(arm_side, axis, poses, 'joint_' + label)
+            datasets.append(poses)
+        candidate = None
+        if cfg['cand_joint'] != 6:
+            # Measure the sign-reference axis instead of predicting it using
+            # encoder/FK. Negative-to-zero also respects the J3 upper limit.
+            candidate = self.perform_single_joint_sweep(arm_side, cfg['cand_joint'], baseline,
+                        -15., 0., duration, label='Direction reference', log_callback=log_callback, mode=mode)
+            if candidate is None: return None
+            if save_debug:
+                self.save_observed_points(arm_side, cfg['cand_joint'], candidate, 'joint_C')
+        return self.compute_calibration_results(arm_side, mode, *datasets,
+                        dataset_C=candidate, log_callback=log_callback)
 
-        state = self.robot.get_state()
-        model = self.robot.model()
-        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-        if first_starting_pose is not None:
-            initial_joint_pos = list(first_starting_pose)
-        else:
-            initial_joint_pos = list(np.array(state.position)[arm_idx])
-
-        # Define joint parameters from JOINT_CONFIGS
-        jcfg = self.JOINT_CONFIGS[mode]
-        cand_joint = jcfg["cand_joint"]
-        sweep_joint_A = jcfg["sweep_joint_A"]
-        sweep_joint_B = jcfg["sweep_joint_B"]
-
-        dyn_model = self.robot.get_dynamics()
-        ee_name = f"ee_{arm_side}"
-
-        # Arm cand baseline pose (shifted by current offset)
-        ver_key = "v1.3" if self.is_v13() else "v1.2"
-        ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
-        norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
-        ref_pose = None
-        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
-            arm_dict = self.user_taught_ready_poses.get(arm_side)
-            if isinstance(arm_dict, dict):
-                ref_pose = arm_dict.get(norm_mode)
-        q_cand = list(ref_pose) if ref_pose is not None else list(initial_joint_pos)
-        q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
-
-        # Determine sweep ranges from JOINT_CONFIGS
-        range_A = jcfg.get("sweep_range_A", 20.0)
-        range_B = jcfg.get("sweep_range_B", 20.0)
-
-        # 1. PHYSICAL SWEEP JOINT A
-        logging.info(f"\n--- Commencing Continuous Sweep on Joint A (Index {sweep_joint_A}, duration={sweep_duration}s) ---")
-        dataset_A = self.perform_single_joint_sweep(
-            arm_side, sweep_joint_A, q_cand, -range_A, range_A, sweep_duration,
-            q_head=None, label="Joint A", log_callback=log_callback,
-            current_offset_deg=current_offset_deg, cand_joint=cand_joint, mode=mode
-        )
-        if dataset_A is None:
-            return None
-
-        if getattr(self, 'stop_requested', False):
-            return None
-            
-        if self.robot:
-            time.sleep(0.5)
-        else:
-            time.sleep(0.01)
-
-        # 2. PHYSICAL SWEEP JOINT B
-        norm_mode = "wrist_pitch" if mode == "wrist_pitch_v13" else ("wrist_roll" if mode == "wrist_roll_v13" else mode)
-        if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
-            arm_dict = self.user_taught_ready_poses.get(arm_side)
-            if isinstance(arm_dict, dict):
-                ref_pose = arm_dict.get(norm_mode)
-                if ref_pose is not None:
-                    q_cand = list(ref_pose)
-                    q_cand[cand_joint] = ready_pose_nom[cand_joint] + np.radians(current_offset_deg)
-
-        logging.info(f"\n--- Commencing Continuous Sweep on Joint B (Index {sweep_joint_B}, duration={sweep_duration}s) ---")
-        dataset_B = self.perform_single_joint_sweep(
-            arm_side, sweep_joint_B, q_cand, -range_B, range_B, sweep_duration,
-            q_head=None, label="Joint B", log_callback=log_callback,
-            current_offset_deg=current_offset_deg, cand_joint=cand_joint, mode=mode
-        )
-        if dataset_B is None:
-            return None
-        if dataset_A:
-            initial_joint_pos = list(dataset_A[0][0][arm_idx])
-
-        if getattr(self, 'stop_requested', False):
-            if log_callback: log_callback("[INFO] Stop requested during sweep.")
-            return None
-
-        # Save FULL captured continuous sweep points to debug txt files before downsampling
-        if save_debug:
-            self.save_debug_points(
-                arm_side, sweep_joint_A, dataset_A, initial_joint_pos, ee_name, dyn_model, None, "joint_A", log_callback
-            )
-            self.save_debug_points(
-                arm_side, sweep_joint_B, dataset_B, initial_joint_pos, ee_name, dyn_model, None, "joint_B", log_callback
-            )
-        
-        # Keep up to 200 points for speed and accuracy
-        raw_len_A = len(dataset_A)
-        raw_len_B = len(dataset_B)
-        
-        max_pts = 200
-        if len(dataset_A) > max_pts:
-            indices_A = np.round(np.linspace(0, len(dataset_A) - 1, max_pts)).astype(int)
-            dataset_A = [dataset_A[idx] for idx in indices_A]
-        if len(dataset_B) > max_pts:
-            indices_B = np.round(np.linspace(0, len(dataset_B) - 1, max_pts)).astype(int)
-            dataset_B = [dataset_B[idx] for idx in indices_B]
-            
-        logging.info(f"Swept {raw_len_A} dense raw coordinate frames during Joint A motion... downsampled to {len(dataset_A)} for optimization.")
-        logging.info(f"Swept {raw_len_B} dense raw coordinate frames during Joint B motion... downsampled to {len(dataset_B)} for optimization.")
-
-        return self.compute_calibration_results(
-            arm_side=arm_side,
-            mode=mode,
-            dataset_A=dataset_A,
-            dataset_B=dataset_B,
-            initial_joint_pos=initial_joint_pos,
-            current_offset_deg=current_offset_deg,
-            use_angle_based_fitting=use_angle_based_fitting,
-            save_debug=save_debug,
-            log_callback=log_callback,
-            cand_joint=cand_joint,
-            sweep_joint_A=sweep_joint_A,
-            sweep_joint_B=sweep_joint_B
-        )
-
-    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None, cand_joint=None, sweep_joint_A=None, sweep_joint_B=None):
-        if use_angle_based_fitting is None:
-            use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
-
-        # Define nominal axes in parent link frame for each mode
-        if mode == "wrist_roll_v13":
-            a_cand_local = np.array([1.0, 0.0, 0.0])
-            a_A_local = np.array([1.0, 0.0, 0.0])
-            a_B_local = np.array([0.0, 1.0, 0.0])
-        elif mode == "wrist_pitch_v13":
-            a_cand_local = np.array([0.0, 1.0, 0.0])
-            a_A_local = np.array([1.0, 0.0, 0.0])
-            a_B_local = np.array([0.0, 0.0, 1.0])
-        elif mode in ("wrist_pitch", "elbow"):
-            a_cand_local = np.array([0.0, 1.0, 0.0])
-            a_A_local = np.array([0.0, 0.0, 1.0])
-            a_B_local = np.array([0.0, 0.0, 1.0])
-        elif mode == "wrist_yaw2":
-            a_cand_local = np.array([0.0, 0.0, 1.0])
-            a_A_local = np.array([0.0, 0.0, 1.0])
-            a_B_local = np.array([0.0, 1.0, 0.0])
-        else:
-            raise ValueError(f"Unknown mode: {mode}")
-
-        # Get joint index configs
-        jcfg = self.JOINT_CONFIGS[mode]
-        cand_joint = jcfg["cand_joint"]
-        sweep_joint_A = jcfg["sweep_joint_A"]
-        sweep_joint_B = jcfg["sweep_joint_B"]
-
-        if not self.robot:
-            raise RuntimeError("Robot instance is not initialized or connected.")
-            
-        state = self.robot.get_state()
-        model = self.robot.model()
-        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-        dyn_model = self.robot.get_dynamics()
-        ee_name = f"ee_{arm_side}"
-
-        # Compute dynamic nominal axes using forward kinematics (FK) at the ready pose
-        # Determine nominal ready pose for the arm (zero offsets)
-        ver_key = "v1.3" if self.is_v13() else "v1.2"
-        ready_pose_nom = self.get_ready_pose(ver_key, "joint", mode, arm_side)
-        
-        q_ready_full = np.array(state.position)
-        for idx, val in zip(arm_idx, ready_pose_nom):
-            q_ready_full[idx] = val
-
-        def get_link_name(j_idx):
-            return f"link_{arm_side}_arm_{j_idx}"
-
-        T_cand = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(cand_joint - 1))
-        T_A = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_A - 1))
-        T_B = self.compute_fk(self.robot, dyn_model, q_ready_full, get_link_name(sweep_joint_B - 1))
-
-        a_cand_t5 = T_cand[:3, :3] @ a_cand_local
-        a_A_t5 = T_A[:3, :3] @ a_A_local
-        a_B_t5 = T_B[:3, :3] @ a_B_local
-        
-        logging.debug(f"[INFO] Dynamically calculated nominal axes from FK (Arm: {arm_side}, Mode: {mode}):")
-        logging.debug(f"       a_cand_t5 = {a_cand_t5.tolist()}")
-        logging.debug(f"       a_A_t5    = {a_A_t5.tolist()}")
-        logging.debug(f"       a_B_t5    = {a_B_t5.tolist()}")
-
-        # Calculate accurate transformation from torso to camera frame
-        if self.uses_head_camera():
-            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-            T_mount_to_cam = self.make_transform(mount_to_cam)
-            q_init = dataset_A[0][0]
-            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
-            T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-        else:
-            head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
-            T_head_base_to_cam = self.make_transform(head_base_to_cam)
-            q_init = dataset_A[0][0]
-            try:
-                T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_init, "link_head_0", "link_torso_5")
-            except Exception:
-                T_t5_to_head_0 = np.eye(4)
-            T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam
-
-        T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
-        R_torso_to_cam = T_torso_to_cam[:3, :3]
-
-        # Define nominal axes in the camera frame
-        a_cand_cam = R_torso_to_cam @ a_cand_t5
-        a_A_cam = R_torso_to_cam @ a_A_t5
-        a_B_cam_nom = R_torso_to_cam @ a_B_t5
-
-        a_cand_cam /= np.linalg.norm(a_cand_cam)
-        a_A_cam /= np.linalg.norm(a_A_cam)
-        a_B_cam_nom /= np.linalg.norm(a_B_cam_nom)
-
-        # 2. Extract poses and angles in the camera frame
-        poses_A = [pose for _, pose in dataset_A]
-        angles_A = [np.degrees(q_full[arm_idx[sweep_joint_A]] - initial_joint_pos[sweep_joint_A]) for q_full, _ in dataset_A]
-        poses_B = [pose for _, pose in dataset_B]
-        angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
-
-        # 3. Fit Sweep A and B axes in the camera frame
-        robust_fit = True
-        res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_A, angles_A, axis_prior=a_A_cam, robust=robust_fit)
-        res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_B, angles_B, axis_prior=a_B_cam_nom, robust=robust_fit)
-
-        n_A = res_A['axis_opt']
-        n_B = res_B['axis_opt']
-        if mode not in ("wrist_roll_v13", "wrist_pitch_v13") and np.dot(n_A, n_B) < 0:
-            n_B = -n_B
-
-        r_A = res_A['radius']
-        r_B = res_B['radius']
-        rmse_A = res_A['rmse']
-        rmse_B = res_B['rmse']
-        c_A_c = res_A['c_opt']
-        c_B_c = res_B['c_opt']
-
-        pts_a_cam = np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_A])
-        pts_b_cam = np.array([pose[:3, 3] * 1000.0 for _, pose in dataset_B])
-
-        # Compute center distance in camera frame
-        diff_centers = c_B_c - c_A_c
-        center_dist = np.linalg.norm(diff_centers - np.dot(diff_centers, n_A) * n_A)
-        angle_between_normals = np.degrees(np.arccos(np.clip(np.dot(n_A, n_B), -1.0, 1.0)))
-
-        # Enforce that normal vectors point in the direction of the physical kinematic axes
-        n_A = n_A if np.dot(n_A, a_A_cam) > 0 else -n_A
-        n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
-
-        # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
-        if mode in ("wrist_roll_v13", "wrist_yaw2"):
-            from core.calibration.joint_reference import estimate_j6_reference
-            # This stage estimates J6 against an explicit nominal bracket
-            # convention; it must not fit bracket parameters as a side effect.
-            version_suffix = "_v13" if self.is_v13() else "_v12"
-            reference_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-            reference_vec = self.camera_config.get(reference_key)
-            if reference_vec is None:
-                reference_vec = self.NOMINAL_BRACKET_TEMPLATES["1.3" if self.is_v13() else "1.2"][arm_side]
-                reference_key = "nominal_template"
-            reference_rotation = R_scipy.from_euler('xyz', reference_vec[3:6], degrees=True).as_matrix()
-            j6_encoder_deg = float(np.median([np.degrees(q[arm_idx[6]]) for q, _ in dataset_B]))
-            reference_result = estimate_j6_reference(
-                poses_A, n_A, poses_B, n_B, reference_rotation,
-                j6_encoder_deg, is_v13=self.is_v13())
-            reference_result['bracket_reference_source'] = reference_key
-            if not reference_result['measurement_accepted']:
-                return reference_result
-            raw_diff_deg = reference_result['raw_diff_deg']
-            optimal_offset_deg = reference_result['optimal_offset']
-            diff_angle = np.radians(raw_diff_deg)
+    def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B,
+            *, log_callback=None, dataset_C=None):
+        """Observed circles only: no encoder, FK, or staged offset inputs."""
+        try:
+            a = self.fit_observed_circle(dataset_A)
+            b = self.fit_observed_circle(dataset_B)
+            na, nb = a['axis'], b['axis']
+            angle = float(np.rad2deg(np.arccos(np.clip(na @ nb, -1., 1.))))
+            quality = {'circle_A': a['residual_rms_m'], 'circle_B': b['residual_rms_m']}
+            if mode in ('wrist_yaw2', 'wrist_roll_v13'):
+                suffix = 'v13' if self.is_v13() else 'v12'
+                key = f'Tf_to_marker_{arm_side}_{suffix}'
+                vector = self.camera_config.get(key, self.NOMINAL_BRACKET_TEMPLATES[self.get_robot_version()][arm_side])
+                reference = R_scipy.from_euler('xyz', vector[3:6], degrees=True).as_matrix()
+                result = estimate_j6_reference(dataset_A, na, dataset_B, nb, reference)
+                result['bracket_reference_source'] = key
+                if not result['measurement_accepted']: return result
+            else:
+                c = self.fit_observed_circle(dataset_C)
+                a, b, c = self.refine_adjacent_circles((dataset_A, dataset_B, dataset_C), (a, b, c))
+                na, nb = a['axis'], b['axis']
+                angle = float(np.rad2deg(np.arccos(np.clip(na @ nb, -1., 1.))))
+                quality = {'circle_A': a['residual_rms_m'], 'circle_B': b['residual_rms_m'],
+                           'circle_C': c['residual_rms_m'], 'fit': 'observed_adjacent_axes_free_centers'}
+                nc = c['axis']
+                # A and B rotate about the same fixed candidate axis. Project
+                # minor out-of-plane observation error, not onto a model axis.
+                pa, pb = na - (na @ nc)*nc, nb - (nb @ nc)*nc
+                if min(np.linalg.norm(pa), np.linalg.norm(pb)) < .5:
+                    raise ValueError('Direction-reference circle is not independent')
+                signed = float(np.rad2deg(np.arctan2(np.cross(pa, pb) @ nc, pa @ pb)))
+                delta = signed + 90. if mode == 'wrist_pitch_v13' else -signed
+                if abs(delta) > 30.:
+                    raise ValueError('Observed circle relationship is outside calibration bounds')
+                result = dict(measurement_accepted=True, optimal_offset=delta, quality_diagnostics=quality)
+            delta_center = (b['center_m'] - a['center_m'])*1000.
+            distance = float(np.linalg.norm(delta_center - np.dot(delta_center, na)*na))
+            center_distance_3d = float(np.linalg.norm(delta_center))
+            if mode in ('elbow', 'wrist_pitch'):
+                size_error = abs(a['radius'] - b['radius'])
+                if max(center_distance_3d, size_error) > 100. or (
+                        abs(result['optimal_offset']) < .06 and max(center_distance_3d, size_error) > .5):
+                    raise ValueError(f'Parallel-joint circles do not coincide: center={center_distance_3d:.3f} mm, radius difference={size_error:.3f} mm')
+            result.update(mode=mode, converged=False, angle_between_normals=angle,
+                center_dist=center_distance_3d, perp_dist_after=distance, r_A=a['radius'], r_B=b['radius'],
+                _plot_data=dict(pts_a_cam=np.asarray(dataset_A)[:,:3,3]*1000.,
+                    pts_b_cam=np.asarray(dataset_B)[:,:3,3]*1000., c_A=a['c_opt'], c_B=b['c_opt'],
+                    n_A=na, n_B=nb, r_A=a['radius'], r_B=b['radius'],
+                    angle_between_normals=angle, center_dist=distance))
             if log_callback:
-                log_callback(f"[INFO] {mode}: J6 encoder={j6_encoder_deg:.4f}°, "
-                             f"raw_diff={raw_diff_deg:.4f}°, optimal_offset={optimal_offset_deg:.4f}°")
-                log_callback(f"[J6 REFERENCE] {reference_key}; effective correction conditional on bracket, not an independent physical zero.")
-                log_callback(f"[SWEEP QUALITY] {reference_result['quality_diagnostics']}")
-        elif mode == "wrist_pitch_v13":
-            # Orthogonal normal vector projection solver for v1.3 spherical wrist Pitch (J5)
-            # Sweep A is J6 (Roll, nominal axis X) and Sweep B is J4 (Yaw, nominal axis Z).
-            # J6 and J4 are nominally orthogonal (90.0°).
-            cross = np.cross(n_A, n_B)
-            sin_sign = np.sign(np.dot(cross, a_cand_cam))
-            optimal_offset_deg = (angle_between_normals - 90.0) * sin_sign
-            diff_angle = np.radians(optimal_offset_deg)
-        else:
-            # Project axes onto the candidate joint's rotation plane to absorb physical DH twist errors
-            # This ensures smooth zero-crossing even if the sweep axes are not perfectly parallel.
-            a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
-            a_B_proj = a_B_cam_nom - np.dot(a_B_cam_nom, a_cand_cam) * a_cand_cam
-            if np.linalg.norm(a_A_proj) > 1e-6: a_A_proj /= np.linalg.norm(a_A_proj)
-            if np.linalg.norm(a_B_proj) > 1e-6: a_B_proj /= np.linalg.norm(a_B_proj)
-            
-            n_A_proj = n_A - np.dot(n_A, a_cand_cam) * a_cand_cam
-            n_B_proj = n_B - np.dot(n_B, a_cand_cam) * a_cand_cam
-            if np.linalg.norm(n_A_proj) > 1e-6: n_A_proj /= np.linalg.norm(n_A_proj)
-            if np.linalg.norm(n_B_proj) > 1e-6: n_B_proj /= np.linalg.norm(n_B_proj)
-            
-            nominal_angle = np.arctan2(np.dot(np.cross(a_A_proj, a_B_proj), a_cand_cam), np.dot(a_A_proj, a_B_proj))
-            actual_angle = np.arctan2(np.dot(np.cross(n_A_proj, n_B_proj), a_cand_cam), np.dot(n_A_proj, n_B_proj))
-            diff_angle = actual_angle - nominal_angle
-            diff_angle = (diff_angle + np.pi) % (2 * np.pi) - np.pi
-
-
-        # Match the physical motor driver rotations (negative feedback loop)
-        sign = 1.0 if diff_angle > 0.0 else -1.0
-        size_error = abs(r_A - r_B)
-        if mode not in ("wrist_roll_v13", "wrist_pitch_v13", "wrist_yaw2") and (center_dist > 100.0 or size_error > 100.0):
-            if log_callback:
-                log_callback("[ERROR] Circle fitting failed or error is too large. Aborting step adjustment.")
-            optimal_offset_deg = 0.0
-        else:
-            if mode in ("elbow", "wrist_pitch"):
-                # Robust Center-Distance Method for parallel joints
-                # The normal vector of a small arc is highly sensitive to vibrations.
-                # However, the distance between the rotation centers is extremely robust and proportional to the angle error.
-                if self.uses_head_camera():
-                    mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                    T_mount_to_cam = self.make_transform(mount_to_cam)
-                    q_init = dataset_A[0][0]
-                    T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_init, "link_head_2", "link_torso_5")
-                    T_t5_to_cam = T_t5_to_head @ T_mount_to_cam
-                else:
-                    head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
-                    T_head_base_to_cam = self.make_transform(head_base_to_cam)
-                    q_init = dataset_A[0][0]
-                    try:
-                        T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_init, "link_head_0", "link_torso_5")
-                    except Exception:
-                        T_t5_to_head_0 = np.eye(4)
-                    T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam
-
-                T_torso_to_cam = np.linalg.inv(T_t5_to_cam)
-                
-                arm_side_str = "left" if arm_side == "left" else "right"
-                
-                # Get the true axis of the candidate joint using the exact same T_torso_to_cam frame
-                T_cand_parent = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint - 1}")
-                a_cand_t5 = T_cand_parent[:3, :3] @ a_cand_local
-                true_a_cand_cam = T_torso_to_cam[:3, :3] @ a_cand_t5
-                if np.linalg.norm(true_a_cand_cam) > 1e-6:
-                    true_a_cand_cam /= np.linalg.norm(true_a_cand_cam)
-                
-                # Get the true position of the pivot (child link, e.g. link_3 for elbow)
-                T_cand_child = self.compute_fk(self.robot, dyn_model, q_init, f"link_{arm_side_str}_arm_{cand_joint}")
-                p_cand_cam = (T_torso_to_cam @ T_cand_child)[:3, 3] * 1000.0  # mm
-                
-                # Project centers to candidate plane
-                c_A_proj = c_A_c - np.dot(c_A_c - p_cand_cam, true_a_cand_cam) * true_a_cand_cam
-                c_B_proj = c_B_c - np.dot(c_B_c - p_cand_cam, true_a_cand_cam) * true_a_cand_cam
-                
-                v_A = c_A_proj - p_cand_cam
-                v_B = c_B_proj - p_cand_cam
-                L1 = np.linalg.norm(v_A) # Length of link between cand joint and sweep joint A
-                L2 = np.linalg.norm(v_B) # Length of link between cand joint and sweep joint B
-                
-                if L1 > 1e-3 and L2 > 1e-3:
-                    # Direction perpendicular to v_A in the rotation plane
-                    dir_vec = np.cross(true_a_cand_cam, v_A / L1)
-                    # Project center displacement onto this perpendicular direction
-                    diff_centers = c_B_proj - c_A_proj
-                    proj = np.dot(diff_centers, dir_vec)
-                    sin_theta = np.clip(proj / L2, -1.0, 1.0)
-                    # We return the negative of the physical error as the compensation offset
-                    optimal_offset_deg = -float(np.degrees(np.arcsin(sin_theta)))
-                else:
-                    optimal_offset_deg = 0.0
-                    
-            elif mode == "wrist_pitch_v13":
-                pass # Already computed directly above
-            elif mode not in ("wrist_roll_v13", "wrist_yaw2"):
-                optimal_offset_deg = -np.degrees(diff_angle)
-
-        if log_callback:
-            log_callback("\n" + "="*50)
-            log_callback(f"   SWEEP ANALYSIS & RESULTS ({mode.upper()})")
-            log_callback("="*50)
-            log_callback(f"  * Camera Circle Normals Angle (Reference): {angle_between_normals:.4f} deg")
-            log_callback(f"  * Circle Size Error (abs: r_A - r_B)     : {size_error:.4f} mm")
-            log_callback(f"  * Estimated Circle Center Distance       : {center_dist:.4f} mm")
-            log_callback(f"  * Calculated Offset Correction           : {optimal_offset_deg:.6f} deg")
-            log_callback("="*50)
-
-        if save_debug and dyn_model:
-            try:
-                mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-                T_mount_to_cam = self.make_transform(mount_to_cam)
-                self.save_debug_orthogonal_plot(
-                    arm_side, "camera", dataset_A, dataset_B, dyn_model, T_mount_to_cam, 
-                    np.radians(optimal_offset_deg), ee_name, arm_idx, cand_joint, 
-                    angle_error_deg=angle_between_normals, log_callback=log_callback
-                )
-            except Exception as e:
-                if log_callback:
-                    log_callback(f"[WARN] Failed to save debug orthogonal plot: {e}")
-
-        return {
-            'mode': mode,
-            'optimal_offset': optimal_offset_deg,
-            'measurement_accepted': True,
-            'quality_diagnostics': reference_result['quality_diagnostics'] if mode in ('wrist_roll_v13', 'wrist_yaw2') else {},
-            'bracket_reference_source': reference_result['bracket_reference_source'] if mode in ('wrist_roll_v13', 'wrist_yaw2') else None,
-            'recommended_joint_offset': optimal_offset_deg,
-            'converged': False,
-            '_dataset_A': dataset_A,
-            '_dataset_B': dataset_B,
-            '_initial_joint_pos': initial_joint_pos,
-            'angle_between_normals': angle_between_normals,
-            'sign': sign,
-            'center_dist': center_dist,
-            'r_A': r_A,
-            'r_B': r_B,
-            '_plot_data': {
-                'pts_a_cam': pts_a_cam,
-                'pts_b_cam': pts_b_cam,
-                'c_A': c_A_c,
-                'c_B': c_B_c,
-                'n_A': n_A,
-                'n_B': n_B,
-                'r_A': r_A,
-                'r_B': r_B,
-                'angle_between_normals': angle_between_normals,
-                'center_dist': center_dist,
-            },
-        }
+                log_callback(f"[SWEEP QUALITY] {mode}: relative correction={result['optimal_offset']:.5f} deg; circles RMS={a['rmse']:.4f}/{b['rmse']:.4f} mm")
+            return result
+        except ValueError as error:
+            return dict(measurement_accepted=False, failure_reason=str(error))

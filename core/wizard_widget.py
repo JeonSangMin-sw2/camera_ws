@@ -752,7 +752,7 @@ class CalibrationWizardWidget(QWidget):
         ip_row.addWidget(lbl_ip)
         
         self.wizard_ip_input = QLineEdit("192.168.30.1:50051")
-        if self.parent_app.ui_only:
+        if self.parent_app.sim:
             self.wizard_ip_input.setText("127.0.0.1:50051")
         self.wizard_ip_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 6px; font-size: 15px;")
         ip_row.addWidget(self.wizard_ip_input)
@@ -1459,7 +1459,9 @@ class CalibrationWizardWidget(QWidget):
 
         if not was_stopped and not error_msg:
             # Automatically apply Step 1 joint offsets & marker brackets (silent)
-            self.parent_app.apply_full_auto_results(silent=True)
+            if not self.parent_app.apply_full_auto_results(silent=True):
+                self.stop_unified_calibration_error('Step 1 results could not be saved; calibration stopped.')
+                return
 
             has_head = getattr(self.parent_app, 'include_head_motion', True)
             if hasattr(self.parent_app, 'robot') and hasattr(self.parent_app.robot, 'model'):

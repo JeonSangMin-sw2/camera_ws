@@ -9,6 +9,7 @@ import argparse
 from copy import deepcopy
 from functools import partial
 import json
+import hashlib
 import os
 from pathlib import Path
 import shutil
@@ -30,12 +31,20 @@ def run(args):
         raise RuntimeError('Confirm the local simulator before enabling SDK motion.')
     output = Path(args.output).resolve()
     output.mkdir(parents=True, exist_ok=False)
+    project = Path(__file__).resolve().parents[1]
+    source_files = sorted((project/'core').rglob('*.py')) + [project/'main_ui.py', Path(__file__).resolve()]
+    source_hashes = {str(path.relative_to(project)): hashlib.sha256(path.read_bytes()).hexdigest()
+                     for path in source_files}
+    protected_hashes = {str(path): hashlib.sha256(path.read_bytes()).hexdigest()
+                        for path in (project/'config').iterdir() if path.is_file()}
+    (output/'source_manifest.json').write_text(json.dumps(source_hashes, indent=2))
     # Redirect before importing classes that cache paths or load settings.
     for key, original in list(CONFIG_PATHS.items()):
-        target = output / (Path(original).name if key.endswith('yaml') or key in ('camera_info', 'camera_intrinsics') else key)
+        is_directory = key.endswith('_dir')
+        target = output / (key if is_directory else Path(original).name)
         if Path(original).is_file():
             shutil.copy2(original, target)
-        else:
+        elif is_directory:
             target.mkdir(exist_ok=True)
         CONFIG_PATHS[key] = str(target)
     setting = Path(CONFIG_PATHS['setting_yaml'])
@@ -47,7 +56,8 @@ def run(args):
     setting.write_text(yaml.safe_dump(cfg))
 
     from core.calibration.CalibratorBase import BaseCalibrator
-    from main_ui import (UnifiedCalibrationApp, SimulatedMarkerTransform, FullAutoWorker,
+    from core.marker_detection import Marker_Transform
+    from main_ui import (UnifiedCalibrationApp, FullAutoWorker,
                          HeadCamSweepWorker, Step2InitPoseWorker, Step2AutoMotionWorker)
     qt = QApplication.instance() or QApplication([])
     robot = BaseCalibrator.initialize_robot('127.0.0.1:50051', 'm', include_head=not args.no_head)
@@ -56,33 +66,39 @@ def run(args):
     info = robot.get_robot_info()
     print('CONNECTED', info, flush=True)
     try:
-        if info.robot_model_version.removeprefix('v') != '1.2':
-            raise RuntimeError('This connected regression profile requires the v1.2 simulator')
-        detector = SimulatedMarkerTransform(robot, cfg['camera'], '1.2', not args.no_head)
-        app = UnifiedCalibrationApp(detector, robot, ui_only=False)
+        version = info.robot_model_version.removeprefix('v')
+        if version not in ('1.2', '1.3'):
+            raise RuntimeError(f'Unsupported robot version: {version}')
+        for side in ('right', 'left'):
+            cfg['marker'][f'Tf_to_marker_{side}'] = cfg['marker'][f'Tf_to_marker_{side}_v{version.replace(".", "")}']
+        setting.write_text(yaml.safe_dump(cfg))
+        detector = Marker_Transform(sim=True, robot=robot, robot_version=version)
+        app = UnifiedCalibrationApp(detector, robot, sim=True)
         # Run workers synchronously with the same production slots and classes.
         for timer in app.findChildren(QTimer):
             timer.stop()
         app.log_msg = lambda msg: print(msg, flush=True)
         app.include_head_motion = not args.no_head
         app.chk_servo_head.setChecked(not args.no_head)
-        app.step2_mode_sel.setCurrentText('sim')
+        app.step2_mode_sel.setCurrentText('live')
         app.joint_offsets_store = deepcopy(cfg['joint_offset'])
         for calibrator in (app.joint_calibrator, app.marker_calibrator, app.head_camera_calibrator):
             calibrator.include_head_motion = not args.no_head
-            calibrator.robot_version = '1.2'
-            # Shorter simulator sweeps, still real SDK trajectories and encoder capture.
-        app.joint_calibrator.perform_joint_calibration = partial(app.joint_calibrator.perform_joint_calibration, sweep_duration=args.sweep_seconds)
-        app.marker_calibrator.perform_calibration_sweep = partial(app.marker_calibrator.perform_calibration_sweep, sweep_duration=args.sweep_seconds)
+            calibrator.robot_version = version
+        # Default is exactly the production timing, for either marker source.
+        if args.sweep_seconds is not None:
+            app.joint_calibrator.perform_joint_calibration = partial(app.joint_calibrator.perform_joint_calibration, sweep_duration=args.sweep_seconds)
+            app.marker_calibrator.perform_calibration_sweep = partial(app.marker_calibrator.perform_calibration_sweep, sweep_duration=args.sweep_seconds)
         stop = threading.Event()
         worker = FullAutoWorker(app.joint_calibrator, app.marker_calibrator,
-                               stop_event=stop, joint_offsets_store=app.joint_offsets_store)
+                               stop_event=stop, joint_offsets_store=app.joint_offsets_store,
+                               save_debug=True)
         worker.log_msg.connect(app.log_msg, Qt.DirectConnection)
         worker.joint_finished_signal.connect(app.handle_full_auto_joint_finished, Qt.DirectConnection)
         worker.bracket_finished_signal.connect(app.handle_full_auto_bracket_finished, Qt.DirectConnection)
         summary = {'endpoint': '127.0.0.1:50051', 'sdk_motion': True,
                    'real_camera_detection': False, 'include_head': not args.no_head,
-                   'sweep_seconds': args.sweep_seconds}
+                   'sweep_seconds': args.sweep_seconds or 'production_defaults', 'robot_version': version}
         if args.resume_step2:
             checkpoint = json.loads(Path(args.resume_step2).read_text())
             app.joint_offsets_store = checkpoint['joint_offsets']
@@ -96,6 +112,8 @@ def run(args):
             worker.run()
             if worker.error_msg:
                 raise RuntimeError(worker.error_msg)
+            if not all(worker.arm_convergence.values()):
+                raise RuntimeError(f'Step 1 did not converge: {worker.arm_convergence}')
             summary['step1'] = 'passed'
             summary['step1_parameter_stability'] = worker.arm_convergence
         summary['joint_offsets'] = deepcopy(app.joint_offsets_store)
@@ -104,7 +122,10 @@ def run(args):
         if args.only_step1:
             return
         # Save only the isolated configuration, never the user's setting.yaml.
-        app.apply_bracket_design_values(silent=True)
+        app.last_full_auto_error = None
+        app.last_full_auto_converged = True
+        if not app.apply_full_auto_results(silent=True):
+            raise RuntimeError('Step 1 isolated save/apply failed')
         headcal = app.head_camera_calibrator
         if not args.no_head:
             if not headcal.perform_move_to_ready_pose(log_callback=app.log_msg, stop_event=stop):
@@ -117,6 +138,8 @@ def run(args):
         if not head_result or not head_result[0][0]:
             raise RuntimeError(f'Step 1.5 failed: {head_result}')
         headcal.calibrated_results = head_result[0][1]
+        if not headcal.apply_calibration_results(log_callback=app.log_msg):
+            raise RuntimeError('Step 1.5 isolated save/apply failed')
         (output / 'head_sweep.json').write_text(json.dumps(head_result[0][1], indent=2,
             default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x)))
         summary['step1_5'] = 'skipped_head_disabled' if args.no_head else 'passed'
@@ -151,6 +174,7 @@ def run(args):
         app.run_optimizer(['right', 'left'], not args.no_head, True,
             np.array(app.shared_arm_q_list), np.array(app.shared_head_q_list),
             np.array(app.shared_T_list), str(output / 'optimizer.json'),
+            # Same free-camera settings used by the production Run action.
             lambda_cam_pos=0., lambda_cam_rot=0.)
         result = json.loads((output / 'optimizer.json').read_text())
         diagnostics = result['diagnostics']
@@ -164,6 +188,13 @@ def run(args):
         summary['max_non_j6_gt_error_deg'] = max(abs(x) for e in errors.values() for x in e[:6])
         summary['step2'] = 'passed'
         summary['result'] = result
+        if any(hashlib.sha256(path.read_bytes()).hexdigest() != source_hashes[str(path.relative_to(project))]
+               for path in source_files):
+            raise RuntimeError('Source code changed during verification; repeat the full run')
+        if any(hashlib.sha256(Path(path).read_bytes()).hexdigest() != value for path, value in protected_hashes.items()):
+            raise RuntimeError('A protected user configuration changed during verification')
+        summary['verified_source_manifest'] = str(output/'source_manifest.json')
+        summary['user_configs_preserved'] = True
         (output / 'summary.json').write_text(json.dumps(summary, indent=2, default=lambda x: x.tolist() if isinstance(x, np.ndarray) else str(x)))
         print('CONNECTED ALL-STEPS PASS', output, flush=True)
     except BaseException:
@@ -177,7 +208,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--confirm-local-simulator', action='store_true')
     parser.add_argument('--output', required=True)
-    parser.add_argument('--sweep-seconds', type=float, default=2.)
+    parser.add_argument('--sweep-seconds', type=float, default=None,
+                        help='Optional common sweep-time override; default uses production timings')
     parser.add_argument('--no-head', action='store_true')
     parser.add_argument('--only-step1', action='store_true')
     parser.add_argument('--resume-step2')

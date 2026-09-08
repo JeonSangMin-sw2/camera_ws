@@ -13,13 +13,14 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from scipy.spatial.transform import Rotation
 import yaml
 from PySide6.QtWidgets import QApplication, QLineEdit
 from core.calibration.CalibratorBase import BaseCalibrator
-from core.calibration.bracket_fitting import fit_bracket_sweeps
-from core.numeric_fields import set_numeric_field, read_numeric_field
-from core.simulation_model import SimulationModel
+from main_ui import set_numeric_field, read_numeric_field
+from core.marker_detection import SimulationModel, Marker_Transform
 from main_ui import FullAutoWorker, UnifiedCalibrationApp
+from core.paths import CONFIG_PATHS
 from test_calibration_regression import OfflineRobot, data, transform_vector
 
 
@@ -50,7 +51,7 @@ class WorkflowTests(unittest.TestCase):
             config[f'Tf_to_marker_{side}'] = transform_vector(sim.bracket_transform(side))
         qa, qh, observations = data(robot, sim, 24)
         logs = []
-        fake = SimpleNamespace(robot=robot, model=robot.model(), include_head_motion=True,
+        fake = SimpleNamespace(robot=robot, model=robot.model(), include_head_motion=True, sim=False,
             marker_calibrator=SimpleNamespace(camera_config=config),
             get_robot_version=lambda: '1.2', last_home_reset_path=None,
             log_msg=logs.append, _loaded_dataset_metadata=sim.metadata())
@@ -84,84 +85,144 @@ class WorkflowTests(unittest.TestCase):
         for axis in ('x', 'y', 'z', 'roll', 'pitch', 'yaw'):
             setattr(fake, f'txt_bracket_l_{axis}', QLineEdit())
         result = dict(arm_side='left', x_e=0., y_e=54., z_e=-48., roll_e=90., pitch_e=0., yaw_e=0.,
-                      opt_delta_5=100., opt_delta_6=100.)
+                      opt_delta_5=100., opt_delta_6=100., measurement_accepted=True, success=True)
         before = deepcopy(fake.joint_offsets_store)
         UnifiedCalibrationApp.handle_full_auto_bracket_finished(fake, result)
         self.assertEqual(fake.joint_offsets_store, before)
+        self.assertEqual(read_numeric_field(fake.txt_bracket_l_y), .054)
 
     def test_sim_capture_uses_encoder_feedback_not_motion_target(self):
-        robot, sim = OfflineRobot(), SimulationModel.create()
-        fake = SimpleNamespace(robot=robot, model=robot.model(), ui_only=False,
+        robot = OfflineRobot()
+        provider = Marker_Transform(sim=True, robot=robot)
+        provider.set_marker_type('plate')
+        fake = SimpleNamespace(robot=robot, model=robot.model(), sim=True,
             log_msg=lambda _: None, _write_step2_log=lambda _: None, shared_arm_q_list=[],
-            step2_mode_sel=SimpleNamespace(currentText=lambda: 'sim'),
+            step2_mode_sel=SimpleNamespace(currentText=lambda: 'live'),
             get_robot_version=lambda: '1.2',
             get_capture_head_idx=lambda: robot.model().head_idx,
-            marker_calibrator=SimpleNamespace(get_simulation_model=lambda: sim),
-            marker_st=SimpleNamespace(rng=np.random.default_rng(7)))
+            marker_st=provider)
         qa, qh, _ = UnifiedCalibrationApp.capture_one_sample(fake,
             motion_plan_step={'q_arm': np.ones(14), 'q_head': np.ones(2)})
         np.testing.assert_array_equal(qa, np.zeros(14))
         np.testing.assert_array_equal(qh, np.zeros(2))
 
-    def test_full_auto_calibrates_j6_before_bounded_bracket(self):
-        events = []
-        store = {s: dict(joint3=0., joint5=0., joint6=0.) for s in ('right', 'left')}
-        class Calibrator:
-            robot = 'mock_robot'
-            NOMINAL_BRACKET_TEMPLATES = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES
-            def __init__(self):
-                self.joint_offsets = {s: {} for s in store}
-                self.camera_config = {}
-            def get_robot_version(self): return '1.2'
-            def perform_move_to_ready_pose(self, *a, **kw): return True
-            def perform_joint_calibration(self, side, mode, **kw):
-                events.append((side, mode))
-                return dict(recommended_joint_offset=-3.5 if mode == 'wrist_yaw2' else 0., converged=True)
-            def save_calibration_comparison_plot(self, *a, **kw): return None
-            def perform_calibration_sweep(self, *a, **kw): return dict(axis_opt=np.array([0., 0., 1.]))
-            def compute_unified_bracket_calibration(self, d5, d6, side, **kw):
-                if kw['calib_roll_or_yaw_deg'] != -3.5:
-                    raise RuntimeError('Regression: bounded bracket ran before J6 calibration')
-                events.append((side, 'bracket'))
-                n = self.NOMINAL_BRACKET_TEMPLATES['1.2'][side]
-                return dict(x_e=n[0]*1000, y_e=n[1]*1000, z_e=n[2]*1000,
-                            roll_e=n[3], pitch_e=n[4], yaw_e=n[5])
-            def generate_marker_plot(self, *a, **kw): return False
-            def clear_user_taught_ready_poses(self): pass
-        worker = FullAutoWorker(Calibrator(), Calibrator(), stop_event=threading.Event(), joint_offsets_store=store)
-        with patch('main_ui.time.sleep'):
-            worker.run()
-        self.assertIsNone(worker.error_msg)
-        self.assertTrue(all(worker.arm_convergence.values()))
-        for side in store:
-            self.assertLess(events.index((side, 'wrist_yaw2')), events.index((side, 'bracket')))
-            # Passed joints are not re-swept just because brackets change later.
-            for mode in ('wrist_pitch', 'wrist_yaw2', 'elbow'):
-                self.assertEqual(events.count((side, mode)), 1)
+    def test_full_auto_uses_measured_joint_acceptance_before_bracket_in_both_versions(self):
+        for version in ('1.2', '1.3'):
+            for rejected in (None, 'joint', 'bracket'):
+                events = []
+                store = {s: dict(joint3=0., joint5=0., joint6=0.) for s in ('right', 'left')}
+                mode5 = 'wrist_pitch_v13' if version == '1.3' else 'wrist_pitch'
+                mode6 = 'wrist_roll_v13' if version == '1.3' else 'wrist_yaw2'
+                key6 = 'wrist_roll' if version == '1.3' else 'wrist_yaw2'
+                class Calibrator:
+                    robot = OfflineRobot(version)
+                    NOMINAL_BRACKET_TEMPLATES = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES
+                    def __init__(self):
+                        self.joint_offsets = {s: {} for s in store}
+                        self.camera_config = {}
+                    def get_robot_version(self): return version
+                    def perform_move_to_ready_pose(self, *a, **kw): return True
+                    def perform_joint_calibration(self, side, mode, **kw):
+                        events.append((side, mode))
+                        return dict(recommended_joint_offset=-3.5 if mode == mode6 else 0.,
+                                    converged=rejected != 'joint', failure_reason='rejected observation')
+                    def save_calibration_comparison_plot(self, *a, **kw): return None
+                    def perform_calibration_sweep(self, *a, **kw): return dict(axis_opt=np.array([0., 0., 1.]))
+                    def fit_observed_bracket(self, d4, d5, d6, side):
+                        if self.joint_offsets[side][key6] != -3.5:
+                            raise RuntimeError('Bracket ran before J6 calibration')
+                        events.append((side, 'bracket'))
+                        if rejected == 'bracket':
+                            return dict(success=False, measurement_accepted=False, failure_reason='rejected bracket',
+                                        x_e=0., y_e=0., z_e=0., roll_e=0., pitch_e=0., yaw_e=0.)
+                        n = self.NOMINAL_BRACKET_TEMPLATES[version][side]
+                        return dict(x_e=n[0]*1000, y_e=n[1]*1000, z_e=n[2]*1000,
+                                    roll_e=n[3], pitch_e=n[4], yaw_e=n[5],
+                                    success=True, measurement_accepted=True)
+                    def generate_marker_plot(self, *a, **kw): return False
+                    def clear_user_taught_ready_poses(self): pass
+                worker = FullAutoWorker(Calibrator(), Calibrator(),
+                    stop_event=threading.Event(), joint_offsets_store=store)
+                with patch('main_ui.time.sleep'):
+                    worker.run()
+                if rejected:
+                    self.assertIsNotNone(worker.error_msg)
+                    self.assertFalse(all(worker.arm_convergence.values()))
+                    self.assertNotIn(('right', 'elbow'), events)
+                    if rejected == 'joint':
+                        self.assertNotIn(('right', 'bracket'), events)
+                    continue
+                self.assertIsNone(worker.error_msg)
+                self.assertTrue(all(worker.arm_convergence.values()))
+                for side in store:
+                    self.assertLess(events.index((side, mode5)), events.index((side, mode6)))
+                    self.assertLess(events.index((side, mode6)), events.index((side, 'bracket')))
+                    self.assertLess(events.index((side, 'bracket')), events.index((side, 'elbow')))
+                    for mode in (mode5, mode6, 'elbow'):
+                        self.assertEqual(events.count((side, mode)), 1)
 
-    def test_left_j6_uncalibrated_bound_failure_and_fixed_input_recovery(self):
+    def test_observed_bracket_fit_ignores_encoder_payload(self):
+        from core.calibration.MarkerCalibrator import MarkerCalibrator
         robot, sim = OfflineRobot(), SimulationModel.create()
+        cal = MarkerCalibrator()
         idx = robot.model().left_arm_idx
         sweeps = []
         for axis in (4, 5, 6):
-            poses, qs = [], []
+            poses = []
             for angle in np.linspace(-15, 15, 25):
                 q = robot.get_state().position.copy()
-                q[idx] = np.deg2rad([0., 30., 0., -90., 0., 0., 0.])
+                q[idx] = np.deg2rad([0., 30., 0., -90., 0., 0., 0.]) - sim.arm_offsets('left')
                 q[idx[axis]] += np.deg2rad(angle)
-                qs.append(q)
                 poses.append(sim.marker_pose(robot, q, 'left', noisy=False))
-            sweeps.append(dict(captured_poses=poses, captured_q_full=qs))
-        nominal = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES['1.2']['left']
-        gt = np.rad2deg(sim.arm_offsets('left'))
-        with self.assertRaisesRegex(RuntimeError, 'at_bounds=True'):
-            fit_bracket_sweeps(robot, 'left', sweeps, nominal, 0., gt[5])
-        fitted = fit_bracket_sweeps(robot, 'left', sweeps, nominal, gt[6], gt[5])
-        self.assertEqual(fitted['data_rank'], 6)
-        self.assertEqual(fitted['fit_scope'], 'bracket_only')
+            measured = cal.fit_observed_circle(poses)
+            measured['captured_poses'] = poses
+            measured['commanded_reference_j6_deg'] = float(np.rad2deg(q[idx[6]]) - (15 if axis == 6 else 0))
+            measured['captured_q_full'] = 'not encoder data'
+            sweeps.append(measured)
+        fitted = cal.fit_observed_bracket(*sweeps, 'left')
+        self.assertTrue(fitted['measurement_accepted'], fitted)
+        self.assertLess(fitted['axis_intersection_rms_mm'], 1e-5)
         self.assertNotIn('opt_delta_5', fitted)
         self.assertNotIn('opt_delta_6', fitted)
-        self.assertLess(fitted['normalized_residual_rms'], 1e-5)
+
+    def test_marker_report_uses_observed_geometry_metrics(self):
+        logs = []
+        app = SimpleNamespace(log_msg=logs.append, arm_side='left')
+        result = dict(success=True, measurement_accepted=True, axis_intersection_rms_mm=.01,
+                      x_e=1., y_e=54., z_e=-48., roll_e=90., pitch_e=0., yaw_e=0.)
+        self.assertTrue(UnifiedCalibrationApp.show_unified_result_marker_direct(app, result))
+        self.assertTrue(any('0.0100 mm' in line for line in logs))
+
+    def test_bracket_refines_weak_short_arc_axis_with_observed_wrist_geometry(self):
+        from core.calibration.MarkerCalibrator import MarkerCalibrator
+        robot, sim = OfflineRobot(), SimulationModel.create()
+        cal = MarkerCalibrator()
+        idx = robot.model().left_arm_idx
+        sweeps = []
+        for axis in (4, 5, 6):
+            direction = -1 if axis == 5 else 1
+            poses = []
+            for angle in np.linspace(-15, 15, 161)[::direction]:
+                q = robot.get_state().position.copy()
+                q[idx] = np.deg2rad([0., 30., 0., -90., 0., 90., 0.]) - sim.arm_offsets('left')
+                q[idx[axis]] += np.deg2rad(angle)
+                poses.append(sim.marker_pose(robot, q, 'left', noisy=False))
+            measured = cal.fit_observed_circle(poses, direction)
+            measured.update(captured_poses=np.asarray(poses), commanded_reference_j6_deg=0., sweep_direction=direction)
+            sweeps.append(measured)
+        weak = sweeps[2]
+        tilt_axis = np.cross(weak['axis'], sweeps[1]['axis'])
+        tilt_axis /= np.linalg.norm(tilt_axis)
+        poses = weak['captured_poses'].copy()
+        original_points = poses[:, :3, 3].copy()
+        pivot = poses[len(poses)//2, :3, 3].copy()
+        rotation = Rotation.from_rotvec(np.deg2rad(1.)*tilt_axis).as_matrix()
+        poses[:, :3, 3] = (original_points-pivot) @ rotation.T + pivot
+        self.assertLess(np.max(np.linalg.norm(poses[:, :3, 3]-original_points, axis=1)), .0005)
+        weak.update(cal.fit_observed_circle(poses), captured_poses=poses)
+        fitted = cal.fit_observed_bracket(*sweeps, 'left')
+        self.assertTrue(fitted['measurement_accepted'], fitted)
+        self.assertLess(fitted['axis_intersection_rms_mm'], .5)
 
     def test_head_fit_uses_both_encoders_instead_of_assuming_idle_axis_zero(self):
         from core.calibration.HeadCameraCalibrator import HeadCameraCalibrator
@@ -194,7 +255,6 @@ class WorkflowTests(unittest.TestCase):
 
     def test_camera_temperature_and_legacy_serial_are_not_restrictions(self):
         import tempfile
-        from core.camera_intrinsics import select_intrinsics
         cfg = yaml.safe_load((Path(__file__).resolve().parents[1] / 'config/camera_intrinsics.yaml').read_text())
         cfg['serial_number'] = 'a-different-camera'
         with tempfile.TemporaryDirectory() as folder:
@@ -203,7 +263,10 @@ class WorkflowTests(unittest.TestCase):
             for temperature in (None, 25., 38., 50.):
                 cfg['calibration_temperature_c'] = temperature
                 path.write_text(yaml.safe_dump(cfg))
-                intr, dist, metadata = select_intrinsics('per_device', [], [], 1280, 720, path)
+                with patch.dict(CONFIG_PATHS, camera_intrinsics=str(path)):
+                    provider = Marker_Transform(sim=True)
+                metadata = provider.intrinsics_metadata
+                intr, dist = np.array(metadata['camera_matrix']), np.array(metadata['dist_coeffs'])
                 self.assertNotIn('calibration_serial', metadata)
                 self.assertNotIn('temperature_source', metadata)
                 outputs.append((intr, dist))
@@ -236,6 +299,20 @@ class WorkflowTests(unittest.TestCase):
         self.assertFalse(fake.last_full_auto_converged)
         self.assertTrue(any('[WARNING]' in m for m in messages))
         self.assertFalse(any('[SUCCESS]' in m for m in messages))
+
+    def test_wizard_failed_step1_save_stops_before_following_stages(self):
+        from core.wizard_widget import CalibrationWizardWidget
+        for has_head in (False, True):
+            events = []
+            parent = SimpleNamespace(last_full_auto_error=None, last_full_auto_converged=True,
+                include_head_motion=has_head, head_camera_calibrator=object(),
+                apply_full_auto_results=lambda **kw: False)
+            wizard = SimpleNamespace(parent_app=parent,
+                start_unified_step1_5=lambda: events.append('head'),
+                start_unified_step2=lambda: events.append('step2'),
+                stop_unified_calibration_error=lambda message: events.append('stopped'))
+            CalibrationWizardWidget.on_unified_step1_finished(wizard)
+            self.assertEqual(events, ['stopped'])
 
 
 if __name__ == '__main__':
