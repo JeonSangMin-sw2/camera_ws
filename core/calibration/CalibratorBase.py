@@ -1394,7 +1394,7 @@ class BaseCalibrator:
                         break
                 except Exception as e:
                     if retry == 2:
-                        self.logger.warning(f"get_state() failed after 3 retries: {e}")
+                        logging.warning(f"get_state() failed after 3 retries: {e}")
                     time.sleep(0.005)
             if q_full_captured is None:
                 # Missing feedback is a dropped sample, not a fabricated encoder pose.
