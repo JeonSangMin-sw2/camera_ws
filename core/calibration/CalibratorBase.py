@@ -16,6 +16,11 @@ from scipy.spatial.transform import Rotation as R_scipy
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 class BaseCalibrator:
+    # Shared by Full Auto and the individual joint-calibration UI.
+    JOINT_SWEEP_SECONDS = {
+        'wrist_yaw2': 20.0, 'wrist_roll_v13': 20.0,
+        'wrist_pitch': 15.0, 'wrist_pitch_v13': 15.0, 'elbow': 20.0,
+    }
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
         "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 6, "sweep_joint_B": 4, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
@@ -1345,6 +1350,13 @@ class BaseCalibrator:
         q_start[sweep_joint] = q_start_val
         q_end = list(q_center)
         q_end[sweep_joint] = q_end_val
+
+        if log_callback:
+            log_callback(f"[SWEEP COMMAND] {arm_side} J{sweep_joint}: "
+                         f"{np.degrees(q_start_val):.4f}° -> {np.degrees(q_end_val):.4f}°; "
+                         f"minimum_time={sweep_duration:.4f}s, start_move=1.2000s; "
+                         f"center_deg={np.array2string(np.degrees(q_center), precision=4)}; "
+                         "command already includes staged correction (apply_offsets=False)")
 
         # 1. Move to start position
         logging.info(f"[INFO] Moving {label} to start sweep position...")

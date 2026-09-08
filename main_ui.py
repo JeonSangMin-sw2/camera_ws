@@ -1832,7 +1832,7 @@ class JointCalibrationWorker(QThread):
     status_signal = Signal(bool)
     finished_signal = Signal(dict)
 
-    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=15.0, save_debug=False):
+    def __init__(self, calibrator, arm_side, mode, ui_only=False, current_offset_deg=0.0, sweep_duration=None, save_debug=False):
         super().__init__()
         self.calibrator = calibrator
         self.arm_side = arm_side
@@ -1959,6 +1959,7 @@ class FullAutoWorker(QThread):
             version_num = self.get_robot_version()
             is_v13 = (version_num == "1.3")
             self.arm_convergence = {}
+            max_passes = 2
             
             for arm_side in ["right", "left"]:
                 self.arm_convergence[arm_side] = False
@@ -1982,10 +1983,11 @@ class FullAutoWorker(QThread):
                 res_4 = None
                 res_5 = None
                 res_6 = None
+                bracket_completed = False
 
-                for pass_idx in range(1, 4):
+                for pass_idx in range(1, max_passes + 1):
                     self.log_msg.emit("\n" + "="*50)
-                    self.log_msg.emit(f"   STARTING PASS {pass_idx}/3 FOR {arm_side.upper()} ARM")
+                    self.log_msg.emit(f"   STARTING PASS {pass_idx}/{max_passes} FOR {arm_side.upper()} ARM")
                     self.log_msg.emit("="*50 + "\n")
                     self.log_msg.emit(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
 
@@ -2227,8 +2229,8 @@ class FullAutoWorker(QThread):
                         # 2. Calibrate J6 against the nominal bracket reference BEFORE bracket fitting
                         if not (pass1_joint_results.get("wrist_pitch") or {}).get("converged", False):
                             self.log_msg.emit("[FULL AUTO] J5 remains unconverged; J6, bracket and elbow deferred.")
-                            if pass_idx == 3:
-                                raise RuntimeError(f"{arm_side}: J5 prerequisite did not converge after 3 passes")
+                            if pass_idx == max_passes:
+                                raise RuntimeError(f"{arm_side}: J5 prerequisite did not converge after {max_passes} passes")
                             continue
                         pass1_res_yaw2 = pass1_joint_results.get("wrist_yaw2")
                         if pass_idx >= 2 and pass1_res_yaw2 and pass1_res_yaw2.get("converged", False):
@@ -2279,85 +2281,89 @@ class FullAutoWorker(QThread):
                                    if not (pass1_joint_results.get(mode) or {}).get("converged", False)]
                         if pending:
                             self.log_msg.emit(f"[FULL AUTO] Pending joints: {', '.join(pending)}. Bracket and elbow deferred.")
-                            if pass_idx == 3:
-                                raise RuntimeError(f"{arm_side}: J5/J6 prerequisites did not converge after 3 passes; bracket was not fitted")
+                            if pass_idx == max_passes:
+                                reason = (pass1_joint_results.get('wrist_yaw2') or {}).get('failure_reason')
+                                raise RuntimeError(f"{arm_side}: J5/J6 prerequisites did not converge after {max_passes} passes; bracket was not fitted. {reason or ''}")
                             continue
 
-                        # 3. Marker sweeps with J5/J6 already calibrated and fixed
-                        self.log_msg.emit(f"[FULL AUTO 2/3] Performing Marker Bracket Sweeps for v1.2 {arm_side} arm (Pass {pass_idx}/3)...")
-                        self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
-                        if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
-                            raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
-                        if self.stop_event.is_set(): return
-                        
-                        if not is_mock_run:
-                            state = self.joint_calibrator.robot.get_state()
-                            model = self.joint_calibrator.robot.model()
-                            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                            first_starting_pose = list(state.position[arm_idx])
-                        else:
-                            first_starting_pose = [0.0]*7
+                        if not bracket_completed:
+                            # 3. Marker sweeps with J5/J6 already calibrated and fixed
+                            self.log_msg.emit(f"[FULL AUTO 2/3] Performing Marker Bracket Sweeps for v1.2 {arm_side} arm (Pass {pass_idx}/{max_passes})...")
+                            self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
+                            if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
+                                raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
+                            if self.stop_event.is_set(): return
 
-                        self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 4...")
-                        res_4 = self.marker_calibrator.perform_calibration_sweep(
-                            arm_side, 4, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                        )
-                        if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
-                        res_4['axis_mode'] = 4
-                        res_4['axis'] = res_4['axis_opt']
-                        if self.stop_event.is_set(): return
+                            if not is_mock_run:
+                                state = self.joint_calibrator.robot.get_state()
+                                model = self.joint_calibrator.robot.model()
+                                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                                first_starting_pose = list(state.position[arm_idx])
+                            else:
+                                first_starting_pose = [0.0]*7
 
-                        self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
-                        res_6 = self.marker_calibrator.perform_calibration_sweep(
-                            arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                        )
-                        if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
-                        res_6['axis_mode'] = 6
-                        res_6['axis'] = res_6['axis_opt']
-                        if self.stop_event.is_set(): return
+                            self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 4...")
+                            res_4 = self.marker_calibrator.perform_calibration_sweep(
+                                arm_side, 4, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
+                                save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
+                            )
+                            if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
+                            res_4['axis_mode'] = 4
+                            res_4['axis'] = res_4['axis_opt']
+                            if self.stop_event.is_set(): return
 
-                        self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
-                        res_5 = self.marker_calibrator.perform_calibration_sweep(
-                            arm_side, 5, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                        )
-                        if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
-                        res_5['axis_mode'] = 5
-                        res_5['axis'] = res_5['axis_opt']
-                        if self.stop_event.is_set(): return
+                            self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 6...")
+                            res_6 = self.marker_calibrator.perform_calibration_sweep(
+                                arm_side, 6, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
+                                save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
+                            )
+                            if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
+                            res_6['axis_mode'] = 6
+                            res_6['axis'] = res_6['axis_opt']
+                            if self.stop_event.is_set(): return
 
-                        # 3. Compute Marker Bracket (1-time lock)
-                        self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration for v1.2...")
-                        staged_pitch = self.joint_offsets_store[arm_side]["joint5"]
-                        staged_yaw2 = self.joint_offsets_store[arm_side]["joint6"]
-                        unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
-                            res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_or_yaw_deg=staged_yaw2, calib_pitch_deg=staged_pitch
-                        )
-                        
-                        unified_res['res_5'] = res_5
-                        unified_res['res_6'] = res_6
-                        if res_4 is not None:
-                            unified_res['res_4'] = res_4
-                        unified_res['arm_side'] = arm_side
-                        unified_res['pass_idx'] = pass_idx
-                        
-                        plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
-                        plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
-                        if plot_saved:
-                            unified_res['plot_path_combined'] = plot_path
-                        
-                        x_m, y_m, z_m = unified_res['x_e']/1000.0, unified_res['y_e']/1000.0, unified_res['z_e']/1000.0
-                        new_vals = [x_m, y_m, z_m, unified_res['roll_e'], unified_res['pitch_e'], unified_res['yaw_e']]
-                        key = f"Tf_to_marker_{arm_side}"
-                        self.marker_calibrator.camera_config[key] = new_vals
-                        self.joint_calibrator.camera_config[key] = new_vals
-                        
-                        self.bracket_finished_signal.emit(unified_res)
-                        time.sleep(0.5)
-                        if self.stop_event.is_set(): return
+                            self.log_msg.emit(f"[FULL AUTO] Sweeping Axis 5...")
+                            res_5 = self.marker_calibrator.perform_calibration_sweep(
+                                arm_side, 5, log_callback=self.log_msg.emit, status_callback=self.status_signal.emit,
+                                save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
+                            )
+                            if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
+                            res_5['axis_mode'] = 5
+                            res_5['axis'] = res_5['axis_opt']
+                            if self.stop_event.is_set(): return
 
+                            # 3. Compute Marker Bracket (1-time lock)
+                            self.log_msg.emit("\n[FULL AUTO] Computing unified marker bracket calibration for v1.2...")
+                            staged_pitch = self.joint_offsets_store[arm_side]["joint5"]
+                            staged_yaw2 = self.joint_offsets_store[arm_side]["joint6"]
+                            unified_res = self.marker_calibrator.compute_unified_bracket_calibration(
+                                res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_or_yaw_deg=staged_yaw2, calib_pitch_deg=staged_pitch
+                            )
+
+                            unified_res['res_5'] = res_5
+                            unified_res['res_6'] = res_6
+                            if res_4 is not None:
+                                unified_res['res_4'] = res_4
+                            unified_res['arm_side'] = arm_side
+                            unified_res['pass_idx'] = pass_idx
+
+                            plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
+                            plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
+                            if plot_saved:
+                                unified_res['plot_path_combined'] = plot_path
+
+                            x_m, y_m, z_m = unified_res['x_e']/1000.0, unified_res['y_e']/1000.0, unified_res['z_e']/1000.0
+                            new_vals = [x_m, y_m, z_m, unified_res['roll_e'], unified_res['pitch_e'], unified_res['yaw_e']]
+                            key = f"Tf_to_marker_{arm_side}"
+                            self.marker_calibrator.camera_config[key] = new_vals
+                            self.joint_calibrator.camera_config[key] = new_vals
+
+                            self.bracket_finished_signal.emit(unified_res)
+                            time.sleep(0.5)
+                            if self.stop_event.is_set(): return
+
+
+                            bracket_completed = True
 
                         # 5. Calibrate J3 Elbow
                         pass1_res_elbow = pass1_joint_results.get("elbow")
@@ -2407,8 +2413,8 @@ class FullAutoWorker(QThread):
 
                     if not (pass1_joint_results.get("elbow") or {}).get("converged", False):
                         self.log_msg.emit(f"[FULL AUTO] {arm_side} elbow remains unconverged; only failed joints will be retried.")
-                        if pass_idx == 3:
-                            raise RuntimeError(f"{arm_side}: elbow did not converge after 3 passes")
+                        if pass_idx == max_passes:
+                            raise RuntimeError(f"{arm_side}: elbow did not converge after {max_passes} passes")
                         continue
 
                     # Pass Evaluation & Convergence Check
@@ -2438,14 +2444,24 @@ class FullAutoWorker(QThread):
                     self.log_msg.emit(f"  * Bracket Pos Change  : {pos_change:.4f} mm")
                     self.log_msg.emit(f"  * Bracket Rot Change  : {rot_change:.4f}°")
                     
-                    # Convergence Criteria on Pass >= 2: joints < 0.10°, bracket pos < 0.5 mm, bracket rot < 0.15°
+                    # v1.2 joints already passed their measured 0.06 degree
+                    # checks and bracket fitting already accepted its residuals.
+                    # A recovered large offset is not a failed measurement just
+                    # because it differs from the previous failed pass.
+                    if not is_v13:
+                        self.arm_convergence[arm_side] = True
+                        self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] All joint checks and bracket fit accepted (not a GT accuracy certificate).")
+                        break
+
+                    # v1.3 uses a separate 3-axis solver; retain its existing
+                    # stability check, but do not allow an unbounded retry.
                     if pass_idx >= 2:
                         if j6_change < 0.10 and j5_change < 0.10 and j3_change < 0.10 and pos_change < 0.5 and rot_change < 0.15:
                             self.arm_convergence[arm_side] = True
                             self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] Parameter changes converged (not a GT accuracy certificate).")
                             self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] Calibration completed in Pass {pass_idx}!")
                             break
-                        elif pass_idx < 3:
+                        elif pass_idx < max_passes:
                             self.log_msg.emit(f"[PASS {pass_idx} EVALUATION] Step changes exceed tolerance (J6: {j6_change:.3f}°, J5: {j5_change:.3f}°). Proceeding to Pass {pass_idx + 1} for verification refinement.")
                     
                     # Update prev values for next pass check
@@ -2458,7 +2474,7 @@ class FullAutoWorker(QThread):
                 if self.arm_convergence[arm_side]:
                     self.log_msg.emit(f"[INFO] {arm_side.upper()} arm sequential calibration converged.")
                 else:
-                    self.log_msg.emit(f"[WARNING] {arm_side.upper()} arm reached the pass limit without meeting all stability tolerances; review results before applying.")
+                    raise RuntimeError(f"{arm_side}: calibration failed after {max_passes} passes; results must not be applied")
                 if self.stop_event.is_set(): return
                 time.sleep(1.0)
                 
@@ -6906,6 +6922,10 @@ class UnifiedCalibrationApp(QWidget):
                             pass
     def apply_full_auto_results(self, silent=False):
         from core.config_store import update_yaml
+        if (getattr(self, 'last_full_auto_error', None)
+                or not getattr(self, 'last_full_auto_converged', False)):
+            self.log_msg("[ERROR] Full Auto results cannot be applied: both arms must finish successfully without cancellation or measurement failure.")
+            return False
         if not silent:
             reply = QMessageBox.question(self, "Apply Full Auto Results",
                 "Apply all calibrated Joint Offsets and Marker Brackets to setting.yaml?",
@@ -6934,6 +6954,8 @@ class UnifiedCalibrationApp(QWidget):
         if not self.ui_only and not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return
+        self.last_full_auto_error = None
+        self.last_full_auto_converged = False
             
         self.clear_old_plots()
             
@@ -7022,8 +7044,6 @@ class UnifiedCalibrationApp(QWidget):
         self.set_controls_enabled(True)
         if hasattr(self, 'btn_full_auto_start'):
             self.btn_full_auto_start.setEnabled(True)
-        if hasattr(self, 'btn_full_auto_apply'):
-            self.btn_full_auto_apply.setEnabled(True)
         
         was_stopped = False
         if hasattr(self, 'full_auto_stop_event') and self.full_auto_stop_event is not None:
@@ -7032,7 +7052,10 @@ class UnifiedCalibrationApp(QWidget):
         error_msg = getattr(self.active_worker, 'error_msg', None) if self.active_worker else None
         self.last_full_auto_error = error_msg
         stability = getattr(self.active_worker, 'arm_convergence', {})
-        self.last_full_auto_converged = all(stability.get(side, False) for side in ('right', 'left'))
+        self.last_full_auto_converged = (not was_stopped and not error_msg
+            and all(stability.get(side, False) for side in ('right', 'left')))
+        if hasattr(self, 'btn_full_auto_apply'):
+            self.btn_full_auto_apply.setEnabled(self.last_full_auto_converged)
         if self.active_worker is not None:
             self.active_worker.wait()
         self.active_worker = None
@@ -7082,6 +7105,10 @@ class UnifiedCalibrationApp(QWidget):
     def handle_full_auto_joint_finished(self, joint_res):
         arm_side = joint_res['arm_side']
         mode = joint_res.get('mode', 'elbow')
+        if not joint_res.get('measurement_accepted', True):
+            self.log_msg(f"[WARNING] {arm_side} {mode}: {joint_res.get('failure_reason')}; "
+                         "no new offset staged in UI.")
+            return
         
         recommended = joint_res['recommended_joint_offset']
         if mode in ("wrist_roll_v13", "wrist_yaw2"):
@@ -7181,12 +7208,10 @@ class UnifiedCalibrationApp(QWidget):
             self.log_msg(f"[MOCK GT] Simulated Target Joint Offset: {gt_val:+.2f}°")
         
         curr_offset = self.joint_offsets[self.arm_side].get(offset_key, 0.0)
-        sweep_time = 20.0 if mode in ["elbow", "wrist_yaw2", "wrist_roll_v13"] else 15.0
         self.active_worker = JointCalibrationWorker(
             self.joint_calibrator, self.arm_side, mode, 
             ui_only=self.ui_only, 
             current_offset_deg=curr_offset,
-            sweep_duration=sweep_time,
             save_debug=self.chk_save_debug.isChecked()
         )
         self.active_worker.log_signal.connect(self.log_msg)
@@ -7200,6 +7225,17 @@ class UnifiedCalibrationApp(QWidget):
             return
 
         mode = res['mode']
+        if not res.get('measurement_accepted', True):
+            self.on_action_finished()
+            self.joint_sweep_data = None
+            key = self.get_offset_key_for_mode(mode)
+            self.joint_offsets[self.arm_side][key] = self.original_joint_offset
+            self.joint_calibrator.joint_offsets[self.arm_side][key] = self.original_joint_offset
+            self.marker_calibrator.joint_offsets[self.arm_side][key] = self.original_joint_offset
+            self.update_applied_offset_label()
+            self.log_msg(f"[ERROR] Measurement rejected: {res.get('failure_reason')}. "
+                         "No new offset to apply; active correction restored.")
+            return
         recommended = res.get('recommended_joint_offset', res['optimal_offset'])
         self.recommended_joint_offset = recommended
         self.finalize_joint_calibration_run(mode, res, converged=res.get('converged', True))

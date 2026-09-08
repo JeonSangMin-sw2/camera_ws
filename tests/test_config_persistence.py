@@ -24,6 +24,7 @@ BROKEN = 'camera: {}\nmarker:\n  pose: [1, 2, 3, 4, 5, 6]\n    90.1, 0.2, 0.3]\n
 
 def app_double():
     app = SimpleNamespace(logs=[], ui_only=True, marker_st=None,
+        last_full_auto_error=None, last_full_auto_converged=True,
         get_robot_version=lambda: '1.2', update_applied_offset_label=lambda: None,
         joint_offsets_store={s: {'joint3': .1, 'joint5': .2, 'joint6': .3} for s in ('left', 'right')},
         joint_offsets={s: {'elbow': 0., 'wrist_pitch': 0., 'wrist_roll': 0., 'wrist_yaw2': 0.} for s in ('left', 'right')},

@@ -24,6 +24,10 @@ class DebugLogger:
             "[ERROR]" in msg_upper or
             "[WARN]" in msg_upper or
             "[INFO]" in msg_upper or
+            "[MEASUREMENT REJECTED]" in msg_upper or
+            "[SWEEP QUALITY]" in msg_upper or
+            "[SWEEP COMMAND]" in msg_upper or
+            "[J6 REFERENCE]" in msg_upper or
             "[VALIDATION SWEEP]" in msg_upper or
             "[ITERATION" in msg_upper or
             "RECOMMENDED ABSOLUTE OFFSET" in msg_upper or
@@ -49,7 +53,9 @@ class JointCalibrator(BaseCalibrator):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
-    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
+    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
+        if sweep_duration is None:
+            sweep_duration = BaseCalibrator.JOINT_SWEEP_SECONDS[mode]
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -97,15 +103,12 @@ class JointCalibrator(BaseCalibrator):
                 except Exception:
                     pass
 
-            # save_debug는 첫 번째 sweep(원본 데이터)에서만 저장
-            _sweep_count = [0]
+            # Preserve every iteration for replay, including the failed one.
             def run_single_sweep(offset):
-                _sweep_count[0] += 1
-                do_save = save_debug and (_sweep_count[0] == 1)
                 return self.perform_calibration_sweep_continuous(
                     arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                     current_offset_deg=offset, sweep_duration=sweep_duration,
-                    use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save,
+                    use_angle_based_fitting=use_angle_based_fitting, save_debug=save_debug,
                     first_starting_pose=first_starting_pose
                 )
                 
@@ -115,6 +118,7 @@ class JointCalibrator(BaseCalibrator):
             final_res = None
             first_res = None
             converged = False
+            measurement_accepted = True
             
             # Sign-reversal tracking state
             prev_error = None
@@ -145,6 +149,15 @@ class JointCalibrator(BaseCalibrator):
                 if not res:
                     if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
                     return None
+
+                if not res.get('measurement_accepted', True):
+                    measurement_accepted = False
+                    final_res = res
+                    if log_callback:
+                        log_callback(f"[MEASUREMENT REJECTED] {res.get('failure_reason', 'Invalid sweep')}. "
+                                     f"Keeping staged offset {staged_offset:.4f}°; no correction from this measurement.")
+                        log_callback(f"[SWEEP QUALITY] {res.get('quality_diagnostics', {})}")
+                    break
                 
                 if i == 1:
                     first_res = res
@@ -231,7 +244,7 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
                     
             # Damping fallback for oscillation/noise-floor:
-            if not converged and len(staged_offsets_history) >= 3:
+            if measurement_accepted and not converged and len(staged_offsets_history) >= 3:
                 avg_offset = float(np.mean(staged_offsets_history[-3:]))
                 if log_callback:
                     log_callback(f"\n[INFO] Joint {mode} did not meet 0.06° convergence tolerance; cause is not determined. Fallback remains unconverged.")
@@ -258,6 +271,9 @@ class JointCalibrator(BaseCalibrator):
                 'recommended_joint_offset': staged_offset,
                 'optimal_offset': staged_offset,
                 'converged': converged,
+                'measurement_accepted': measurement_accepted,
+                'failure_reason': final_res.get('failure_reason') if final_res else None,
+                'quality_diagnostics': final_res.get('quality_diagnostics', {}) if final_res else {},
                 'perp_dist_before': final_res.get('perp_dist_before', float('nan')) if final_res else float('nan'),
                 'perp_dist_after': final_res.get('perp_dist_after', float('nan')) if final_res else float('nan'),
                 'axial_offset_mm': final_res.get('axial_offset_mm', float('nan')) if final_res else float('nan'),
@@ -272,7 +288,7 @@ class JointCalibrator(BaseCalibrator):
 
             # Plot generation logic
             validation_res = final_res
-            if validation_res and (first_res or pass1_res):
+            if measurement_accepted and validation_res and (first_res or pass1_res):
                 if pass_idx == 2 and pass1_res is not None:
                     # True cross-pass BEFORE (Pass 1 start) vs AFTER (Pass 2 validation) comparison plot
                     first_res_for_plot = pass1_res.get('first_res', first_res)
@@ -457,6 +473,8 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"[WARN] Failed to save orthogonal debug plot for {frame}: {e}")
 
     def save_calibration_comparison_plot(self, arm_side, mode, first_res, final_res, log_callback=None, force_overwrite=False):
+        if final_res and not final_res.get('measurement_accepted', True):
+            return None
         try:
             import os
             import numpy as np
@@ -642,7 +660,9 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None):
+        if sweep_duration is None:
+            sweep_duration = BaseCalibrator.JOINT_SWEEP_SECONDS[mode]
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -927,73 +947,31 @@ class JointCalibrator(BaseCalibrator):
 
         # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
         if mode in ("wrist_roll_v13", "wrist_yaw2"):
-            try:
-                from core.calibration.MarkerCalibrator import MarkerCalibrator
-                mc = MarkerCalibrator(self.marker_st, self.robot)
-                mc.camera_config = self.camera_config
-                mc.robot_version = self.robot_version
-                mc.joint_offsets = self.joint_offsets
-                
-                res_5 = {
-                    'captured_q_full': [q_full for q_full, _ in dataset_B],
-                    'captured_poses': [pose for _, pose in dataset_B],
-                    'axis_opt': n_B,
-                    'radius': r_B,
-                }
-                res_6 = {
-                    'captured_q_full': [q_full for q_full, _ in dataset_A],
-                    'captured_poses': [pose for _, pose in dataset_A],
-                    'axis_opt': n_A,
-                    'radius': r_A,
-                }
-                
-                unified_res = mc.compute_unified_bracket_calibration(
-                    res_5, res_6, arm_side, marker_data_4=None,
-                    calib_roll_or_yaw_deg=None, calib_pitch_deg=0.0,
-                    lock_bracket=True
-                )
-                if mode in ("wrist_roll_v13", "wrist_yaw2"):
-                    # Coordinate-free vector projection method (ultimate solution)
-                    # n6_marker_actual is J6 axis (normal to the plane of J6 rotation)
-                    # n5_marker_actual is J5 axis (vector that rotates around J6 axis)
-                    # y_ee_m_ideal is the nominal J5 axis in the marker frame
-                    z_axis = unified_res['n6_marker_actual']
-                    n5_act = unified_res['n5_marker_actual']
-                    ref_y = unified_res['y_ee_m_ideal']
-                    
-                    # Project J5 axis onto the plane perpendicular to J6 axis
-                    n5_proj = n5_act - np.dot(n5_act, z_axis) * z_axis
-                    n5_proj /= np.linalg.norm(n5_proj)
-                    
-                    ref_x = np.cross(z_axis, ref_y)
-                    ref_x /= np.linalg.norm(ref_x)
-                    
-                    # Calculate angle around z_axis from ref_y to n5_proj
-                    diff_angle = np.arctan2(np.dot(n5_proj, ref_x), np.dot(n5_proj, ref_y))
-                    raw_diff_deg = np.degrees(diff_angle)
-                    
-                    # Compensate for the initial nominal ready pose angle of J7 (index 6)
-                    # We take J7 angle from dataset_B and subtract any current staged offset to get the true nominal initial pose
-                    q_full_B_first = dataset_B[0][0]
-                    j7_current_pos_deg = np.degrees(q_full_B_first[arm_idx[6]])
-                    
-                    staged_j7_offset_deg = 0.0
-                    if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                        offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                        staged_j7_offset_deg = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
-                    
-                    j7_ready_pose_deg = j7_current_pos_deg - staged_j7_offset_deg
-                    # Report the full measured correction. Motion damping belongs
-                    # in the motion controller, not in the offset estimate.
-                    optimal_offset_deg = raw_diff_deg + j7_current_pos_deg
-                    
-                    if log_callback:
-                        log_callback(f"[INFO] {mode}: J7 nominal ready pose={j7_ready_pose_deg:.2f}°, raw_diff={raw_diff_deg:.2f}°, optimal_offset={optimal_offset_deg:.2f}°")
-            except Exception as e:
-                import traceback
-                if log_callback:
-                    log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}\n{traceback.format_exc()}. Using 0.0.")
-                raise RuntimeError(f'J6 calibration failed; no zero correction was fabricated: {e}') from e
+            from core.calibration.joint_reference import estimate_j6_reference
+            # This stage estimates J6 against an explicit nominal bracket
+            # convention; it must not fit bracket parameters as a side effect.
+            version_suffix = "_v13" if self.is_v13() else "_v12"
+            reference_key = f"Tf_to_marker_{arm_side}{version_suffix}"
+            reference_vec = self.camera_config.get(reference_key)
+            if reference_vec is None:
+                reference_vec = self.NOMINAL_BRACKET_TEMPLATES["1.3" if self.is_v13() else "1.2"][arm_side]
+                reference_key = "nominal_template"
+            reference_rotation = R_scipy.from_euler('xyz', reference_vec[3:6], degrees=True).as_matrix()
+            j6_encoder_deg = float(np.median([np.degrees(q[arm_idx[6]]) for q, _ in dataset_B]))
+            reference_result = estimate_j6_reference(
+                poses_A, n_A, poses_B, n_B, reference_rotation,
+                j6_encoder_deg, is_v13=self.is_v13())
+            reference_result['bracket_reference_source'] = reference_key
+            if not reference_result['measurement_accepted']:
+                return reference_result
+            raw_diff_deg = reference_result['raw_diff_deg']
+            optimal_offset_deg = reference_result['optimal_offset']
+            diff_angle = np.radians(raw_diff_deg)
+            if log_callback:
+                log_callback(f"[INFO] {mode}: J6 encoder={j6_encoder_deg:.4f}°, "
+                             f"raw_diff={raw_diff_deg:.4f}°, optimal_offset={optimal_offset_deg:.4f}°")
+                log_callback(f"[J6 REFERENCE] {reference_key}; effective correction conditional on bracket, not an independent physical zero.")
+                log_callback(f"[SWEEP QUALITY] {reference_result['quality_diagnostics']}")
         elif mode == "wrist_pitch_v13":
             # Orthogonal normal vector projection solver for v1.3 spherical wrist Pitch (J5)
             # Sweep A is J6 (Roll, nominal axis X) and Sweep B is J4 (Yaw, nominal axis Z).
@@ -1116,6 +1094,9 @@ class JointCalibrator(BaseCalibrator):
         return {
             'mode': mode,
             'optimal_offset': optimal_offset_deg,
+            'measurement_accepted': True,
+            'quality_diagnostics': reference_result['quality_diagnostics'] if mode in ('wrist_roll_v13', 'wrist_yaw2') else {},
+            'bracket_reference_source': reference_result['bracket_reference_source'] if mode in ('wrist_roll_v13', 'wrist_yaw2') else None,
             'recommended_joint_offset': optimal_offset_deg,
             'converged': False,
             '_dataset_A': dataset_A,
