@@ -2125,8 +2125,8 @@ class FullAutoWorker(QThread):
 
                         # 5. Calibrate J3 Elbow
                         pass1_res_elbow = pass1_joint_results.get("elbow")
-                        if pass_idx == 2 and pass1_res_elbow and pass1_res_elbow.get("converged", False):
-                            self.log_msg.emit(f"[FULL AUTO] J3 (Elbow) converged in Pass 1 ({pass1_res_elbow['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                        if pass_idx >= 2 and pass1_res_elbow and pass1_res_elbow.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO] J3 (Elbow) previously converged ({pass1_res_elbow['recommended_joint_offset']:.4f}°). Skipping Pass {pass_idx} sweep.")
                             opt_elbow = pass1_res_elbow["recommended_joint_offset"]
                             self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
                             self.marker_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
@@ -2149,8 +2149,7 @@ class FullAutoWorker(QThread):
                             )
                             if not joint_res_elbow:
                                 raise RuntimeError(f"Elbow joint calibration failed on {arm_side} arm")
-                            if pass_idx == 1:
-                                pass1_joint_results["elbow"] = joint_res_elbow
+                            pass1_joint_results["elbow"] = joint_res_elbow
                             joint_res_elbow['arm_side'] = arm_side
                             joint_res_elbow['mode'] = "elbow"
                             joint_res_elbow['pass_idx'] = pass_idx
@@ -2174,8 +2173,8 @@ class FullAutoWorker(QThread):
                         # === v1.2 CALIBRATION SEQUENCE ===
                         # 1. Calibrate J5 (Wrist Pitch) FIRST
                         pass1_res_pitch = pass1_joint_results.get("wrist_pitch")
-                        if pass_idx == 2 and pass1_res_pitch and pass1_res_pitch.get("converged", False):
-                            self.log_msg.emit(f"[FULL AUTO 1/3] J5 (Wrist Pitch) converged in Pass 1 ({pass1_res_pitch['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                        if pass_idx >= 2 and pass1_res_pitch and pass1_res_pitch.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO 1/3] J5 (Wrist Pitch) previously converged ({pass1_res_pitch['recommended_joint_offset']:.4f}°). Skipping Pass {pass_idx} sweep.")
                             opt_pitch = pass1_res_pitch["recommended_joint_offset"]
                             self.joint_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
                             self.marker_calibrator.joint_offsets[arm_side]["wrist_pitch"] = opt_pitch
@@ -2204,8 +2203,7 @@ class FullAutoWorker(QThread):
                             )
                             if not joint_res_pitch:
                                 raise RuntimeError(f"Wrist pitch joint calibration failed on {arm_side} arm")
-                            if pass_idx == 1:
-                                pass1_joint_results["wrist_pitch"] = joint_res_pitch
+                            pass1_joint_results["wrist_pitch"] = joint_res_pitch
                             joint_res_pitch['arm_side'] = arm_side
                             joint_res_pitch['mode'] = "wrist_pitch"
                             joint_res_pitch['pass_idx'] = pass_idx
@@ -2227,9 +2225,14 @@ class FullAutoWorker(QThread):
                         if self.stop_event.is_set(): return
 
                         # 2. Calibrate J6 against the nominal bracket reference BEFORE bracket fitting
+                        if not (pass1_joint_results.get("wrist_pitch") or {}).get("converged", False):
+                            self.log_msg.emit("[FULL AUTO] J5 remains unconverged; J6, bracket and elbow deferred.")
+                            if pass_idx == 3:
+                                raise RuntimeError(f"{arm_side}: J5 prerequisite did not converge after 3 passes")
+                            continue
                         pass1_res_yaw2 = pass1_joint_results.get("wrist_yaw2")
-                        if pass_idx == 2 and pass1_res_yaw2 and pass1_res_yaw2.get("converged", False):
-                            self.log_msg.emit(f"[FULL AUTO 2/3] J6 (Wrist Yaw 2) converged in Pass 1 ({pass1_res_yaw2['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                        if pass_idx >= 2 and pass1_res_yaw2 and pass1_res_yaw2.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO 2/3] J6 (Wrist Yaw 2) previously converged ({pass1_res_yaw2['recommended_joint_offset']:.4f}°). Skipping Pass {pass_idx} sweep.")
                             opt_roll = pass1_res_yaw2["recommended_joint_offset"]
                             self.joint_offsets_store[arm_side]["joint6"] = opt_roll
                             self.joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
@@ -2250,8 +2253,7 @@ class FullAutoWorker(QThread):
                             )
                             if not joint_res_roll:
                                 raise RuntimeError(f"J6 (Wrist Yaw 2) calibration failed on {arm_side} arm")
-                            if pass_idx == 1:
-                                pass1_joint_results["wrist_yaw2"] = joint_res_roll
+                            pass1_joint_results["wrist_yaw2"] = joint_res_roll
 
                             opt_roll = joint_res_roll["recommended_joint_offset"]
                             self.log_msg.emit(f"[FULL AUTO] Staging J6 offset: {opt_roll:.4f}°")
@@ -2273,8 +2275,16 @@ class FullAutoWorker(QThread):
                             time.sleep(0.5)
                             if self.stop_event.is_set(): return
 
+                        pending = [mode for mode in ("wrist_pitch", "wrist_yaw2")
+                                   if not (pass1_joint_results.get(mode) or {}).get("converged", False)]
+                        if pending:
+                            self.log_msg.emit(f"[FULL AUTO] Pending joints: {', '.join(pending)}. Bracket and elbow deferred.")
+                            if pass_idx == 3:
+                                raise RuntimeError(f"{arm_side}: J5/J6 prerequisites did not converge after 3 passes; bracket was not fitted")
+                            continue
+
                         # 3. Marker sweeps with J5/J6 already calibrated and fixed
-                        self.log_msg.emit(f"[FULL AUTO 2/3] Performing Marker Bracket Sweeps for v1.2 {arm_side} arm (Pass {pass_idx}/2)...")
+                        self.log_msg.emit(f"[FULL AUTO 2/3] Performing Marker Bracket Sweeps for v1.2 {arm_side} arm (Pass {pass_idx}/3)...")
                         self.log_msg.emit(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
                         if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_msg.emit):
                             raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
@@ -2351,8 +2361,8 @@ class FullAutoWorker(QThread):
 
                         # 5. Calibrate J3 Elbow
                         pass1_res_elbow = pass1_joint_results.get("elbow")
-                        if pass_idx == 2 and pass1_res_elbow and pass1_res_elbow.get("converged", False):
-                            self.log_msg.emit(f"[FULL AUTO 3/3] J3 (Elbow) converged in Pass 1 ({pass1_res_elbow['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
+                        if pass_idx >= 2 and pass1_res_elbow and pass1_res_elbow.get("converged", False):
+                            self.log_msg.emit(f"[FULL AUTO 3/3] J3 (Elbow) previously converged ({pass1_res_elbow['recommended_joint_offset']:.4f}°). Skipping Pass {pass_idx} sweep.")
                             opt_elbow = pass1_res_elbow["recommended_joint_offset"]
                             self.joint_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
                             self.marker_calibrator.joint_offsets[arm_side]["elbow"] = opt_elbow
@@ -2375,8 +2385,7 @@ class FullAutoWorker(QThread):
                             )
                             if not joint_res_elbow:
                                 raise RuntimeError(f"Elbow joint calibration failed on {arm_side} arm")
-                            if pass_idx == 1:
-                                pass1_joint_results["elbow"] = joint_res_elbow
+                            pass1_joint_results["elbow"] = joint_res_elbow
                             joint_res_elbow['arm_side'] = arm_side
                             joint_res_elbow['mode'] = "elbow"
                             joint_res_elbow['pass_idx'] = pass_idx
@@ -2395,6 +2404,12 @@ class FullAutoWorker(QThread):
                             
                             self.joint_finished_signal.emit(joint_res_elbow)
                             time.sleep(0.5)
+
+                    if not (pass1_joint_results.get("elbow") or {}).get("converged", False):
+                        self.log_msg.emit(f"[FULL AUTO] {arm_side} elbow remains unconverged; only failed joints will be retried.")
+                        if pass_idx == 3:
+                            raise RuntimeError(f"{arm_side}: elbow did not converge after 3 passes")
+                        continue
 
                     # Pass Evaluation & Convergence Check
                     j6_change = abs(self.joint_offsets_store[arm_side]["joint6"] - prev_j6)

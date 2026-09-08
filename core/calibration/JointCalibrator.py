@@ -185,20 +185,21 @@ class JointCalibrator(BaseCalibrator):
                 # Use the pre-calculated damped optimal offset correction to ensure convergence
                 raw_optimal_offset = res.get('optimal_offset', 0.0)
                 
-                # Dynamic damping: halve the damping factor if the correction direction flips
-                # This squashes noise-floor oscillations rapidly
-                if i > 1 and raw_optimal_offset * prev_step_correction < 0:
+                # Normalize absolute J6 targets to relative, measured corrections.
+                raw_delta = (raw_optimal_offset - staged_offset
+                             if mode in ("wrist_roll_v13", "wrist_yaw2")
+                             else raw_optimal_offset)
+                if not np.isfinite(raw_delta):
+                    raise ValueError("Non-finite joint correction; calibration rejected")
+                if i > 1 and raw_delta * prev_step_correction < 0:
                     dynamic_damping *= 0.8
                 elif i == 1:
                     dynamic_damping = 1.0
                     
-                step_correction = direction_multiplier * raw_optimal_offset * dynamic_damping
+                step_correction = direction_multiplier * raw_delta * dynamic_damping
                 
                 # Calculate relative step delta for convergence check
-                if mode in ("wrist_roll_v13", "wrist_yaw2"):
-                    step_correction_delta = step_correction - staged_offset
-                else:
-                    step_correction_delta = step_correction
+                step_correction_delta = raw_delta
 
                 # Convergence check:
                 # step correction delta < 0.06° to handle bracket RPY noise
@@ -215,12 +216,7 @@ class JointCalibrator(BaseCalibrator):
                 # Normal update: apply correction
                 prev_error = angle_dev
                 prev_step_correction = step_correction_delta
-                if mode in ("wrist_roll_v13", "wrist_yaw2"):
-                    # J6 modes return absolute recommended offset, not relative steps.
-                    # Update staged_offset directly with the absolute value.
-                    staged_offset = step_correction
-                else:
-                    staged_offset += step_correction
+                staged_offset += step_correction
                 
                 # Safety: clamp staged_offset to the joint's configured offset range
                 jcfg = self.JOINT_CONFIGS.get(mode, {})
@@ -238,7 +234,7 @@ class JointCalibrator(BaseCalibrator):
             if not converged and len(staged_offsets_history) >= 3:
                 avg_offset = float(np.mean(staged_offsets_history[-3:]))
                 if log_callback:
-                    log_callback(f"\n[INFO] Joint {mode} did not meet 0.06° convergence tolerance due to measurement noise floor.")
+                    log_callback(f"\n[INFO] Joint {mode} did not meet 0.06° convergence tolerance; cause is not determined. Fallback remains unconverged.")
                     log_callback(f"       Damping fallback: Averaged last 3 offsets ({', '.join(f'{v:.4f}°' for v in staged_offsets_history[-3:])}) -> {avg_offset:.4f}°")
                 staged_offset = avg_offset
 
