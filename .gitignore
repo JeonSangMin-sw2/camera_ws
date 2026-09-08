@@ -11,3 +11,4 @@ build/
 dist/
 camera_calibrator*
 camera_ws.code-workspace
+AGENTS.md

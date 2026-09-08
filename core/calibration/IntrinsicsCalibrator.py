@@ -381,6 +381,7 @@ class IntrinsicsCalibrator:
             "camera_matrix": self.cameraMatrix.tolist(),
             "dist_coeffs": self.distCoeffs.flatten().tolist()
         }
+        data.update(getattr(self, 'capture_metadata', {}))
         with open(output_yaml, "w") as f:
             yaml.dump(data, f, default_flow_style=False)
         print(f"Results saved to {output_yaml} ({width}x{height})")

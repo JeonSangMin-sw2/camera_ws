@@ -1547,7 +1547,10 @@ class CalibrationWizardWidget(QWidget):
             return
 
         if success and results and results.get("success"):
-            self.parent_app.head_camera_calibrator.apply_calibration_results(results, log_callback=self.parent_app.log_msg)
+            if not self.parent_app.head_camera_calibrator.apply_calibration_results(results, log_callback=self.parent_app.log_msg):
+                self.stop_unified_calibration_error('Head sweep result was rejected or could not be saved')
+                return
+            self.parent_app.log_msg('[GAUGE] Step 1.5 supplies an effective initialization, not independent head/camera offsets.')
             if hasattr(self.parent_app, '_update_step1_5_tables'):
                 self.parent_app._update_step1_5_tables(results)
             self.start_unified_step2()

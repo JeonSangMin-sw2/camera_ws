@@ -26,6 +26,16 @@ def load_offset_from_json(filename="calibration_result.json"):
         raise KeyError("joint_offset_deg is required in calibration result JSON")
 
     head_offset_deg = data.get("head_joint_offset_deg")
+    if (data.get('head_tilt_independent') is False
+            or data.get('diagnostics', {}).get('head_tilt_mode') in
+            ('effective_zero_gauge', 'camera_forward_gauge')):
+        # Effective camera/tilt gauges must not be written to physical head homes.
+        # Keep arm correction available; head requires an independent reference.
+        logging.warning('Head offsets excluded: camera/tilt solution uses an effective gauge.')
+        head_offset_deg = None
+    diagnostics = data.get('diagnostics', {})
+    if diagnostics and (not diagnostics.get('converged') or not diagnostics.get('observable')):
+        raise ValueError('Cannot apply an unconverged or unobservable calibration result')
     head_offset_rad = None
     if head_offset_deg is not None:
         head_offset_rad = np.deg2rad(np.array(head_offset_deg, dtype=np.float64))

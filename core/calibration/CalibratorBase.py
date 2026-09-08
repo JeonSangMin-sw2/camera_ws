@@ -28,36 +28,8 @@ class BaseCalibrator:
         "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -30.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
         "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
-    MOCK_GT_OFFSETS = {
-        "right": {
-            "joint0": 0.5,
-            "joint1": 2.5,
-            "joint2": 1.2,
-            "joint3": 0.5,
-            "joint4": -1.5,
-            "joint5_v13": -2.1,
-            "joint5_v12": 5.4,
-            "joint6": 2.3,
-            "bracket_pos": [0.0005, 0.0, 0.002],  # meters
-            "bracket_rpy": [-0.1, -0.1, 0.05]        # degrees
-        },
-        "left": {
-            "joint0": -0.4,
-            "joint1": -1.6,
-            "joint2": -1.0,
-            "joint3": 0.7,
-            "joint4": 1.1,
-            "joint5_v13": 3.6,
-            "joint5_v12": -3.0,
-            "joint6": 3.5,
-            "bracket_pos": [0.001, 0.0005, -0.002], # meters
-            "bracket_rpy": [0.1, 0.1, 0.0]        # degrees
-        },
-        "head": {
-            "pan": 0.8,    # degrees
-            "tilt": -1.5   # degrees
-        }
-    }
+    from core.simulation_model import load_truth_config as _load_truth_config
+    MOCK_GT_OFFSETS = _load_truth_config()["offsets"]
     NOMINAL_BRACKET_TEMPLATES = {
         "1.3": {
             "left":  [0.067, 0.0, 0.0, 90.0, 0.0, -90.0],
@@ -145,6 +117,10 @@ class BaseCalibrator:
             return hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2
         return getattr(self, 'include_head_motion', True)
 
+    def uses_head_camera(self):
+        from core.simulation_model import uses_head_camera
+        return uses_head_camera(self.camera_config, self.robot.model())
+
     def get_ready_pose(self, version_key, type_key, mode_key, arm_side):
         if not self.ready_poses:
             raise RuntimeError("Ready poses are not loaded or the configuration file is empty.")
@@ -166,14 +142,14 @@ class BaseCalibrator:
             else:
                 val = val["marker"][f"{arm_side}_arm"]
             val_arr = np.array(val, dtype=np.float64).copy()
-            # If Head is disabled or robot has no 2-DOF head (fixed chest camera), lower Shoulder Pitch (Joint 0)
+            # Without head motion, lower Shoulder Pitch (Joint 0) for a fixed viewing direction.
             # and adjust Elbow (Joint 3) in negative direction to keep marker perpendicular to camera FOV without tilting backward.
             if not self.is_head_active() and len(val_arr) >= 7:
                 j0_delta = 19.0
                 elbow_delta = -4.0 if (type_key == "marker" or mode_key in ["wrist_pitch", "wrist_yaw2", "wrist_roll", "wrist_pitch_v13", "wrist_roll_v13"]) else 0.0
                 val_arr[0] += j0_delta  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -36 deg)
                 val_arr[3] += elbow_delta  # Joint 3 negative offset flexes elbow to prevent marker from tilting backwards
-                msg = f"[READY POSE] Head disabled (Fixed Chest Camera): Joint 0 lowered by +{j0_delta:.1f}° ({val_arr[0]:.1f}°), Elbow adjusted by {elbow_delta:+.1f}° ({val_arr[3]:.1f}°) for {arm_side}_arm ({type_key}/{mode_key})"
+                msg = f"[READY POSE] Head motion disabled (camera mount unchanged): Joint 0 lowered by +{j0_delta:.1f}° ({val_arr[0]:.1f}°), Elbow adjusted by {elbow_delta:+.1f}° ({val_arr[3]:.1f}°) for {arm_side}_arm ({type_key}/{mode_key})"
                 print(msg)
                 logging.info(msg)
 
@@ -368,9 +344,12 @@ class BaseCalibrator:
         if servo is not None and servo != ".*":
             target_servo_pattern = servo
         elif is_local:
-            target_servo_pattern = ".*"
+            target_servo_pattern = ".*" if include_head else "^(?!.*head).*$"
         else:
             target_servo_pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
+        if not include_head:
+            # An explicit caller pattern must not override the no-head rule.
+            target_servo_pattern = f"^(?!.*head)(?:{target_servo_pattern})$"
 
         # Check if servos are ON
         try:
@@ -471,91 +450,32 @@ class BaseCalibrator:
 
 
 
-    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None, q_actual=None):
-        if not self.robot:
-            raise RuntimeError("Robot is not initialized or connected.")
+    def get_simulation_model(self):
+        from core.simulation_model import SimulationModel
+        shared = getattr(self.marker_st, "simulation_model", None)
+        if shared is not None:
+            return shared
+        if not hasattr(self, "_simulation_model") or self._simulation_model.version != self.get_robot_version():
+            self._simulation_model = SimulationModel.create(self.get_robot_version())
+        return self._simulation_model
 
-        is_v13 = self.is_v13()
-        model = self.robot.model()
-        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-        ee_name = f"ee_{arm_side}"
-        
-        mock_gt = self.MOCK_GT_OFFSETS[arm_side]
-        bracket_pos_gt = mock_gt["bracket_pos"]
-        bracket_rpy_gt = mock_gt["bracket_rpy"]
-            
-        injected_joint_offsets_deg = [0.0] * 7
-        injected_joint_offsets_deg[0] = mock_gt.get("joint0", 0.0)
-        injected_joint_offsets_deg[1] = mock_gt.get("joint1", 0.0)
-        injected_joint_offsets_deg[2] = mock_gt.get("joint2", 0.0)
-        injected_joint_offsets_deg[3] = mock_gt.get("joint3", 0.0)
-        injected_joint_offsets_deg[4] = mock_gt.get("joint4", 0.0)
-        injected_joint_offsets_deg[5] = mock_gt.get("joint5_v13" if is_v13 else "joint5_v12", 0.0)
-        injected_joint_offsets_deg[6] = mock_gt.get("joint6", 0.0)
-
-        if q_actual is None:
-            state = self.robot.get_state()
-            q_actual = np.array(state.position)
-        else:
-            q_actual = np.array(q_actual)
-        
-        for i in range(7):
-            q_actual[arm_idx[i]] += np.radians(injected_joint_offsets_deg[i])
-            
-        head_idx = model.head_idx if hasattr(model, 'head_idx') else []
-        if len(head_idx) >= 2:
-            head_gt = self.MOCK_GT_OFFSETS.get("head", {"pan": 0.0, "tilt": 0.0})
-            q_actual[head_idx[0]] += np.radians(head_gt.get("pan", 0.0))
-            q_actual[head_idx[1]] += np.radians(head_gt.get("tilt", 0.0))
-
-        dyn_model = self.robot.get_dynamics()
-        T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
-        
-        # Always use the version-specific nominal design values as the baseline for simulation data generation
-        version_suffix = "_v13" if is_v13 else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
-        if tf_vec is None:
-            ver_key = "1.3" if is_v13 else "1.2"
-            tf_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-            
-        nominal_pos = tf_vec[:3]
-        nominal_rpy = tf_vec[3:6]
-                
-        marker_pos_gt = np.array(nominal_pos) + np.array(bracket_pos_gt)
-        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
-        R_bracket_offset = R_scipy.from_euler('ZYX', [bracket_rpy_gt[2], bracket_rpy_gt[1], bracket_rpy_gt[0]], degrees=True).as_matrix()
-        R_ee_m_gt = R_bracket_offset @ R_ee_m_ideal
-        
-        T_ee_to_marker_gt = np.eye(4)
-        T_ee_to_marker_gt[:3, :3] = R_ee_m_gt
-        T_ee_to_marker_gt[:3, 3] = marker_pos_gt
-        
-        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
-        
-        if self.is_head_active():
-            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-            T_head_to_cam_gt = self.make_transform(mount_to_cam)
-            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_2", "link_torso_5")
-            T_t5_to_cam = T_t5_to_head @ T_head_to_cam_gt
-        else:
-            head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
-            T_head_base_to_cam_gt = self.make_transform(head_base_to_cam)
-            try:
-                T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_0", "link_torso_5")
-            except Exception:
-                T_t5_to_head_0 = np.eye(4)
-            T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam_gt
-        
-        T_cam_to_marker = np.linalg.inv(T_t5_to_cam) @ T_t5_to_marker
-        
-        return T_cam_to_marker
+    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None, q_actual=None, noisy=True):
+        if self.robot is None or not hasattr(self.robot, "get_state"):
+            raise RuntimeError("Simulation requires a connected kinematics model.")
+        q = self.robot.get_state().position if q_actual is None else q_actual
+        simulation = self.get_simulation_model()
+        if not hasattr(self, '_simulation_rng'):
+            self._simulation_rng = np.random.default_rng(simulation.config['seed'])
+        rng = getattr(self.marker_st, 'rng', self._simulation_rng)
+        return simulation.marker_pose(self.robot, q, arm_side, rng, noisy=noisy)
 
     def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
         if getattr(self, 'stop_requested', False):
             return False
         if not robot:
             return False
+        if not self.is_head_active():
+            head = None
             
         if head is not None:
             model = robot.model()
@@ -621,6 +541,9 @@ class BaseCalibrator:
         
         if has_body:
             comp_cmd.set_body_command(body_cmd)
+        elif head is None:
+            # A disabled head-only request must not send an empty robot command.
+            return False
 
         if head is not None:
             comp_cmd.set_head_command(
@@ -1474,10 +1397,8 @@ class BaseCalibrator:
                         self.logger.warning(f"get_state() failed after 3 retries: {e}")
                     time.sleep(0.005)
             if q_full_captured is None:
-                if len(dataset) > 0:
-                    q_full_captured = dataset[-1][0].copy()
-                else:
-                    q_full_captured = np.zeros(26)
+                # Missing feedback is a dropped sample, not a fabricated encoder pose.
+                continue
 
             if is_camera_mock:
                 if hasattr(self, 'get_simulated_marker_pose'):
@@ -1539,4 +1460,3 @@ class BaseCalibrator:
 
         logging.info(f"    -> Swept {len(dataset)} dense raw coordinate frames during {label} motion.")
         return dataset
-

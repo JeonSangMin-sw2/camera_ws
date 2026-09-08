@@ -199,10 +199,10 @@ class MarkerCalibrator(BaseCalibrator):
 
             # Solve Circle Fitting
             n_nom = mcfg["n_nom_v13"] if self.is_v13() else mcfg["n_nom_v12"]
-            res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom, robust=not self.is_mock)
+            res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom, robust=True)
             
             # Load camera transform relative to mount link
-            if self.is_head_active():
+            if self.uses_head_camera():
                 mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
                 mount_to_cam_rot_only = [0.0, 0.0, 0.0] + list(mount_to_cam[3:])
                 T_cam_fixed = self.make_transform(mount_to_cam_rot_only)
@@ -227,7 +227,7 @@ class MarkerCalibrator(BaseCalibrator):
                         else:
                             q_mod[arm_idx[6]] -= np.radians(offsets.get("wrist_yaw2", 0.0))
                     
-                    if self.is_head_active():
+                    if self.uses_head_camera():
                         T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_mod, "link_head_2", "link_torso_5")
                         T_t5_to_cam = T_t5_to_head @ T_cam_fixed
                     else:
@@ -489,6 +489,8 @@ class MarkerCalibrator(BaseCalibrator):
         }
 
     def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
+        if marker_data_4 is not None and not lock_bracket:
+            return self.fit_encoder_bracket(marker_data_4, marker_data_5, marker_data_6, arm_side, calib_roll_or_yaw_deg if calib_roll_or_yaw_deg is not None else calib_roll_deg, calib_pitch_deg)
         if calib_roll_or_yaw_deg is not None:
             calib_roll_deg = calib_roll_or_yaw_deg
         
@@ -508,6 +510,8 @@ class MarkerCalibrator(BaseCalibrator):
         return combined
 
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
+        if marker_data_4 is not None and not lock_bracket:
+            return self.fit_encoder_bracket(marker_data_4, marker_data_5, marker_data_6, arm_side, calib_roll_or_yaw_deg if calib_roll_or_yaw_deg is not None else calib_roll_deg, calib_pitch_deg)
         if calib_roll_or_yaw_deg is not None:
             calib_roll_deg = calib_roll_or_yaw_deg
 
@@ -871,6 +875,25 @@ class MarkerCalibrator(BaseCalibrator):
             'y_ee_m_ideal': y_ee_m_ideal
         }
 
+    def fit_encoder_bracket(self, data4, data5, data6, side, j6_correction=None, j5_correction=None):
+        from core.calibration.bracket_fitting import fit_bracket_sweeps
+        offsets = self.joint_offsets.get(side, self.joint_offsets)
+        if j6_correction is None:
+            j6_correction = offsets.get('wrist_roll' if self.is_v13() else 'wrist_yaw2', 0.0)
+        if j5_correction is None:
+            j5_correction = offsets.get('wrist_pitch', 0.0)
+        suffix = '_v13' if self.is_v13() else '_v12'
+        nominal = self.camera_config[f'Tf_to_marker_{side}{suffix}']
+        result = fit_bracket_sweeps(self.robot, side, [data4, data5, data6], nominal,
+                                   -j6_correction, -j5_correction)
+        # Retain plotting/UI fields. Geometric circle metrics remain diagnostics.
+        result.update(radius_4=data4.get('radius', 0), radius_5=data5.get('radius', 0),
+                      radius_6=data6.get('radius', 0), L_5_ee=self.get_link_length(side),
+                      rmse_4=data4.get('rmse', 0), rmse_5=data5.get('rmse', 0), rmse_6=data6.get('rmse', 0),
+                      ortho_err=float('nan'), rot_err_deg=result['rotation_error_deg'], tilt_diff=float('nan'),
+                      warn_large_angle=result['rotation_error_deg'] > 3.0)
+        return result
+
     def generate_marker_plot(self, res_5, res_6, res_4, unified_res, arm_side, is_v13, save_path):
         """
         Generates unified marker calibration plots and saves the image to disk.
@@ -903,7 +926,19 @@ class MarkerCalibrator(BaseCalibrator):
             ax.legend(loc='upper right', fontsize=9)
 
         # Plot results
-        if is_v13:
+        if unified_res.get('data_rank') is not None:
+            fig, axes = plt.subplots(2, 2, figsize=(16, 11))
+            for ax, res, number in zip(axes.flat, (res_4, res_5, res_6), (4, 5, 6)):
+                plot_single_axis(ax, res, number, 'blue')
+            axes[1, 1].axis('off')
+            axes[1, 1].text(.05, .95,
+                f"Encoder-relative bracket-only fit: rank {unified_res['data_rank']}/6\n"
+                f"Normalized residual RMS: {unified_res['normalized_residual_rms']:.4f}\n"
+                f"Fixed J5 correction: {unified_res['fixed_j5_correction_deg']:+.4f} deg\n"
+                f"Fixed J6 effective correction: {unified_res['fixed_j6_correction_deg']:+.4f} deg\n"
+                "J6 and coaxial bracket rotation are not independent measurements.",
+                va='top', fontsize=12)
+        elif is_v13:
             fig, axes = plt.subplots(2, 2, figsize=(16, 11))
             ax1, ax2 = axes[0, 0], axes[0, 1]
             ax3, ax4 = axes[1, 0], axes[1, 1]

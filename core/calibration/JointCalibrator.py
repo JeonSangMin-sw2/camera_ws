@@ -257,6 +257,8 @@ class JointCalibrator(BaseCalibrator):
             # Build clean final output dict — UI only needs these fields
             final_output = {
                 'mode': mode,
+                'offset_convention': 'home_correction_minus_physical_error',
+                'j6_mode': 'effective_bracket_reference' if mode in ('wrist_roll_v13', 'wrist_yaw2') else None,
                 'recommended_joint_offset': staged_offset,
                 'optimal_offset': staged_offset,
                 'converged': converged,
@@ -347,8 +349,8 @@ class JointCalibrator(BaseCalibrator):
             pts_b = np.array(pts_b)
             
             # 3D fit circles
-            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a, robust=not self.is_mock)
-            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b, robust=not self.is_mock)
+            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a, robust=True)
+            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b, robust=True)
             
             n_A = R_c_A[:, 2]
             n_B = R_c_B[:, 2]
@@ -864,7 +866,7 @@ class JointCalibrator(BaseCalibrator):
         logging.debug(f"       a_B_t5    = {a_B_t5.tolist()}")
 
         # Calculate accurate transformation from torso to camera frame
-        if self.is_head_active():
+        if self.uses_head_camera():
             mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
             T_mount_to_cam = self.make_transform(mount_to_cam)
             q_init = dataset_A[0][0]
@@ -899,7 +901,7 @@ class JointCalibrator(BaseCalibrator):
         angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
 
         # 3. Fit Sweep A and B axes in the camera frame
-        robust_fit = not self.is_mock
+        robust_fit = True
         res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_A, angles_A, axis_prior=a_A_cam, robust=robust_fit)
         res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_B, angles_B, axis_prior=a_B_cam_nom, robust=robust_fit)
 
@@ -985,8 +987,9 @@ class JointCalibrator(BaseCalibrator):
                         staged_j7_offset_deg = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
                     
                     j7_ready_pose_deg = j7_current_pos_deg - staged_j7_offset_deg
-                    damping_factor = 0.8
-                    optimal_offset_deg = (raw_diff_deg * damping_factor) + j7_current_pos_deg
+                    # Report the full measured correction. Motion damping belongs
+                    # in the motion controller, not in the offset estimate.
+                    optimal_offset_deg = raw_diff_deg + j7_current_pos_deg
                     
                     if log_callback:
                         log_callback(f"[INFO] {mode}: J7 nominal ready pose={j7_ready_pose_deg:.2f}°, raw_diff={raw_diff_deg:.2f}°, optimal_offset={optimal_offset_deg:.2f}°")
@@ -994,8 +997,7 @@ class JointCalibrator(BaseCalibrator):
                 import traceback
                 if log_callback:
                     log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}\n{traceback.format_exc()}. Using 0.0.")
-                optimal_offset_deg = 0.0
-                diff_angle = 0.0
+                raise RuntimeError(f'J6 calibration failed; no zero correction was fabricated: {e}') from e
         elif mode == "wrist_pitch_v13":
             # Orthogonal normal vector projection solver for v1.3 spherical wrist Pitch (J5)
             # Sweep A is J6 (Roll, nominal axis X) and Sweep B is J4 (Yaw, nominal axis Z).
@@ -1035,7 +1037,7 @@ class JointCalibrator(BaseCalibrator):
                 # Robust Center-Distance Method for parallel joints
                 # The normal vector of a small arc is highly sensitive to vibrations.
                 # However, the distance between the rotation centers is extremely robust and proportional to the angle error.
-                if self.is_head_active():
+                if self.uses_head_camera():
                     mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
                     T_mount_to_cam = self.make_transform(mount_to_cam)
                     q_init = dataset_A[0][0]

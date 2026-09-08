@@ -27,6 +27,8 @@ if getattr(sys, 'frozen', False):
                     print(f"[Paths] Failed to copy default template {filename}: {e}")
 
 CONFIG_PATHS = {
+    "home_reset_baseline": os.path.abspath(os.path.join(current_dir, "config", "home_reset_baseline.json")),
+    "simulation_yaml": os.path.abspath(os.path.join(current_dir, "config", "simulation.yaml")),
     "setting_yaml": os.path.abspath(os.path.join(current_dir, "config", "setting.yaml")),
     "camera_info": os.path.abspath(os.path.join(current_dir, "config", "camera_info.yaml")),
     "ready_poses_yaml": os.path.abspath(os.path.join(current_dir, "config", "ready_poses.yaml")),

@@ -8,8 +8,8 @@ except ImportError:
     qpsolvers = None
 
 
-DEFAULT_LAMBDA_CAM_POS = 1.0
-DEFAULT_LAMBDA_CAM_ROT = 1e6
+DEFAULT_LAMBDA_CAM_POS = 0.0
+DEFAULT_LAMBDA_CAM_ROT = 0.0
 DEFAULT_ESTIMATE_MEASUREMENT_NOISE = False
 DEFAULT_NOISE_UPDATE_RATE = 0.5
 DEFAULT_INITIAL_NOISE_STD_ROT_RAD = np.deg2rad(0.5)
@@ -160,17 +160,8 @@ def make_transform(data):
 
 
 def so3_exp(w):
-    theta = np.linalg.norm(w)
-    if theta < 1e-8:
-        return np.eye(3)
-
-    k = w / theta
-    K = np.array([
-        [0, -k[2], k[1]],
-        [k[2], 0, -k[0]],
-        [-k[1], k[0], 0],
-    ])
-    return np.eye(3) + np.sin(theta) * K + (1 - np.cos(theta)) * (K @ K)
+    from scipy.spatial.transform import Rotation
+    return Rotation.from_rotvec(np.asarray(w, dtype=float)).as_matrix()
 
 
 def se3_exp(xi):
@@ -179,8 +170,9 @@ def se3_exp(xi):
     R = so3_exp(w)
     theta = np.linalg.norm(w)
 
-    if theta < 1e-8:
-        V = np.eye(3)
+    if theta < 1e-4:
+        W = np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+        V = np.eye(3) + (0.5 - theta**2 / 24) * W + (1 / 6 - theta**2 / 120) * (W @ W)
     else:
         K = np.array([
             [0, -w[2], w[1]],
@@ -201,19 +193,8 @@ def se3_exp(xi):
 
 
 def so3_log(R):
-    cos_theta = (np.trace(R) - 1) / 2
-    cos_theta = np.clip(cos_theta, -1, 1)
-    theta = np.arccos(cos_theta)
-
-    if theta < 1e-8:
-        return np.zeros(3)
-
-    w_hat = (R - R.T) / (2 * np.sin(theta))
-    return theta * np.array([
-        w_hat[2, 1],
-        w_hat[0, 2],
-        w_hat[1, 0],
-    ])
+    from scipy.spatial.transform import Rotation
+    return Rotation.from_matrix(R).as_rotvec()
 
 
 def se3_log(T):
@@ -223,14 +204,15 @@ def se3_log(T):
     w = so3_log(R)
     theta = np.linalg.norm(w)
 
-    if theta < 1e-8:
-        v = t
+    if theta < 1e-4:
+        W = np.array([[0, -w[2], w[1]], [w[2], 0, -w[0]], [-w[1], w[0], 0]])
+        v = (np.eye(3) - 0.5 * W + (1 / 12 + theta**2 / 720) * (W @ W)) @ t
     else:
         w_hat = np.array([
             [0, -w[2], w[1]],
             [w[2], 0, -w[0]],
             [-w[1], w[0], 0],
-        ]) / theta
+        ])
 
         A = (
             np.eye(3)
@@ -325,6 +307,8 @@ class QPCalibrationOptimizer:
         measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
         apply_joint_offset_limits=False,
         joint_offsets_to_apply=None,
+        head_tilt_reference_rad=None,
+        head_zero_convention="camera_forward",
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -345,6 +329,15 @@ class QPCalibrationOptimizer:
         self.optimize_arm = optimize_arm
         self.optimize_head = optimize_head and self.use_head_kinematics
         self.optimize_camera = optimize_camera
+        # An exact gauge, NOT a measured zero or a soft prior. Without an
+        # independent tilt reference, report only an effective camera/tilt pair.
+        self.head_tilt_reference_rad = head_tilt_reference_rad
+        self.head_tilt_gauge = self.optimize_head and self.optimize_camera
+        if head_zero_convention not in ('camera_forward', 'effective_zero'):
+            raise ValueError('head_zero_convention must be camera_forward or effective_zero')
+        self.head_zero_convention = head_zero_convention
+        self.camera_forward_zero = None
+        self.last_diagnostics = {}
 
         self.max_iter = max_iter
         self.eps = eps
@@ -371,13 +364,17 @@ class QPCalibrationOptimizer:
         self.qp_solver = qp_solver
         self.qp_regularization = float(qp_regularization)
         self.qp_kwargs = {} if qp_kwargs is None else dict(qp_kwargs)
+        if self.qp_solver == 'osqp':
+            self.qp_kwargs.setdefault('eps_abs', 1e-9)
+            self.qp_kwargs.setdefault('eps_rel', 1e-9)
+            self.qp_kwargs.setdefault('max_iter', 20000)
         self.enforce_joint_offset_limits = enforce_joint_offset_limits
         self.joint_step_bound_rad = joint_step_bound_rad
         self.joint_offset_bound_rad = joint_offset_bound_rad
         self.camera_rot_step_bound_rad = camera_rot_step_bound_rad
         self.camera_pos_step_bound_m = camera_pos_step_bound_m
         self.camera_rot_bound_rad = (2.0 * D2R) if camera_rot_bound_rad is None else camera_rot_bound_rad
-        self.camera_pos_bound_m = camera_pos_bound_m
+        self.camera_pos_bound_m = 0.010 if camera_pos_bound_m is None else camera_pos_bound_m
 
     def get_joint_limit(self):
         links = [self.base_link] + list(self.ee_links.values())
@@ -724,6 +721,12 @@ class QPCalibrationOptimizer:
                     # lb, ub, joint_slice, joint_current, self.joint_offset_bound_rad
                 # )
                 # any_bound = True
+            if self.joint_step_bound_rad is not None:
+                self._apply_step_bound(lb, ub, joint_slice, self.joint_step_bound_rad)
+                any_bound = True
+            if self.joint_offset_bound_rad is not None:
+                self._apply_absolute_bound(lb, ub, joint_slice, joint_current, self.joint_offset_bound_rad)
+                any_bound = True
             if self.enforce_joint_offset_limits:
                 self._apply_absolute_limits(
                     lb,
@@ -839,61 +842,17 @@ class QPCalibrationOptimizer:
                 H[pos_slice, pos_slice] += self.lambda_cam_pos * np.eye(3)
                 g[pos_slice] += -self.lambda_cam_pos * xi_mount_cam[3:]
 
-        # Apply Soft Anchor Penalty to Step 1 calibrated joints (J3, J5, J6) to prevent hard wall clamping
-        if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
-            jo = self.joint_offsets_to_apply
-            anchor_weight = 1e7  # Strong anchor penalty weight locking Step 1 joints to Step 1 calibrated values (< 0.02 deg)
-            if len(self.active_arms) == 1:
-                side = self.active_arms[0]
-                anchors = [
-                    (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
-                    (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
-                    (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
-                ]
-            else:
-                anchors = [
-                    (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
-                    (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
-                    (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
-                    (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
-                    (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
-                    (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
-                ]
-
-            for idx, target_val in anchors:
-                if idx < len(q_arm_offset):
-                    cur_val = q_arm_offset[idx]
-                    H[idx, idx] += anchor_weight
-                    g[idx] += -anchor_weight * (cur_val - target_val)
-
-        # Gentle Null-space damping to prevent parallel joint drift along flat unobservable valleys
-        # (J0 vs Head Tilt, J2 vs J4). 
-        # Damping weights (15.0 on J2/J4, 3.0 on J0) are tiny (< 0.03% of total data weight ~50000),
-        # allowing true joint offsets to be estimated with 100% freedom while preventing null-space drift.
-        if self.optimize_arm:
-            if len(self.active_arms) == 1:
-                null_damped = [(0, 3.0), (2, 15.0), (4, 15.0)]
-            else:
-                null_damped = [
-                    (0, 3.0), (2, 15.0), (4, 15.0),    # Right arm J0, J2, J4
-                    (7, 3.0), (9, 15.0), (11, 15.0),   # Left arm J0, J2, J4
-                ]
-            for idx, damp_w in null_damped:
-                if idx < len(q_arm_offset):
-                    H[idx, idx] += damp_w
-                    g[idx] += -damp_w * q_arm_offset[idx]
-
-
-
-
-
-
-
+        # Step 1 measurements are optional explicit bounds, never zero priors.
         P = 0.5 * (H + H.T)
         if self.qp_regularization > 0.0:
             P += self.qp_regularization * np.eye(dim)
         q = -g
         lb, ub = self._build_qp_bounds(dim, q_arm_offset, q_head_offset, xi_mount_cam)
+        if self.head_tilt_gauge:
+            if lb is None:
+                lb, ub = np.full(dim, -np.inf), np.full(dim, np.inf)
+            tilt_index = (len(self.arm_idx) if self.optimize_arm else 0) + 1
+            lb[tilt_index] = ub[tilt_index] = 0.0
 
         dx = None
         if qpsolvers is not None:
@@ -907,11 +866,19 @@ class QPCalibrationOptimizer:
                     solver=self.qp_solver,
                     **self.qp_kwargs,
                 )
-            except Exception:
+            except Exception as exc:
+                self.last_diagnostics["qp_error"] = str(exc)
                 dx = None
 
         if dx is None:
-            dx = np.linalg.solve(P + 1e-4 * np.eye(dim), -q)
+            raise RuntimeError("Bounded QP failed; no unconstrained fallback is permitted.")
+        dx = np.asarray(dx, dtype=float)
+        if not np.all(np.isfinite(dx)):
+            raise RuntimeError("QP returned non-finite values.")
+        if lb is not None:
+            if np.any(dx < lb - 1e-6) or np.any(dx > ub + 1e-6):
+                raise RuntimeError("QP returned a step outside the physical bounds.")
+            dx = np.clip(dx, lb, ub)
 
         return np.asarray(dx, dtype=np.float64).reshape(-1), total_err
 
@@ -971,11 +938,13 @@ class QPCalibrationOptimizer:
         ]
 
     def optimize(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset_init=None, q_head_offset_init=None, xi_mount_cam_init=None):
+        self.camera_forward_zero = None
         if self.use_head_kinematics and q_head_list is None:
-            self.use_head_kinematics = False
-            self.optimize_head = False
-            self.base_link = "link_head_0"
-            self.T_mount_to_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
+            raise ValueError('Head-mounted camera requires encoder samples; select a fixed camera explicitly instead of silently changing geometry.')
+        from core.calibration_core import validate_dataset
+        validate_dataset(np.asarray(q_arm_list), q_head_list, np.asarray(T_meas_list), self.use_head_kinematics, self.active_arms)
+        if self.max_iter < 1 or self.total_dim() == 0:
+            raise ValueError('At least one iteration and one free parameter are required')
 
         q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
         if not self.use_head_kinematics:
@@ -986,6 +955,13 @@ class QPCalibrationOptimizer:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
             
         xi_mount_cam = xi_mount_cam_init.copy() if xi_mount_cam_init is not None else np.zeros(6)
+        if self.head_tilt_gauge:
+            q_head_offset[1] = 0.0 if self.head_tilt_reference_rad is None else self.head_tilt_reference_rad
+        self.last_diagnostics = {"converged": False, "head_tilt_mode":
+            ("independent_reference" if self.head_tilt_reference_rad is not None else "effective_zero_gauge")
+            if self.head_tilt_gauge else ("fixed_camera_conditional" if self.optimize_head else "head_not_estimated"),
+            "offset_convention": "q_physical = q_encoder + delta; correction = -delta",
+            "j6_mode": "conditional_on_supplied_bracket; coaxial bracket rotation is not separately observable"}
 
         for it in range(self.max_iter):
             dx, total_err = self.compute_step(
@@ -1008,464 +984,76 @@ class QPCalibrationOptimizer:
 
             if np.linalg.norm(dx) < self.eps:
                 print("Converged.")
+                self.last_diagnostics["converged"] = True
                 break
 
+        self.last_diagnostics["iterations"] = it + 1
+        self.last_diagnostics["step_norm"] = float(np.linalg.norm(dx))
+        self.last_diagnostics.update(self.observability_report(
+            q_arm_list, q_head_list, T_meas_list, q_arm_offset, q_head_offset, xi_mount_cam))
+        self.last_diagnostics['head_tilt_independent'] = bool(
+            self.optimize_head and (not self.head_tilt_gauge or self.head_tilt_reference_rad is not None))
+        if (self.optimize_head and self.head_zero_convention == 'camera_forward'
+                and self.last_diagnostics['converged'] and self.last_diagnostics['observable']):
+            from core.head_camera_zero import camera_forward_zero
+            def head_fk(head):
+                q = self.q_nominal.copy()
+                q[self.head_idx] = head
+                return compute_fk(self.robot, self.dyn_model, q, self.camera_link, 'link_torso_5')[1]
+            redistribute = self.head_tilt_gauge and self.head_tilt_reference_rad is None
+            q_head_offset, camera, self.camera_forward_zero = camera_forward_zero(
+                head_fk, self.get_nominal_mount_to_cam() @ se3_exp(xi_mount_cam),
+                q_head_offset, self.q_lower[self.head_idx], self.q_upper[self.head_idx], redistribute)
+            xi_mount_cam = se3_log(np.linalg.inv(self.get_nominal_mount_to_cam()) @ camera)
+            if redistribute:
+                self.last_diagnostics['head_tilt_mode'] = 'camera_forward_gauge'
+                self.last_diagnostics['offset_convention'] = (
+                    'arm/Pan: physical_q_plus_delta; Tilt: camera_forward_model_q_plus_delta; '
+                    'camera command zero is separate from mechanical homes')
+            self.last_diagnostics['head_zero_convention'] = 'camera_forward'
+            self.last_diagnostics['camera_bounds_frame'] = 'solver_gauge_before_exact_output_reparameterization'
         mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_mount_cam)
         head_base_to_cam_new = self.get_calibrated_head_base_to_cam(xi_mount_cam)
         return q_arm_offset, q_head_offset, xi_mount_cam, mount_to_cam_new, head_base_to_cam_new
 
-class CalibrationOptimizer:
-    def __init__(
-        self,
-        robot,
-        arm_idx,
-        ee_links,
-        mount_to_cam_nom,
-        head_base_to_cam_nom,
-        ee_to_marker_nom,
-        active_arms=["right", "left"],
-        optimize_arm=True,
-        optimize_head=False,
-        optimize_camera=False,
-        head_idx=None,
-        camera_link="link_head_2",
-        use_head_kinematics=True,
-        max_iter=500,
-        eps=1e-6,
-        lambda_cam_pos=DEFAULT_LAMBDA_CAM_POS,
-        lambda_cam_rot=DEFAULT_LAMBDA_CAM_ROT,
-        use_sag=False,
-        estimate_measurement_noise=DEFAULT_ESTIMATE_MEASUREMENT_NOISE,
-        measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
-        apply_joint_offset_limits=False,
-        joint_offsets_to_apply=None,
-    ):
-        self.robot = robot
-        self.dyn_model = robot.get_dynamics()
-        self.model = robot.model()
+    def observability_report(self, q_arms, q_heads, measurements, arm_offset, head_offset, xi_cam):
+        """Data-only Jacobian; priors and numerical damping must not add rank."""
+        rows, residuals = [], []
+        for i, qa in enumerate(q_arms):
+            qh = q_heads[i] if q_heads is not None else None
+            for s, side in enumerate(self.active_arms):
+                jb, _, bracket, predicted = self.evaluate_sample(qa, qh, side, arm_offset, head_offset, xi_cam)
+                rows.append(self.build_jacobian(qa, qh, side, arm_offset, head_offset, xi_cam, jb, bracket, predicted))
+                measured = measurements[i, s] if measurements.ndim == 4 else measurements[i]
+                residuals.append(se3_log(np.linalg.inv(predicted) @ measured))
+        J = np.vstack(rows)
+        full_s = np.linalg.svd(J, compute_uv=False)
+        if self.head_tilt_gauge:
+            J = np.delete(J, (len(self.arm_idx) if self.optimize_arm else 0) + 1, axis=1)
+        singular = np.linalg.svd(J, compute_uv=False)
+        residuals = np.asarray(residuals)
+        rank = int(np.sum(singular > singular[0] * 1e-7))
+        return {"data_rank_before_gauge": int(np.sum(full_s > full_s[0] * 1e-7)),
+                "data_rank": rank, "free_parameters": J.shape[1],
+                "observable": rank == J.shape[1],
+                "condition_number": float(singular[0] / max(singular[-1], 1e-16)),
+                "rotation_rmse_deg": float(np.rad2deg(np.sqrt(np.mean(np.sum(residuals[:, :3]**2, axis=1))))),
+                "translation_rmse_mm": float(1000 * np.sqrt(np.mean(np.sum(residuals[:, 3:]**2, axis=1))))}
 
-        self.arm_idx = np.array(arm_idx, dtype=int)
-        self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
-        self.ee_links = dict(ee_links)
-        self.mount_to_cam_nom = mount_to_cam_nom
-        self.head_base_to_cam_nom = head_base_to_cam_nom
-        self.ee_to_marker_nom = dict(ee_to_marker_nom)
-        self.camera_link = camera_link
-        self.active_arms = active_arms
+class CalibrationOptimizer(QPCalibrationOptimizer):
+    """Compatibility name; all entry points use the same bounded solver."""
+    def __init__(self, robot, arm_idx, ee_links, mount_to_cam_nom,
+                 head_base_to_cam_nom, ee_to_marker_nom,
+                 active_arms=("right", "left"), **kwargs):
+        kwargs.setdefault("camera_pos_bound_m", 0.010)
+        kwargs.setdefault("camera_rot_bound_rad", np.deg2rad(3.0))
+        super().__init__(robot=robot, arm_idx=arm_idx, ee_links=ee_links,
+                         mount_to_cam_nom=mount_to_cam_nom,
+                         head_base_to_cam_nom=head_base_to_cam_nom,
+                         ee_to_marker_nom=ee_to_marker_nom,
+                         active_arms=list(active_arms), **kwargs)
 
-        self.use_head_kinematics = use_head_kinematics and (self.head_idx is not None)
-        self.optimize_arm = optimize_arm
-        self.optimize_head = optimize_head and self.use_head_kinematics
-        self.optimize_camera = optimize_camera
-        self.apply_joint_offset_limits = apply_joint_offset_limits
-        self.joint_offsets_to_apply = joint_offsets_to_apply
-
-        self.max_iter = max_iter
-        self.eps = eps
-        self.lambda_cam_pos = lambda_cam_pos
-        self.lambda_cam_rot = lambda_cam_rot
-        self.noise_estimator = ResidualNoiseEstimator(
-            enabled=estimate_measurement_noise,
-            update_rate=measurement_noise_update_rate,
-        )
-        self.q_nominal = robot.get_state().position.copy()
-        
-        self.numeric_jac_eps = 1e-7
-
-        if self.use_head_kinematics:
-            self.base_link = self.camera_link
-            self.T_cam_nom = make_transform(self.mount_to_cam_nom) if self.mount_to_cam_nom else np.eye(4)
-        else:
-            self.base_link = "link_head_0"
-            self.T_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
-
-    def joint_param_dim(self):
-        dim = 0
-        if self.optimize_arm:
-            dim += len(self.arm_idx)
-        if self.optimize_head:
-            dim += len(self.head_idx)
-        return dim
-
-    def total_dim(self):
-        dim = self.joint_param_dim()
-        if self.optimize_camera:
-            dim += 6
-        return dim
-
-    def get_nominal_cam_transform(self):
-        return self.T_cam_nom.copy()
-
-    def get_nominal_ee_to_marker(self, arm_side):
-        return make_transform(self.ee_to_marker_nom[str(arm_side)])
-
-    def unpack_params(self, dx):
-        cursor = 0
-        q_arm_offset = np.zeros(len(self.arm_idx))
-        q_head_offset = np.zeros(len(self.head_idx)) if self.head_idx is not None else None
-        xi_cam = np.zeros(6)
-
-        if self.optimize_arm:
-            q_arm_offset = dx[cursor:cursor + len(self.arm_idx)]
-            cursor += len(self.arm_idx)
-        if self.optimize_head:
-            q_head_offset = dx[cursor:cursor + len(self.head_idx)]
-            cursor += len(self.head_idx)
-        if self.optimize_camera:
-            xi_cam = dx[cursor:cursor + 6]
-
-        return q_arm_offset, q_head_offset, xi_cam
-
-    def pack_joint_jacobian(self, Jb):
-        parts = []
-        if self.optimize_arm:
-            parts.append(Jb[:, self.arm_idx])
-        if self.optimize_head:
-            parts.append(Jb[:, self.head_idx])
-        if not parts:
-            return np.zeros((6, 0))
-        return np.concatenate(parts, axis=1)
-
-    def evaluate_sample(self, q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_cam):
-        q_full = prepare_q_full(
-            q_nominal=self.q_nominal,
-            arm_idx=self.arm_idx,
-            q_cmd=q_arm,
-            q_offset=q_arm_offset if self.optimize_arm else None,
-            head_idx=self.head_idx if self.use_head_kinematics else None,
-            q_head=q_head if self.use_head_kinematics else None,
-            q_head_offset=q_head_offset if self.use_head_kinematics else None,
-        )
-
-        state = self.dyn_model.make_state(
-            [self.base_link, self.ee_links[str(arm_side)]],
-            self.model.robot_joint_names
-        )
-        state.set_q(q_full)
-        
-        self.dyn_model.compute_forward_kinematics(state)
-        self.dyn_model.compute_diff_forward_kinematics(state)
-
-        T_fk = self.dyn_model.compute_transformation(state, 0, 1)
-        Jb_full = self.dyn_model.compute_body_jacobian(state, 0, 1)
-        Jb_joint = self.pack_joint_jacobian(Jb_full)
-
-        T_cam_nom = self.get_nominal_cam_transform()
-        T_cam = (
-            T_cam_nom @ se3_exp(xi_cam)
-            if self.optimize_camera else T_cam_nom
-        )
-        T_ee_to_marker = self.get_nominal_ee_to_marker(arm_side)
-
-        T_model = np.linalg.inv(T_cam) @ T_fk @ T_ee_to_marker
-        return Jb_joint, T_cam, T_ee_to_marker, T_model
-
-    def build_camera_jacobian_numeric(self, q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam, T_model_ref):
-        J_cam = np.zeros((6, 6))
-
-        for i in range(6):
-            delta = np.zeros(6)
-            delta[i] = self.numeric_jac_eps
-
-            _, _, _, T_model_plus = self.evaluate_sample(q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam + delta)
-            _, _, _, T_model_minus = self.evaluate_sample(q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam - delta)
-
-            xi_plus = se3_log(np.linalg.inv(T_model_ref) @ T_model_plus)
-            xi_minus = se3_log(np.linalg.inv(T_model_ref) @ T_model_minus)
-            J_cam[:, i] = (xi_plus - xi_minus) / (2 * self.numeric_jac_eps)
-
-        return J_cam
-
-    def build_jacobian(self, q_arm, q_head, arm_side, q_arm_offset, q_head_offset, xi_mount_cam, Jb_joint, T_ee_to_marker, T_model):
-        joint_dim = self.joint_param_dim()
-        J_joint = adjoint(np.linalg.inv(T_ee_to_marker)) @ Jb_joint if joint_dim > 0 else np.zeros((6, 0))
-
-        if joint_dim > 0 and self.optimize_camera:
-            J = np.zeros((6, joint_dim + 6))
-            J[:, :joint_dim] = J_joint
-            J[:, joint_dim:] = self.build_camera_jacobian_numeric(
-                q_arm,
-                q_head,
-                arm_side,
-                q_arm_offset,
-                q_head_offset,
-                xi_mount_cam,
-                T_model,
-            )
-            return J
-
-        if self.optimize_camera:
-            return self.build_camera_jacobian_numeric(
-                q_arm,
-                q_head,
-                arm_side,
-                q_arm_offset,
-                q_head_offset,
-                xi_mount_cam,
-                T_model,
-            )
-
-        return J_joint
-
-    def compute_step(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset, q_head_offset, xi_mount_cam):
-        dim = self.total_dim()
-        H = np.zeros((dim, dim))
-        g = np.zeros(dim)
-        total_err = 0.0
-        weights = self.noise_estimator.weights()
-        residual_samples = []
-
-        if q_head_list is None:
-            q_head_iter = [None] * len(q_arm_list)
-        else:
-            q_head_iter = q_head_list
-
-        for q_arm, q_head, T_meas_pair in zip(q_arm_list, q_head_iter, T_meas_list):
-            for side_idx, arm_side in enumerate(ARM_SIDES):
-                if arm_side not in self.active_arms:
-                    continue
-
-                # Handle both single-arm (N, 4, 4) and dual-arm (N, 2, 4, 4) data shapes
-                if T_meas_pair.ndim == 3: # (2, 4, 4) flattened or single (4, 4)? 
-                    # Wait, T_meas_list from data['T_meas'] usually has shape (N, 2, 4, 4) or (N, 4, 4)
-                    if T_meas_pair.shape == (2, 4, 4):
-                        T_meas = T_meas_pair[side_idx]
-                    else:
-                        T_meas = T_meas_pair
-                elif T_meas_pair.ndim == 2: # (4, 4)
-                    T_meas = T_meas_pair
-                else:
-                    T_meas = T_meas_pair[side_idx]
-
-                Jb_joint, _, T_ee_to_marker, T_model = self.evaluate_sample(
-                    q_arm,
-                    q_head,
-                    arm_side,
-                    q_arm_offset,
-                    q_head_offset,
-                    xi_mount_cam,
-                )
-
-                T_err = np.linalg.inv(T_model) @ T_meas
-                xi = se3_log(T_err)
-                J = self.build_jacobian(
-                    q_arm,
-                    q_head,
-                    arm_side,
-                    q_arm_offset,
-                    q_head_offset,
-                    xi_mount_cam,
-                    Jb_joint,
-                    T_ee_to_marker,
-                    T_model,
-                )
-
-                add_weighted_normal_equation(H, g, J, xi, weights)
-                total_err += np.linalg.norm(xi)
-                residual_samples.append(xi)
-
-        self.noise_estimator.update(residual_samples)
-
-        if self.optimize_camera:
-            rot_slice = slice(dim - 6, dim - 3)
-            pos_slice = slice(dim - 3, dim)
-
-            if self.lambda_cam_rot > 0.0:
-                H[rot_slice, rot_slice] += self.lambda_cam_rot * np.eye(3)
-                g[rot_slice] += -self.lambda_cam_rot * xi_mount_cam[:3]
-
-            if self.lambda_cam_pos > 0.0:
-                H[pos_slice, pos_slice] += self.lambda_cam_pos * np.eye(3)
-                g[pos_slice] += -self.lambda_cam_pos * xi_mount_cam[3:]
-
-
-
-        # Step 1 calibrated joints (J3, J5, J6) Hard Lock:
-        locked_indices = []
-        if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
-            jo = self.joint_offsets_to_apply
-            if len(self.active_arms) == 1:
-                side = self.active_arms[0]
-                anchors = [
-                    (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
-                    (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
-                    (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
-                ]
-            else:
-                anchors = [
-                    (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
-                    (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
-                    (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
-                    (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
-                    (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
-                    (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
-                ]
-            for idx, _ in anchors:
-                if idx < len(q_arm_offset):
-                    locked_indices.append(idx)
-
-        # Null-space regularization to prevent parallel joint drift along flat unobservable valleys
-        # (J0 vs Head Tilt pitch coupling, J2 vs J4 roll coupling)
-        if self.optimize_arm:
-            if len(self.active_arms) == 1:
-                null_damped = [(0, 50.0), (2, 200.0), (4, 200.0)]
-            else:
-                null_damped = [
-                    (0, 50.0), (2, 200.0), (4, 200.0),    # Right arm J0, J2, J4
-                    (7, 50.0), (9, 200.0), (11, 200.0),   # Left arm J0, J2, J4
-                ]
-            for idx, damp_w in null_damped:
-                if idx < len(q_arm_offset) and idx not in locked_indices:
-                    H[idx, idx] += damp_w
-                    g[idx] += -damp_w * q_arm_offset[idx]
-
-        if len(locked_indices) > 0:
-            free_indices = [i for i in range(dim) if i not in locked_indices]
-            H_sub = H[np.ix_(free_indices, free_indices)]
-            g_sub = g[free_indices]
-            dx_sub = np.linalg.solve(H_sub + 1e-4 * np.eye(len(free_indices)), g_sub)
-            dx = np.zeros(dim)
-            for i_sub, i_full in enumerate(free_indices):
-                dx[i_full] = dx_sub[i_sub]
-        else:
-            dx = np.linalg.solve(H + 1e-4 * np.eye(dim), g)
-
-        return dx, total_err
-
-    def apply_update(self, q_arm_offset, q_head_offset, xi_mount_cam, dx):
-        dq_arm, dq_head, dxi = self.unpack_params(dx)
-        if self.optimize_arm:
-            q_arm_offset += dq_arm
-            if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
-                jo = self.joint_offsets_to_apply
-                if len(self.active_arms) == 1:
-                    side = self.active_arms[0]
-                    anchors = [
-                        (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
-                        (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
-                        (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
-                    ]
-                else:
-                    anchors = [
-                        (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
-                        (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
-                        (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
-                        (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
-                        (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
-                        (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
-                    ]
-                for idx, target_val in anchors:
-                    if idx < len(q_arm_offset):
-                        q_arm_offset[idx] = target_val
-        if self.optimize_head and q_head_offset is not None:
-            q_head_offset += dq_head
-        if self.optimize_camera:
-            xi_mount_cam += dxi
-        return q_arm_offset, q_head_offset, xi_mount_cam
-
-    def get_calibrated_head_base_to_cam(self, xi_cam):
-        T_cam_calib = self.get_nominal_cam_transform() @ se3_exp(xi_cam)
-        if self.use_head_kinematics:
-            q_zero_head = self.q_nominal.copy()
-            if self.head_idx is not None:
-                for idx in list(self.head_idx):
-                    q_zero_head[idx] = 0.0
-            _, T_head_base_to_mount = compute_fk(
-                robot=self.robot,
-                dyn_model=self.dyn_model,
-                q_full=q_zero_head,
-                ee_link=self.camera_link,
-                base_link="link_head_0",
-            )
-            T_calib = T_head_base_to_mount @ T_cam_calib
-        else:
-            T_calib = T_cam_calib
-
-        p = T_calib[:3, 3]
-        rpy = rot_to_euler_zyx(T_calib[:3, :3])
-
-        return [
-            p[0], p[1], p[2],
-            np.rad2deg(rpy[0]),
-            np.rad2deg(rpy[1]),
-            np.rad2deg(rpy[2]),
-        ]
-        
-    def get_calibrated_mount_to_cam(self, xi_cam):
-        if not self.use_head_kinematics:
-            return None
-
-        T_calib = self.get_nominal_cam_transform() @ se3_exp(xi_cam)
-        p = T_calib[:3, 3]
-        rpy = rot_to_euler_zyx(T_calib[:3, :3])
-
-        return [
-            p[0], p[1], p[2],
-            np.rad2deg(rpy[0]),
-            np.rad2deg(rpy[1]),
-            np.rad2deg(rpy[2]),
-        ]
-
-    def optimize(self, q_arm_list, q_head_list, T_meas_list, q_arm_offset_init=None, q_head_offset_init=None, xi_cam_init=None):
-        if self.use_head_kinematics and q_head_list is None:
-            self.use_head_kinematics = False
-            self.optimize_head = False
-            self.base_link = "link_head_0"
-            self.T_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
-
-        q_arm_offset = q_arm_offset_init.copy() if q_arm_offset_init is not None else np.zeros(len(self.arm_idx))
-        if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
-            jo = self.joint_offsets_to_apply
-            if len(self.active_arms) == 1:
-                side = self.active_arms[0]
-                anchors = [
-                    (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
-                    (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
-                    (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
-                ]
-            else:
-                anchors = [
-                    (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
-                    (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
-                    (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
-                    (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
-                    (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
-                    (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
-                ]
-            for idx, target_val in anchors:
-                if idx < len(q_arm_offset):
-                    q_arm_offset[idx] = target_val
-        if not self.use_head_kinematics:
-            q_head_offset = None
-        elif self.optimize_head:
-            q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else np.zeros(len(self.head_idx))
-        else:
-            q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
-            
-        xi_cam = xi_cam_init.copy() if xi_cam_init is not None else np.zeros(6)
-
-        for it in range(self.max_iter):
-            dx, total_err = self.compute_step(
-                q_arm_list,
-                q_head_list,
-                T_meas_list,
-                q_arm_offset,
-                q_head_offset,
-                xi_cam,
-            )
-            q_arm_offset, q_head_offset, xi_cam = self.apply_update(
-                q_arm_offset,
-                q_head_offset,
-                xi_cam,
-                dx,
-            )
-
-            print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
-
-            if np.linalg.norm(dx) < self.eps:
-                print("Converged.")
-                break
-
-        mount_to_cam_new = self.get_calibrated_mount_to_cam(xi_cam)
-        head_base_to_cam_new = self.get_calibrated_head_base_to_cam(xi_cam)
-        return q_arm_offset, q_head_offset, xi_cam, mount_to_cam_new, head_base_to_cam_new
+    def optimize(self, q_arm_list, q_head_list, T_meas_list,
+                 q_arm_offset_init=None, q_head_offset_init=None, xi_cam_init=None):
+        return super().optimize(q_arm_list, q_head_list, T_meas_list,
+                                q_arm_offset_init, q_head_offset_init, xi_cam_init)

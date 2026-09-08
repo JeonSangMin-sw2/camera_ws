@@ -25,7 +25,8 @@ if getattr(sys, 'frozen', False):
     BASE_DIR = Path(sys.executable).resolve().parent
 else:
     BASE_DIR = Path(__file__).resolve().parent.parent
-SETTING_PATH = BASE_DIR / "config" / "setting.yaml"
+from core.paths import CONFIG_PATHS
+SETTING_PATH = Path(CONFIG_PATHS["setting_yaml"])
 DEFAULT_LAMBDA_CAM_POS = 1.0
 DEFAULT_LAMBDA_CAM_ROT = 1.0
 
@@ -80,17 +81,25 @@ def create_robot(ip, model_name="a", power_regex="48v", servo_regex="^(?!.*wheel
         time.sleep(0.5)
     return robot
 
-def load_npz_dataset(path):
-    data = np.load(path)
-    q_arm = data["q_arm"] if "q_arm" in data else data["q"]
-    q_head = data["q_head"] if "q_head" in data else None
-    return q_arm, q_head, data["marker"]
+def load_npz_dataset(path, return_metadata=False):
+    import json
+    with np.load(path, allow_pickle=False) as data:
+        q_arm = data["q_arm"] if "q_arm" in data else data["q"]
+        q_head = data["q_head"] if "q_head" in data else None
+        result = (q_arm, q_head, data["marker"])
+        metadata = json.loads(str(data['metadata_json'])) if 'metadata_json' in data else {
+            'schema_version': 0, 'source': 'legacy_unknown', 'truth': None}
+    return (*result, metadata) if return_metadata else result
 
-def save_npz_dataset(path, q_arm, T_meas, q_head=None):
+def save_npz_dataset(path, q_arm, T_meas, q_head=None, metadata=None):
+    import json
+    from datetime import datetime, timezone
     save_kwargs = {
         "q": q_arm,
         "q_arm": q_arm,
         "marker": T_meas,
+        "metadata_json": json.dumps({**(metadata or {'source': 'unspecified'}),
+                                    'saved_at_utc': datetime.now(timezone.utc).isoformat()}, allow_nan=False),
     }
     if q_head is not None:
         save_kwargs["q_head"] = q_head
@@ -98,6 +107,10 @@ def save_npz_dataset(path, q_arm, T_meas, q_head=None):
 
 
 def validate_dataset(q_arm, q_head, T_meas, optimize_head, active_arms):
+    if len(q_arm) == 0 or not np.all(np.isfinite(q_arm)) or not np.all(np.isfinite(T_meas)):
+        raise ValueError('Dataset must contain finite samples')
+    if q_head is not None and (np.asarray(q_head).shape != (len(q_arm), 2) or not np.all(np.isfinite(q_head))):
+        raise ValueError('Head encoders must be a finite (N, 2) array')
     if len(q_arm) != len(T_meas):
         raise RuntimeError(
             f"Dataset size mismatch: q_arm={len(q_arm)}, marker={len(T_meas)}"
@@ -295,84 +308,28 @@ def generate_sim_measurements(
     head_base_to_cam_nom,
     ee_to_marker_nom,
     camera_link="link_head_2",
-    camera_position_noise_std_m=0.0005,
-    camera_orientation_noise_std_deg=0.5,
+    camera_position_noise_std_m=None,
+    camera_orientation_noise_std_deg=None,
+    simulation_model=None,
+    version="1.2",
+    seed=None,
 ):
-    q_offset_true = np.deg2rad([3, 0, 1, 2, -3, 2, 1, -2, -1, 3, 2, -4, 2, -2])
-    if len(active_arms) == 1:
-        q_offset_true = q_offset_true[:7]
-        
-    q_head_offset_true = np.deg2rad([2.0, -1.5])
-    xi_t5_cam_true = np.array([0.01, -0.02, 0.03, 0.04, 0.05, -0.06])
-
-    optimize_head = optimize_head and q_head_list is not None and head_idx is not None
-    use_head_kinematics = optimize_head
-
-
-    if use_head_kinematics:
-        base_link = camera_link
-        # In head mode, the camera extrinsic is a static transform from the
-        # head mount link to the camera, so it must not depend on the current q.
-        T_mount_to_cam_nom = make_transform(mount_to_cam_nom)
-        T_mount_to_cam_true = (
-            T_mount_to_cam_nom @ se3_exp(xi_t5_cam_true)
-            if optimize_camera else T_mount_to_cam_nom
-        )
-    else:
-        base_link = "link_head_0"
-        T_mount_to_cam_nom = make_transform(head_base_to_cam_nom)
-        T_mount_to_cam_true = (
-            T_mount_to_cam_nom @ se3_exp(xi_t5_cam_true)
-            if optimize_camera else T_mount_to_cam_nom
-        )
-    T_list = []
-
-    if q_head_list is None:
-        q_head_iter = [None] * len(q_arm_list)
-    else:
-        q_head_iter = q_head_list
-
-    for q_arm, q_head in zip(q_arm_list, q_head_iter):
-        q_full = prepare_q_full(
-            q_nominal=q_nominal,
-            arm_idx=arm_idx,
-            q_cmd=q_arm,
-            q_offset=q_offset_true if optimize_arm else None,
-            head_idx=head_idx if use_head_kinematics else None,
-            q_head=q_head,
-            q_head_offset=q_head_offset_true if optimize_head else None,
-        )
-
-        T_pair = []
-        for arm_side in active_arms:
-            _, T_fk = compute_fk(robot, dyn_model, q_full, ee_links[arm_side], base_link=base_link)
-            T_ee_to_marker = make_transform(ee_to_marker_nom[arm_side])
-            T_meas = np.linalg.inv(T_mount_to_cam_true) @ T_fk @ T_ee_to_marker
-
-            if camera_orientation_noise_std_deg > 0.0:
-                rot_noise_rad = np.deg2rad(np.random.normal(
-                    0.0,
-                    camera_orientation_noise_std_deg,
-                    size=3,
-                ))
-                R_noise = se3_exp(np.concatenate([rot_noise_rad, np.zeros(3)]))[:3, :3]
-                T_meas[:3, :3] = R_noise @ T_meas[:3, :3]
-
-            if camera_position_noise_std_m > 0.0:
-                T_meas[:3, 3] += np.random.normal(
-                    0.0,
-                    camera_position_noise_std_m,
-                    size=3,
-                )
-
-            T_pair.append(T_meas)
-            
-        if len(active_arms) == 1:
-            T_list.append(T_pair[0])
-        else:
-            T_list.append(np.stack(T_pair, axis=0))
-
-    return np.array(T_list)
-
-
-
+    from core.simulation_model import SimulationModel
+    # Optimizer switches affect estimation, never the physical sensor.
+    simulation = simulation_model or SimulationModel.create(version)
+    cfg = simulation.config
+    if camera_position_noise_std_m is not None:
+        cfg["position_noise_std_m"] = camera_position_noise_std_m
+    if camera_orientation_noise_std_deg is not None:
+        cfg["orientation_noise_std_deg"] = camera_orientation_noise_std_deg
+    simulation = SimulationModel.create(simulation.version, cfg)
+    rng = np.random.default_rng(cfg["seed"] if seed is None else seed)
+    samples = []
+    for i, qa in enumerate(q_arm_list):
+        q = np.array(q_nominal, copy=True)
+        q[arm_idx] = qa
+        if q_head_list is not None and head_idx is not None:
+            q[head_idx] = q_head_list[i]
+        pair = [simulation.marker_pose(robot, q, side, rng) for side in active_arms]
+        samples.append(pair[0] if len(pair) == 1 else np.stack(pair))
+    return np.asarray(samples)

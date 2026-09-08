@@ -725,53 +725,16 @@ class Marker_Transform:
         self.marker_detection.set_baseline(self.camera.baseline)
         
 
-        # [NEW] Apply calibrated camera intrinsics setting (camera_intrinsics.yaml)
-        if use_calib_int:
-            from core.paths import CONFIG_PATHS
-            calib_file = CONFIG_PATHS.get("camera_intrinsics")
-            if not calib_file or not os.path.exists(calib_file):
-                base_dir = os.path.dirname(os.path.abspath(__file__))
-                calib_file = os.path.join(base_dir, "config", "camera_intrinsics.yaml")
-                if not os.path.exists(calib_file):
-                    calib_file = os.path.join(os.path.dirname(base_dir), "config", "camera_intrinsics.yaml")
-            if os.path.exists(calib_file):
-                try:
-                    with open(calib_file, "r") as f:
-                        calib_data = yaml.safe_load(f)
-                    
-                    mtx = np.array(calib_data["camera_matrix"])
-                    dist = np.array(calib_data["dist_coeffs"])
-                    
-                    calib_w = calib_data.get("width")
-                    calib_h = calib_data.get("height")
-                    
-                    # Proportionally adjust scale if resolution differs
-                    if calib_w and calib_h and (calib_w != self.width or calib_h != self.height):
-                        scale_x = self.width / calib_w
-                        scale_y = self.height / calib_h
-                        
-                        if abs(scale_x - scale_y) > 0.03:
-                            print(f"\n[WARNING] Aspect ratio mismatch! Calibration: {calib_w}x{calib_h}, Current: {self.width}x{self.height}")
-                        
-                        mtx[0,0] *= scale_x # fx
-                        mtx[1,1] *= scale_y # fy
-                        mtx[0,2] *= scale_x # ppx
-                        mtx[1,2] *= scale_y # ppy
-                        print(f"\n[INFO] Scaled intrinsics from {calib_w}x{calib_h} to {self.width}x{self.height} (Scale X:{scale_x:.2f}, Y:{scale_y:.2f})")
-
-                    # Inject calibrated parameters to Marker_Detection
-                    # New interface [ppx, ppy, fx, fy]
-                    new_intrinsics = [mtx[0,2], mtx[1,2], mtx[0,0], mtx[1,1]]
-                    self.marker_detection.set_intrinsics_param(new_intrinsics)
-                    self.marker_detection.set_dist_coeffs(dist)
-                    
-                    print(f"[INFO] --- Loaded Calibrated Intrinsics from {calib_file} ---")
-                    print(f"       fx: {mtx[0,0]:.2f}, fy: {mtx[1,1]:.2f}, ppx: {mtx[0,2]:.2f}, ppy: {mtx[1,2]:.2f}")
-                    print(f"       dist: {dist}")
-                except Exception as e:
-                    print(f"\n[ERROR] Failed to load {calib_file}: {e}")
-            else:
-                print(f"\n[WARNING] Calibrated Intrinsics file {calib_file} NOT FOUND. Using factory defaults.")
+        from core.camera_intrinsics import select_intrinsics
+        from core.paths import CONFIG_PATHS
+        selected, selected_dist, self.intrinsics_metadata = select_intrinsics(
+            self.camera_config.get("intrinsics_source", "factory"),
+            intrinsics, dist_coeffs, self.width, self.height,
+            CONFIG_PATHS["camera_intrinsics"])
+        self.marker_detection.set_intrinsics_param(selected)
+        self.marker_detection.set_dist_coeffs(selected_dist)
+        self.intrinsics_metadata["capture_temperature_c"] = self.camera.get_camera_temperature()
+        print(f"[INTRINSICS] {self.intrinsics_metadata}")
         
         # Always default to Auto Exposure on initialization
         self.camera.set_exposure(6000.0, auto_exposure=True)
@@ -780,6 +743,21 @@ class Marker_Transform:
 
     def set_camera_exposure(self, exposure_val, auto_exposure=False):
         return self.camera.set_exposure(exposure_val, auto_exposure)
+
+    def apply_intrinsics_source(self, source, persist=None):
+        from core.camera_intrinsics import select_intrinsics
+        from core.paths import CONFIG_PATHS
+        values, distortion, metadata = select_intrinsics(
+            source, self.camera.get_principal_point_and_focal_length(),
+            self.camera.get_dist_coeffs(),
+            self.width, self.height, CONFIG_PATHS['camera_intrinsics'])
+        # Validate/select first, persist next, publish after persistence succeeds.
+        if persist is not None:
+            persist()
+        self.marker_detection.set_intrinsics_param(values)
+        self.marker_detection.set_dist_coeffs(distortion)
+        self.intrinsics_metadata = metadata
+        self.camera_config['intrinsics_source'] = source
 
     def get_camera_exposure(self):
         return self.camera.get_exposure()
@@ -858,30 +836,10 @@ class Marker_Transform:
                 dev_diff = (self.camera_model is not None and current_dev != self.camera_model)
                 pos_diff = is_diff(current_head_base, info_head_base) or is_diff(current_mount, info_mount) or (current_mount_link != info_mount_link)
 
-                if dev_diff or pos_diff:
-                    if dev_diff:
-                        print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Updating...")
-                    if pos_diff:
-                        print(f"[INFO] Camera extrinsics for '{matched_info_key}' in camera_info.yaml differ from setting.yaml. Syncing values...")
-
-                    camera_config["device_name"] = self.camera_model or matched_info_key
-                    if info_head_base is not None:
-                        camera_config["head_base_to_cam"] = info_head_base
-                    if info_mount is not None:
-                        camera_config["mount_to_cam"] = info_mount
-                    if info_mount_link is not None:
-                        camera_config["camera_mount_link"] = info_mount_link
-                    config_data["camera"] = camera_config
-
-                    class PrettyDumper(yaml.SafeDumper):
-                        pass
-                    PrettyDumper.add_representer(
-                        list,
-                        lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
-                    )
-                    with open(setting_config_path, "w") as wf:
-                        yaml.dump(config_data, wf, Dumper=PrettyDumper, default_flow_style=False, sort_keys=False)
-                    print(f"[INFO] Updated setting.yaml extrinsics for {matched_info_key} from camera_info.yaml (head_base_to_cam: {camera_config.get('head_base_to_cam')}, mount_to_cam: {camera_config.get('mount_to_cam')})")
+                if dev_diff:
+                    raise ValueError("Connected camera model differs from setting.yaml. Select its calibration explicitly.")
+                if pos_diff:
+                    print("[INFO] Preserving calibrated extrinsics; camera_info.yaml is a nominal template, not an override.")
             else:
                 if not os.path.exists(info_file):
                     print(f"[WARNING] camera_info.yaml not found at {info_file}")
@@ -919,9 +877,7 @@ class Marker_Transform:
                 except Exception as e:
                     print(f"[WARNING] Failed to parse camera_intrinsics.yaml: {e}")
         except Exception as e:
-            print(f"- Warning: Could not load {setting_config_path}: {e}")
-            self.camera_config = {}
-            self.markers_config = {}
+            raise RuntimeError(f'Camera configuration could not be loaded safely: {setting_config_path}: {e}') from e
     def set_marker_type(self, marker_type="plate"):
         self.marker_detection.set_marker_type(marker_type)
     def make_transform(self, data):

@@ -1,4 +1,5 @@
 device_name: D405
+calibration_temperature_c: 38.0
 camera_matrix:
 - - 660.3380121560385
   - 0.0

@@ -12,8 +12,8 @@ R2D = 180.0 / np.pi
 class HeadCameraCalibrator(BaseCalibrator):
     """
     Step 1.5 Calibrator:
-    Decouples Head Pan/Tilt joints and Camera Extrinsics (mount_to_cam) from the arm/shoulder joints.
-    Uses stationary arm markers and sweeps only the head pan and tilt joints.
+    Fits effective camera extrinsics from stationary markers and head encoders.
+    Pan zero is unobservable here; terminal tilt/camera needs a gauge reference.
     """
     def __init__(self, marker_st=None, robot=None):
         super().__init__(marker_st, robot)
@@ -49,7 +49,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             if log_callback: log_callback("[MOCK] Moved to Ready Pose successfully.")
             return True
 
-        has_head = getattr(self, "include_head_motion", True)
+        has_head = self.is_head_active() and self.uses_head_camera()
         if hasattr(self, "robot") and hasattr(self.robot, "model"):
             try:
                 m = self.robot.model()
@@ -151,7 +151,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             log_callback(f"  Tilt Sweep Range  : ±{tilt_range_deg:.1f}° ({num_steps} steps)")
             log_callback("=" * 60)
 
-        has_head = getattr(self, "include_head_motion", True)
+        has_head = self.is_head_active() and self.uses_head_camera() if hasattr(self.robot, 'model') else False
         head_idx = [0, 1]
         if hasattr(self, "robot") and hasattr(self.robot, "model"):
             try:
@@ -167,7 +167,7 @@ class HeadCameraCalibrator(BaseCalibrator):
 
         if not has_head:
             if log_callback:
-                log_callback("[INFO] Headless mode: Robot has no head joints. Skipping Head-Camera extrinsic calibration.")
+                log_callback("[INFO] Head sweep disabled or head-mounted camera unavailable. Skipping Head-Camera extrinsic calibration.")
             res = {
                 "success": True,
                 "skipped": True,
@@ -232,6 +232,14 @@ class HeadCameraCalibrator(BaseCalibrator):
         tilt_angles_deg = np.linspace(-tilt_range_deg, tilt_range_deg, num_steps)
         pts_tilt_cam = []
         captured_tilt_angles = []
+        captured_tilt_head_deg = []
+
+        def read_head_angles():
+            state = self.robot.get_state()
+            angles = np.rad2deg(np.asarray(state.position)[head_idx])
+            if angles.shape != (2,) or not np.all(np.isfinite(angles)):
+                raise RuntimeError('Invalid head encoder feedback; commanded angles are not measurements')
+            return angles
 
         for idx, t_deg in enumerate(tilt_angles_deg):
             if stop_event and stop_event.is_set():
@@ -241,8 +249,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             t_rad = t_deg * D2R
             ok = self.movej(self.robot, head=[0.0, t_rad], minimum_time=1.5, apply_offsets=False)
             if not ok:
-                if log_callback: log_callback(f"  [WARN] Head move to Tilt={t_deg:.1f}° failed. Retrying...")
-                time.sleep(0.5)
+                raise RuntimeError(f'Head tilt motion failed at {t_deg:.1f} degrees')
 
             time.sleep(step_delay)
 
@@ -252,16 +259,12 @@ class HeadCameraCalibrator(BaseCalibrator):
                 if log_callback: log_callback(f"  [WARN] Step {idx+1}/{num_steps} (Tilt={t_deg:.1f}°): Marker not visible, skipping.")
                 continue
 
-            actual_t_deg = t_deg
-            if hasattr(self.robot, "get_state"):
-                try:
-                    q_cur = self.robot.get_state().position
-                    actual_t_deg = float(np.degrees(q_cur[head_idx[1]]))
-                except Exception:
-                    pass
+            head_deg = read_head_angles()
+            actual_t_deg = float(head_deg[1])
 
             pts_tilt_cam.append(p_marker)
             captured_tilt_angles.append(actual_t_deg)
+            captured_tilt_head_deg.append(head_deg)
             if log_callback:
                 log_callback(f"  [{idx+1}/{num_steps}] Tilt={actual_t_deg:+5.1f}° -> Marker Cam Pos: [{p_marker[0]*1000:+6.1f}, {p_marker[1]*1000:+6.1f}, {p_marker[2]*1000:+6.1f}] mm")
 
@@ -270,7 +273,8 @@ class HeadCameraCalibrator(BaseCalibrator):
 
         # Return head to zero center before Pan sweep
         if log_callback: log_callback("\n[INFO] Returning head to center before Pan sweep...")
-        self.movej(self.robot, head=[0.0, 0.0], minimum_time=1.5, apply_offsets=False)
+        if not self.movej(self.robot, head=[0.0, 0.0], minimum_time=1.5, apply_offsets=False):
+            raise RuntimeError('Head centering failed before pan sweep')
         time.sleep(1.0)
 
         # ----------------------------------------------------
@@ -280,6 +284,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         pan_angles_deg = np.linspace(-pan_range_deg, pan_range_deg, num_steps)
         pts_pan_cam = []
         captured_pan_angles = []
+        captured_pan_head_deg = []
 
         for idx, p_deg in enumerate(pan_angles_deg):
             if stop_event and stop_event.is_set():
@@ -289,8 +294,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             p_rad = p_deg * D2R
             ok = self.movej(self.robot, head=[p_rad, 0.0], minimum_time=1.5, apply_offsets=False)
             if not ok:
-                if log_callback: log_callback(f"  [WARN] Head move to Pan={p_deg:.1f}° failed. Retrying...")
-                time.sleep(0.5)
+                raise RuntimeError(f'Head pan motion failed at {p_deg:.1f} degrees')
 
             time.sleep(step_delay)
 
@@ -299,16 +303,12 @@ class HeadCameraCalibrator(BaseCalibrator):
                 if log_callback: log_callback(f"  [WARN] Step {idx+1}/{num_steps} (Pan={p_deg:.1f}°): Marker not visible, skipping.")
                 continue
 
-            actual_p_deg = p_deg
-            if hasattr(self.robot, "get_state"):
-                try:
-                    q_cur = self.robot.get_state().position
-                    actual_p_deg = float(np.degrees(q_cur[head_idx[0]]))
-                except Exception:
-                    pass
+            head_deg = read_head_angles()
+            actual_p_deg = float(head_deg[0])
 
             pts_pan_cam.append(p_marker)
             captured_pan_angles.append(actual_p_deg)
+            captured_pan_head_deg.append(head_deg)
             if log_callback:
                 log_callback(f"  [{idx+1}/{num_steps}] Pan={actual_p_deg:+5.1f}°  -> Marker Cam Pos: [{p_marker[0]*1000:+6.1f}, {p_marker[1]*1000:+6.1f}, {p_marker[2]*1000:+6.1f}] mm")
 
@@ -316,7 +316,8 @@ class HeadCameraCalibrator(BaseCalibrator):
             raise RuntimeError(f"Insufficient marker points collected during Pan sweep ({len(pts_pan_cam)} points). Calibration cannot proceed.")
 
         # Return head to zero center
-        self.movej(self.robot, head=[0.0, 0.0], minimum_time=2.0, apply_offsets=False)
+        if not self.movej(self.robot, head=[0.0, 0.0], minimum_time=2.0, apply_offsets=False):
+            raise RuntimeError('Head centering failed after pan sweep')
 
         # ----------------------------------------------------
         # Phase C: Mathematical Solution for Decoupled Head-Camera Calib
@@ -324,7 +325,8 @@ class HeadCameraCalibrator(BaseCalibrator):
         return self._compute_head_camera_solution(
             pts_tilt_cam, pts_pan_cam, captured_tilt_angles, captured_pan_angles,
             nominal_mount_to_cam, R_nom, obs_r_0=obs_r_0, obs_l_0=obs_l_0,
-            active_side=active_side, P_marker_t5_nom=P_marker_t5_nom, log_callback=log_callback
+            active_side=active_side, P_marker_t5_nom=P_marker_t5_nom, log_callback=log_callback,
+            tilt_head_deg=captured_tilt_head_deg, pan_head_deg=captured_pan_head_deg
         )
 
     def _compute_head_camera_solution(
@@ -339,258 +341,136 @@ class HeadCameraCalibrator(BaseCalibrator):
         obs_l_0=None,
         active_side="right",
         P_marker_t5_nom=None,
-        log_callback=None
+        log_callback=None,
+        tilt_head_deg=None,
+        pan_head_deg=None
     ):
-        pts_tilt_cam = np.array(pts_tilt_cam)
-        pts_pan_cam = np.array(pts_pan_cam)
-
-        n_tilt_cam, c_tilt = self.fit_plane_normal_svd(pts_tilt_cam)
-        n_pan_cam, c_pan = self.fit_plane_normal_svd(pts_pan_cam)
-
-        # Calculate plane fit RMSE
-        d_tilt = np.abs(np.dot(pts_tilt_cam - c_tilt, n_tilt_cam))
-        rmse_tilt_plane = np.sqrt(np.mean(d_tilt**2)) * 1000.0 # mm
-
-        d_pan = np.abs(np.dot(pts_pan_cam - c_pan, n_pan_cam))
-        rmse_pan_plane = np.sqrt(np.mean(d_pan**2)) * 1000.0 # mm
-
-        # Sign consistency: Nominal Tilt axis in camera coords is [-1, 0, 0], Pan is [0, -1, 0]
-        if n_tilt_cam[0] > 0: n_tilt_cam = -n_tilt_cam
-        if n_pan_cam[1] > 0: n_pan_cam = -n_pan_cam
-
-        # Orthogonality diagnostic
-        dot_ortho = np.dot(n_tilt_cam, n_pan_cam)
-        ortho_err_deg = abs(np.arcsin(np.clip(dot_ortho, -1.0, 1.0))) * R2D
-
-        nom_roll = float(nominal_mount_to_cam[3])
-        nom_pitch = float(nominal_mount_to_cam[4])
-        nom_yaw = float(nominal_mount_to_cam[5])
-
-        # ----------------------------------------------------
-        # ----------------------------------------------------
-        # Phase C: Mathematical Solution for Head-Camera Calibration
-        # ----------------------------------------------------
-        # Align measured sweep plane normals with nominal head axes via symmetric SVD Procrustes projection
-        # In mount frame (link_head_2):
-        # 1. Tilt axis is [0, 1, 0] (y). In camera optical frame: v_c_y = n_tilt_cam / ||n_tilt_cam||
-        # 2. Pan axis is [0, 0, 1] in link_head_1, but link_head_2 is rotated around y by delta_tilt.
-        #    Therefore, in link_head_2, the Pan axis is: [sin(delta_tilt), 0, cos(delta_tilt)].
-        #    Using the nominal CAD rotation R_nom, we project n_pan_cam into mount frame:
-        #    v_pan_in_mount = R_nom @ v_c_z
-        #    delta_tilt_est = arcsin(clip(v_pan_in_mount[0], -1.0, 1.0))
-        # 3. Un-tilt n_pan_cam around the true tilt axis v_c_y by -delta_tilt_est to obtain the pure Z-axis of link_head_2:
-        #    v_c_z_untilted = v_c_z * cos(-delta_tilt) + (v_c_y x v_c_z) * sin(-delta_tilt)
-        v_c_y = n_tilt_cam / np.linalg.norm(n_tilt_cam)
-        v_c_z = n_pan_cam / np.linalg.norm(n_pan_cam)
-
-        v_pan_mount_proj = R_nom @ v_c_z
-        delta_tilt_est_rad = np.arcsin(np.clip(v_pan_mount_proj[0], -1.0, 1.0))
-        head_tilt_offset_deg = float(np.degrees(delta_tilt_est_rad))
-
-        # Rotate v_c_z back around the true tilt axis (v_c_y) by -delta_tilt_est_rad
-        # using Rodrigues rotation formula to obtain the pure Z-axis of link_head_2:
-        theta = -delta_tilt_est_rad
-        v_c_z_untilted = v_c_z * np.cos(theta) + np.cross(v_c_y, v_c_z) * np.sin(theta)
-        v_c_z_untilted /= np.linalg.norm(v_c_z_untilted)
-
-        v_c_x = np.cross(v_c_y, v_c_z_untilted)
-        v_c_x = v_c_x / np.linalg.norm(v_c_x)
-
-        # SVD Procrustes projection with untilted Pan normal:
-        A = np.column_stack([v_c_x, v_c_y, v_c_z_untilted])
-        U, _, Vt = np.linalg.svd(A)
-        R_cam_T = U @ np.diag([1.0, 1.0, np.linalg.det(U @ Vt)]) @ Vt
-        R_cam_est = R_cam_T.T
-
-        from core.calibration_optimizer import rot_to_euler_zyx
-        rpy_est_deg = rot_to_euler_zyx(R_cam_est) * R2D
-        est_roll_deg = float(rpy_est_deg[0])
-        est_pitch_deg = float(rpy_est_deg[1])
-        est_yaw_deg = float(rpy_est_deg[2])
-
-        diff_roll = est_roll_deg - nom_roll
-        diff_pitch = est_pitch_deg - nom_pitch
-        diff_yaw = est_yaw_deg - nom_yaw
-
-        # Head Pan zero offset is refined in Step 2 through 64 multi-channel 3D poses without soft anchoring
-        head_pan_offset_deg = 0.0
-        decoupled_success = True
-        rmse_3d_marker_mm = float(np.sqrt(rmse_tilt_plane**2 + rmse_pan_plane**2))
-
-        calibrated_mount_to_cam = [
-            nominal_mount_to_cam[0], nominal_mount_to_cam[1], nominal_mount_to_cam[2],
-            round(est_roll_deg, 4), round(est_pitch_deg, 4), round(est_yaw_deg, 4)
-        ]
-
+        # Fit encoder-indexed trajectories, not noisy small-arc plane normals.
+        # A stationary, unknown marker gives no independent pan-zero reference.
+        # Terminal tilt vs camera mounting is an exact gauge as well.
+        from scipy.optimize import least_squares
+        from core.calibration_optimizer import se3_exp, rot_to_euler_zyx
+        if self.robot is None or not hasattr(self.robot, "get_dynamics"):
+            raise RuntimeError("Head sweep fitting requires connected robot kinematics; canned mock results are disabled.")
+        tilt_pts, pan_pts = np.asarray(pts_tilt_cam), np.asarray(pts_pan_cam)
+        ta, pa = np.asarray(captured_tilt_angles), np.asarray(captured_pan_angles)
+        if len(tilt_pts) < 5 or len(pan_pts) < 5 or np.ptp(ta) < 10 or np.ptp(pa) < 10:
+            raise ValueError("Insufficient encoder sweep coverage (at least 5 points and 10 degrees per axis).")
+        points = np.vstack((tilt_pts, pan_pts))
+        if points.shape != (len(ta) + len(pa), 3) or not np.all(np.isfinite(points)):
+            raise ValueError("Invalid head sweep measurements.")
+        commands = np.vstack((np.column_stack((np.zeros_like(ta), ta)),
+                              np.column_stack((pa, np.zeros_like(pa)))))
+        if tilt_head_deg is not None or pan_head_deg is not None:
+            tilt_head, pan_head = np.asarray(tilt_head_deg), np.asarray(pan_head_deg)
+            if tilt_head.shape != (len(ta), 2) or pan_head.shape != (len(pa), 2):
+                raise ValueError('Both head encoders are required for every head sweep sample')
+            commands = np.vstack((tilt_head, pan_head))
+            if not np.all(np.isfinite(commands)):
+                raise ValueError('Invalid head encoder angles')
+        model, dynamics = self.robot.model(), self.robot.get_dynamics()
+        q0 = np.asarray(self.robot.get_state().position).copy()
+        reference = self.camera_config.get("head_tilt_reference_deg")
+        tilt_reference = 0.0 if reference is None else float(reference)
+        transforms = []
+        for angles in commands:
+            q = q0.copy()
+            q[model.head_idx] = np.deg2rad(angles + [0.0, tilt_reference])
+            transforms.append(BaseCalibrator.compute_fk(self.robot, dynamics, q, "link_head_2", "link_head_0"))
+        transforms = np.asarray(transforms)
+        nominal = BaseCalibrator.make_transform(nominal_mount_to_cam)
+        initial_points = [H[:3, :3] @ (nominal[:3, :3] @ p + nominal[:3, 3]) + H[:3, 3]
+                          for H, p in zip(transforms, points)]
+        x0 = np.r_[np.zeros(6), np.median(initial_points, axis=0)]
+        def residual(x):
+            camera = nominal @ se3_exp(x[:6])
+            world = np.einsum('nij,nj->ni', transforms[:, :3, :3],
+                              points @ camera[:3, :3].T + camera[:3, 3]) + transforms[:, :3, 3]
+            return (world - x[6:]).ravel()
+        bounds = np.r_[np.full(3, np.deg2rad(3.0)), np.full(3, 0.010), np.full(3, np.inf)]
+        fit = least_squares(residual, x0, bounds=(-bounds, bounds), jac="3-point",
+                            x_scale="jac", ftol=1e-12, xtol=1e-12, gtol=1e-12, max_nfev=300)
+        errors = residual(fit.x).reshape(-1, 3)
+        rmse_mm = float(np.sqrt(np.mean(np.sum(errors**2, axis=1))) * 1000)
+        singular = np.linalg.svd(fit.jac, compute_uv=False)
+        rank = int(np.sum(singular > singular[0] * 1e-7))
+        at_bounds = bool(np.any(np.abs(fit.x[:6]) > 0.995 * bounds[:6]))
+        success = bool(fit.success and rank == 9 and rmse_mm <= 1.0 and not at_bounds)
+        camera = nominal @ se3_exp(fit.x[:6])
+        rpy = np.rad2deg(rot_to_euler_zyx(camera[:3, :3]))
         results = {
-            "success": True,
-            "nominal_mount_to_cam": nominal_mount_to_cam,
-            "calibrated_mount_to_cam": calibrated_mount_to_cam,
-            "cam_rot_diff_deg": {
-                "roll": round(diff_roll, 4),
-                "pitch": round(diff_pitch, 4),
-                "yaw": round(diff_yaw, 4),
-            },
-            "head_offsets_deg": {
-                "pan": round(head_pan_offset_deg, 4),
-                "tilt": round(head_tilt_offset_deg, 4),
-            },
-            "quality": {
-                "rmse_tilt_plane_mm": round(rmse_tilt_plane, 3),
-                "rmse_pan_plane_mm": round(rmse_pan_plane, 3),
-                "rmse_3d_marker_mm": round(rmse_3d_marker_mm, 3) if rmse_3d_marker_mm is not None else None,
-                "ortho_error_deg": round(ortho_err_deg, 4),
-                "decoupled": decoupled_success,
-            },
-            "pts_tilt_count": len(pts_tilt_cam),
-            "pts_pan_count": len(pts_pan_cam)
-        }
-
+            "success": success,
+            "nominal_mount_to_cam": list(nominal_mount_to_cam),
+            "calibrated_mount_to_cam": [*camera[:3, 3].tolist(), *rpy.tolist()],
+            "head_offsets_deg": {"pan": 0.0, "tilt": tilt_reference},
+            "head_offset_convention": "physical_error_q_plus_delta",
+            "head_tilt_mode": "independent_reference" if reference is not None else "effective_zero_gauge",
+            "camera_independently_calibrated": False,
+            "cam_rot_diff_deg": dict(zip(("roll", "pitch", "yaw"), (rpy - np.asarray(nominal_mount_to_cam[3:])).tolist())),
+            "quality": {"rmse_3d_marker_mm": rmse_mm, "data_rank": rank,
+                        "free_parameters": 9, "condition_number": float(singular[0] / max(singular[-1], 1e-16)),
+                        "at_bounds": at_bounds, "decoupled": False,
+                        "reason": "Stationary-marker fit; pan zero and terminal tilt require independent references."},
+            "pts_tilt_count": len(tilt_pts), "pts_pan_count": len(pan_pts)}
         self.calibrated_results = results
-
         if log_callback:
-            log_callback("\n" + "=" * 60)
-            log_callback(" [Step 1.5 Calibration Results]")
-            log_callback("=" * 60)
-            log_callback(f" Camera Mount Extrinsics (Euler ZYX):")
-            log_callback(f"   Roll  : Nom {nom_roll:+7.2f}° -> Calib {est_roll_deg:+7.2f}° (Δ {diff_roll:+6.3f}°)")
-            log_callback(f"   Pitch : Nom {nom_pitch:+7.2f}° -> Calib {est_pitch_deg:+7.2f}° (Δ {diff_pitch:+6.3f}°)")
-            log_callback(f"   Yaw   : Nom {nom_yaw:+7.2f}° -> Calib {est_yaw_deg:+7.2f}° (Δ {diff_yaw:+6.3f}°)")
-            log_callback(f" Head Joint Offsets:")
-            log_callback(f"   Head Pan  : {head_pan_offset_deg:+6.3f}°")
-            log_callback(f"   Head Tilt : {head_tilt_offset_deg:+6.3f}°")
-            log_callback(f" Fit Quality Diagnostics:")
-            if rmse_3d_marker_mm is not None:
-                log_callback(f"   3D Reprojection RMSE: {rmse_3d_marker_mm:.3f} mm (Decoupled: {decoupled_success})")
-            log_callback(f"   Tilt Plane Fit RMSE : {rmse_tilt_plane:.3f} mm")
-            log_callback(f"   Pan  Plane Fit RMSE : {rmse_pan_plane:.3f} mm")
-            log_callback(f"   Axis Ortho Error    : {ortho_err_deg:.3f}°")
-            log_callback("=" * 60)
-
+            log_callback(f"[Step 1.5] Encoder trajectory fit: RMSE={rmse_mm:.4f} mm, rank={rank}/9, accepted={success}")
+            log_callback("[GAUGE] Camera estimate is an initialization only; it must not be locked as an independent measurement in Step 2.")
         return results
 
-    def _mock_perform_head_sweep(self, arm_side, pan_range_deg, tilt_range_deg, num_steps, nominal_mount_to_cam, R_nom, log_callback):
-        """Simulation fallback when testing without live robot/camera."""
-        time.sleep(0.5)
-        gt_head = self.MOCK_GT_OFFSETS.get("head", {"pan": 0.8, "tilt": -1.5})
-        mock_cam_rpy_error = [1.2, -0.9, 0.0]
-
-        R_cam_actual = R_nom @ R_scipy.from_euler('xyz', mock_cam_rpy_error, degrees=True).as_matrix()
-        rpy_est_rad = R_scipy.from_matrix(R_cam_actual).as_euler('ZYX')
-        rpy_est_deg = rpy_est_rad * R2D
-
-        est_roll = float(rpy_est_deg[2])
-        est_pitch = float(rpy_est_deg[1])
-        est_yaw = float(rpy_est_deg[0])
-
-        nom_roll = float(nominal_mount_to_cam[3])
-        nom_pitch = float(nominal_mount_to_cam[4])
-        nom_yaw = float(nominal_mount_to_cam[5])
-
-        results = {
-            "success": True,
-            "nominal_mount_to_cam": nominal_mount_to_cam,
-            "calibrated_mount_to_cam": [
-                nominal_mount_to_cam[0], nominal_mount_to_cam[1], nominal_mount_to_cam[2],
-                round(est_roll, 4), round(est_pitch, 4), round(est_yaw, 4)
-            ],
-            "cam_rot_diff_deg": {
-                "roll": round(est_roll - nom_roll, 4),
-                "pitch": round(est_pitch - nom_pitch, 4),
-                "yaw": round(est_yaw - nom_yaw, 4),
-            },
-            "head_offsets_deg": {
-                "pan": round(gt_head.get("pan", 0.0), 4),
-                "tilt": round(gt_head.get("tilt", 0.0), 4),
-            },
-            "quality": {
-                "rmse_tilt_plane_mm": 0.21,
-                "rmse_pan_plane_mm": 0.18,
-                "ortho_error_deg": 0.04,
-            },
-            "pts_tilt_count": num_steps,
-            "pts_pan_count": num_steps
-        }
-        self.calibrated_results = results
-
-        if log_callback:
-            log_callback(f"[MOCK] Head Pan offset: {results['head_offsets_deg']['pan']:+.3f}°")
-            log_callback(f"[MOCK] Head Tilt offset: {results['head_offsets_deg']['tilt']:+.3f}°")
-            log_callback(f"[MOCK] Camera mount_to_cam: {results['calibrated_mount_to_cam']}")
-        return results
+    def _mock_perform_head_sweep(self, *args, **kwargs):
+        raise RuntimeError("Connect the simulation robot to generate sweep observations; synthetic success/GT return is disabled.")
 
     def apply_calibration_results(self, results=None, log_callback=None):
-        """
-        Saves calibrated camera extrinsics into setting.yaml and updates head joint offsets.
-        """
+        """Commit validated settings before publishing calibration to memory."""
+        from core.config_store import update_yaml
+        from core.paths import CONFIG_PATHS
         if results is None:
             results = self.calibrated_results
-
-        if not results:
-            if log_callback: log_callback("[ERROR] No calibration results to apply!")
-            return False
-
-        if results.get("skipped"):
+        if not results or not results.get("success", False):
             if log_callback:
-                log_callback("[INFO] Headless mode: No head parameters to apply.")
-            return True
-
-        calib_mount_to_cam = results.get("calibrated_mount_to_cam")
-        head_offsets = results.get("head_offsets_deg", {})
-
-        if not calib_mount_to_cam:
-            if log_callback: log_callback("[ERROR] Missing calibrated_mount_to_cam in results.")
+                log_callback("[ERROR] No accepted head calibration results to apply.")
             return False
-
+        if results.get("skipped"):
+            return True
         try:
-            # 1. Update in-memory camera_config
-            self.camera_config["mount_to_cam"] = calib_mount_to_cam
+            values = results.get("calibrated_mount_to_cam")
+            if values is None or len(values) != 6:
+                raise ValueError("calibrated_mount_to_cam must contain six numbers")
+            camera_updates = {
+                "mount_to_cam": [float(v) for v in values],
+                "extrinsic_source": "sweep_effective_initialization",
+                "head_tilt_mode": results.get("head_tilt_mode", "effective_zero_gauge")}
+            head = {key: float(results.get("head_offsets_deg", {}).get(key, 0.0))
+                    for key in ("pan", "tilt")}
 
-            # 2. Update setting.yaml file
-            from core.paths import CONFIG_PATHS
-            setting_path = CONFIG_PATHS.get("setting_yaml") or CONFIG_PATHS.get("setting")
-            if setting_path and os.path.exists(setting_path):
-                with open(setting_path, "r", encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
+            def mutate(cfg):
+                camera = cfg.setdefault("camera", {})
+                camera.setdefault("mount_to_cam_nominal", list(self.camera_config.get(
+                    "mount_to_cam_nominal", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])))
+                camera.setdefault("head_base_to_cam_nominal", list(self.camera_config.get(
+                    "head_base_to_cam_nominal", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])))
+                camera.update(camera_updates)
+                cfg.setdefault("joint_offset", {}).setdefault("head", {}).update(head)
 
-                if "camera" not in cfg:
-                    cfg["camera"] = {}
-                cfg["camera"]["mount_to_cam"] = calib_mount_to_cam
-                if "mount_to_cam_nominal" not in cfg["camera"]:
-                    cfg["camera"]["mount_to_cam_nominal"] = list(self.camera_config.get("mount_to_cam_nominal", self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])))
-                if "head_base_to_cam_nominal" not in cfg["camera"]:
-                    cfg["camera"]["head_base_to_cam_nominal"] = list(self.camera_config.get("head_base_to_cam_nominal", self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])))
-
-                # Store head joint offsets in joint_offset section
-                if "joint_offset" not in cfg:
-                    cfg["joint_offset"] = {}
-                if "head" not in cfg["joint_offset"]:
-                    cfg["joint_offset"]["head"] = {}
-                cfg["joint_offset"]["head"]["pan"] = head_offsets.get("pan", 0.0)
-                cfg["joint_offset"]["head"]["tilt"] = head_offsets.get("tilt", 0.0)
-
-                with open(setting_path, "w", encoding="utf-8") as f:
-                    yaml.dump(cfg, f, default_flow_style=None)
-
-                if log_callback:
-                    log_callback(f"[SUCCESS] Updated setting.yaml with calibrated mount_to_cam: {calib_mount_to_cam}")
-                    log_callback(f"[SUCCESS] Updated setting.yaml with head offsets: {head_offsets}")
-
-            # 3. Update in-memory joint offsets store and camera configs if app reference exists
-            if hasattr(self, 'app') and self.app is not None:
-                if not hasattr(self.app, 'joint_offsets_store'):
-                    self.app.joint_offsets_store = {}
-                if "head" not in self.app.joint_offsets_store:
-                    self.app.joint_offsets_store["head"] = {}
-                self.app.joint_offsets_store["head"]["pan"] = head_offsets.get("pan", 0.0)
-                self.app.joint_offsets_store["head"]["tilt"] = head_offsets.get("tilt", 0.0)
-
-                if hasattr(self.app, 'marker_calibrator') and self.app.marker_calibrator is not None:
-                    self.app.marker_calibrator.camera_config["mount_to_cam"] = calib_mount_to_cam
-                if hasattr(self.app, 'joint_calibrator') and self.app.joint_calibrator is not None:
-                    self.app.joint_calibrator.camera_config["mount_to_cam"] = calib_mount_to_cam
-
-            return True
-        except Exception as e:
-            if log_callback: log_callback(f"[ERROR] Failed to save calibration results: {e}")
+            committed = update_yaml(CONFIG_PATHS["setting_yaml"], mutate)
+        except Exception as exc:
+            if log_callback:
+                log_callback(f"[ERROR] Failed to save calibration results: {exc}")
             return False
+
+        camera_updates.update({key: committed["camera"][key]
+                               for key in ("mount_to_cam_nominal", "head_base_to_cam_nominal")})
+        self.camera_config.update(camera_updates)
+        app = getattr(self, "app", None)
+        if app is not None:
+            if not hasattr(app, "joint_offsets_store"):
+                app.joint_offsets_store = {}
+            app.joint_offsets_store.setdefault("head", {}).update(head)
+            for name in ("marker_calibrator", "joint_calibrator"):
+                calibrator = getattr(app, name, None)
+                if calibrator is not None:
+                    calibrator.camera_config.update(camera_updates)
+        if log_callback:
+            log_callback(f"[SUCCESS] Saved head-camera calibration to {CONFIG_PATHS['setting_yaml']}")
+        return True

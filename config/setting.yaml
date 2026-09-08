@@ -1,27 +1,103 @@
 camera:
   auto_exposure: true
   camera_mount_link: link_head_2
+  camera_mount_mode: head
   device_name: D405
   exposure: 10000
+  extrinsic_source: sweep_effective_initialization
   fps: 30
-  head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
-  head_base_to_cam_nominal: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  head_base_to_cam:
+  - 0.098
+  - 0.009
+  - 0.012
+  - -90.0
+  - 0.0
+  - -90.0
+  head_base_to_cam_nominal:
+  - 0.098
+  - 0.009
+  - 0.012
+  - -90.0
+  - 0.0
+  - -90.0
+  head_tilt_mode: effective_zero_gauge
+  head_tilt_reference_deg: null
+  head_zero_convention: camera_forward
   height: 720
-  mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
-  mount_to_cam_nominal: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
+  intrinsics_source: calibrated
+  mount_to_cam:
+  - 0.04552207719339706
+  - 0.009336978520620959
+  - 0.058703543735783605
+  - -88.21919798224562
+  - -0.06464209602046914
+  - -89.90606538356826
+  mount_to_cam_nominal:
+  - 0.047
+  - 0.009
+  - 0.057
+  - -90.0
+  - 0.0
+  - -90.0
   width: 1280
 joint_offset:
-  head: {pan: 0.0, tilt: 0.0}
-  left: {joint3: -0.6850854644650397, joint5: 2.9806728954915163, joint6: -3.5202796002510026}
-  right: {joint3: -0.5014828911020368, joint5: -5.441892033451351, joint6: -2.3778180469803547}
+  left:
+    joint3: -0.7107597471588857
+    joint5: 3.027595490066298
+    joint6: -3.5284241984393825
+  right:
+    joint3: -0.567685347695983
+    joint5: -5.344335740786512
+    joint6: -2.39025865583307
+  head:
+    pan: 0.0
+    tilt: 0.0
 marker:
-  Tf_to_marker_left: [0.0, 0.0545, -0.05, 90.3, 0.1, 0.0]
-  Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
-  Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
-  Tf_to_marker_right: [0.0, -0.0539, -0.046, 90.14, 0.11, 180.0]
-  Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
-  Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  Tf_to_marker_left:
+  - 0.0010342521268086214
+  - 0.05431840019545088
+  - -0.05004911433630407
+  - 90.10799803472638
+  - 0.08580768536144891
+  - 0.05230963016541578
+  Tf_to_marker_left_v12:
+  - 0.0
+  - 0.054
+  - -0.048
+  - 90.0
+  - 0.0
+  - 0.0
+  Tf_to_marker_left_v13:
+  - 0.067
+  - 0.0
+  - 0.0
+  - 90.0
+  - 0.0
+  - -90.0
+  Tf_to_marker_right:
+  - 0.00031842339910486984
+  - -0.054018983185106534
+  - -0.045951589909079646
+  - 90.07973799629865
+  - 0.09345796281833985
+  - 179.94745237572033
+  Tf_to_marker_right_v12:
+  - 0.0
+  - -0.054
+  - -0.048
+  - 90.0
+  - 0.0
+  - 180.0
+  Tf_to_marker_right_v13:
+  - 0.067
+  - 0.0
+  - 0.0
+  - 90.0
+  - 0.0
+  - -90.0
   plate:
-    left_ids: [7]
+    left_ids:
+    - 7
     plate_size_mm: 80.0
-    right_ids: [8]
+    right_ids:
+    - 8
