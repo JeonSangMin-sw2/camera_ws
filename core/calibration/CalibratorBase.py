@@ -15,6 +15,10 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 from core.config_store import RobotConfig
 
 
+class SweepObservationError(ValueError):
+    """The complete multi-sweep measurement needs a new camera posture."""
+
+
 class BaseCalibrator:
     _default_parameters = RobotConfig.load()
     # Shared by Full Auto and the individual joint-calibration UI.
@@ -583,21 +587,36 @@ class BaseCalibrator:
         )
 
         dataset = []
+        attempts = visible = 0
+        missing_since = None
+        longest_missing = 0.
         t_start = time.time()
         move_thread.start()
 
         # Sensor boundary is identical for real and synthetic observations.
-        # Motion feedback never enters the Step1 measurement dataset.
+        # Only the restored v1.2 J6 estimator requests paired encoder samples.
         try:
             while move_thread.is_alive():
                 if getattr(self, 'stop_requested', False):
                     return None
                 res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+                attempts += 1
+                now = time.monotonic()
+                if res:
+                    visible += 1
+                    missing_since = None
+                else:
+                    if missing_since is None:
+                        missing_since = now
+                    longest_missing = max(longest_missing, now - missing_since)
                 if res:
                     pose = np.asarray(res[0] if isinstance(res, list) else next(iter(res.values())), dtype=float).reshape(4, 4)
                     if not np.all(np.isfinite(pose)):
                         raise ValueError('Non-finite marker observation during sweep')
                     if len(dataset) == 0 or not np.array_equal(dataset[-1], pose):
+                        encoder_samples = kwargs.get('encoder_samples')
+                        if encoder_samples is not None:
+                            encoder_samples.append(np.array(self.robot.get_state().position, copy=True))
                         dataset.append(pose)
                 time.sleep(.01)
         finally:
@@ -609,6 +628,12 @@ class BaseCalibrator:
         if not move_thread.success:
             if log_callback: log_callback(f"[ERROR] {label} sweep motion failed or was cancelled.")
             return None
+
+        if kwargs.get('defer_recovery') and (
+                len(dataset) < 10 or visible / max(attempts, 1) < .8 or longest_missing >= 1.):
+            raise SweepObservationError(
+                f'{label} marker visibility insufficient: {visible}/{attempts} frames visible, '
+                f'{len(dataset)} unique poses, longest loss={longest_missing:.2f}s')
 
         if len(dataset) < 10:
             if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label} ({len(dataset)} points). Returning to ready pose and prompting posture adjustment...")

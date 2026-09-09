@@ -6,12 +6,16 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from scipy.spatial.transform import Rotation as R_scipy
-from .CalibratorBase import BaseCalibrator
+from .CalibratorBase import BaseCalibrator, SweepObservationError
 # Gross pose-consistency limits, independent of the 0.06 degree joint
 # convergence rule. A constant pose bias can pass these checks.
 AXIS_CONSISTENCY_DEG = 0.5
 MIN_INLIER_FRACTION = 0.8
 MIN_FRAMES = 10
+# User-selected geometric acceptance limit for J5 calibration.
+# This allows small center/radius differences; it does not establish their
+# cause as assembly tolerance. Angular convergence still requires < 0.06 deg.
+J5_CIRCLE_TOLERANCE_MM = 1.0
 
 
 def _unit(vector):
@@ -584,12 +588,45 @@ class JointCalibrator(BaseCalibrator):
     def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None,
             current_offset_deg=0.0, sweep_duration=None,
             save_debug=False, first_starting_pose=None):
+        # Teaching may change the camera or upstream arm posture. Never keep A
+        # from before teaching and combine it with B/C from after teaching.
+        for attempt in range(2):
+            if self.stop_requested:
+                return None
+            try:
+                result = self._perform_calibration_sweep_once(arm_side, mode,
+                    log_callback=log_callback, status_callback=status_callback,
+                    current_offset_deg=current_offset_deg, sweep_duration=sweep_duration,
+                    save_debug=save_debug, first_starting_pose=first_starting_pose)
+            except SweepObservationError as error:
+                result = dict(measurement_accepted=False, retryable_observation=True,
+                    failure_reason=str(error), quality_diagnostics={'visibility_error': str(error)})
+            if (not result or not result.get('retryable_observation') or attempt == 1
+                    or self.stop_requested):
+                return result
+            callback = getattr(self, 'marker_problem_callback', None)
+            if callback is None:
+                return result
+            if status_callback:
+                status_callback(False)
+            if log_callback:
+                log_callback(f"[WARNING] {result.get('failure_reason', 'Poor sweep observation')}. "
+                             "Returning to ready pose for marker realignment; all sweeps will restart.")
+            if not self.perform_move_to_ready_pose(arm_side, mode, log_callback=log_callback):
+                return None
+            if self.stop_requested or not callback(arm_side) or self.stop_requested:
+                return None
+            first_starting_pose = None
+        return result
+
+    def _perform_calibration_sweep_once(self, arm_side, mode, log_callback=None, status_callback=None,
+            current_offset_deg=0.0, sweep_duration=None,
+            save_debug=False, first_starting_pose=None):
         if self.stop_requested or not self.robot or self.marker_st is None:
             return None
         duration = sweep_duration or self.JOINT_SWEEP_SECONDS[mode]
         cfg = self.JOINT_CONFIGS[mode]
-        # Encoder feedback is used to construct a motion command, never passed
-        # to the geometric estimator.
+        legacy_j6 = mode == 'wrist_yaw2' and self.get_robot_version() == '1.2'
         indices = getattr(self.robot.model(), arm_side + '_arm_idx')
         baseline = np.array(first_starting_pose if first_starting_pose is not None
                             else self.robot.get_state().position[indices], copy=True)
@@ -602,35 +639,91 @@ class JointCalibrator(BaseCalibrator):
         if not self.marker_st.get_marker_transform(sampling_time=2., side=arm_side):
             if status_callback: status_callback(False)
             if log_callback: log_callback('[ERROR] Marker is not visible in ready pose')
-            return None
+            raise SweepObservationError('Marker visibility insufficient in ready pose')
         if status_callback: status_callback(True)
         datasets = []
+        encoder_sets = []
         for label in ('A', 'B'):
             axis, span = cfg['sweep_joint_' + label], cfg['sweep_range_' + label]
+            encoders = [] if legacy_j6 else None
             poses = self.perform_single_joint_sweep(arm_side, axis, baseline, -span, span, duration,
-                        label='Joint ' + label, log_callback=log_callback, mode=mode)
+                        label='Joint ' + label, log_callback=log_callback, mode=mode, defer_recovery=True,
+                        encoder_samples=encoders)
+            encoder_sets.append(encoders)
             if poses is None: return None
-            if save_debug:
-                self.save_observed_points(arm_side, axis, poses, 'joint_' + label)
             datasets.append(poses)
         candidate = None
         if cfg['cand_joint'] != 6:
             # Measure the sign-reference axis instead of predicting it using
             # encoder/FK. Negative-to-zero also respects the J3 upper limit.
             candidate = self.perform_single_joint_sweep(arm_side, cfg['cand_joint'], baseline,
-                        -15., 0., duration, label='Direction reference', log_callback=log_callback, mode=mode)
+                        -15., 0., duration, label='Direction reference', log_callback=log_callback, mode=mode,
+                        defer_recovery=True)
             if candidate is None: return None
-            if save_debug:
+        if save_debug:
+            # Append matching blocks only after a complete capture. An orphan
+            # A from before teaching must not be paired with the new B in replay.
+            for label, poses in zip(('A', 'B'), datasets):
+                self.save_observed_points(arm_side, cfg['sweep_joint_' + label], poses, 'joint_' + label)
+            if candidate is not None:
                 self.save_observed_points(arm_side, cfg['cand_joint'], candidate, 'joint_C')
+        if legacy_j6:
+            return self.compute_legacy_j6_results(arm_side, datasets[0], encoder_sets[0],
+                datasets[1], encoder_sets[1], baseline, current_offset_deg, log_callback=log_callback)
         return self.compute_calibration_results(arm_side, mode, *datasets,
                         dataset_C=candidate, log_callback=log_callback)
+
+    def compute_legacy_j6_results(self, arm_side, poses_a, encoder_a, poses_b, encoder_b,
+                                  initial_arm, staged_offset_deg, *, log_callback=None):
+        """September 2 v1.2 J6, preserving current staging and recovery orchestration."""
+        from core.calibration.legacy_j6 import estimate_legacy_j6
+        try:
+            indices = getattr(self.robot.model(), arm_side + '_arm_idx')
+            dynamics = self.robot.get_dynamics()
+            q_ready = np.array(encoder_a[0], copy=True)
+            q_ready[indices] = self.get_ready_pose('v1.2', 'joint', 'wrist_yaw2', arm_side)
+            axis_a = self.compute_fk(self.robot, dynamics, q_ready, f'link_{arm_side}_arm_5')[:3,:3] @ np.array([0.,0.,1.])
+            axis_b = self.compute_fk(self.robot, dynamics, q_ready, f'link_{arm_side}_arm_4')[:3,:3] @ np.array([0.,1.,0.])
+            if self.is_head_active():
+                link, key, default = 'link_head_2', 'mount_to_cam', [.047,.009,.057,-90.,0.,-90.]
+            else:
+                link, key, default = 'link_head_0', 'head_base_to_cam', [.098,.009,.012,-90.,0.,-90.]
+            camera = self.compute_fk(self.robot, dynamics, encoder_a[0], link) @ self.make_transform(self.camera_config.get(key, default))
+            parameters = getattr(self, 'robot_parameters', self._default_parameters)
+            reference_key = f'Tf_to_marker_{arm_side}_v12'
+            vector = self.camera_config.get(reference_key)
+            if vector is None:
+                reference_key = f'Tf_to_marker_{arm_side}'
+                vector = self.camera_config.get(reference_key)
+            if vector is None:
+                reference_key = 'robot_config.nominal_brackets'
+                vector = parameters.nominal_brackets['1.2'][arm_side]
+            reference = self.make_transform(vector)[:3,:3]
+            result = estimate_legacy_j6(poses_a, encoder_a, poses_b, encoder_b,
+                arm_indices=indices, initial_arm=initial_arm,
+                axis_a=camera[:3,:3].T @ axis_a, axis_b=camera[:3,:3].T @ axis_b,
+                reference_rotation=reference, staged_offset_deg=staged_offset_deg)
+            result['bracket_reference_source'] = reference_key
+            if log_callback and result['measurement_accepted']:
+                log_callback(f"[J6 LEGACY 2026-09-02] raw={result['raw_diff_deg']:.5f} deg; "
+                             f"absolute={result['legacy_absolute_offset_deg']:.5f} deg; "
+                             f"relative={result['optimal_offset']:.5f} deg; reference={reference_key}")
+            return result
+        except (ValueError, IndexError, RuntimeError) as error:
+            return dict(measurement_accepted=False, failure_reason=str(error),
+                        quality_diagnostics={'method': 'legacy_v12_20260902'})
 
     def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B,
             *, log_callback=None, dataset_C=None):
         """Observed circles only: no encoder, FK, or staged offset inputs."""
+        quality = {}
+        fitting_circle = True
         try:
+            quality['failed_sweep'] = 'A'
             a = self.fit_observed_circle(dataset_A)
+            quality.update(circle_A=a['residual_rms_m'], failed_sweep='B')
             b = self.fit_observed_circle(dataset_B)
+            fitting_circle = False
             na, nb = a['axis'], b['axis']
             angle = float(np.rad2deg(np.arccos(np.clip(na @ nb, -1., 1.))))
             quality = {'circle_A': a['residual_rms_m'], 'circle_B': b['residual_rms_m']}
@@ -642,8 +735,11 @@ class JointCalibrator(BaseCalibrator):
                 result['bracket_reference_source'] = 'robot_config.nominal_brackets'
                 if not result['measurement_accepted']: return result
             else:
+                fitting_circle = True
+                quality['failed_sweep'] = 'C/adjacent fit'
                 c = self.fit_observed_circle(dataset_C)
                 a, b, c = self.refine_adjacent_circles((dataset_A, dataset_B, dataset_C), (a, b, c))
+                fitting_circle = False
                 na, nb = a['axis'], b['axis']
                 angle = float(np.rad2deg(np.arccos(np.clip(na @ nb, -1., 1.))))
                 quality = {'circle_A': a['residual_rms_m'], 'circle_B': b['residual_rms_m'],
@@ -662,11 +758,19 @@ class JointCalibrator(BaseCalibrator):
             delta_center = (b['center_m'] - a['center_m'])*1000.
             distance = float(np.linalg.norm(delta_center - np.dot(delta_center, na)*na))
             center_distance_3d = float(np.linalg.norm(delta_center))
+            if mode not in ('wrist_yaw2', 'wrist_roll_v13'):
+                quality.update(relative_correction_deg=float(result['optimal_offset']),
+                    center_distance_mm=center_distance_3d,
+                    radius_difference_mm=float(abs(a['radius'] - b['radius'])),
+                    frames=[circle['frames'] for circle in (a, b, c)],
+                    arc_deg=[circle['arc_deg'] for circle in (a, b, c)])
             if mode in ('elbow', 'wrist_pitch'):
                 size_error = abs(a['radius'] - b['radius'])
+                tolerance_mm = J5_CIRCLE_TOLERANCE_MM if mode == 'wrist_pitch' else .5
+                quality['parallel_circle_tolerance_mm'] = tolerance_mm
                 if max(center_distance_3d, size_error) > 100. or (
-                        abs(result['optimal_offset']) < .06 and max(center_distance_3d, size_error) > .5):
-                    raise ValueError(f'Parallel-joint circles do not coincide: center={center_distance_3d:.3f} mm, radius difference={size_error:.3f} mm')
+                        abs(result['optimal_offset']) < .06 and max(center_distance_3d, size_error) > tolerance_mm):
+                    raise ValueError(f'Parallel-joint circles do not coincide: center={center_distance_3d:.3f} mm, radius difference={size_error:.3f} mm; convergence limit={tolerance_mm:.3f} mm')
             result.update(mode=mode, converged=False, angle_between_normals=angle,
                 center_dist=center_distance_3d, perp_dist_after=distance, r_A=a['radius'], r_B=b['radius'],
                 _plot_data=dict(pts_a_cam=np.asarray(dataset_A)[:,:3,3]*1000.,
@@ -677,4 +781,5 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"[SWEEP QUALITY] {mode}: relative correction={result['optimal_offset']:.5f} deg; circles RMS={a['rmse']:.4f}/{b['rmse']:.4f} mm")
             return result
         except ValueError as error:
-            return dict(measurement_accepted=False, failure_reason=str(error))
+            return dict(measurement_accepted=False, failure_reason=str(error),
+                        retryable_observation=fitting_circle, quality_diagnostics=quality)

@@ -70,8 +70,8 @@ calibration:
       offset_range:
       - -30.0
       - 30.0
-      sweep_range_A: 20.0
-      sweep_range_B: 15.0
+      sweep_range_A: 15.0
+      sweep_range_B: 10.0
     wrist_pitch:
       cand_joint: 5
       sweep_joint_A: 4

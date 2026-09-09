@@ -3541,8 +3541,16 @@ class UnifiedCalibrationApp(QWidget):
             self.status_label.setText("Not Detected")
             self.status_label.setStyleSheet("color: #ff1744;")
 
+    def _camera_capture_owned_by_worker(self):
+        """Preview reuses sweep frames; teaching resumes GUI acquisition."""
+        worker = getattr(self, 'active_worker', None)
+        return (worker is not None and worker.isRunning()
+                and getattr(self, 'marker_problem_dlg', None) is None)
+
     def poll_camera_status(self):
         if self.marker_st is None:
+            return
+        if self._camera_capture_owned_by_worker():
             return
         # Camera Tab이 켜져있을 때는 poll_camera_status 생략 (update_video_frame이 처리함)
         if self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1:
@@ -5756,8 +5764,11 @@ class UnifiedCalibrationApp(QWidget):
         if not camera_tab_active and not dialog_visible and not wizard_slide_mount and not wizard_slide_exp and not wizard_slide_calib and not prob_dlg_visible:
             return
 
+        waiting_for_frame = False
         if not self.sim and self.marker_st is not None:
-            self.marker_st.camera.capture_image()
+            worker_owns_camera = self._camera_capture_owned_by_worker()
+            if not worker_owns_camera:
+                self.marker_st.camera.capture_image()
             img = self.marker_st.camera.get_color_image()
             
             # Sync real-time auto exposure value to UI if auto mode is enabled
@@ -5791,15 +5802,20 @@ class UnifiedCalibrationApp(QWidget):
             
             # 백그라운드 마커 검출 및 상태 표시 업데이트
             try:
-                res_all = self.marker_st.get_marker_transform(sampling_time=0, side="all")
-                detected = bool(res_all and len(res_all) > 0)
-                self.update_marker_indicator(detected)
+                if not worker_owns_camera:
+                    res_all = self.marker_st.get_marker_transform(sampling_time=0, side="all")
+                    detected = bool(res_all and len(res_all) > 0)
+                    self.update_marker_indicator(detected)
             except Exception:
                 pass
                 
+            if img is None and worker_owns_camera:
+                waiting_for_frame = True
+                img = getattr(self, 'current_frame', None)
             if img is None:
                 img = np.zeros((720, 1280, 3), dtype=np.uint8)
-                cv2.putText(img, "No Camera Detected", (350, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (0, 0, 255), 3)
+                if not waiting_for_frame:
+                    cv2.putText(img, "No Camera Detected", (350, 360), cv2.FONT_HERSHEY_SIMPLEX, 1.8, (0, 0, 255), 3)
         else:
             # Mock image
             img = np.zeros((720, 1280, 3), dtype=np.uint8)
@@ -5810,6 +5826,9 @@ class UnifiedCalibrationApp(QWidget):
             
         self.current_frame = img.copy()
         display_img = img.copy()
+        if waiting_for_frame:
+            cv2.putText(display_img, "Waiting for next camera frame", (20, 40),
+                        cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 255, 255), 2)
         
         guide_checked = (hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked()) or (hasattr(self, 'wizard_widget') and hasattr(self.wizard_widget, 'chk_int_guide') and self.wizard_widget.chk_int_guide.isChecked())
         if guide_checked and (camera_tab_active or wizard_slide_calib):

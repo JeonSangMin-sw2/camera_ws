@@ -67,6 +67,46 @@ class ObservedCircleTests(unittest.TestCase):
         result = cal.compute_calibration_results('right', 'wrist_pitch', a, b, dataset_C=c)
         self.assertFalse(result['measurement_accepted'])
 
+    def test_rejected_parallel_circles_retain_measurement_diagnostics(self):
+        from core.calibration.JointCalibrator import JointCalibrator
+        cal = JointCalibrator.__new__(JointCalibrator)
+        a, b, c = self.trajectory(), self.trajectory(), self.trajectory()
+        b[:, 0, 3] += .0016
+        c[:, :3, 3] = c[:, :3, 3] @ Rotation.from_euler('x', -90, degrees=True).as_matrix().T
+        result = cal.compute_calibration_results('right', 'wrist_pitch', a, b, dataset_C=c)
+        self.assertFalse(result['measurement_accepted'])
+        quality = result.get('quality_diagnostics', {})
+        self.assertIn('relative_correction_deg', quality)
+        self.assertAlmostEqual(quality['relative_correction_deg'], 0., places=5)
+        self.assertAlmostEqual(quality['center_distance_mm'], 1.6, places=5)
+        self.assertAlmostEqual(quality['radius_difference_mm'], 0., places=5)
+        self.assertEqual(quality['frames'], [81, 81, 81])
+        self.assertEqual(len(quality['arc_deg']), 3)
+        self.assertIn('circle_C', quality)
+        self.assertNotIn('optimal_offset', result)
+        self.assertFalse(result.get('converged', False))
+
+    def test_parallel_circle_one_mm_limit_checks_center_and_radius_separately(self):
+        from core.calibration.JointCalibrator import JointCalibrator
+        cal = JointCalibrator.__new__(JointCalibrator)
+        for mode in ('wrist_pitch', 'elbow'):
+            for error_kind in ('radial_center', 'axial_center', 'radius'):
+                for error_mm in (.499, .501, .8, .999, 1.001, 1.6):
+                    accepted = error_mm <= (1. if mode == 'wrist_pitch' else .5)
+                    with self.subTest(mode=mode, error_kind=error_kind, error_mm=error_mm):
+                        a, b, c = self.trajectory(), self.trajectory(), self.trajectory()
+                        if error_kind == 'radius':
+                            b[:, :2, 3] *= (.08 + error_mm / 1000.) / .08
+                        else:
+                            b[:, 0 if error_kind == 'radial_center' else 2, 3] += error_mm / 1000.
+                        c[:, :3, 3] = c[:, :3, 3] @ Rotation.from_euler('x', -90, degrees=True).as_matrix().T
+                        result = cal.compute_calibration_results('right', mode, a, b, dataset_C=c)
+                        self.assertEqual(result['measurement_accepted'], accepted, result)
+                        self.assertFalse(result.get('converged', False))
+                        if not accepted:
+                            self.assertNotIn('optimal_offset', result)
+
+
     def test_short_arc_centers_use_the_same_measured_axis_constraints_as_angles(self):
         from core.calibration.JointCalibrator import JointCalibrator
         cal = JointCalibrator.__new__(JointCalibrator)

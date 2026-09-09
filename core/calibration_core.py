@@ -420,7 +420,7 @@ class FullAutoCalibrationService:
                         time.sleep(0.5)
                     if self.stop_event.is_set(): return
 
-                    # 2. Calibrate J6 against the nominal bracket reference BEFORE bracket fitting
+                    # 2. Calibrate v1.2 J6 using the September 2 saved-reference method before bracket fitting
                     if not _joint_result_accepted(pass1_joint_results.get("wrist_pitch")):
                         self.log_callback("[FULL AUTO] J5 remains unconverged; J6, bracket and elbow deferred.")
                         if pass_idx == max_passes:
@@ -435,7 +435,7 @@ class FullAutoCalibrationService:
                         self.marker_calibrator.joint_offsets[arm_side][key6] = opt_roll
                         self.joint_callback(pass1_res_yaw2)
                     else:
-                        self.log_callback(f"\n[FULL AUTO] Calibrating J6 (Wrist Yaw 2) against nominal bracket reference...")
+                        self.log_callback(f"\n[FULL AUTO] Calibrating J6 (Wrist Yaw 2) using September 2 encoder/circle method...")
                         if not self.joint_calibrator.perform_move_to_ready_pose(arm_side, mode6, log_callback=self.log_callback):
                             raise RuntimeError(f"Failed to move to wrist_yaw2 ready pose on {arm_side} arm")
                         joint_res_roll = self._run_joint_calibration(
