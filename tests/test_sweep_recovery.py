@@ -9,6 +9,57 @@ from core.calibration.JointCalibrator import JointCalibrator
 
 
 class SweepRecoveryTests(unittest.TestCase):
+    def test_bracket_recovery_discards_axes_collected_before_teaching(self):
+        from core.calibration_core import calibrate_marker_bracket
+        cal = SimpleNamespace(robot=SimpleNamespace(
+            model=lambda: SimpleNamespace(right_arm_idx=list(range(7))),
+            get_state=lambda: SimpleNamespace(position=np.zeros(7))),
+            get_robot_version=lambda: '1.2', stop_requested=False,
+            perform_move_to_ready_pose=Mock(return_value=True),
+            user_taught_ready_poses={}, generate_marker_plot=Mock(return_value=False))
+        records = [dict(axis_opt=np.array([0.,0.,1.]), generation=g) for g in (0,1,1,1)]
+        cal.perform_calibration_sweep = Mock(side_effect=[records[0],
+            SweepObservationError('lost axis 6'), *records[1:]])
+        def teach(side):
+            cal.user_taught_ready_poses = {side: {'marker': np.array([.3,0,0,0,0,0,0])}}
+            return True
+        cal.marker_problem_callback = Mock(side_effect=teach)
+        cal.save_observed_points = Mock()
+        cal.fit_observed_bracket = Mock(return_value=dict(measurement_accepted=True))
+        for record in records:
+            record['captured_poses'] = np.tile(np.eye(4), (10,1,1))
+        result = calibrate_marker_bracket(cal, 'right', save_plot=False, save_debug=True)
+        self.assertIsNotNone(result)
+        cal.marker_problem_callback.assert_called_once_with('right')
+        captured = cal.fit_observed_bracket.call_args.args[:3]
+        self.assertEqual([d['generation'] for d in captured], [1,1,1])
+        calls = cal.perform_calibration_sweep.call_args_list
+        self.assertEqual([c.args[1] for c in calls], [4,6,4,6,5])
+        self.assertEqual(calls[2].kwargs['initial_joint_pos'][0], .3)
+        self.assertTrue(all(not call.kwargs['save_debug'] for call in calls))
+        self.assertEqual(cal.save_observed_points.call_count, 3)
+        for call, record in zip(cal.save_observed_points.call_args_list, records[1:]):
+            self.assertIs(call.args[2], record['captured_poses'])
+
+    def test_teaching_j6_preserves_approved_j5_and_ready_move_does_not_add_it_twice(self):
+        from calibration_support import OfflineRobot
+        from core.calibration.MarkerCalibrator import MarkerCalibrator
+        from core.calibration_core import prepare_taught_ready_pose
+        robot = OfflineRobot()
+        cal = MarkerCalibrator(robot=robot)
+        cal.joint_offsets['right']['wrist_pitch'] = -3.
+        robot.state.position[robot.model().right_arm_idx[0]] = .25
+        taught, mode, invalid = prepare_taught_ready_pose(robot, cal, 'right', 'wrist_yaw2')
+        self.assertEqual(invalid, [])
+        self.assertAlmostEqual(taught[5], np.deg2rad(-3.))
+        self.assertEqual(taught[0], .25)
+        cal.user_taught_ready_poses = {'right': {mode: taught}}
+        cal.movej = Mock(return_value=True)
+        self.assertTrue(cal.perform_move_to_ready_pose('right', mode))
+        command = cal.movej.call_args.kwargs
+        self.assertFalse(command['apply_offsets'])
+        self.assertAlmostEqual(command['right_arm'][5], np.deg2rad(-3.))
+
     def test_partial_visibility_loss_requests_whole_measurement_recovery(self):
         # More than ten poses survive, so the old low-count check missed this.
         class FakeThread:

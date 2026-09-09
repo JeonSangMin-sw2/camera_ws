@@ -301,9 +301,11 @@ class ConfigurationTests(unittest.TestCase):
         calibrator = MarkerCalibrator.__new__(MarkerCalibrator)
         calibrator.robot_version = '1.2'
         if tool_lengths is not None:
-            calibrator.robot_parameters = SimpleNamespace(tool_lengths=tool_lengths)
+            calibrator.robot_parameters = SimpleNamespace(tool_lengths=tool_lengths,
+                nominal_brackets=calibrator.NOMINAL_BRACKET_TEMPLATES)
         calibrator.fit_observed_circle = lambda poses, direction: {}
         calibrator.refine_adjacent_circles = lambda datasets, circles, directions: circles
+        calibrator.fit_common_wrist_pivot = lambda datasets: (np.zeros(3), 0.)
         directions = {
             'axis_4': np.array([0., 0., 1.]),
             'axis_5': np.array([0., 1., 0.]),

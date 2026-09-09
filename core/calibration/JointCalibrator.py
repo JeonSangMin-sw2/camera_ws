@@ -690,10 +690,10 @@ class JointCalibrator(BaseCalibrator):
                 link, key, default = 'link_head_0', 'head_base_to_cam', [.098,.009,.012,-90.,0.,-90.]
             camera = self.compute_fk(self.robot, dynamics, encoder_a[0], link) @ self.make_transform(self.camera_config.get(key, default))
             parameters = getattr(self, 'robot_parameters', self._default_parameters)
-            reference_key = f'Tf_to_marker_{arm_side}_v12'
+            reference_key = f'Tf_to_marker_{arm_side}'
             vector = self.camera_config.get(reference_key)
             if vector is None:
-                reference_key = f'Tf_to_marker_{arm_side}'
+                reference_key = f'Tf_to_marker_{arm_side}_v12'
                 vector = self.camera_config.get(reference_key)
             if vector is None:
                 reference_key = 'robot_config.nominal_brackets'
@@ -729,10 +729,14 @@ class JointCalibrator(BaseCalibrator):
             quality = {'circle_A': a['residual_rms_m'], 'circle_B': b['residual_rms_m']}
             if mode in ('wrist_yaw2', 'wrist_roll_v13'):
                 parameters = getattr(self, 'robot_parameters', self._default_parameters)
-                vector = parameters.nominal_brackets[self.get_robot_version()][arm_side]
+                reference_key = f'Tf_to_marker_{arm_side}'
+                vector = getattr(self, 'camera_config', {}).get(reference_key)
+                if vector is None:
+                    reference_key = 'robot_config.nominal_brackets'
+                    vector = parameters.nominal_brackets[self.get_robot_version()][arm_side]
                 reference = R_scipy.from_euler('xyz', vector[3:6], degrees=True).as_matrix()
                 result = estimate_j6_reference(dataset_A, na, dataset_B, nb, reference)
-                result['bracket_reference_source'] = 'robot_config.nominal_brackets'
+                result['bracket_reference_source'] = reference_key
                 if not result['measurement_accepted']: return result
             else:
                 fitting_circle = True

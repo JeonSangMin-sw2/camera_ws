@@ -7,6 +7,12 @@ and never converts failed measurements to a zero correction.
 import numpy as np
 from scipy.optimize import least_squares
 
+# Physical A/B trial switch. False bypasses ONLY the historical five-frame
+# moving median used to initialize the circle fit. It does not disable robust
+# geometric residual rejection or change sample/encoder pairing. Set True to
+# restore the September 2 initializer; no timestamp synchronization is added.
+USE_J6_INITIAL_MEDIAN = False
+
 
 class LegacyCircleFit:
 
@@ -38,7 +44,7 @@ class LegacyCircleFit:
             return center_3d, R_circle, radius_3d, 0.0, pts_2d, uc, vc
         
         # Apply 3D Moving Median Filter (window size 5) to smooth out camera sensor jitter
-        if len(points) >= 5:
+        if USE_J6_INITIAL_MEDIAN and len(points) >= 5:
             smoothed = np.copy(points)
             for i in range(2, len(points) - 2):
                 smoothed[i] = np.median(points[i - 2 : i + 3], axis=0)

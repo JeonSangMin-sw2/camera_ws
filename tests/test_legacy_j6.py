@@ -5,6 +5,23 @@ from scipy.spatial.transform import Rotation
 
 
 class LegacyJ6Tests(unittest.TestCase):
+    def test_initial_median_can_be_disabled_without_disabling_robust_fit(self):
+        from unittest.mock import patch
+        from core.calibration import legacy_j6
+        angles = np.linspace(0., 2.*np.pi, 41, endpoint=False)
+        points = np.column_stack((100.*np.cos(angles), 100.*np.sin(angles), np.zeros(41)))
+        original = points.copy()
+        with patch.object(legacy_j6, 'USE_J6_INITIAL_MEDIAN', False):
+            raw = legacy_j6.LegacyCircleFit.fit_circle_3d(points)
+        with patch.object(legacy_j6, 'USE_J6_INITIAL_MEDIAN', True):
+            filtered = legacy_j6.LegacyCircleFit.fit_circle_3d(points)
+        self.assertAlmostEqual(raw[2], 100., places=8)
+        raw_radii = np.linalg.norm(raw[4]-np.array(raw[5:7]), axis=1)
+        filtered_radii = np.linalg.norm(filtered[4]-np.array(filtered[5:7]), axis=1)
+        np.testing.assert_allclose(raw_radii, 100., atol=1e-8)
+        self.assertGreater(np.max(abs(filtered_radii-100.)), .1)
+        np.testing.assert_array_equal(points, original)
+
     def data(self, staged=-1., physical=2.):
         point = np.array([.06, .03, .18])
         a, b, qa, qb = [], [], [], []
@@ -95,6 +112,13 @@ class LegacyJ6Tests(unittest.TestCase):
         self.assertEqual(result['bracket_reference_source'], 'Tf_to_marker_right_v12')
         self.assertEqual([call.args[3] for call in cal.compute_fk.call_args_list],
                          ['link_right_arm_5', 'link_right_arm_4', 'link_head_0'])
+        # A freshly calibrated generic reference must win over stale v12 data.
+        cal.camera_config['Tf_to_marker_right'] = [0.,0.,0.,0.,0.,5.]
+        result = cal.compute_legacy_j6_results('right', *data,
+                    np.deg2rad([0,0,0,0,0,0,-1]), -1.)
+        self.assertTrue(result['measurement_accepted'], result)
+        self.assertEqual(result['bracket_reference_source'], 'Tf_to_marker_right')
+        self.assertAlmostEqual(result['optimal_offset'], 3.2, places=3)
 
 
 if __name__ == '__main__': unittest.main()

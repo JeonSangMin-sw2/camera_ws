@@ -345,6 +345,7 @@ class FullAutoCalibrationService:
                 res_5 = None
                 res_6 = None
                 bracket_completed = False
+                bracket_verified = False
 
                 for pass_idx in range(1, max_passes + 1):
                     self.log_callback("\n" + "="*50)
@@ -365,7 +366,7 @@ class FullAutoCalibrationService:
                         calibrator.joint_offsets[arm_side]["elbow"] = self.joint_offsets_store[arm_side]["joint3"]
 
                     # --- Step 1: Sequential Calibration Execution ---
-                    # Both versions use measured J5 -> J6 -> bracket -> J3 acceptance.
+                    # J5 -> CAD-locked bracket -> J6 -> fresh bracket check -> J3.
                     # 1. Calibrate J5 (Wrist Pitch) FIRST
                     pass1_res_pitch = pass1_joint_results.get("wrist_pitch")
                     if pass_idx >= 2 and _joint_result_accepted(pass1_res_pitch):
@@ -420,12 +421,35 @@ class FullAutoCalibrationService:
                         time.sleep(0.5)
                     if self.stop_event.is_set(): return
 
-                    # 2. Calibrate v1.2 J6 using the September 2 saved-reference method before bracket fitting
+                    # J5 establishes the wrist geometry; bracket swing/position
+                    # is then locked to CAD before J6 estimates the remaining twist.
                     if not _joint_result_accepted(pass1_joint_results.get("wrist_pitch")):
                         self.log_callback("[FULL AUTO] J5 remains unconverged; J6, bracket and elbow deferred.")
                         if pass_idx == max_passes:
                             raise RuntimeError(f"{arm_side}: J5 prerequisite did not converge after {max_passes} passes")
                         continue
+                    if not bracket_completed:
+                        unified_res = calibrate_marker_bracket(
+                            self.marker_calibrator, arm_side, save_debug=self.save_debug,
+                            log_callback=self.log_callback, status_callback=self.status_callback,
+                            pass_idx=pass_idx)
+                        if not unified_res:
+                            raise RuntimeError(f"{arm_side}: bracket capture/fit failed before J6")
+                        unified_res.update(arm_side=arm_side, pass_idx=pass_idx)
+                        x_m, y_m, z_m = unified_res['x_e']/1000.0, unified_res['y_e']/1000.0, unified_res['z_e']/1000.0
+                        new_vals = [x_m, y_m, z_m, unified_res['roll_e'], unified_res['pitch_e'], unified_res['yaw_e']]
+                        key = f"Tf_to_marker_{arm_side}"
+                        self.marker_calibrator.camera_config[key] = new_vals
+                        self.joint_calibrator.camera_config[key] = new_vals
+
+                        self.bracket_callback(unified_res)
+                        pass1_joint_results['bracket'] = unified_res
+                        time.sleep(0.5)
+                        if self.stop_event.is_set(): return
+
+
+                        bracket_completed = True
+
                     pass1_res_yaw2 = pass1_joint_results.get("wrist_yaw2")
                     if pass_idx >= 2 and _joint_result_accepted(pass1_res_yaw2):
                         self.log_callback(f"[FULL AUTO 2/3] J6 (Wrist Yaw 2) previously converged ({pass1_res_yaw2['recommended_joint_offset']:.4f}°). Skipping Pass {pass_idx} sweep.")
@@ -472,90 +496,40 @@ class FullAutoCalibrationService:
                         time.sleep(0.5)
                         if self.stop_event.is_set(): return
 
-                    pending = [mode for mode in ("wrist_pitch", "wrist_yaw2")
-                               if not _joint_result_accepted(pass1_joint_results.get(mode))]
-                    if pending:
-                        self.log_callback(f"[FULL AUTO] Pending joints: {', '.join(pending)}. Bracket and elbow deferred.")
+                    if not _joint_result_accepted(pass1_joint_results.get("wrist_yaw2")):
                         if pass_idx == max_passes:
-                            reason = (pass1_joint_results.get('wrist_yaw2') or {}).get('failure_reason')
-                            raise RuntimeError(f"{arm_side}: J5/J6 prerequisites did not converge after {max_passes} passes; bracket was not fitted. {reason or ''}")
+                            reason = (pass1_joint_results.get("wrist_yaw2") or {}).get("failure_reason", "")
+                            raise RuntimeError(f"{arm_side}: J6 did not converge after {max_passes} attempts; {reason}")
                         continue
 
-                    if not bracket_completed:
-                        # 3. Marker sweeps with J5/J6 already calibrated and fixed
-                        self.log_callback(f"[FULL AUTO 2/3] Performing Marker Bracket Sweeps for both wrist versions {arm_side} arm (Pass {pass_idx}/{max_passes})...")
-                        self.log_callback(f"[FULL AUTO] Moving {arm_side} arm to ready pose...")
-                        if not self.marker_calibrator.perform_move_to_ready_pose(arm_side, log_callback=self.log_callback):
-                            raise RuntimeError(f"Failed to move to marker ready pose on {arm_side} arm")
-                        if self.stop_event.is_set(): return
-
-                        state = self.joint_calibrator.robot.get_state()
-                        model = self.joint_calibrator.robot.model()
-                        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                        first_starting_pose = list(state.position[arm_idx])
-                        self.log_callback(f"[FULL AUTO] Sweeping Axis 4...")
-                        res_4 = self.marker_calibrator.perform_calibration_sweep(
-                            arm_side, 4, log_callback=self.log_callback, status_callback=self.status_callback,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                        )
-                        if not res_4: raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
-                        res_4['axis_mode'] = 4
-                        res_4['axis'] = res_4['axis_opt']
-                        if self.stop_event.is_set(): return
-
-                        self.log_callback(f"[FULL AUTO] Sweeping Axis 6...")
-                        res_6 = self.marker_calibrator.perform_calibration_sweep(
-                            arm_side, 6, log_callback=self.log_callback, status_callback=self.status_callback,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                        )
-                        if not res_6: raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
-                        res_6['axis_mode'] = 6
-                        res_6['axis'] = res_6['axis_opt']
-                        if self.stop_event.is_set(): return
-
-                        self.log_callback(f"[FULL AUTO] Sweeping Axis 5...")
-                        res_5 = self.marker_calibrator.perform_calibration_sweep(
-                            arm_side, 5, log_callback=self.log_callback, status_callback=self.status_callback,
-                            save_debug=self.save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                        )
-                        if not res_5: raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
-                        res_5['axis_mode'] = 5
-                        res_5['axis'] = res_5['axis_opt']
-                        if self.stop_event.is_set(): return
-
-                        # 3. Compute Marker Bracket (1-time lock)
-                        self.log_callback("\n[FULL AUTO] Computing unified marker bracket calibration for both wrist versions...")
-                        unified_res = self.marker_calibrator.fit_observed_bracket(
-                            res_4, res_5, res_6, arm_side
-                        )
-                        if not unified_res.get('measurement_accepted', False):
-                            raise RuntimeError(unified_res.get('failure_reason', 'Bracket measurement rejected'))
-
-                        unified_res['res_5'] = res_5
-                        unified_res['res_6'] = res_6
-                        if res_4 is not None:
-                            unified_res['res_4'] = res_4
-                        unified_res['arm_side'] = arm_side
-                        unified_res['pass_idx'] = pass_idx
-
-                        plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
-                        plot_saved = self.marker_calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
-                        if plot_saved:
-                            unified_res['plot_path_combined'] = plot_path
-
-                        x_m, y_m, z_m = unified_res['x_e']/1000.0, unified_res['y_e']/1000.0, unified_res['z_e']/1000.0
-                        new_vals = [x_m, y_m, z_m, unified_res['roll_e'], unified_res['pitch_e'], unified_res['yaw_e']]
-                        key = f"Tf_to_marker_{arm_side}"
-                        self.marker_calibrator.camera_config[key] = new_vals
-                        self.joint_calibrator.camera_config[key] = new_vals
-
-                        self.bracket_callback(unified_res)
-                        pass1_joint_results['bracket'] = unified_res
-                        time.sleep(0.5)
-                        if self.stop_event.is_set(): return
-
-
-                        bracket_completed = True
+                    if not bracket_verified:
+                        # New observations, no second publication or joint update.
+                        self.log_callback("[VERIFY] Re-observing CAD-locked bracket after J6 correction.")
+                        check = calibrate_marker_bracket(
+                            self.marker_calibrator, arm_side, save_debug=self.save_debug,
+                            log_callback=self.log_callback, status_callback=self.status_callback,
+                            pass_idx=pass_idx, save_plot=False)
+                        if not check:
+                            raise RuntimeError(f"{arm_side}: post-J6 bracket verification capture failed")
+                        reference = self.marker_calibrator.camera_config[f"Tf_to_marker_{arm_side}"]
+                        pos = np.array([check[k] for k in ("x_e", "y_e", "z_e")])
+                        angles = [check[k] for k in ("roll_e", "pitch_e", "yaw_e")]
+                        pos_error = float(np.linalg.norm(pos - np.array(reference[:3])*1000.))
+                        rot_error = float(np.rad2deg((R_scipy.from_euler("xyz", angles, degrees=True) *
+                            R_scipy.from_euler("xyz", reference[3:], degrees=True).inv()).magnitude()))
+                        self.log_callback(f"[VERIFY] Bracket repeatability: {pos_error:.4f} mm / {rot_error:.4f} deg")
+                        # Locking the bracket removes this very DOF. Comparing
+                        # locked transforms alone cannot verify remaining J6 error.
+                        twist_error = float(check.get('removed_j6_twist_deg', np.nan))
+                        self.log_callback(f"[VERIFY] Independently observed residual J6 twist: {twist_error:.4f} deg")
+                        verification = dict(position_difference_mm=pos_error, rotation_difference_deg=rot_error,
+                            j6_residual_twist_deg=twist_error,
+                            accepted=bool(pos_error <= .5 and rot_error <= .5
+                                          and np.isfinite(twist_error) and abs(twist_error) <= .5))
+                        self.stage_results[arm_side]["bracket_verification"] = verification
+                        if not verification["accepted"]:
+                            raise RuntimeError(f"{arm_side}: bracket/J6 consistency verification rejected")
+                        bracket_verified = True
 
                     # 5. Calibrate J3 Elbow
                     pass1_res_elbow = pass1_joint_results.get("elbow")
@@ -1300,117 +1274,65 @@ class AutoCollectionService:
 
 
 def calibrate_marker_bracket(calibrator, arm_side, use_head_tracking=True, tolerance=.5,
-                             save_debug=False, log_callback=None, status_callback=None):
+                             save_debug=False, log_callback=None, status_callback=None,
+                             pass_idx=1, save_plot=True):
+    """One atomic wrist observation: never combine axes across teaching."""
+    from core.calibration.CalibratorBase import SweepObservationError
     log = log_callback or (lambda message: None)
     status = status_callback or (lambda detected: None)
     try:
-        version_num = calibrator.get_robot_version()
-        is_v13 = calibrator.is_v13()
-
-        # Automatically move to ready pose first to guarantee calibration starting pose consistency
-        log("[INFO] Automatically moving active arm to marker ready pose...")
-        success = calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log)
-        if not success:
-            log("[ERROR] Failed to move to marker ready pose at startup. Aborting.")
-            return None
-        state = calibrator.robot.get_state()
-        model = calibrator.robot.model()
-        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-        first_starting_pose = list(state.position[arm_idx])
-        if True: # Always sweep J4 for both v1.2 and v1.3 to get full 3D calibration
-            # Stage 1 Axis 4 sweep starts immediately from the initial/current pose
+        if not calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log):
+            raise RuntimeError("Failed to move to marker ready pose")
+        for attempt in range(2):
             if getattr(calibrator, 'stop_requested', False):
                 return None
-
-            log("\n" + "="*50)
-            log("   [Stage 1/3] Sweeping Axis 4 (Wrist Yaw)...")
-            log("="*50 + "\n")
-            res_4 = calibrator.perform_calibration_sweep(
-                arm_side, 4,
-                log_callback=log,
-                status_callback=status,
-                use_head_tracking=use_head_tracking,
-                save_debug=save_debug,
-                initial_joint_pos=first_starting_pose
-            )
-            if not res_4:
-                log("[ERROR] Stage 1 (Axis 4) sweep failed. Aborting.")
-                return None
-            res_4['axis_mode'] = 4
-            res_4['axis'] = res_4['axis_opt']
-
-            if getattr(calibrator, 'stop_requested', False):
-                return None
-
-            time.sleep(1.0)
-
-        # Stage 2/3 Axis 6 Sweep
-        log("\n" + "="*50)
-        log("   [Stage 2/3] Sweeping Axis 6 (Roll)...")
-        log("="*50 + "\n")
-
-        res_6 = calibrator.perform_calibration_sweep(
-            arm_side, 6,
-            log_callback=log,
-            status_callback=status,
-            use_head_tracking=use_head_tracking,
-            save_debug=save_debug,
-            initial_joint_pos=first_starting_pose
-        )
-        if not res_6:
-            log("[ERROR] Stage 6 sweep failed. Aborting.")
-            return None
-
-        res_6['axis_mode'] = 6
-        res_6['axis'] = res_6['axis_opt']
-
-        if getattr(calibrator, 'stop_requested', False):
-            return None
-
-        time.sleep(1.0)
-
-        # Stage 3/3 Axis 5 Sweep
-        log("\n" + "="*50)
-        log("   [Stage 3/3] Sweeping Axis 5 (Pitch)...")
-        log("="*50 + "\n")
-
-        res_5 = calibrator.perform_calibration_sweep(
-            arm_side, 5,
-            log_callback=log,
-            status_callback=status,
-            use_head_tracking=use_head_tracking,
-            save_debug=save_debug,
-            initial_joint_pos=first_starting_pose
-        )
-        if not res_5:
-            log("[ERROR] Stage 5 sweep failed. Aborting.")
-            return None
-
-        res_5['axis_mode'] = 5
-        res_5['axis'] = res_5['axis_opt']
-
-        # Compute unified bracket calibration
-        log("\n[PROCESSING] Computing unified bracket calibration parameters...")
-        unified_res = calibrator.fit_observed_bracket(
-            res_4, res_5, res_6, arm_side
-        )
-        if not unified_res.get('measurement_accepted', False):
-            raise RuntimeError(unified_res.get('failure_reason', 'Bracket measurement rejected'))
-
-        unified_res['res_5'] = res_5
-        unified_res['res_6'] = res_6
-        if res_4 is not None:
-            unified_res['res_4'] = res_4
-
-        # Save plot using the calibrator method
-        plot_path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
-        plot_saved = calibrator.generate_marker_plot(res_5, res_6, res_4, unified_res, arm_side, is_v13, plot_path)
-
-        if plot_saved:
-            unified_res['plot_path_combined'] = plot_path
-        return unified_res
-    except Exception as e:
-        log(f"[ERROR] Worker exception: {e}")
+            try:
+                indices = getattr(calibrator.robot.model(), arm_side + '_arm_idx')
+                taught = getattr(calibrator, 'user_taught_ready_poses', {}).get(arm_side, {}).get('marker')
+                initial = np.array(taught if taught is not None else
+                    calibrator.robot.get_state().position[indices], copy=True)
+                sweeps = {}
+                for axis in (4, 6, 5):
+                    if getattr(calibrator, 'stop_requested', False):
+                        return None
+                    log(f"[BRACKET] Sweeping J{axis} (capture {attempt+1}/2)...")
+                    data = calibrator.perform_calibration_sweep(
+                        arm_side, axis, log_callback=log, status_callback=status,
+                        use_head_tracking=use_head_tracking, save_debug=False,
+                        initial_joint_pos=initial, pass_idx=pass_idx, defer_recovery=True)
+                    if not data:
+                        raise RuntimeError(f"Marker axis {axis} sweep cancelled or failed")
+                    data.update(axis_mode=axis, axis=data['axis_opt'])
+                    sweeps[axis] = data
+                # Publish debug blocks only for a complete capture, so teaching
+                # cannot leave an orphan axis from the abandoned posture.
+                if save_debug:
+                    for axis, data in sweeps.items():
+                        calibrator.save_observed_points(arm_side, axis, data['captured_poses'], 'marker')
+                unified = calibrator.fit_observed_bracket(sweeps[4], sweeps[5], sweeps[6], arm_side)
+                if not unified.get('measurement_accepted', False):
+                    raise RuntimeError(unified.get('failure_reason', 'Bracket fit rejected'))
+                for axis, data in sweeps.items():
+                    unified[f'res_{axis}'] = data
+                if save_plot:
+                    path = os.path.join(CONFIG_PATHS["plot_dir"], f"circle_fit_{arm_side}_marker_unified.png")
+                    if calibrator.generate_marker_plot(sweeps[5], sweeps[6], sweeps[4], unified,
+                            arm_side, calibrator.get_robot_version() == '1.3', path):
+                        unified['plot_path_combined'] = path
+                return unified
+            except SweepObservationError as error:
+                callback = getattr(calibrator, 'marker_problem_callback', None)
+                if attempt == 1 or callback is None:
+                    raise
+                status(False)
+                log(f"[WARNING] {error}; discarding ALL bracket axes before teaching.")
+                if not calibrator.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log):
+                    return None
+                if getattr(calibrator, 'stop_requested', False) or not callback(arm_side):
+                    return None
+        return None
+    except Exception as error:
+        log(f"[ERROR] Bracket calibration: {error}")
         log(traceback.format_exc())
         return None
 
@@ -1469,12 +1391,13 @@ def prepare_taught_ready_pose(robot, marker_calibrator, arm_side, active_mode, l
     if marker_calibrator is not None:
         try:
             nom_pose = marker_calibrator.get_ready_pose(version_key, type_key, ready_mode, arm_side)
+            offsets = marker_calibrator.joint_offsets.get(arm_side, {})
             if norm_mode == "elbow":
-                taught_pose[3] = nom_pose[3]
+                taught_pose[3] = nom_pose[3] + np.deg2rad(offsets.get('elbow', 0.))
             elif norm_mode == "wrist_pitch":
-                taught_pose[5] = nom_pose[5]
+                taught_pose[5] = nom_pose[5] + np.deg2rad(offsets.get('wrist_pitch', 0.))
             elif norm_mode in ("marker", "wrist_roll", "wrist_yaw2"):
-                taught_pose[5] = nom_pose[5]
+                taught_pose[5] = nom_pose[5] + np.deg2rad(offsets.get('wrist_pitch', 0.))
         except Exception as e:
             log(f"[WARN] Could not enforce nominal target angle on taught pose: {e}")
 

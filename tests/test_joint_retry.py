@@ -65,7 +65,7 @@ class RetryTests(unittest.TestCase):
                 events.append((side, 'bracket', None))
                 n = self.NOMINAL_BRACKET_TEMPLATES['1.2'][side]
                 return dict(measurement_accepted=True, x_e=n[0]*1000, y_e=n[1]*1000, z_e=n[2]*1000,
-                    roll_e=n[3], pitch_e=n[4], yaw_e=n[5])
+                    roll_e=n[3], pitch_e=n[4], yaw_e=n[5], removed_j6_twist_deg=0.)
             def generate_marker_plot(self, *a, **kw): return False
             def clear_user_taught_ready_poses(self): pass
         worker = calibration_core.FullAutoCalibrationService(Calibrator(), Calibrator(), stop_event=threading.Event(), joint_offsets_store=store)
@@ -88,14 +88,14 @@ class RetryTests(unittest.TestCase):
         self.assertFalse(result['converged'])
         self.assertEqual(len(seen), 6)
 
-    def test_retry_failed_j6_without_bracket_or_passed_joint_resweep(self):
+    def test_retry_failed_j6_keeps_bracket_and_then_verifies_with_new_sweeps(self):
         worker, events = self.run_worker('wrist_yaw2', 2, recovered_offset=2.)
         self.assertIsNone(worker.error_msg)
         self.assertTrue(all(worker.arm_convergence.values()))
         for side in ('right', 'left'):
             self.assertEqual([p for s,m,p in events if s==side and m=='wrist_pitch'], [1])
             self.assertEqual([p for s,m,p in events if s==side and m=='wrist_yaw2'], [1,2])
-            self.assertEqual([p for s,m,p in events if s==side and m=='sweep'], [2,2,2])
+            self.assertEqual([p for s,m,p in events if s==side and m=='sweep'], [1,1,1,2,2,2])
 
     def test_failed_sequence_restores_pre_run_applied_offsets_but_retains_accepted_results(self):
         worker, _ = self.run_worker('elbow', 99, failed_offset=8.)
@@ -105,10 +105,12 @@ class RetryTests(unittest.TestCase):
         self.assertTrue(worker.stage_results['right']['wrist_pitch']['converged'])
         self.assertTrue(worker.stage_results['right']['wrist_yaw2']['converged'])
 
-    def test_persistent_failed_j6_never_enters_bracket(self):
+    def test_persistent_failed_j6_never_verifies_or_enters_elbow(self):
         worker, events = self.run_worker('wrist_yaw2', 99)
         self.assertIsNotNone(worker.error_msg)
-        self.assertFalse(any(m in ('sweep', 'bracket', 'elbow') for s,m,p in events))
+        self.assertFalse(any(m == 'elbow' for s,m,p in events))
+        self.assertEqual(sum(m == 'bracket' for s,m,p in events), 1)
+        self.assertEqual(worker.marker_calibrator.camera_config, {})
         self.assertEqual([p for s,m,p in events if m=='wrist_yaw2'], [1,2])
 
     def test_persistent_failed_j5_defers_all_dependent_stages(self):

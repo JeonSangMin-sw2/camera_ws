@@ -194,9 +194,9 @@ class WorkflowTests(unittest.TestCase):
         self.assertTrue(logs[0].startswith('[Sample 2]'))
         self.assertEqual(len(adapter.shared_arm_q_list), 1)
 
-    def test_full_auto_uses_measured_joint_acceptance_before_bracket_in_both_versions(self):
+    def test_full_auto_fits_bracket_before_j6_and_checks_it_with_fresh_sweeps(self):
         for version in ('1.2', '1.3'):
-            for rejected in (None, 'joint', 'bracket'):
+            for rejected in (None, 'joint', 'bracket', 'changed_after_j6', 'j6_disagrees', 'j6_nonfinite'):
                 events = []
                 store = {s: dict(joint3=0., joint5=0., joint6=0.) for s in ('right', 'left')}
                 mode5 = 'wrist_pitch_v13' if version == '1.3' else 'wrist_pitch'
@@ -217,15 +217,16 @@ class WorkflowTests(unittest.TestCase):
                     def save_calibration_comparison_plot(self, *a, **kw): return None
                     def perform_calibration_sweep(self, *a, **kw): return dict(axis_opt=np.array([0., 0., 1.]))
                     def fit_observed_bracket(self, d4, d5, d6, side):
-                        if self.joint_offsets[side][key6] != -3.5:
-                            raise RuntimeError('Bracket ran before J6 calibration')
                         events.append((side, 'bracket'))
                         if rejected == 'bracket':
                             return dict(success=False, measurement_accepted=False, failure_reason='rejected bracket',
                                         x_e=0., y_e=0., z_e=0., roll_e=0., pitch_e=0., yaw_e=0.)
                         n = self.NOMINAL_BRACKET_TEMPLATES[version][side]
-                        return dict(x_e=n[0]*1000, y_e=n[1]*1000, z_e=n[2]*1000,
+                        drift = 2. if rejected == 'changed_after_j6' and events.count((side, 'bracket')) == 2 else 0.
+                        twist = (1. if rejected == 'j6_disagrees' else float('nan')) if rejected in ('j6_disagrees', 'j6_nonfinite') else 0.
+                        return dict(x_e=n[0]*1000 + drift, y_e=n[1]*1000, z_e=n[2]*1000,
                                     roll_e=n[3], pitch_e=n[4], yaw_e=n[5],
+                                    removed_j6_twist_deg=twist,
                                     success=True, measurement_accepted=True)
                     def generate_marker_plot(self, *a, **kw): return False
                     def clear_user_taught_ready_poses(self): pass
@@ -239,13 +240,19 @@ class WorkflowTests(unittest.TestCase):
                     self.assertNotIn(('right', 'elbow'), events)
                     if rejected == 'joint':
                         self.assertNotIn(('right', 'bracket'), events)
+                    if rejected in ('changed_after_j6', 'j6_disagrees', 'j6_nonfinite'):
+                        self.assertEqual(worker.marker_calibrator.camera_config, {})
+                        self.assertFalse(worker.stage_results['right']['bracket_verification']['accepted'])
                     continue
                 self.assertIsNone(worker.error_msg)
                 self.assertTrue(all(worker.arm_convergence.values()))
                 for side in store:
                     self.assertLess(events.index((side, mode5)), events.index((side, mode6)))
-                    self.assertLess(events.index((side, mode6)), events.index((side, 'bracket')))
-                    self.assertLess(events.index((side, 'bracket')), events.index((side, 'elbow')))
+                    self.assertLess(events.index((side, 'bracket')), events.index((side, mode6)))
+                    brackets = [i for i, event in enumerate(events) if event == (side, 'bracket')]
+                    self.assertEqual(len(brackets), 2)
+                    self.assertLess(events.index((side, mode6)), brackets[1])
+                    self.assertLess(brackets[1], events.index((side, 'elbow')))
                     for mode in (mode5, mode6, 'elbow'):
                         self.assertEqual(events.count((side, mode)), 1)
 
@@ -272,6 +279,43 @@ class WorkflowTests(unittest.TestCase):
         self.assertLess(fitted['axis_intersection_rms_mm'], 1e-5)
         self.assertNotIn('opt_delta_5', fitted)
         self.assertNotIn('opt_delta_6', fitted)
+        nominal = cal.make_transform(cal.NOMINAL_BRACKET_TEMPLATES['1.2']['left'])
+        measured = Rotation.from_euler('xyz', [fitted[k] for k in ('roll_e', 'pitch_e', 'yaw_e')], degrees=True)
+        relative = measured * Rotation.from_matrix(nominal[:3, :3]).inv()
+        self.assertAlmostEqual(relative.as_quat()[2], 0., places=10)
+
+    def test_bracket_twist_lock_moves_translation_about_the_wrist_pivot(self):
+        from core.calibration.MarkerCalibrator import MarkerCalibrator
+        cal = MarkerCalibrator()
+        cal.robot_version = '1.2'
+        nominal = cal.make_transform(cal.NOMINAL_BRACKET_TEMPLATES['1.2']['left'])[:3, :3]
+        swing = Rotation.from_euler('x', 7., degrees=True).as_matrix()
+        twist = Rotation.from_euler('z', 30., degrees=True).as_matrix()
+        pivot = np.array([.03, .04, .1])
+        locked, position, angle = cal.lock_bracket_j6_twist(twist @ swing @ nominal, pivot, 'left')
+        np.testing.assert_allclose(locked, swing @ nominal, atol=1e-12)
+        self.assertAlmostEqual(angle, 30., places=10)
+        wrist = np.array([0., 0., cal.robot_parameters.tool_lengths['1.2']])
+        # Full rigid transform is preserved when the removed twist is assigned
+        # to J6: rotation-only editing would fail this translation assertion.
+        np.testing.assert_allclose(twist @ (position-wrist), -(twist @ swing @ nominal) @ pivot, atol=1e-12)
+
+    def test_common_wrist_pivot_uses_all_pose_observations_without_short_arc_center_bias(self):
+        from core.calibration.MarkerCalibrator import MarkerCalibrator
+        rng = np.random.default_rng(103)
+        datasets = []
+        for axis in ('x', 'y', 'z'):
+            poses = np.tile(np.eye(4), (301, 1, 1))
+            poses[:, :3, :3] = Rotation.from_euler(axis, np.linspace(-15.,15.,301), degrees=True).as_matrix()
+            poses[:, :3, 3] = [0.1,0.2,0.3] - poses[:, :3, :3] @ np.array([.01,.17,.05])
+            poses[:, :3, 3] += rng.normal(0., .0001, (301,3))
+            datasets.append(poses)
+        pivot, rms = MarkerCalibrator.fit_common_wrist_pivot(datasets)
+        np.testing.assert_allclose(pivot, [.01,.17,.05], atol=.00003)
+        self.assertLess(rms, .0002)
+        datasets[2][:,0,3] += .005
+        with self.assertRaisesRegex(ValueError, 'pivot'):
+            MarkerCalibrator.fit_common_wrist_pivot(datasets)
 
     def test_marker_report_uses_observed_geometry_metrics(self):
         logs = []

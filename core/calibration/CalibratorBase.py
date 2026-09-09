@@ -476,7 +476,9 @@ class BaseCalibrator:
                 right_arm = None
                 left_arm = self.get_ready_pose(version_key, type_key, ready_mode, "left")
 
-        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=None, minimum_time=5.0)
+        # Taught poses are raw SDK commands with compensation already included.
+        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm,
+                             head=None, minimum_time=5.0, apply_offsets=taught_pose is None)
         if success and log_callback:
             log_callback("[INFO] Ready Pose Reached.")
         return success

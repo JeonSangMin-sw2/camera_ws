@@ -1864,8 +1864,9 @@ class UnifiedCalibrationApp(QWidget):
         }
         self.marker_calibrator.joint_offsets = self.joint_offsets
         self.joint_calibrator.joint_offsets = self.joint_offsets
-        self.marker_calibrator.marker_problem_callback = self.prompt_marker_problem_teaching
-        self.joint_calibrator.marker_problem_callback = self.prompt_marker_problem_teaching
+        self.marker_calibrator.marker_problem_callback = lambda side: self.prompt_marker_problem_teaching(side, 'marker')
+        self.joint_calibrator.marker_problem_callback = lambda side: self.prompt_marker_problem_teaching(
+            side, self.joint_calibrator.current_calib_mode)
 
     def save_offsets_to_yaml(self):
         from core.config_store import update_yaml
@@ -3263,7 +3264,9 @@ class UnifiedCalibrationApp(QWidget):
             if self.robot:
                 try:
                     active_mode = "marker"
-                    if hasattr(self, 'joint_calibrator') and self.joint_calibrator and getattr(self.joint_calibrator, 'current_calib_mode', None):
+                    if res.get('active_mode'):
+                        active_mode = res['active_mode']
+                    elif hasattr(self, 'joint_calibrator') and self.joint_calibrator and getattr(self.joint_calibrator, 'current_calib_mode', None):
                         active_mode = self.joint_calibrator.current_calib_mode
                     elif hasattr(self, 'marker_calibrator') and self.marker_calibrator and getattr(self.marker_calibrator, 'current_calib_mode', None):
                         active_mode = self.marker_calibrator.current_calib_mode
@@ -3308,7 +3311,7 @@ class UnifiedCalibrationApp(QWidget):
                     break
                 except Exception as e:
                     self.log_msg(f"[WARN] Failed to preserve user-taught ready pose: {e}")
-                    res['resolved'] = True
+                    res['resolved'] = False
                     break
             else:
                 res['resolved'] = True
@@ -3318,10 +3321,10 @@ class UnifiedCalibrationApp(QWidget):
         self.on_left_tab_changed(self.left_tabs.currentIndex())
         evt.set()
 
-    def prompt_marker_problem_teaching(self, arm_side):
+    def prompt_marker_problem_teaching(self, arm_side, active_mode=None):
         import threading
         evt = threading.Event()
-        res = {'resolved': False}
+        res = {'resolved': False, 'active_mode': active_mode}
         self.marker_problem_signal.emit(arm_side, evt, res)
         evt.wait()
         return res['resolved']

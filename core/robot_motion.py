@@ -1,4 +1,5 @@
 import time
+import logging
 import numpy as np
 import rby1_sdk as rby
 from dataclasses import dataclass
@@ -91,8 +92,12 @@ def move_joints_checked(robot, torso=None, right_arm=None, left_arm=None, head=N
                                    .set_minimum_time(minimum_time).set_position(head))
     try:
         result = robot.send_command(rby.RobotCommandBuilder().set_command(component), priority).get()
-        return result.finish_code == rby.RobotCommandFeedback.FinishCode.Ok
-    except Exception:
+        accepted = result.finish_code == rby.RobotCommandFeedback.FinishCode.Ok
+        if not accepted:
+            logging.error('Joint command failed: SDK finish_code=%s', result.finish_code)
+        return accepted
+    except Exception as error:
+        logging.error('Joint command raised: %s', error)
         return False
 
 
