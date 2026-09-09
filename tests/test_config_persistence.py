@@ -13,7 +13,7 @@ import numpy as np
 from PySide6.QtWidgets import QApplication, QLineEdit
 from main_ui import UnifiedCalibrationApp
 from core.calibration.HeadCameraCalibrator import HeadCameraCalibrator
-from core.paths import CONFIG_PATHS
+from core.config_store import CONFIG_PATHS
 
 
 OLD = [.001216910260022361, .05452662320206416, -.04985474186323428,
@@ -153,18 +153,22 @@ class PersistenceRegressionTests(unittest.TestCase):
         self.assertEqual(observed[0][3], .4)
 
     def test_camera_rejects_profile_failure_without_resolution_fallback(self):
-        from core.marker_detection import RealSenseCamera
-        camera = SimpleNamespace(config=Mock(), serial_number='offline',
-                                 pipeline=SimpleNamespace(start=Mock(side_effect=[RuntimeError('profile rejected'), RuntimeError('fallback attempted'), RuntimeError('fallback attempted')])) )
+        import threading
+        from core.camera_processing import RealSenseCamera
+        camera = RealSenseCamera.__new__(RealSenseCamera)
+        camera.lock = threading.Lock()
+        camera.config, camera.serial_number = Mock(), 'offline'
+        camera.pipeline = SimpleNamespace(start=Mock(side_effect=[RuntimeError('profile rejected'), RuntimeError('fallback attempted'), RuntimeError('fallback attempted')]))
         rs = SimpleNamespace(stream=SimpleNamespace(color=1), format=SimpleNamespace(bgr8=2), config=Mock)
-        with patch('core.marker_detection.rs', rs, create=True):
+        with patch('core.camera_processing.rs', rs, create=True):
             with self.assertRaisesRegex(RuntimeError, 'profile rejected'):
                 RealSenseCamera.initialize_camera(camera, 1280, 720, 30)
 
     def test_capture_failure_never_reuses_cached_marker_frame(self):
         import threading
         import time
-        from core.marker_detection import Marker_Transform, RealSenseCamera
+        from core.marker_detection import Marker_Transform
+        from core.camera_processing import RealSenseCamera
         camera = RealSenseCamera.__new__(RealSenseCamera)
         camera.camera_running = True
         camera.camera_monitoring = False
@@ -188,7 +192,7 @@ class PersistenceRegressionTests(unittest.TestCase):
     def test_monitored_camera_expires_old_frame_and_rejects_stopped_camera(self):
         import threading
         import time
-        from core.marker_detection import RealSenseCamera
+        from core.camera_processing import RealSenseCamera
         camera = RealSenseCamera.__new__(RealSenseCamera)
         camera.camera_running = True
         camera.camera_monitoring = True

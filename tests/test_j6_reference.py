@@ -102,7 +102,7 @@ class ObservedCircleTests(unittest.TestCase):
 
 class J6ReferenceTests(unittest.TestCase):
     def test_j3_j5_use_measured_candidate_axis_with_unknown_upstream_zeros(self):
-        from test_calibration_regression import OfflineRobot
+        from calibration_support import OfflineRobot
         from core.calibration.JointCalibrator import JointCalibrator
         from core.marker_detection import SimulationModel
         for version in ('1.2', '1.3'):
@@ -213,10 +213,10 @@ class J6ReferenceTests(unittest.TestCase):
         # Actual compute_calibration_results and actual circle fitting, not
         # mocked axes. Only observations are synthetic; no SDK connection.
         import yaml
-        from test_calibration_regression import OfflineRobot
+        from calibration_support import OfflineRobot
         from core.calibration.JointCalibrator import JointCalibrator
         from core.marker_detection import SimulationModel
-        from core.paths import CONFIG_PATHS
+        from core.config_store import CONFIG_PATHS
         for version in ('1.2', '1.3'):
             for mount in ('head', 'fixed'):
                 for side in ('right', 'left'):
@@ -252,6 +252,20 @@ class J6ReferenceTests(unittest.TestCase):
                         self.assertTrue(result['measurement_accepted'], result)
                         self.assertAlmostEqual(result['optimal_offset'],
                             -config['offsets'][side]['joint6'], places=3)
+                        # A mirrored arm is a different physical joint chain,
+                        # not an instruction to flip a fitted normal. Reversing
+                        # both trajectory time order and commanded direction
+                        # must keep the same positive axis and J6 correction.
+                        from core.calibration.CalibratorBase import BaseCalibrator
+                        reference = Rotation.from_euler('xyz',
+                            config['brackets'][version][side][3:], degrees=True).as_matrix()
+                        for direction in (1, -1):
+                            ordered = [np.asarray(poses)[::direction] for poses in datasets]
+                            axes = [BaseCalibrator.fit_observed_circle(poses, direction)['axis']
+                                    for poses in ordered]
+                            measured = estimate_j6_reference(ordered[0], axes[0], ordered[1], axes[1], reference)
+                            self.assertTrue(measured['measurement_accepted'], measured)
+                            self.assertAlmostEqual(measured['optimal_offset'], result['optimal_offset'], places=6)
 
 
 if __name__ == '__main__':

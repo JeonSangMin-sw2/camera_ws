@@ -1,4 +1,5 @@
 import json
+import os
 import logging
 import time
 from datetime import datetime
@@ -6,6 +7,52 @@ from pathlib import Path
 
 import numpy as np
 import rby1_sdk as rby
+
+
+def compare_home_offset_files(result_path, baseline_path):
+    def read(path):
+        if path is None or not Path(path).exists():
+            return {}
+        try:
+            with open(path) as stream:
+                return json.load(stream)
+        except (OSError, ValueError):
+            return {}
+    optimized, baseline = read(result_path), read(baseline_path)
+    comparison = {}
+    for side, key in (('right', 'right_arm_joint_offset_deg'),
+                      ('left', 'left_arm_joint_offset_deg'), ('head', 'head_joint_offset_deg')):
+        opt, base = optimized.get(key), baseline.get(key)
+        difference = None
+        if opt is not None and base is not None and len(opt) == len(base) and len(opt):
+            difference = np.asarray(base) - np.asarray(opt)
+        comparison[side] = dict(optimized=opt, baseline=base, difference=difference)
+    return comparison
+
+
+def move_connected_robot_to_zero(robot, model, include_head):
+    head = np.zeros(len(model.head_idx)) if include_head and len(getattr(model, 'head_idx', [])) >= 2 else None
+    if not movej(robot, right_arm=np.zeros(len(model.right_arm_idx)),
+                 left_arm=np.zeros(len(model.left_arm_idx)), head=head, minimum_time=5):
+        raise RuntimeError('Failed to move robot to zero pose')
+
+
+def run_home_offset_operation(task_type, robot, model, *, json_path=None, label='',
+                              arm='both', include_head=False, skip_init_pose=False,
+                              setting_path=None, log_callback=None):
+    if robot is None or model is None:
+        raise RuntimeError('Robot is not connected.')
+    if task_type == 'move_zero':
+        return move_to_offset_candidate_from_json(robot=robot, model=model, arm=arm,
+            json_path=str(json_path), include_head=include_head, minimum_time=10,
+            move_zero_first=True)
+    if task_type == 'move_check':
+        return move_to_check_position_candidate_path(robot, model, json_path, label,
+            arm, include_head, skip_init_pose, log_callback=log_callback)
+    if task_type == 'apply':
+        return apply_current_pose_home_offset(robot, model, arm, include_head,
+            json_path=json_path, setting_path=setting_path, log_callback=log_callback)
+    raise ValueError(f'Unknown home-offset operation: {task_type}')
 
 
 def load_offset_from_json(filename="calibration_result.json"):
@@ -141,95 +188,23 @@ def save_home_reset_baseline_json(
 
 
 def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=5):
-    if head is not None:
-        model = robot.model()
-        has_head = hasattr(model, 'head_idx') and len(model.head_idx) > 0
-        if not has_head:
-            head = None
-
-    rc = rby.BodyComponentBasedCommandBuilder()
-
-    if right_arm is not None:
-        rc.set_right_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_minimum_time(minimum_time)
-            .set_position(right_arm)
-        )
-
-    if left_arm is not None:
-        rc.set_left_arm_command(
-            rby.JointPositionCommandBuilder()
-            .set_minimum_time(minimum_time)
-            .set_position(left_arm)
-        )
-
-    rc.set_torso_command(
-        rby.JointPositionCommandBuilder()
-        .set_minimum_time(minimum_time)
-        .set_position(np.zeros(6))
-    )
-
-    cmd = rby.ComponentBasedCommandBuilder().set_body_command(rc)
-    if head is not None:
-        cmd.set_head_command(
-            rby.JointPositionCommandBuilder()
-            .set_minimum_time(minimum_time)
-            .set_position(head)
-        )
-
-    rv = robot.send_command(
-        rby.RobotCommandBuilder().set_command(cmd),
-        1,
-    ).get()
-
-    if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-        logging.error("Failed to conduct movej.")
-        return False
-
-    return True
+    from core.robot_motion import move_joints_checked
+    # Home-offset operations historically command a zero torso, regardless of the
+    # optional torso argument; keep that convention separate from calibration motion.
+    return move_joints_checked(robot, torso=np.zeros(6), right_arm=right_arm,
+        left_arm=left_arm, head=head, minimum_time=minimum_time, priority=1,
+        include_head=head is not None)
 
 
-def initialize_robot(address, model, power="48v", servo="^(?!.*wheel).*$"):
-    robot = rby.create_robot(address, model)
-
-    if not robot.connect():
-        raise RuntimeError(f"Failed to connect robot: {address}")
-
-    if not robot.is_power_on(power):
-        if not robot.power_on(power):
-            raise RuntimeError("Power on failed")
-        time.sleep(1.0)
-
-    cm_state = robot.get_control_manager_state().state
-    if cm_state in [
-        rby.ControlManagerState.State.MajorFault,
-        rby.ControlManagerState.State.MinorFault,
-    ]:
-        robot.reset_fault_control_manager()
-        time.sleep(0.5)
-
-    is_servo_ok = robot.is_servo_on(servo)
-    cm_state = robot.get_control_manager_state().state
-    is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
-
-    if not is_servo_ok:
-        if is_cm_enabled:
-            robot.disable_control_manager()
-            time.sleep(0.5)
-        if not robot.servo_on(servo):
-            raise RuntimeError("Servo on failed")
-        time.sleep(0.5)
-
-    if not robot.is_control_manager_enabled():
-        robot.enable_control_manager()
-        time.sleep(0.5)
-
-    return robot
+def initialize_robot(address, model, power="48v", servo=None, *, include_head=False):
+    from core.robot_motion import initialize_robot_connection
+    return initialize_robot_connection(address, model, power=power, servo=servo,
+                                       include_head=include_head, unlimited_mode_enabled=False)
 
 def move_robot_to_zero_pose(address, model_name, arm, power="48v", servo=None, include_head=True):
     if servo is None:
         servo = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
-    robot = initialize_robot(address, model_name, power, servo)
+    robot = initialize_robot(address, model_name, power, servo, include_head=include_head)
     model = robot.model()
 
     if arm not in ("right", "left", "both"):
@@ -370,7 +345,7 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
     try:
         state = robot.get_state()
         q_current = np.array(state.position, dtype=np.float64).reshape(-1)
-        
+
         if hasattr(robot, "get_dynamics"):
             dyn_model = robot.get_dynamics()
         elif hasattr(model, "get_dynamics_model"):
@@ -417,26 +392,10 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
                 log_cb(f"[ERROR] {err_msg}")
             return False, err_msg
 
-        # Load ready_poses.yaml if available
-        import yaml
-        import sys
-        if getattr(sys, 'frozen', False):
-            config_dir = Path(sys.executable).resolve().parent / "config"
-        else:
-            config_dir = Path(__file__).resolve().parent.parent / "config"
-        yaml_path = config_dir / "ready_poses.yaml"
-        
-        ready_poses_dict = {}
-        if yaml_path.exists():
-            with open(yaml_path, "r") as f:
-                ready_poses_dict = yaml.safe_load(f) or {}
+        # Missing/malformed motion configuration must fail before a home write.
+        from core.config_store import RobotConfig
+        ready_poses_dict = RobotConfig.load().ready_poses
 
-        # Default ready pose targets (in degrees) if yaml fails
-        default_ready_deg = {
-            "right_arm": [-90.0, -40.0, 73.0, -97.0, 90.0, 90.0, -10.0],
-            "left_arm": [-90.0, 40.0, -73.0, -97.0, -80.0, 90.0, 10.0]
-        }
-        
         # Collect ready poses to test (marker, joint, check_calib)
         poses_to_check = []
 
@@ -450,9 +409,6 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
                 if "joint" in ver_data:
                     for mode_key, mode_data in ver_data["joint"].items():
                         poses_to_check.append((f"joint_{mode_key}", mode_data))
-
-        if not poses_to_check:
-            poses_to_check = [("default_marker", default_ready_deg)]
 
         # Check joint bounds for selected arms/head
         joint_indices_to_check = []
@@ -472,7 +428,7 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
                     q_ready_val = np.radians(pose_data[side][joint_i])
                     q_offset_val = q_current[idx]
                     q_expected = q_ready_val + q_offset_val
-                    
+
                     min_lim = q_lower[idx]
                     max_lim = q_upper[idx]
 
@@ -481,7 +437,7 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
                         min_deg = np.degrees(min_lim)
                         max_deg = np.degrees(max_lim)
                         off_deg = np.degrees(q_offset_val)
-                        
+
                         err_msg = (
                             f"Joint '{joint_name}' angle {exp_deg:+.1f}° (ready {pose_data[side][joint_i]:+.1f}° + offset {off_deg:+.1f}°) "
                             f"exceeds physical joint limits [{min_deg:+.1f}°, {max_deg:+.1f}°] under pose target '{pose_label}'!"
@@ -589,7 +545,7 @@ def apply_home_offset(
 ):
     if servo is None:
         servo = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
-    robot = initialize_robot(address, model_name, power, servo)
+    robot = initialize_robot(address, model_name, power, servo, include_head=include_head)
     model = robot.model()
 
     move_result = move_to_offset_candidate(
@@ -612,7 +568,7 @@ def apply_home_offset(
     if not reset_result["success"]:
         raise RuntimeError(f"Failed to reset joints: {reset_result['failed_joints']}")
 
-    robot = initialize_robot(address, model_name, power=power, servo=servo)
+    robot = initialize_robot(address, model_name, power=power, servo=servo, include_head=include_head)
 
     right_zero_pose = np.zeros(len(model.right_arm_idx))
     left_zero_pose = np.zeros(len(model.left_arm_idx))
@@ -667,3 +623,154 @@ def reset_home_offsets(robot, model, log_cb=None):
         log_cb=log_cb,
     )
     return result["success"]
+
+
+def move_to_check_position_candidate_path(robot, model, json_path, label, arm, include_head,
+                                          skip_init_pose=False, log_callback=None):
+    log = log_callback or (lambda message: None)
+
+    # Load offsets from json
+    from core.homeoffset_core import load_offset_from_json, _split_arm_offset, _normalize_head_offset, movej
+    offset_rad, head_offset_rad = load_offset_from_json(str(json_path))
+
+    apply_mode, right_offset_rad, left_offset_rad = _split_arm_offset(
+        model,
+        arm,
+        offset_rad,
+    )
+
+    right_offset_to_apply = -right_offset_rad
+    left_offset_to_apply = -left_offset_rad
+    head_offset_full, head_offset_size = _normalize_head_offset(
+        model,
+        head_offset_rad,
+        include_head,
+    )
+    head_offset_to_apply = None if head_offset_full is None else -head_offset_full
+
+    # Determine version key
+    version_key = "v1.2"
+    if robot is not None:
+        try:
+            robot_info = robot.get_robot_info()
+            raw_version = robot_info.robot_model_version
+            if "1.3" in raw_version:
+                version_key = "v1.3"
+        except Exception:
+            pass
+
+    from core.config_store import RobotConfig
+    check_calib_joints = RobotConfig.load().ready_poses[version_key]['check_calib']
+
+    # 1. Move to 1st ready pose (like check_calibration_state)
+    if not skip_init_pose:
+        active_arms = []
+        if arm in ("right", "both"):
+            active_arms.append("right")
+        if arm in ("left", "both"):
+            active_arms.append("left")
+
+        log(f"\n[Check Position] Step 1: Moving to Joint Ready Pose...")
+        ok = movej(
+            robot,
+            torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+            right_arm=np.deg2rad([-45, -30, 0, -90, 0, 45, 0]) if "right" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+            left_arm=np.deg2rad([-45, 30, 0, -90, 0, 45, 0]) if "left" in active_arms else np.deg2rad([0, 0, 0, -90, 0, 0, 0]),
+            minimum_time=5
+        )
+        if not ok:
+            raise RuntimeError("Failed to move robot to Step 1 Ready Pose")
+        time.sleep(2.0)
+    else:
+        log("[Check Position] Step 1: Skipping Ready Pose move (already initialized in check session)")
+
+    # 2. Move to Check Position with offsets added
+    log(f"[Check Position] Step 2: Moving to Check Pose with Offsets...")
+
+    right_target = np.deg2rad(check_calib_joints["right_arm"]) + right_offset_to_apply
+    left_target = np.deg2rad(check_calib_joints["left_arm"]) + left_offset_to_apply
+
+    head_zero_pose = np.zeros(len(model.head_idx)) if include_head else None
+    head_target_pose = None
+    if include_head:
+        head_target_pose = (
+            head_zero_pose
+            if head_offset_to_apply is None
+            else head_zero_pose + head_offset_to_apply
+        )
+
+    ok = movej(
+        robot,
+        torso=np.deg2rad([0, 30, -60, 30, 0, 0]),
+        right_arm=right_target,
+        left_arm=left_target,
+        head=head_target_pose if include_head else None,
+        minimum_time=10
+    )
+    if not ok:
+        raise RuntimeError("Failed to move robot to Step 2 Check Pose")
+    time.sleep(2.0)
+
+    offset_to_apply = np.concatenate([right_offset_to_apply, left_offset_to_apply])
+    head_offset_deg = None
+    if head_offset_to_apply is not None:
+        head_offset_deg = np.rad2deg(head_offset_to_apply[:head_offset_size]).tolist()
+
+    result = {
+        "status": "success",
+        "arm": apply_mode,
+        "offset_deg": np.rad2deg(offset_to_apply).tolist(),
+        "right_offset_deg": np.rad2deg(right_offset_to_apply).tolist(),
+        "left_offset_deg": np.rad2deg(left_offset_to_apply).tolist(),
+        "head_offset_deg": head_offset_deg,
+    }
+
+    log(f"\n===== HOME OFFSET PREVIEW: {label} =====")
+    log(f"JSON: {json_path}")
+    log(f"Arm: {result['arm']}")
+    if result.get("right_offset_deg") is not None:
+        log(f"Right move offset (deg): {result['right_offset_deg']}")
+    if result.get("left_offset_deg") is not None:
+        log(f"Left move offset (deg): {result['left_offset_deg']}")
+    if result.get("head_offset_deg") is not None:
+        log(f"Head move offset (deg): {result['head_offset_deg']}")
+    log("Preview move complete. Inspect the robot pose before applying.")
+    return result
+
+
+def apply_current_pose_home_offset(robot, model, arm, include_head, json_path=None, *,
+                                   setting_path=None, log_callback=None):
+    log = log_callback or (lambda message: None)
+    result = reset_current_pose_home_offsets(
+        robot,
+        model,
+        arm=arm,
+        include_head=include_head,
+    )
+
+    # If camera was optimized, save the new camera pose to setting.yaml
+    if json_path is not None and os.path.exists(json_path):
+        try:
+            import json
+            with open(json_path, "r") as f:
+                data = json.load(f)
+
+            mount_to_cam_new = data.get("mount_to_cam_new")
+            head_base_to_cam_new = data.get("head_base_to_cam_new")
+
+            if mount_to_cam_new or head_base_to_cam_new:
+                from core.config_store import update_yaml
+                key = "mount_to_cam" if include_head else "head_base_to_cam"
+                values = mount_to_cam_new if include_head else head_base_to_cam_new
+                if values is not None:
+                    update_yaml(setting_path, {"camera": {key: values}})
+                    result['camera_save_success'] = True
+                    log(f"[APPLY] Saved optimized {key} to setting.yaml.")
+        except Exception as e:
+            result['camera_save_success'] = False
+            log(f"[ERROR] Robot home reset already completed, but camera settings were NOT saved: {e}")
+
+    # Robot reconnection should be done in the main thread to avoid GUI thread safety issues.
+    # We will signal the caller to handle the reconnection.
+    result['needs_reconnect'] = True
+    return result

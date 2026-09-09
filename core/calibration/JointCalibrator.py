@@ -140,10 +140,10 @@ class JointCalibrator(BaseCalibrator):
 
     def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, save_debug=False, pass_idx=1, pass1_res=None):
         if sweep_duration is None:
-            sweep_duration = BaseCalibrator.JOINT_SWEEP_SECONDS[mode]
+            sweep_duration = self.JOINT_SWEEP_SECONDS[mode]
 
         config_dir = os.path.abspath(os.path.dirname(__file__))
-        from core.paths import CONFIG_PATHS
+        from core.config_store import CONFIG_PATHS
         result_txt_dir = CONFIG_PATHS["txt_dir"]
         os.makedirs(result_txt_dir, exist_ok=True)
         debug_file_path = os.path.join(result_txt_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
@@ -559,7 +559,7 @@ class JointCalibrator(BaseCalibrator):
             )
             plt.tight_layout()
 
-            from core.paths import CONFIG_PATHS
+            from core.config_store import CONFIG_PATHS
             result_dir = CONFIG_PATHS["plot_dir"]
             os.makedirs(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
@@ -635,12 +635,11 @@ class JointCalibrator(BaseCalibrator):
             angle = float(np.rad2deg(np.arccos(np.clip(na @ nb, -1., 1.))))
             quality = {'circle_A': a['residual_rms_m'], 'circle_B': b['residual_rms_m']}
             if mode in ('wrist_yaw2', 'wrist_roll_v13'):
-                suffix = 'v13' if self.is_v13() else 'v12'
-                key = f'Tf_to_marker_{arm_side}_{suffix}'
-                vector = self.camera_config.get(key, self.NOMINAL_BRACKET_TEMPLATES[self.get_robot_version()][arm_side])
+                parameters = getattr(self, 'robot_parameters', self._default_parameters)
+                vector = parameters.nominal_brackets[self.get_robot_version()][arm_side]
                 reference = R_scipy.from_euler('xyz', vector[3:6], degrees=True).as_matrix()
                 result = estimate_j6_reference(dataset_A, na, dataset_B, nb, reference)
-                result['bracket_reference_source'] = key
+                result['bracket_reference_source'] = 'robot_config.nominal_brackets'
                 if not result['measurement_accepted']: return result
             else:
                 c = self.fit_observed_circle(dataset_C)

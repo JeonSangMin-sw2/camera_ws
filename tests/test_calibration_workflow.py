@@ -20,14 +20,46 @@ from core.calibration.CalibratorBase import BaseCalibrator
 from main_ui import set_numeric_field, read_numeric_field
 from core.marker_detection import SimulationModel, Marker_Transform
 from main_ui import FullAutoWorker, UnifiedCalibrationApp
-from core.paths import CONFIG_PATHS
-from test_calibration_regression import OfflineRobot, data, transform_vector
+from core.config_store import CONFIG_PATHS
+from core import calibration_core
+from calibration_support import OfflineRobot, data, transform_vector
 
 
 class WorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.qt = QApplication.instance() or QApplication([])
+
+    def test_actual_ui_language_switch_and_destroyed_widget_unsubscribe(self):
+        import shutil
+        import shiboken6
+        from PySide6.QtCore import QTimer
+        from core.config_store import Language
+        language = Language.instance()
+        original_lang = language.current_lang
+        with tempfile.TemporaryDirectory() as directory:
+            redirected = {}
+            for key, original in CONFIG_PATHS.items():
+                target = Path(directory) / key
+                if Path(original).is_file():
+                    shutil.copy2(original, target)
+                else:
+                    target.mkdir()
+                redirected[key] = str(target)
+            with patch.dict(CONFIG_PATHS, redirected), contextlib.redirect_stdout(io.StringIO()):
+                window = UnifiedCalibrationApp(Marker_Transform(sim=True), None, sim=True)
+                for timer in window.findChildren(QTimer):
+                    timer.stop()
+                language.set_language('en')
+                english = window.wizard_widget.t0.text()
+                language.set_language('ko')
+                self.assertNotEqual(window.wizard_widget.t0.text(), english)
+                wrapper = window.wizard_widget
+                window.close()
+                shiboken6.delete(window)
+                self.assertFalse(shiboken6.isValid(wrapper))
+                language.set_language('en')  # Must not call the deleted C++ widget.
+        language.set_language(original_lang)
 
     def test_compact_fields_preserve_unchanged_full_precision(self):
         field = QLineEdit()
@@ -42,6 +74,17 @@ class WorkflowTests(unittest.TestCase):
         set_numeric_field(field, 90.)
         self.assertEqual(field.text(), '90')
 
+    def test_ui_baseline_lookup_respects_central_path_override(self):
+        stub = SimpleNamespace()
+        stub.get_latest_home_reset_path = lambda required=True: UnifiedCalibrationApp.get_latest_home_reset_path(stub, required)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / 'baseline.json'
+            with patch.dict(CONFIG_PATHS, home_reset_baseline=str(target)):
+                self.assertIsNone(UnifiedCalibrationApp.get_home_reset_path_for_result(stub, 'unused'))
+                target.write_text('{}')
+                self.assertEqual(UnifiedCalibrationApp.get_latest_home_reset_path(stub), target)
+                self.assertEqual(UnifiedCalibrationApp.get_home_reset_path_for_result(stub, 'unused'), target)
+
     def test_ui_exports_camera_zero_separately_from_physical_homes(self):
         from core.homeoffset_core import load_offset_from_json
         robot, sim = OfflineRobot(), SimulationModel.create()
@@ -51,15 +94,15 @@ class WorkflowTests(unittest.TestCase):
             config[f'Tf_to_marker_{side}'] = transform_vector(sim.bracket_transform(side))
         qa, qh, observations = data(robot, sim, 24)
         logs = []
-        fake = SimpleNamespace(robot=robot, model=robot.model(), include_head_motion=True, sim=False,
-            marker_calibrator=SimpleNamespace(camera_config=config),
-            get_robot_version=lambda: '1.2', last_home_reset_path=None,
-            log_msg=logs.append, _loaded_dataset_metadata=sim.metadata())
+        context = calibration_core.OptimizerContext(robot=robot, model=robot.model(),
+            include_head_motion=True, camera_config=config, robot_version='1.2',
+            capture_metadata=sim.metadata())
         with tempfile.TemporaryDirectory() as folder:
             path = Path(folder) / 'result.json'
             with contextlib.redirect_stdout(io.StringIO()):
-                UnifiedCalibrationApp.run_optimizer(fake, ['right', 'left'], True, True,
-                    qa, qh, observations, str(path), lambda_cam_pos=0, lambda_cam_rot=0)
+                calibration_core.run_calibration_optimizer(context, ['right', 'left'], True, True,
+                    qa, qh, observations, str(path), lambda_cam_pos=0, lambda_cam_rot=0,
+                    log_callback=logs.append)
             with path.open() as f:
                 result = json.load(f)
             self.assertFalse(result['head_tilt_independent'])
@@ -95,16 +138,61 @@ class WorkflowTests(unittest.TestCase):
         robot = OfflineRobot()
         provider = Marker_Transform(sim=True, robot=robot)
         provider.set_marker_type('plate')
-        fake = SimpleNamespace(robot=robot, model=robot.model(), sim=True,
-            log_msg=lambda _: None, _write_step2_log=lambda _: None, shared_arm_q_list=[],
-            step2_mode_sel=SimpleNamespace(currentText=lambda: 'live'),
-            get_robot_version=lambda: '1.2',
-            get_capture_head_idx=lambda: robot.model().head_idx,
-            marker_st=provider)
-        qa, qh, _ = UnifiedCalibrationApp.capture_one_sample(fake,
-            motion_plan_step={'q_arm': np.ones(14), 'q_head': np.ones(2)})
+        qa, qh, _ = calibration_core.capture_calibration_sample(
+            robot, robot.model(), provider, robot_version='1.2',
+            head_idx=robot.model().head_idx)
         np.testing.assert_array_equal(qa, np.zeros(14))
         np.testing.assert_array_equal(qh, np.zeros(2))
+
+    def test_queued_capture_logs_keep_capture_time_sample_ordinals(self):
+        from PySide6.QtCore import QObject, Signal, Qt
+        from core.robot_motion import AutoCollectionConfig
+        class Emitter(QObject):
+            captured = Signal(object)
+        class LogReceiver(QObject):
+            log_captured_sample = UnifiedCalibrationApp.log_captured_sample
+        state = calibration_core.CollectionState(
+            motion_plan=[{'desc': 'offline pose'}] * 2, ready=True)
+        logs = []
+        receiver = LogReceiver()
+        receiver.shared_arm_q_list = state.arm_samples
+        receiver.log_msg = logs.append
+        receiver._write_step2_log = lambda message: None
+        emitter = Emitter()
+        emitter.captured.connect(receiver.log_captured_sample, Qt.QueuedConnection)
+        sample = (np.zeros(14), None, np.stack([np.eye(4), np.eye(4)]))
+        service = calibration_core.AutoCollectionService(
+            object(), object(), None, None, AutoCollectionConfig(), state,
+            include_head_motion=False, sample_callback=emitter.captured.emit)
+        with patch('core.robot_motion.build_incremental_motion_plan', return_value=state.motion_plan), \
+             patch('core.robot_motion.execute_auto_motion_step'), \
+             patch('core.calibration_core.capture_calibration_sample', return_value=sample), \
+             patch('core.calibration_core.time.sleep'):
+            self.assertTrue(service.run())
+        self.assertEqual(logs, [])
+        state.arm_samples.append(np.ones(14))
+        self.qt.processEvents()
+        self.assertEqual([line.split(']')[0] for line in logs], ['[Sample 1', '[Sample 2'])
+
+    def test_manual_capture_logs_next_sample_and_preserves_return_tuple(self):
+        class ManualCaptureAdapter:
+            capture_one_sample = UnifiedCalibrationApp.capture_one_sample
+            log_captured_sample = UnifiedCalibrationApp.log_captured_sample
+        adapter = ManualCaptureAdapter()
+        adapter.robot, adapter.model, adapter.marker_st = object(), object(), object()
+        adapter.get_robot_version = lambda: '1.2'
+        adapter.get_capture_head_idx = lambda: None
+        adapter.shared_arm_q_list = [np.zeros(14)]
+        logs = []
+        adapter.log_msg = logs.append
+        adapter._write_step2_log = lambda message: None
+        sample = (np.ones(14), None, np.stack([np.eye(4), np.eye(4)]))
+        with patch('main_ui.capture_calibration_sample', return_value=sample):
+            captured = adapter.capture_one_sample()
+        self.assertIs(captured[0], sample[0])
+        self.assertIs(captured[2], sample[2])
+        self.assertTrue(logs[0].startswith('[Sample 2]'))
+        self.assertEqual(len(adapter.shared_arm_q_list), 1)
 
     def test_full_auto_uses_measured_joint_acceptance_before_bracket_in_both_versions(self):
         for version in ('1.2', '1.3'):
@@ -141,7 +229,7 @@ class WorkflowTests(unittest.TestCase):
                                     success=True, measurement_accepted=True)
                     def generate_marker_plot(self, *a, **kw): return False
                     def clear_user_taught_ready_poses(self): pass
-                worker = FullAutoWorker(Calibrator(), Calibrator(),
+                worker = calibration_core.FullAutoCalibrationService(Calibrator(), Calibrator(),
                     stop_event=threading.Event(), joint_offsets_store=store)
                 with patch('main_ui.time.sleep'):
                     worker.run()
@@ -246,7 +334,10 @@ class WorkflowTests(unittest.TestCase):
 
     def test_empty_motion_plan_is_not_reported_as_success(self):
         from main_ui import Step2AutoMotionWorker
-        worker = Step2AutoMotionWorker(SimpleNamespace(get_auto_pose_target_count=lambda: 0))
+        from core.robot_motion import AutoCollectionConfig
+        service = calibration_core.AutoCollectionService(None, None, None, None,
+            AutoCollectionConfig(), calibration_core.CollectionState(motion_plan=[]))
+        worker = Step2AutoMotionWorker(service)
         done = []
         worker.finished_signal.connect(lambda ok, msg: done.append((ok, msg)))
         worker.run()

@@ -191,7 +191,8 @@ class MarkerCalibrator(BaseCalibrator):
             axis5 = R_scipy.from_rotvec(-np.deg2rad(command6)*axis6).apply([0.,1.,0.])
             rotation, _ = R_scipy.align_vectors(np.array([axis6, axis5]), np.array([lines[2][0], lines[1][0]]))
             rot = rotation.as_matrix()
-            wrist_in_ee = np.array([0.,0.,.125 if self.is_v13() else .1261])
+            parameters = getattr(self, 'robot_parameters', self._default_parameters)
+            wrist_in_ee = np.array([0., 0., parameters.tool_lengths[self.get_robot_version()]])
             position = wrist_in_ee - rot @ pivot
             rpy = rotation.as_euler('xyz', degrees=True)
             values = dict(zip(('x_e','y_e','z_e','roll_e','pitch_e','yaw_e'), [*(position*1000.), *rpy]))

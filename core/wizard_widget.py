@@ -7,19 +7,12 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap
-from core.i18n import I18nManager, tr
-
-def get_asset_path(relative_path):
-    if getattr(sys, 'frozen', False):
-        return os.path.abspath(os.path.join(sys._MEIPASS, relative_path))
-    else:
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        return os.path.abspath(os.path.join(current_dir, relative_path))
+from core.config_store import Language, tr, get_asset_path
 
 class HowToMoveArmsDialog(QDialog):
     def __init__(self, parent=None, is_ko=False):
         super().__init__(parent)
-        is_ko = (I18nManager.instance().current_lang == "ko")
+        is_ko = (Language.instance().current_lang == "ko")
         self.setWindowTitle("팔 이동 방법 (Direct Teaching)" if is_ko else "How to Move Arms (Direct Teaching)")
         self.resize(750, 520)
         self.setStyleSheet("""
@@ -136,7 +129,12 @@ class CalibrationWizardWidget(QWidget):
         self.unified_elapsed = 0
         
         # Connect language changed signal
-        I18nManager.instance().language_changed.connect(self.on_language_changed)
+        Language.instance().subscribe(self.on_language_changed)
+        # Keep the config module Qt-free; detach when the C++ widget is deleted
+        # even if a Python wrapper is still referenced by an old dialog.
+        from weakref import WeakMethod
+        callback = WeakMethod(self.on_language_changed)
+        self.destroyed.connect(lambda *_: Language.instance().unsubscribe(callback()))
         
         self.setup_slides()
         self.stacked_widget.currentChanged.connect(self.update_navigation)
@@ -1026,13 +1024,13 @@ class CalibrationWizardWidget(QWidget):
         row1_layout = QHBoxLayout()
         row1_layout.setSpacing(15)
         
-        self.btn_rollback_preview = QPushButton("Rollback Preview" if I18nManager.instance().current_lang != "ko" else "롤백 자세 확인")
+        self.btn_rollback_preview = QPushButton("Rollback Preview" if Language.instance().current_lang != "ko" else "롤백 자세 확인")
         self.btn_rollback_preview.setMinimumHeight(40)
         self.btn_rollback_preview.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
         self.btn_rollback_preview.clicked.connect(lambda: self.wizard_move_check("baseline"))
         row1_layout.addWidget(self.btn_rollback_preview)
         
-        self.btn_new_offset_preview = QPushButton("New Offset Preview" if I18nManager.instance().current_lang != "ko" else "보정 자세 확인")
+        self.btn_new_offset_preview = QPushButton("New Offset Preview" if Language.instance().current_lang != "ko" else "보정 자세 확인")
         self.btn_new_offset_preview.setMinimumHeight(40)
         self.btn_new_offset_preview.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; border-radius: 6px;")
         self.btn_new_offset_preview.clicked.connect(lambda: self.wizard_move_check("optimized"))
@@ -1043,13 +1041,13 @@ class CalibrationWizardWidget(QWidget):
         row2_layout = QHBoxLayout()
         row2_layout.setSpacing(15)
         
-        self.btn_rollback_joint = QPushButton("Rollback Joint" if I18nManager.instance().current_lang != "ko" else "기존 영점 복구 (Rollback)")
+        self.btn_rollback_joint = QPushButton("Rollback Joint" if Language.instance().current_lang != "ko" else "기존 영점 복구 (Rollback)")
         self.btn_rollback_joint.setMinimumHeight(45)
         self.btn_rollback_joint.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_rollback_joint.clicked.connect(lambda: self.wizard_apply_offset("baseline"))
         row2_layout.addWidget(self.btn_rollback_joint)
         
-        self.btn_apply_new_offset = QPushButton("Apply New Offset" if I18nManager.instance().current_lang != "ko" else "신규 보정 적용 (Apply)")
+        self.btn_apply_new_offset = QPushButton("Apply New Offset" if Language.instance().current_lang != "ko" else "신규 보정 적용 (Apply)")
         self.btn_apply_new_offset.setMinimumHeight(45)
         self.btn_apply_new_offset.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_apply_new_offset.clicked.connect(lambda: self.wizard_apply_offset("optimized"))
@@ -1666,7 +1664,7 @@ class CalibrationWizardWidget(QWidget):
         result_path, baseline_path = self.get_apply_paths()
         path = baseline_path if state == "baseline" else result_path
         
-        is_ko = (I18nManager.instance().current_lang == "ko")
+        is_ko = (Language.instance().current_lang == "ko")
         
         if not path or not os.path.exists(path):
             QMessageBox.warning(self, "Warning" if not is_ko else "경고", 
@@ -1709,7 +1707,7 @@ class CalibrationWizardWidget(QWidget):
         result_path, baseline_path = self.get_apply_paths()
         path = baseline_path if state == "baseline" else result_path
         
-        is_ko = (I18nManager.instance().current_lang == "ko")
+        is_ko = (Language.instance().current_lang == "ko")
         
         if not path or not os.path.exists(path):
             QMessageBox.warning(self, "Warning" if not is_ko else "경고", 

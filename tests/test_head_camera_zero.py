@@ -13,7 +13,7 @@ from core.calibration_optimizer import compute_fk, make_transform
 from core.calibration.HeadCameraCalibrator import camera_forward_zero, camera_command_to_encoder
 from core.homeoffset_core import load_offset_from_json
 from core.marker_detection import SimulationModel
-from test_calibration_regression import OfflineRobot, data, optimizer
+from calibration_support import OfflineRobot, data, optimizer
 
 
 def head_fk(robot):

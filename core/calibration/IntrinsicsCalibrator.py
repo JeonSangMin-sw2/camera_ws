@@ -383,7 +383,7 @@ class IntrinsicsCalibrator:
         }
         data.update(getattr(self, 'capture_metadata', {}))
         from pathlib import Path
-        from core.paths import CONFIG_PATHS
+        from core.config_store import CONFIG_PATHS
         from core.marker_detection import Marker_Transform
         if Path(output_yaml).resolve() != Path(CONFIG_PATHS['camera_intrinsics']).resolve():
             raise ValueError('Intrinsics must be saved to config/camera_intrinsics.yaml')

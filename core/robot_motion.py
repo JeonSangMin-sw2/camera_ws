@@ -5,6 +5,210 @@ from dataclasses import dataclass
 
 D2R = np.pi / 180.0
 
+
+def initialize_robot_connection(address, model_name, *, servo=None, include_head=False,
+                                power='48v', unlimited_mode_enabled=False):
+    """Checked SDK initialization; model verification precedes power and servo."""
+    robot = rby.create_robot(address, model_name)
+    try:
+        if not robot.connect():
+            raise RuntimeError(f"Failed to connect robot: {address}")
+        actual_model = robot.get_robot_info().robot_model_name
+        if actual_model.lower() != model_name.lower():
+            robot.disconnect()
+            robot = rby.create_robot(address, actual_model)
+            if not robot.connect():
+                raise RuntimeError(f"Failed to reconnect with actual model: {actual_model}")
+        if not robot.is_power_on(power):
+            if not robot.power_on(power):
+                raise RuntimeError('Power on failed')
+            time.sleep(1.)
+        fault_states = (rby.ControlManagerState.State.MajorFault,
+                        rby.ControlManagerState.State.MinorFault)
+        if robot.get_control_manager_state().state in fault_states:
+            if not robot.reset_fault_control_manager():
+                raise RuntimeError('Control manager fault reset failed')
+            time.sleep(.5)
+        pattern = servo if servo is not None and servo != '.*' else '^(?!.*wheel).*$'
+        if not include_head:
+            pattern = f'^(?!.*head)(?:{pattern})$'
+        if not robot.is_servo_on(pattern):
+            if robot.get_control_manager_state().state == rby.ControlManagerState.State.Enabled:
+                if not robot.disable_control_manager():
+                    raise RuntimeError('Control manager disable failed')
+                time.sleep(.5)
+            if not robot.servo_on(pattern):
+                raise RuntimeError('Servo on failed')
+            time.sleep(.5)
+        manager_state = robot.get_control_manager_state()
+        current_mode = getattr(manager_state, 'unlimited_mode_enabled', None)
+        if manager_state.state == rby.ControlManagerState.State.Enabled and (
+                type(current_mode) is not bool or current_mode != unlimited_mode_enabled):
+            # SDK enable returns early when already enabled, ignoring a new mode.
+            # Older bindings without a boolean mode field need the same explicit
+            # disable/re-enable transition to establish the requested policy.
+            if not robot.disable_control_manager():
+                raise RuntimeError('Control manager disable failed')
+            time.sleep(.5)
+        if not robot.enable_control_manager(unlimited_mode_enabled=unlimited_mode_enabled):
+            raise RuntimeError('Control manager enable failed')
+        time.sleep(.5)
+        applied_mode = getattr(robot.get_control_manager_state(), 'unlimited_mode_enabled', None)
+        if type(applied_mode) is bool and applied_mode != unlimited_mode_enabled:
+            raise RuntimeError('Control manager mode mismatch after enable')
+        return robot
+    except Exception:
+        robot.disconnect()
+        raise
+
+
+def move_joints_checked(robot, torso=None, right_arm=None, left_arm=None, head=None,
+                        minimum_time=0, priority=10, *, include_head=False):
+    """Send explicit joint targets, without applying offsets or enabling servos."""
+    if robot is None:
+        return False
+    if not include_head:
+        head = None
+    if head is not None:
+        model = robot.model()
+        if len(getattr(model, 'head_idx', [])) == 0:
+            head = None
+    component = rby.ComponentBasedCommandBuilder()
+    body = rby.BodyComponentBasedCommandBuilder()
+    has_body = False
+    for target, setter in ((torso, body.set_torso_command),
+                           (right_arm, body.set_right_arm_command),
+                           (left_arm, body.set_left_arm_command)):
+        if target is not None:
+            setter(rby.JointPositionCommandBuilder().set_minimum_time(minimum_time).set_position(target))
+            has_body = True
+    if has_body:
+        component.set_body_command(body)
+    elif head is None:
+        return False
+    if head is not None:
+        component.set_head_command(rby.JointPositionCommandBuilder()
+                                   .set_minimum_time(minimum_time).set_position(head))
+    try:
+        result = robot.send_command(rby.RobotCommandBuilder().set_command(component), priority).get()
+        return result.finish_code == rby.RobotCommandFeedback.FinishCode.Ok
+    except Exception:
+        return False
+
+
+def calibration_square_targets(offset):
+    """Cartesian check points, preserving the existing wrist orientations."""
+    targets = []
+    for point in ([.35, .07, 0.], [.35, 0., .07], [.35, -.07, 0.], [.35, 0., -.07]):
+        right, left = np.eye(4), np.eye(4)
+        right[:3, :3] = rot_z(0.) @ rot_y(-np.pi / 2) @ rot_x(np.pi / 2)
+        left[:3, :3] = rot_z(0.) @ rot_y(-np.pi / 2) @ rot_x(-np.pi / 2)
+        right[:3, 3] = np.asarray(point) - [0., offset, 0.]
+        left[:3, 3] = np.asarray(point) + [0., offset, 0.]
+        targets.append((right, left))
+    return targets
+
+
+def estimate_collection_samples(robot, dyn_model, config, include_head_motion):
+    if robot is not None and dyn_model is not None:
+        try:
+            plan = build_incremental_motion_plan(robot, dyn_model, config, ['right', 'left'],
+                                                include_head_motion=include_head_motion)
+            _, transform = compute_fk(robot, dyn_model, robot.get_state().position, 'ee_right')
+            return len(plan), transform[0, 3], False
+        except Exception:
+            pass
+    start_x = .3
+    count = 33 * (int((config.max_x - start_x) / config.step_x_m) + 1) if config.max_x > start_x else 0
+    return count, start_x, True
+
+
+def current_head_pose(robot, model):
+    indices = getattr(model, 'head_idx', None)
+    if robot is None or indices is None or len(indices) < 2:
+        return None
+    state = robot.get_state()
+    if state is None or getattr(state, 'position', None) is None:
+        return None
+    return np.asarray(state.position)[list(indices[:2])].copy()
+
+
+def draw_calibration_square(robot, active_arms, offset, log_callback=None):
+    log = log_callback or (lambda message: None)
+    log("Starting square drawing sequence (2 loops)...")
+    for loop in range(2):
+        log(f"Loop {loop + 1} / 2")
+        for index, (right, left) in enumerate(calibration_square_targets(offset)):
+            log(f"  Target Point {index + 1}: X={right[0, 3]}, Y={right[1, 3] + offset}, Z={right[2, 3]}")
+            command = make_dual_arm_head_cmd(
+                T_right=right, T_left=left, active_arms=active_arms,
+                head_position=None, min_time=2., hold_time=.2)
+            result = robot.send_command(command, 10).get()
+            if result.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                raise RuntimeError(f"Draw point move failed: {result.finish_code}")
+            time.sleep(.5)
+    log("Square drawing sequence completed successfully.")
+
+
+def prepare_capture_pose(robot, active_arms, priority, *, include_head_motion=True,
+                         robot_version=None, marker_transform=None, head_idx=None,
+                         teaching_callback=None, log_callback=None):
+    """Move, request manual teaching when needed, and return the centered head pose."""
+    log = log_callback or (lambda message: None)
+    if robot is None:
+        time.sleep(.5)
+        return None
+    move_to_auto_ready_pose(robot=robot, active_arms=active_arms, minimum_time=10.,
+        priority=priority, include_head_motion=include_head_motion, robot_version=robot_version)
+    if marker_transform is None:
+        return None
+    log("[Step2] Verifying marker visibility at the initial ready pose...")
+    time.sleep(1.5)
+    for side in active_arms:
+        measurement = marker_transform.get_marker_transform(sampling_time=1.5, side=side)
+        if measurement is None:
+            log(f"[INFO] {side.title()} arm marker not visible at Init Pose. Showing teaching dialog...")
+            if teaching_callback is None or not teaching_callback(side):
+                raise RuntimeError(f"{side.title()} arm posture teaching canceled by user.")
+    log("[INFO] Re-verifying marker visibility at the new posture...")
+    observations = [marker_transform.get_marker_transform(sampling_time=1.5, side=side)
+                    for side in active_arms]
+    if any(observation is None for observation in observations):
+        raise RuntimeError("Marker still not detected at Init Pose after teaching.")
+    centered_head = None
+    if include_head_motion and head_idx is not None and len(head_idx) >= 2:
+        try:
+            points = []
+            for observation in observations:
+                # Marker providers may return flattened, nested, or matrix transforms.
+                transform = np.asarray(observation)
+                if transform.size == 16:
+                    points.append(transform.reshape(4, 4)[:3, 3])
+            if points:
+                midpoint = np.mean(points, axis=0)
+                pitch_error = np.arctan2(midpoint[1], midpoint[2])
+                yaw_error = np.arctan2(midpoint[0], midpoint[2])
+                if abs(pitch_error) > np.deg2rad(1.) or abs(yaw_error) > np.deg2rad(1.5):
+                    log(f"[INFO] Auto-centering head: aligning camera optical center (Pitch: {np.rad2deg(pitch_error):+.2f}°, Yaw: {np.rad2deg(yaw_error):+.2f}°)...")
+                    state = robot.get_state()
+                    if state is not None and getattr(state, 'position', None) is not None:
+                        current = np.asarray(state.position)[list(head_idx)]
+                        target = np.clip(current + [yaw_error, pitch_error],
+                                         np.deg2rad([-25., -20.]), np.deg2rad([25., 20.]))
+                        command = rby.ComponentBasedCommandBuilder().set_head_command(
+                            rby.JointPositionCommandBuilder().set_position(target).set_minimum_time(2.))
+                        result = robot.send_command(rby.RobotCommandBuilder().set_command(command), priority).get()
+                        if result.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                            raise RuntimeError(f'Head centering move failed: {result.finish_code}')
+                        time.sleep(1.)
+                        centered_head = target.copy()
+                        log(f"[SUCCESS] Head auto-centered successfully to (Pan: {np.rad2deg(target[0]):+.2f}°, Tilt: {np.rad2deg(target[1]):+.2f}°).")
+        except Exception as error:
+            log(f"[ERROR] Auto-centering head failed: {error}")
+            raise
+    log("[SUCCESS] Marker visibility verified successfully at the ready pose.")
+    return centered_head
+
 @dataclass
 class AutoCollectionConfig:
     angle_step_deg: float = 5.0
@@ -40,7 +244,7 @@ def apply_cartesian_offset(T, dx=0.0, dy=0.0, dz=0.0, droll_deg=0.0, dpitch_deg=
     T_new[0, 3] += dx
     T_new[1, 3] += dy
     T_new[2, 3] += dz
-    
+
     R_off = rot_z(np.deg2rad(dyaw_deg)) @ rot_y(np.deg2rad(dpitch_deg)) @ rot_x(np.deg2rad(droll_deg))
     # Apply rotation in tool frame (right-multiply) to keep marker in view more easily
     T_new[:3, :3] = T_new[:3, :3] @ R_off
@@ -58,39 +262,39 @@ def compute_fk(robot, dyn_model, q_full, ee_link, base_link="link_torso_5"):
 def compute_head_tracking_q(T_right, T_left, active_arms, p_neck, q_head_0, p_marker_0):
     if q_head_0 is None or p_neck is None or p_marker_0 is None:
         return None
-        
+
     pts = []
     if "right" in active_arms and T_right is not None:
         pts.append(T_right[:3, 3])
     if "left" in active_arms and T_left is not None:
         pts.append(T_left[:3, 3])
-        
+
     if len(pts) == 0:
         return q_head_0.copy()
-        
+
     p_marker = np.mean(pts, axis=0)
-    
+
     v_0 = p_marker_0 - p_neck
     v_i = p_marker - p_neck
-    
+
     yaw_geo_0 = np.arctan2(v_0[1], v_0[0])
     pitch_geo_0 = np.arctan2(v_0[2], np.sqrt(v_0[0]**2 + v_0[1]**2))
-    
+
     yaw_geo_i = np.arctan2(v_i[1], v_i[0])
     pitch_geo_i = np.arctan2(v_i[2], np.sqrt(v_i[0]**2 + v_i[1]**2))
-    
+
     yaw_diff = yaw_geo_i - yaw_geo_0
     pitch_diff = pitch_geo_i - pitch_geo_0
-    
+
     yaw_target = q_head_0[0] + yaw_diff
     # Pitch joint sign convention: positive pitch rotates head downward (looking down),
     # so we subtract pitch_diff to look upward.
     pitch_target = q_head_0[1] - pitch_diff
-    
+
     # Clip head angles to safe ranges (Yaw: ±25 deg, Pitch: ±20 deg relative to zero)
     yaw_target = np.clip(yaw_target, -25.0 * D2R, 25.0 * D2R)
     pitch_target = np.clip(pitch_target, -20.0 * D2R, 20.0 * D2R)
-    
+
     return np.array([yaw_target, pitch_target], dtype=np.float64)
 _motion_state = {
     "q_right_baseline": None,
@@ -125,18 +329,18 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     q_full = np.array(state.position)
     _, T_base_right = compute_fk(robot, dyn_model, q_full, "ee_right", "link_torso_5")
     _, T_base_left = compute_fk(robot, dyn_model, q_full, "ee_left", "link_torso_5")
-    
+
     model = robot.model()
     head_idx = list(model.head_idx[:2]) if (len(model.head_idx) >= 2 and include_head_motion) else None
     has_head = head_idx is not None
     q_head_0 = np.array([float(q_full[i]) for i in head_idx], dtype=np.float64) if has_head else None
-    
+
     try:
         _, T_head_0 = compute_fk(robot, dyn_model, q_full, "link_head_2", "link_torso_5")
         p_neck = T_head_0[:3, 3]
     except Exception:
         p_neck = None
-        
+
     def get_marker_midpoint(tr, tl):
         pts = []
         if "right" in active_arms and tr is not None:
@@ -146,13 +350,13 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         if len(pts) == 0:
             return None
         return np.mean(pts, axis=0)
-        
+
     p_marker_0 = get_marker_midpoint(T_base_right, T_base_left)
-    
+
     plan = []
     T_curr_right = T_base_right.copy() if T_base_right is not None else None
     T_curr_left = T_base_left.copy() if T_base_left is not None else None
-    
+
     loop_count = 0
     max_loops = getattr(config, 'max_loops', 1)
 
@@ -294,7 +498,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                 "head_q": head_q,
                 "desc": f"RPY: ({dr:.2f},{dp:.2f},{dy:.2f})"
             })
-            
+
         half_pos = config.position_step_m / 2.0
         full_pos = config.position_step_m
         dx_step = min(getattr(config, 'step_x_m', 0.04), 0.04)
@@ -312,12 +516,12 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                 "head_q": head_q,
                 "desc": f"Pos: ({dx:.3f},{dy:.3f},{dz:.3f})"
             })
-            
+
         # 4. Independent head motions (Pan Left/Right, Tilt Up/Down) with denser steps and optimized angle range
         if has_head and q_head_0 is not None:
             head_sweep_range_deg = 3.5
             steps_deg = [-head_sweep_range_deg, -head_sweep_range_deg / 2.0, head_sweep_range_deg / 2.0, head_sweep_range_deg]
-            
+
             head_targets = []
             for ang in steps_deg:
                 ang_rad = np.radians(ang)
@@ -334,31 +538,31 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                     "head_q": hq,
                     "desc": desc
                 })
-            
+
         T_curr_right = apply_cartesian_offset(T_curr_right, dx=config.step_x_m)
         T_curr_left = apply_cartesian_offset(T_curr_left, dx=config.step_x_m)
-        
+
     return plan
 
 def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None):
     model = robot.model() if robot else None
     has_head = (include_head_motion) and (model is not None and hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2)
-    
+
     # Step 1: Joint Ready Pose (go_to_ready_pose 기준)
     q_torso = np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R
-    
+
     if "right" in active_arms:
         q_right = np.array([-45, -30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
     else:
         q_right = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
-        
+
     if "left" in active_arms:
         q_left = np.array([-45, 30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
     else:
         q_left = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
-        
+
     q_ready = np.concatenate([q_torso, q_right, q_left])
-    
+
     print("Step 1: Moving to Joint Ready Pose...")
     comp1 = rby.ComponentBasedCommandBuilder().set_body_command(
         rby.JointPositionCommandBuilder()
@@ -388,10 +592,10 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     # Step 2: Cartesian Checking Pose (Lower Z to 0.15m for lowered fixed chest camera vs 0.27m for head)
     z_height = 0.15 if not has_head else 0.27
     y_val = 0.11 if is_v13 else 0.13
-    
+
     T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -y_val, z_height])
     T_right[:3, :3] = T_right[:3, :3] @ rot_z(180*D2R)
-    
+
     T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, y_val, z_height])
     T_left[:3, :3] = T_left[:3, :3] @ rot_z(180*D2R)
 
@@ -406,14 +610,14 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     if "right" in active_arms:
         header_right = rby.CommandHeaderBuilder()
         header_right.set_control_hold_time(0.5)
-        
+
         right_cmd = rby.CartesianCommandBuilder()
         right_cmd.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.5, 1.0, 0.3)
         right_cmd.set_stop_position_tracking_error(0.005)
         right_cmd.set_stop_orientation_tracking_error(0.02)
         right_cmd.set_minimum_time(minimum_time)
         right_cmd.set_command_header(header_right)
-        
+
         body2.set_right_arm_command(right_cmd)
     else:
         right_joint = rby.JointPositionCommandBuilder()
@@ -424,14 +628,14 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     if "left" in active_arms:
         header_left = rby.CommandHeaderBuilder()
         header_left.set_control_hold_time(0.5)
-        
+
         left_cmd = rby.CartesianCommandBuilder()
         left_cmd.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.5, 1.0, 0.3)
         left_cmd.set_stop_position_tracking_error(0.005)
         left_cmd.set_stop_orientation_tracking_error(0.02)
         left_cmd.set_minimum_time(minimum_time)
         left_cmd.set_command_header(header_left)
-        
+
         body2.set_left_arm_command(left_cmd)
     else:
         left_joint = rby.JointPositionCommandBuilder()
@@ -460,7 +664,7 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         if q_right is not None:
             header_right = rby.CommandHeaderBuilder()
             header_right.set_control_hold_time(hold_time)
-            
+
             right_joint = rby.JointPositionCommandBuilder()
             right_joint.set_position(q_right)
             right_joint.set_minimum_time(min_time)
@@ -469,7 +673,7 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         elif T_right is not None:
             header_right = rby.CommandHeaderBuilder()
             header_right.set_control_hold_time(hold_time)
-            
+
             right_cart = rby.CartesianCommandBuilder()
             right_cart.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.2, 0.5, 0.3)
             if elbow_angle_deg is not None:
@@ -491,7 +695,7 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         if q_left is not None:
             header_left = rby.CommandHeaderBuilder()
             header_left.set_control_hold_time(hold_time)
-            
+
             left_joint = rby.JointPositionCommandBuilder()
             left_joint.set_position(q_left)
             left_joint.set_minimum_time(min_time)
@@ -500,7 +704,7 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
         elif T_left is not None:
             header_left = rby.CommandHeaderBuilder()
             header_left.set_control_hold_time(hold_time)
-            
+
             left_cart = rby.CartesianCommandBuilder()
             left_cart.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.2, 0.5, 0.3)
             if elbow_angle_deg is not None:
@@ -705,7 +909,7 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
             log_cb("[ControlManager] Control manager in fault state. Resetting...")
         robot.reset_fault_control_manager()
         time.sleep(1.0)
-        
+
     cm_state = robot.get_control_manager_state()
     if cm_state.state != rby.ControlManagerState.State.Enabled:
         if log_cb is not None:
@@ -717,20 +921,20 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     if not skip_ready:
         if log_cb is not None:
             log_cb("Step 1: Moving to Joint Ready Pose...")
-        
+
         # 1. Joint Ready Pose
         if "right" in active_arms:
             q_right = np.array([-45, -30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
         else:
             q_right = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
-            
+
         if "left" in active_arms:
             q_left = np.array([-45, 30, 0, -90, 0, 45, 0], dtype=np.float64) * D2R
         else:
             q_left = np.array([0, 0, 0, -90, 0, 0, 0], dtype=np.float64) * D2R
-            
+
         q_ready = np.concatenate([q_torso, q_right, q_left])
-        
+
         cmd1 = rby.RobotCommandBuilder().set_command(
             rby.ComponentBasedCommandBuilder().set_body_command(
                 rby.JointPositionCommandBuilder()
@@ -741,38 +945,38 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
         rv1 = robot.send_command(cmd1, 10).get()
         if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
             raise RuntimeError(f"Failed to move to Joint Ready Pose: {rv1.finish_code}")
-            
+
         time.sleep(1.0)
     else:
         if log_cb is not None:
             log_cb("Skipping Joint Ready Pose (Subsequent Move)...")
-        
+
     if log_cb is not None:
         log_cb("Step 2: Moving to Cartesian Symmetrical Checking Pose...")
-        
+
     # 2. Cartesian Symmetrical Pose
     # Compute transformations
     import math
     roll_r = 90 * math.pi / 180
     pitch_r = -90 * math.pi / 180
     yaw_r = 0.0
-    
+
     # Right transform
     cr_r = math.cos(roll_r); sr_r = math.sin(roll_r)
     cp_r = math.cos(pitch_r); sp_r = math.sin(pitch_r)
     cy_r = math.cos(yaw_r); sy_r = math.sin(yaw_r)
-    
+
     T_right = np.eye(4, dtype=np.float64)
     T_right[0, 0] = cy_r * cp_r
     T_right[0, 1] = sr_r * sp_r * cy_r - cr_r * sy_r
     T_right[0, 2] = cr_r * sp_r * cy_r + sr_r * sy_r
     T_right[0, 3] = data[0]
-    
+
     T_right[1, 0] = sy_r * cp_r
     T_right[1, 1] = sr_r * sp_r * sy_r + cr_r * cy_r
     T_right[1, 2] = cr_r * sp_r * sy_r - sr_r * cy_r
     T_right[1, 3] = data[1] - offset
-    
+
     T_right[2, 0] = -sp_r
     T_right[2, 1] = cp_r * sr_r
     T_right[2, 2] = cp_r * cr_r
@@ -781,23 +985,23 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     roll_l = -90 * math.pi / 180
     pitch_l = -90 * math.pi / 180
     yaw_l = 0.0
-    
+
     # Left transform
     cr_l = math.cos(roll_l); sr_l = math.sin(roll_l)
     cp_l = math.cos(pitch_l); sp_l = math.sin(pitch_l)
     cy_l = math.cos(yaw_l); sy_l = math.sin(yaw_l)
-    
+
     T_left = np.eye(4, dtype=np.float64)
     T_left[0, 0] = cy_l * cp_l
     T_left[0, 1] = sr_l * sp_l * cy_l - cr_l * sy_l
     T_left[0, 2] = cr_l * sp_l * cy_l + sr_l * sy_l
     T_left[0, 3] = data[0]
-    
+
     T_left[1, 0] = sy_l * cp_l
     T_left[1, 1] = sr_l * sp_l * sy_l + cr_l * cy_l
     T_left[1, 2] = cr_l * sp_l * sy_l - sr_l * cy_l
     T_left[1, 3] = data[1] + offset
-    
+
     T_left[2, 0] = -sp_l
     T_left[2, 1] = cp_l * sr_l
     T_left[2, 2] = cp_l * cr_l
@@ -815,14 +1019,14 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     if "right" in active_arms:
         header_right = rby.CommandHeaderBuilder()
         header_right.set_control_hold_time(0.5)
-        
+
         right_cart = rby.CartesianCommandBuilder()
         right_cart.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
         right_cart.set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
         right_cart.set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
         right_cart.set_minimum_time(MINIMUM_TIME)
         right_cart.set_command_header(header_right)
-        
+
         body.set_right_arm_command(right_cart)
     else:
         right_joint = rby.JointPositionCommandBuilder()
@@ -833,14 +1037,14 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     if "left" in active_arms:
         header_left = rby.CommandHeaderBuilder()
         header_left.set_control_hold_time(0.5)
-        
+
         left_cart = rby.CartesianCommandBuilder()
         left_cart.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), LINEAR_VELOCITY_LIMIT, ANGULAR_VELOCITY_LIMIT, ACCELERATION_LIMIT)
         left_cart.set_stop_position_tracking_error(STOP_POSITION_TRACKING_ERROR)
         left_cart.set_stop_orientation_tracking_error(STOP_ORIENTATION_TRACKING_ERROR)
         left_cart.set_minimum_time(MINIMUM_TIME)
         left_cart.set_command_header(header_left)
-        
+
         body.set_left_arm_command(left_cart)
     else:
         left_joint = rby.JointPositionCommandBuilder()

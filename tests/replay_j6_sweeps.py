@@ -1,4 +1,4 @@
-"""Read-only replay of legacy J6/J5 TXT sweeps; no robot connection.
+"""Read-only replay of current or legacy J6/J5 TXT sweeps; no robot connection.
 
 python tests/replay_j6_sweeps.py --input-dir result/result_txt
 Legacy TXT lacks full encoders/timestamps. This checks raw camera-axis
@@ -17,18 +17,22 @@ from core.calibration.JointCalibrator import estimate_j6_reference
 
 
 def read_blocks(path):
-    blocks = []
-    for block in path.read_text().split('=== NEW ITERATION ==='):
-        rows = []
-        for line in block.splitlines():
-            if not line.strip() or line.startswith('#'):
-                continue
-            row = [float(value) for value in line.split(',')]
-            if len(row) != 58:
-                raise ValueError(f'Expected legacy 58-column TXT: {path}')
-            rows.append(row)
-        if rows:
-            blocks.append(np.asarray(rows))
+    blocks, rows = [], []
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if '=== NEW ITERATION ===' in line or line.startswith('# ordered T_camera_marker'):
+            if rows:
+                blocks.append(np.asarray(rows))
+                rows = []
+            continue
+        if not line or line.startswith('#'):
+            continue
+        row = [float(value) for value in line.replace(',', ' ').split()]
+        if len(row) not in (16, 58) or (rows and len(row) != len(rows[0])):
+            raise ValueError(f'Expected consistent 16-pose or legacy 58-column rows: {path}')
+        rows.append(row)
+    if rows:
+        blocks.append(np.asarray(rows))
     return blocks
 
 
@@ -43,7 +47,7 @@ def replay(folder, side='right', version='1.2'):
     for i, pair in enumerate(zip(*paired),1):
         fitted, metrics = [], []
         for rows in pair:
-            poses = rows[:,10:26].reshape(-1,4,4)
+            poses = (rows if rows.shape[1] == 16 else rows[:,10:26]).reshape(-1,4,4)
             # Joint calibration commands both sweeps in increasing order.
             # Legacy angle/encoder columns are deliberately ignored.
             fit = BaseCalibrator.fit_observed_circle(poses, 1)
@@ -56,9 +60,10 @@ def replay(folder, side='right', version='1.2'):
         reports.append(dict(block=i, sweeps=metrics,
             measurement_accepted=result['measurement_accepted'],
             failure_reason=result.get('failure_reason'),
+            relative_correction_deg=result.get('optimal_offset'),
             quality_diagnostics=result['quality_diagnostics']))
     return dict(scope='offline raw-camera sweep consistency; not absolute J6 recovery',
-                legacy_missing=['full_encoder_vector','frame_timestamp','encoder_timestamp','image_corners'],
+                unavailable=['frame_timestamp','image_corners'],
                 blocks=reports)
 
 

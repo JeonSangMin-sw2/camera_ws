@@ -12,34 +12,16 @@ from scipy.spatial.transform import Rotation as R_scipy
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
+from core.config_store import RobotConfig
+
+
 class BaseCalibrator:
+    _default_parameters = RobotConfig.load()
     # Shared by Full Auto and the individual joint-calibration UI.
-    JOINT_SWEEP_SECONDS = {
-        'wrist_yaw2': 20.0, 'wrist_roll_v13': 20.0,
-        'wrist_pitch': 15.0, 'wrist_pitch_v13': 15.0, 'elbow': 20.0,
-    }
-    JOINT_CONFIGS = {
-        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 6, "sweep_joint_B": 4, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
-        "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
-        "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
-        "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 15.0, "sweep_range_B": 15.0},
-    }
-    MARKER_CONFIGS = {
-        "axis_4": {"joint_i": 4, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
-        "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -30.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
-        "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
-    }
-    NOMINAL_BRACKET_TEMPLATES = {
-        "1.3": {
-            "left":  [0.067, 0.0, 0.0, 90.0, 0.0, -90.0],
-            "right": [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
-        },
-        "1.2": {
-            "left":  [0.0, 0.054, -0.048, 90.0, 0.0, 0.0],
-            "right": [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
-        }
-    }
+    JOINT_SWEEP_SECONDS = _default_parameters.joint_sweep_seconds
+    JOINT_CONFIGS = _default_parameters.joint_configs
+    MARKER_CONFIGS = _default_parameters.marker_configs
+    NOMINAL_BRACKET_TEMPLATES = _default_parameters.nominal_brackets
     def __init__(self, marker_st=None, robot=None):
         self.marker_st = marker_st
         self.robot = robot
@@ -48,10 +30,9 @@ class BaseCalibrator:
         # Load camera setting config if available
         self.camera_config = {}
         self.markers_config = {}
-        self.load_camera_config()
-        
         self.ready_poses = {}
         self.load_ready_poses()
+        self.load_camera_config()
         
         # Active joint home offsets to apply to commanded trajectories
         self.joint_offsets = {
@@ -76,19 +57,12 @@ class BaseCalibrator:
                 self.user_taught_ready_poses.clear()
 
     def load_ready_poses(self):
-        from core.paths import CONFIG_PATHS
-        yaml_path = CONFIG_PATHS["ready_poses_yaml"]
-        if os.path.exists(yaml_path):
-            try:
-                with open(yaml_path, "r", encoding="utf-8") as f:
-                    self.ready_poses = yaml.safe_load(f) or {}
-                logging.info(f"Loaded ready poses from {yaml_path}")
-            except Exception as e:
-                logging.error(f"Failed to load ready_poses.yaml: {e}")
-                sys.exit(f"[CRITICAL ERROR] Failed to parse ready_poses.yaml: {e}")
-        else:
-            logging.error(f"ready_poses.yaml not found at {yaml_path}!")
-            sys.exit(f"[CRITICAL ERROR] ready_poses.yaml not found at {yaml_path}!")
+        self.robot_parameters = RobotConfig.load()
+        self.ready_poses = self.robot_parameters.ready_poses
+        self.JOINT_SWEEP_SECONDS = self.robot_parameters.joint_sweep_seconds
+        self.JOINT_CONFIGS = self.robot_parameters.joint_configs
+        self.MARKER_CONFIGS = self.robot_parameters.marker_configs
+        self.NOMINAL_BRACKET_TEMPLATES = self.robot_parameters.nominal_brackets
 
     def get_robot_version(self) -> str:
         """Returns the robot version as a string: '1.0', '1.1', '1.2', or '1.3'."""
@@ -141,8 +115,8 @@ class BaseCalibrator:
             # Without head motion, lower Shoulder Pitch (Joint 0) for a fixed viewing direction.
             # and adjust Elbow (Joint 3) in negative direction to keep marker perpendicular to camera FOV without tilting backward.
             if not self.is_head_active() and len(val_arr) >= 7:
-                j0_delta = 19.0
-                elbow_delta = -4.0 if (type_key == "marker" or mode_key in ["wrist_pitch", "wrist_yaw2", "wrist_roll", "wrist_pitch_v13", "wrist_roll_v13"]) else 0.0
+                j0_delta = getattr(self, 'robot_parameters', self._default_parameters).head_disabled_adjustment['shoulder']
+                elbow_delta = getattr(self, 'robot_parameters', self._default_parameters).head_disabled_adjustment['elbow'] if (type_key == "marker" or mode_key in ["wrist_pitch", "wrist_yaw2", "wrist_roll", "wrist_pitch_v13", "wrist_roll_v13"]) else 0.0
                 val_arr[0] += j0_delta  # Joint 0 positive pitch lowers the arm down into fixed FOV (-55 -> -36 deg)
                 val_arr[3] += elbow_delta  # Joint 3 negative offset flexes elbow to prevent marker from tilting backwards
                 msg = f"[READY POSE] Head motion disabled (camera mount unchanged): Joint 0 lowered by +{j0_delta:.1f}° ({val_arr[0]:.1f}°), Elbow adjusted by {elbow_delta:+.1f}° ({val_arr[3]:.1f}°) for {arm_side}_arm ({type_key}/{mode_key})"
@@ -159,7 +133,7 @@ class BaseCalibrator:
 
     def load_camera_config(self):
         # Locate setting.yaml
-        from core.paths import CONFIG_PATHS
+        from core.config_store import CONFIG_PATHS
         yaml_path = CONFIG_PATHS["setting_yaml"]
         if not os.path.exists(yaml_path):
             logging.error(f"[CRITICAL ERROR] setting.yaml not found at {yaml_path}!")
@@ -181,23 +155,17 @@ class BaseCalibrator:
                 if k not in self.markers_config and k in self.camera_config:
                     self.markers_config[k] = self.camera_config[k]
 
-            # Strict validation for marker configurations in setting.yaml
-            required_keys = ["Tf_to_marker_left_v13", "Tf_to_marker_right_v13", "Tf_to_marker_left_v12", "Tf_to_marker_right_v12"]
-            missing_keys = [k for k in required_keys if k not in self.markers_config]
-            if missing_keys:
-                raise KeyError(f"[CRITICAL ERROR] Missing required marker configuration keys in setting.yaml: {missing_keys}")
-
             # For compatibility, merge Tf_to_marker keys from markers_config to camera_config
             for k, v in self.markers_config.items():
                 if k.startswith("Tf_to_marker_"):
                     self.camera_config[k] = v
             
-            # Dynamically synchronize NOMINAL_BRACKET_TEMPLATES with values from setting.yaml
-            self.NOMINAL_BRACKET_TEMPLATES["1.3"]["left"] = list(self.markers_config["Tf_to_marker_left_v13"])
-            self.NOMINAL_BRACKET_TEMPLATES["1.3"]["right"] = list(self.markers_config["Tf_to_marker_right_v13"])
-            self.NOMINAL_BRACKET_TEMPLATES["1.2"]["left"] = list(self.markers_config["Tf_to_marker_left_v12"])
-            self.NOMINAL_BRACKET_TEMPLATES["1.2"]["right"] = list(self.markers_config["Tf_to_marker_right_v12"])
-            
+            # Nominal design belongs to robot configuration, never applied estimates.
+            for version, sides in self.NOMINAL_BRACKET_TEMPLATES.items():
+                for side, values in sides.items():
+                    key = f"Tf_to_marker_{side}_v{version.replace('.', '')}"
+                    self.camera_config[key] = list(values)
+
             logging.info(f"Loaded config from setting.yaml successfully.")
         except Exception as e:
             logging.error(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
@@ -205,7 +173,7 @@ class BaseCalibrator:
 
     def save_observed_points(self, arm_side, axis_num, poses, label):
         """Camera poses only. No inferred physical pose or encoder columns."""
-        from core.paths import CONFIG_PATHS
+        from core.config_store import CONFIG_PATHS
         directory = CONFIG_PATHS['txt_dir']
         os.makedirs(directory, exist_ok=True)
         path = os.path.join(directory, f'sweep_points_{arm_side}_{label}_axis_{axis_num}.txt')
@@ -215,134 +183,15 @@ class BaseCalibrator:
 
     @staticmethod
     def initialize_robot(address, model, servo=None, include_head=True):
-        robot = rby.create_robot(address, model)
-        if not robot.connect():
-            logging.error(f"Failed to connect robot {address}")
+        from core.robot_motion import initialize_robot_connection
+        host = str(address).rsplit(':', 1)[0].strip('[]').lower()
+        power = '.*' if host in ('127.0.0.1', 'localhost', '::1', '0.0.0.0') else '48v'
+        try:
+            return initialize_robot_connection(address, model, servo=servo,
+                include_head=include_head, power=power, unlimited_mode_enabled=True)
+        except Exception as error:
+            logging.error('Robot initialization failed: %s', error)
             return None
-        
-        # Safety check: Verify actual connected robot model matches expected model
-        try:
-            robot_info = robot.get_robot_info()
-            actual_model = robot_info.robot_model_name.lower()
-            expected_model = model.lower()
-            if actual_model != expected_model:
-                logging.warning(f"Model mismatch! UI selected model: {model}, but actual robot model is: {robot_info.robot_model_name}. Auto-reconnecting with actual model...")
-                robot.disconnect()
-                robot = rby.create_robot(address, robot_info.robot_model_name)
-                if not robot.connect():
-                    logging.error(f"Failed to connect robot {address} with actual model {robot_info.robot_model_name}")
-                    return None
-        except Exception as e:
-            logging.error(f"Failed to verify robot model: {e}")
-            robot.disconnect()
-            return None
-
-        # Check if connecting to localhost/simulator
-        endpoint_host = str(address).rsplit(":", 1)[0].strip("[]").lower()
-        is_local = endpoint_host in ("127.0.0.1", "localhost", "::1", "0.0.0.0")
-
-        # Check if power is ON; if not, turn on power
-        try:
-            power_pattern = ".*" if is_local else "48v"
-            if not robot.is_power_on(power_pattern):
-                logging.info(f"Power ({power_pattern}) is not ON. Turning power on...")
-                if not robot.power_on(power_pattern):
-                    logging.error(f"Failed to turn power ({power_pattern}) on.")
-                    robot.disconnect()
-                    return None
-                time.sleep(1.0)
-            else:
-                logging.info(f"Power ({power_pattern}) is already ON.")
-        except Exception as e:
-            logging.error(f"Failed to check or set power status: {e}")
-            robot.disconnect()
-            return None
-
-        # Wait 1 second
-        time.sleep(1.0)
-
-        # Check and reset control manager fault if necessary
-        try:
-            cm_state = robot.get_control_manager_state().state
-            if cm_state in [
-                rby.ControlManagerState.State.MajorFault,
-                rby.ControlManagerState.State.MinorFault,
-            ]:
-                logging.warning("Control manager is in fault state. Resetting...")
-                robot.reset_fault_control_manager()
-                time.sleep(0.5)
-            cm_state = robot.get_control_manager_state().state
-            is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
-        except Exception as e:
-            logging.warning(f"Failed to check control manager state: {e}")
-            is_cm_enabled = False
-
-        # Configure servo pattern based on include_head flag (independent of physical hardware)
-        if servo is not None and servo != ".*":
-            target_servo_pattern = servo
-        else:
-            target_servo_pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
-        if not include_head:
-            # An explicit caller pattern must not override the no-head rule.
-            target_servo_pattern = f"^(?!.*head)(?:{target_servo_pattern})$"
-
-        # Check if servos are ON
-        try:
-            is_servo_ok = robot.is_servo_on(target_servo_pattern)
-        except Exception as e:
-            logging.warning(f"Failed to check servo status: {e}")
-            is_servo_ok = False
-
-        def enable_cm_helper(r):
-            try:
-                cm_state_post = r.get_control_manager_state()
-                if cm_state_post.state in [
-                    rby.ControlManagerState.State.MajorFault,
-                    rby.ControlManagerState.State.MinorFault,
-                ]:
-                    logging.warning(f"Control manager is in fault state: {cm_state_post.state}. Resetting...")
-                    if not r.reset_fault_control_manager():
-                        logging.error("Failed to reset control manager")
-                
-                cm_state_post = r.get_control_manager_state()
-                if cm_state_post.state == rby.ControlManagerState.State.Enabled:
-                    logging.info("Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
-                    try:
-                        r.disable_control_manager()
-                        time.sleep(0.5)
-                    except Exception as ex:
-                        logging.warning(f"Failed to disable control manager: {ex}")
-                
-                logging.info("Enabling control manager with unlimited_mode_enabled=True...")
-                if not r.enable_control_manager(unlimited_mode_enabled=True):
-                    logging.error("Failed to enable control manager with unlimited_mode_enabled=True")
-                else:
-                    time.sleep(1.0)
-            except Exception as ex:
-                logging.error(f"Failed to configure control manager: {ex}")
-
-        if is_servo_ok:
-            logging.info("Servos are ON. Ensuring Control Manager is enabled with unlimited mode...")
-            enable_cm_helper(robot)
-        else:
-            # Otherwise, disable control manager first, then turn on servos and enable
-            logging.info("Servos are not ON. Disabling Control Manager first to turn on servos...")
-            if is_cm_enabled:
-                try:
-                    robot.disable_control_manager()
-                    time.sleep(0.5)
-                except Exception as e:
-                    logging.warning(f"Failed to disable control manager: {e}")
-            
-            logging.info(f"Turning servos on with pattern '{target_servo_pattern}'...")
-            if not robot.servo_on(target_servo_pattern):
-                logging.error(f"Failed to turn servos on with pattern '{target_servo_pattern}'.")
-            else:
-                time.sleep(0.5)
-            
-            enable_cm_helper(robot)
-
-        return robot
 
     @staticmethod
     def terminate_robot(robot):
@@ -429,57 +278,13 @@ class BaseCalibrator:
                 left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
                 left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
 
-        comp_cmd = rby.ComponentBasedCommandBuilder()
-        
-        has_body = False
-        body_cmd = rby.BodyComponentBasedCommandBuilder()
-        if torso is not None:
-            body_cmd.set_torso_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(torso)
-            )
-            has_body = True
-        if right_arm is not None:
-            body_cmd.set_right_arm_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(right_arm)
-            )
-            has_body = True
-        if left_arm is not None:
-            body_cmd.set_left_arm_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(left_arm)
-            )
-            has_body = True
-        
-        if has_body:
-            comp_cmd.set_body_command(body_cmd)
-        elif head is None:
-            # A disabled head-only request must not send an empty robot command.
-            return False
-
-        if head is not None:
-            comp_cmd.set_head_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(head)
-            )
-        
-        cmd = rby.RobotCommandBuilder().set_command(comp_cmd)
-        
+        from core.robot_motion import move_joints_checked
         try:
-            rv = robot.send_command(cmd, priority).get()
-            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-                print(f"[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: {rv.finish_code}", flush=True)
-                logging.error(f"Failed to conduct movej. Finish code: {rv.finish_code}")
-                return False
-            return True
-        except Exception as e:
-            print(f"[DEBUG MOVEJ EXCEPTION] movej exception: {e}", flush=True)
-            logging.error(f"movej exception: {e}")
+            return move_joints_checked(robot, torso=torso, right_arm=right_arm,
+                left_arm=left_arm, head=head, minimum_time=minimum_time,
+                priority=priority, include_head=self.is_head_active())
+        except Exception as error:
+            logging.error('movej failed: %s', error)
             return False
 
     @staticmethod

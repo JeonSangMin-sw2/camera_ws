@@ -284,22 +284,6 @@ class HeadCameraCalibrator(BaseCalibrator):
         if log_callback:
             log_callback(f"[INFO] Active marker for Head sweep: {active_side}")
 
-        P_marker_t5_nom = None
-        try:
-            dyn_model = self.robot.get_dynamics()
-            q_current = np.array(self.robot.get_state().position)
-            T_t5_to_ee = BaseCalibrator.compute_fk(self.robot, dyn_model, q_current, f"ee_{active_side}", "link_torso_5")
-            suffix = "_v13" if self.is_v13() else "_v12"
-            tf_vec = self.camera_config.get(f"Tf_to_marker_{active_side}{suffix}")
-            if tf_vec is None:
-                tf_vec = self.camera_config.get(f"Tf_to_marker_{active_side}")
-            if tf_vec is None:
-                tf_vec = self.NOMINAL_BRACKET_TEMPLATES["1.3" if self.is_v13() else "1.2"][active_side]
-            T_ee_to_marker = BaseCalibrator.make_transform(tf_vec)
-            P_marker_t5_nom = (T_t5_to_ee @ T_ee_to_marker)[:3, 3]
-        except Exception:
-            pass
-
         # ----------------------------------------------------
         # Phase A: Head Tilt Sweep (Pan = 0, Tilt: -range to +range)
         # ----------------------------------------------------
@@ -400,7 +384,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         return self._compute_head_camera_solution(
             pts_tilt_cam, pts_pan_cam, captured_tilt_angles, captured_pan_angles,
             nominal_mount_to_cam, R_nom, obs_r_0=obs_r_0, obs_l_0=obs_l_0,
-            active_side=active_side, P_marker_t5_nom=P_marker_t5_nom, log_callback=log_callback,
+            active_side=active_side, log_callback=log_callback,
             tilt_head_deg=captured_tilt_head_deg, pan_head_deg=captured_pan_head_deg
         )
 
@@ -415,7 +399,6 @@ class HeadCameraCalibrator(BaseCalibrator):
         obs_r_0=None,
         obs_l_0=None,
         active_side="right",
-        P_marker_t5_nom=None,
         log_callback=None,
         tilt_head_deg=None,
         pan_head_deg=None
@@ -496,7 +479,7 @@ class HeadCameraCalibrator(BaseCalibrator):
     def apply_calibration_results(self, results=None, log_callback=None):
         """Commit validated settings before publishing calibration to memory."""
         from core.config_store import update_yaml
-        from core.paths import CONFIG_PATHS
+        from core.config_store import CONFIG_PATHS
         if results is None:
             results = self.calibrated_results
         if not results or not results.get("success", False):

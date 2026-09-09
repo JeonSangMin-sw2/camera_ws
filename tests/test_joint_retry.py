@@ -9,9 +9,10 @@ from unittest.mock import patch
 import numpy as np
 from PySide6.QtWidgets import QApplication
 from main_ui import FullAutoWorker, UnifiedCalibrationApp
-from core.paths import CONFIG_PATHS
+from core.config_store import CONFIG_PATHS
 from core.calibration.CalibratorBase import BaseCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
+from core import calibration_core
 
 
 class RetryTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class RetryTests(unittest.TestCase):
             seen.append(kw['current_offset_deg'])
             return {'optimal_offset': -1.0 - kw['current_offset_deg']}
         cal = SimpleNamespace(robot=None, use_angle_based_fitting=True,
-            JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, joint_offsets={'right': {}},
+            JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, JOINT_SWEEP_SECONDS=BaseCalibrator.JOINT_SWEEP_SECONDS, joint_offsets={'right': {}},
             perform_calibration_sweep_continuous=sweep,
             save_calibration_comparison_plot=lambda *a, **kw: None)
         with tempfile.TemporaryDirectory() as folder, patch.dict(CONFIG_PATHS, txt_dir=folder):
@@ -67,8 +68,8 @@ class RetryTests(unittest.TestCase):
                     roll_e=n[3], pitch_e=n[4], yaw_e=n[5])
             def generate_marker_plot(self, *a, **kw): return False
             def clear_user_taught_ready_poses(self): pass
-        worker = FullAutoWorker(Calibrator(), Calibrator(), stop_event=threading.Event(), joint_offsets_store=store)
-        with patch('main_ui.time.sleep'):
+        worker = calibration_core.FullAutoCalibrationService(Calibrator(), Calibrator(), stop_event=threading.Event(), joint_offsets_store=store)
+        with patch('core.calibration_core.time.sleep'):
             worker.run()
         return worker, events
 
@@ -79,7 +80,7 @@ class RetryTests(unittest.TestCase):
             seen.append(delta)
             return {'optimal_offset': delta}
         cal = SimpleNamespace(robot=None, use_angle_based_fitting=True,
-            JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, joint_offsets={'right': {}},
+            JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, JOINT_SWEEP_SECONDS=BaseCalibrator.JOINT_SWEEP_SECONDS, joint_offsets={'right': {}},
             perform_calibration_sweep_continuous=sweep,
             save_calibration_comparison_plot=lambda *a, **kw: None)
         with tempfile.TemporaryDirectory() as folder, patch.dict(CONFIG_PATHS, txt_dir=folder):
@@ -95,6 +96,14 @@ class RetryTests(unittest.TestCase):
             self.assertEqual([p for s,m,p in events if s==side and m=='wrist_pitch'], [1])
             self.assertEqual([p for s,m,p in events if s==side and m=='wrist_yaw2'], [1,2])
             self.assertEqual([p for s,m,p in events if s==side and m=='sweep'], [2,2,2])
+
+    def test_failed_sequence_restores_pre_run_applied_offsets_but_retains_accepted_results(self):
+        worker, _ = self.run_worker('elbow', 99, failed_offset=8.)
+        # J5 and J6 were accepted, but a failed sequence cannot leave its bracket
+        # installed as the active camera model.
+        self.assertEqual(worker.marker_calibrator.camera_config, {})
+        self.assertTrue(worker.stage_results['right']['wrist_pitch']['converged'])
+        self.assertTrue(worker.stage_results['right']['wrist_yaw2']['converged'])
 
     def test_persistent_failed_j6_never_enters_bracket(self):
         worker, events = self.run_worker('wrist_yaw2', 99)
@@ -136,7 +145,7 @@ class RetryTests(unittest.TestCase):
             return dict(measurement_accepted=False, optimal_offset=8.,
                         failure_reason='inconsistent marker-frame axis')
         cal = SimpleNamespace(robot=None, use_angle_based_fitting=True,
-            JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, joint_offsets={'right': {}},
+            JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, JOINT_SWEEP_SECONDS=BaseCalibrator.JOINT_SWEEP_SECONDS, joint_offsets={'right': {}},
             perform_calibration_sweep_continuous=sweep,
             save_calibration_comparison_plot=lambda *a, **kw: None)
         with tempfile.TemporaryDirectory() as folder, patch.dict(CONFIG_PATHS, txt_dir=folder):
@@ -164,7 +173,7 @@ class RetryTests(unittest.TestCase):
                     seen.append((kw['sweep_duration'], kw['save_debug']))
                     return {'optimal_offset': 1. if mode=='wrist_yaw2' else (1. if len(seen)==1 else 0.)}
                 cal=SimpleNamespace(robot=None, use_angle_based_fitting=True,
-                    JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, joint_offsets={'right': {}},
+                    JOINT_CONFIGS=BaseCalibrator.JOINT_CONFIGS, JOINT_SWEEP_SECONDS=BaseCalibrator.JOINT_SWEEP_SECONDS, joint_offsets={'right': {}},
                     perform_calibration_sweep_continuous=sweep,
                     save_calibration_comparison_plot=lambda *a, **kw: None)
                 with tempfile.TemporaryDirectory() as folder, patch.dict(CONFIG_PATHS, txt_dir=folder):
