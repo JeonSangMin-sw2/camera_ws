@@ -1,6 +1,14 @@
 import sys
 import os
+
+# Ensure 'core' directory is in sys.path for direct python main_ui.py execution
+current_dir = os.path.dirname(os.path.abspath(__file__))
+core_dir = os.path.join(current_dir, "core")
+if core_dir not in sys.path:
+    sys.path.insert(0, core_dir)
+
 # os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)
+# pyrefly: ignore [missing-import]
 import cv2
 import numpy as np
 import time
