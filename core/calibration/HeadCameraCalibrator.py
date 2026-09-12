@@ -44,10 +44,9 @@ class HeadCameraCalibrator(BaseCalibrator):
         if log_callback:
             log_callback("[INFO] Moving robot to Head-Camera Calibration Ready Pose (Dual-arm Init Pose)...")
 
-        is_mock = (self.robot is None or self.robot == "mock_robot" or not hasattr(self.robot, "get_state"))
-        if is_mock:
-            if log_callback: log_callback("[MOCK] Moved to Ready Pose successfully.")
-            return True
+        if self.robot is None:
+            if log_callback: log_callback("[ERROR] Robot is not connected.")
+            return False
 
         has_head = getattr(self, "include_head_motion", True)
         if hasattr(self, "robot") and hasattr(self.robot, "model"):
@@ -179,17 +178,13 @@ class HeadCameraCalibrator(BaseCalibrator):
             self.calibrated_results = res
             return res
 
-        is_mock = (self.robot is None or self.robot == "mock_robot" or not hasattr(self.robot, "get_state"))
+        if self.robot is None or not hasattr(self.robot, "get_state"):
+            if log_callback: log_callback("[ERROR] Head sweep requires connected robot.")
+            return None
 
         # Nominal CAD parameters (Loaded directly from setting.yaml camera_config)
         nominal_mount_to_cam = nom_mount
         R_nom = R_scipy.from_euler('ZYX', [nominal_mount_to_cam[5], nominal_mount_to_cam[4], nominal_mount_to_cam[3]], degrees=True).as_matrix()
-
-        if is_mock:
-            if log_callback: log_callback("[MOCK] Running simulation head sweep calibration...")
-            return self._mock_perform_head_sweep(
-                arm_side, pan_range_deg, tilt_range_deg, num_steps, nominal_mount_to_cam, R_nom, log_callback
-            )
 
         # Check marker visibility at Ready Pose (head = [0, 0])
         obs_r_0, _ = self._detect_marker_point(arm_side="right", sampling_time=0.5)
@@ -373,36 +368,29 @@ class HeadCameraCalibrator(BaseCalibrator):
         # Align measured sweep plane normals with nominal head axes via symmetric SVD Procrustes projection
         # In mount frame (link_head_2):
         # 1. Tilt axis is [0, 1, 0] (y). In camera optical frame: v_c_y = n_tilt_cam / ||n_tilt_cam||
-        # 2. Pan axis is [0, 0, 1] in link_head_1, but link_head_2 is rotated around y by delta_tilt.
-        #    Therefore, in link_head_2, the Pan axis is: [sin(delta_tilt), 0, cos(delta_tilt)].
-        #    Using the nominal CAD rotation R_nom, we project n_pan_cam into mount frame:
-        #    v_pan_in_mount = R_nom @ v_c_z
-        #    delta_tilt_est = arcsin(clip(v_pan_in_mount[0], -1.0, 1.0))
-        # 3. Un-tilt n_pan_cam around the true tilt axis v_c_y by -delta_tilt_est to obtain the pure Z-axis of link_head_2:
-        #    v_c_z_untilted = v_c_z * cos(-delta_tilt) + (v_c_y x v_c_z) * sin(-delta_tilt)
+        # 2. Pan axis is [0, 0, 1] (z). In camera optical frame: v_c_z = n_pan_cam / ||n_pan_cam||
+        # Note: With stationary arm markers, camera bracket pitch error and head tilt joint offset
+        # are collinear (rotate around the same physical axis). Step 1.5 calibrates the physical
+        # camera mount extrinsics (mount_to_cam), while keeping joint zero offsets at 0.0.
+        # Joint zero offsets are refined jointly in Step 2 with full-body arm kinematics.
         v_c_y = n_tilt_cam / np.linalg.norm(n_tilt_cam)
         v_c_z = n_pan_cam / np.linalg.norm(n_pan_cam)
 
-        v_pan_mount_proj = R_nom @ v_c_z
-        delta_tilt_est_rad = np.arcsin(np.clip(v_pan_mount_proj[0], -1.0, 1.0))
-        head_tilt_offset_deg = float(np.degrees(delta_tilt_est_rad))
-
-        # Rotate v_c_z back around the true tilt axis (v_c_y) by -delta_tilt_est_rad
-        # using Rodrigues rotation formula to obtain the pure Z-axis of link_head_2:
-        theta = -delta_tilt_est_rad
-        v_c_z_untilted = v_c_z * np.cos(theta) + np.cross(v_c_y, v_c_z) * np.sin(theta)
-        v_c_z_untilted /= np.linalg.norm(v_c_z_untilted)
-
+        head_tilt_offset_deg = 0.0
+        v_c_z_untilted = v_c_z / np.linalg.norm(v_c_z)
         v_c_x = np.cross(v_c_y, v_c_z_untilted)
         v_c_x = v_c_x / np.linalg.norm(v_c_x)
 
-        # SVD Procrustes projection with untilted Pan normal:
+        # SVD Procrustes projection with measured Pan and Tilt normals:
         A = np.column_stack([v_c_x, v_c_y, v_c_z_untilted])
         U, _, Vt = np.linalg.svd(A)
         R_cam_T = U @ np.diag([1.0, 1.0, np.linalg.det(U @ Vt)]) @ Vt
         R_cam_est = R_cam_T.T
 
-        from core.calibration_optimizer import rot_to_euler_zyx
+        try:
+            from .calibration_optimizer import rot_to_euler_zyx
+        except ImportError:
+            from core.calibration.calibration_optimizer import rot_to_euler_zyx
         rpy_est_deg = rot_to_euler_zyx(R_cam_est) * R2D
         est_roll_deg = float(rpy_est_deg[0])
         est_pitch_deg = float(rpy_est_deg[1])
@@ -412,14 +400,46 @@ class HeadCameraCalibrator(BaseCalibrator):
         diff_pitch = est_pitch_deg - nom_pitch
         diff_yaw = est_yaw_deg - nom_yaw
 
-        # Head Pan zero offset is refined in Step 2 through 64 multi-channel 3D poses without soft anchoring
+        # Relative rotation between estimated camera orientation and nominal mount orientation in link_head_2:
+        # In link_head_2 frame, any absorbed tilt/orientation error rotates the camera rigid body around the mount origin.
+        # To preserve full SE(3) transformation consistency, camera translation must also be rotated by R_rel.
+        R_rel_mount = R_cam_est @ R_nom.T
+        nom_t = np.array(nominal_mount_to_cam[:3], dtype=np.float64)
+        calibrated_t = R_rel_mount @ nom_t
+
+        # Head Pan & Tilt zero offsets are refined in Step 2 through 64 multi-channel 3D poses without soft anchoring
         head_pan_offset_deg = 0.0
-        decoupled_success = True
-        rmse_3d_marker_mm = float(np.sqrt(rmse_tilt_plane**2 + rmse_pan_plane**2))
+        head_tilt_offset_deg = 0.0
+
+        # Compute true 3D stationary marker reconstruction spread across all captured poses
+        # to ensure full SE(3) transformation consistency
+        reconstructed_pts = []
+        for t_deg, obs in zip(captured_tilt_angles, pts_tilt_cam):
+            R_head = (R_scipy.from_euler('z', 0.0, degrees=True).as_matrix()
+                      @ R_scipy.from_euler('y', t_deg, degrees=True).as_matrix())
+            reconstructed_pts.append(R_head @ (R_cam_est @ obs + calibrated_t))
+        for p_deg, obs in zip(captured_pan_angles, pts_pan_cam):
+            R_head = (R_scipy.from_euler('z', p_deg, degrees=True).as_matrix()
+                      @ R_scipy.from_euler('y', 0.0, degrees=True).as_matrix())
+            reconstructed_pts.append(R_head @ (R_cam_est @ obs + calibrated_t))
+
+        if len(reconstructed_pts) > 0:
+            reconstructed_pts = np.array(reconstructed_pts)
+            mean_pt = np.mean(reconstructed_pts, axis=0)
+            rmse_3d_marker_mm = float(np.sqrt(np.mean(np.sum((reconstructed_pts - mean_pt) ** 2, axis=1))) * 1000.0)
+        else:
+            rmse_3d_marker_mm = 0.0
+
+        # Step 1.5 absorbs tilt into mount extrinsics gauge; independent identification is deferred to Step 2
+        decoupled_success = False
 
         calibrated_mount_to_cam = [
-            nominal_mount_to_cam[0], nominal_mount_to_cam[1], nominal_mount_to_cam[2],
-            round(est_roll_deg, 4), round(est_pitch_deg, 4), round(est_yaw_deg, 4)
+            round(float(calibrated_t[0]), 6),
+            round(float(calibrated_t[1]), 6),
+            round(float(calibrated_t[2]), 6),
+            round(est_roll_deg, 4),
+            round(est_pitch_deg, 4),
+            round(est_yaw_deg, 4)
         ]
 
         results = {
@@ -467,56 +487,6 @@ class HeadCameraCalibrator(BaseCalibrator):
             log_callback(f"   Axis Ortho Error    : {ortho_err_deg:.3f}°")
             log_callback("=" * 60)
 
-        return results
-
-    def _mock_perform_head_sweep(self, arm_side, pan_range_deg, tilt_range_deg, num_steps, nominal_mount_to_cam, R_nom, log_callback):
-        """Simulation fallback when testing without live robot/camera."""
-        time.sleep(0.5)
-        gt_head = self.MOCK_GT_OFFSETS.get("head", {"pan": 0.8, "tilt": -1.5})
-        mock_cam_rpy_error = [1.2, -0.9, 0.0]
-
-        R_cam_actual = R_nom @ R_scipy.from_euler('xyz', mock_cam_rpy_error, degrees=True).as_matrix()
-        rpy_est_rad = R_scipy.from_matrix(R_cam_actual).as_euler('ZYX')
-        rpy_est_deg = rpy_est_rad * R2D
-
-        est_roll = float(rpy_est_deg[2])
-        est_pitch = float(rpy_est_deg[1])
-        est_yaw = float(rpy_est_deg[0])
-
-        nom_roll = float(nominal_mount_to_cam[3])
-        nom_pitch = float(nominal_mount_to_cam[4])
-        nom_yaw = float(nominal_mount_to_cam[5])
-
-        results = {
-            "success": True,
-            "nominal_mount_to_cam": nominal_mount_to_cam,
-            "calibrated_mount_to_cam": [
-                nominal_mount_to_cam[0], nominal_mount_to_cam[1], nominal_mount_to_cam[2],
-                round(est_roll, 4), round(est_pitch, 4), round(est_yaw, 4)
-            ],
-            "cam_rot_diff_deg": {
-                "roll": round(est_roll - nom_roll, 4),
-                "pitch": round(est_pitch - nom_pitch, 4),
-                "yaw": round(est_yaw - nom_yaw, 4),
-            },
-            "head_offsets_deg": {
-                "pan": round(gt_head.get("pan", 0.0), 4),
-                "tilt": round(gt_head.get("tilt", 0.0), 4),
-            },
-            "quality": {
-                "rmse_tilt_plane_mm": 0.21,
-                "rmse_pan_plane_mm": 0.18,
-                "ortho_error_deg": 0.04,
-            },
-            "pts_tilt_count": num_steps,
-            "pts_pan_count": num_steps
-        }
-        self.calibrated_results = results
-
-        if log_callback:
-            log_callback(f"[MOCK] Head Pan offset: {results['head_offsets_deg']['pan']:+.3f}°")
-            log_callback(f"[MOCK] Head Tilt offset: {results['head_offsets_deg']['tilt']:+.3f}°")
-            log_callback(f"[MOCK] Camera mount_to_cam: {results['calibrated_mount_to_cam']}")
         return results
 
     def apply_calibration_results(self, results=None, log_callback=None):

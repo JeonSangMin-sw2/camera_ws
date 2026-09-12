@@ -16,22 +16,32 @@ if getattr(sys, 'frozen', False):
     bundled_config_dir = os.path.join(sys._MEIPASS, "config")
     
     if os.path.exists(bundled_config_dir):
-        for filename in os.listdir(bundled_config_dir):
-            bundled_file = os.path.join(bundled_config_dir, filename)
-            ext_file = os.path.join(ext_config_dir, filename)
-            if os.path.isfile(bundled_file) and not os.path.exists(ext_file):
-                try:
-                    shutil.copy2(bundled_file, ext_file)
-                    print(f"[Paths] Copied default template {filename} to {ext_file}")
-                except Exception as e:
-                    print(f"[Paths] Failed to copy default template {filename}: {e}")
+        for root, dirs, files in os.walk(bundled_config_dir):
+            rel_dir = os.path.relpath(root, bundled_config_dir)
+            target_dir = os.path.join(ext_config_dir, rel_dir) if rel_dir != "." else ext_config_dir
+            os.makedirs(target_dir, exist_ok=True)
+            for filename in files:
+                bundled_file = os.path.join(root, filename)
+                ext_file = os.path.join(target_dir, filename)
+                if not os.path.exists(ext_file):
+                    try:
+                        shutil.copy2(bundled_file, ext_file)
+                        print(f"[Paths] Copied default template {filename} to {ext_file}")
+                    except Exception as e:
+                        print(f"[Paths] Failed to copy default template {filename}: {e}")
 
 CONFIG_PATHS = {
     "setting_yaml": os.path.abspath(os.path.join(current_dir, "config", "setting.yaml")),
     "camera_info": os.path.abspath(os.path.join(current_dir, "config", "camera_info.yaml")),
     "ready_poses_yaml": os.path.abspath(os.path.join(current_dir, "config", "ready_poses.yaml")),
     "camera_intrinsics": os.path.abspath(os.path.join(current_dir, "config", "camera_intrinsics.yaml")),
+    "simulation_yaml": os.path.abspath(os.path.join(current_dir, "config", "simulation.yaml")),
+    "ui_config_dir": os.path.abspath(os.path.join(current_dir, "config", "ui_config")),
+    "i18n_yaml": os.path.abspath(os.path.join(current_dir, "config", "ui_config", "i18n.yaml")),
+    "ui_dropdowns_yaml": os.path.abspath(os.path.join(current_dir, "config", "ui_config", "ui_dropdowns.yaml")),
+    "dark_theme_qss": os.path.abspath(os.path.join(current_dir, "config", "ui_config", "dark_theme.qss")),
     "result_dir": os.path.abspath(os.path.join(current_dir, "result", "result_step2")),
     "plot_dir": os.path.abspath(os.path.join(current_dir, "result", "result_img")),
     "txt_dir": os.path.abspath(os.path.join(current_dir, "result", "result_txt")),
 }
+

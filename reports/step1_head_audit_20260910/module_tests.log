@@ -1,0 +1,25 @@
+{"head_stationary_rms_mm": 0.3092081254967991, "reported_quality": {"rmse_tilt_plane_mm": 0.0, "rmse_pan_plane_mm": 0.0, "rmse_3d_marker_mm": 0.0, "ortho_error_deg": 0.0, "decoupled": true}, "head_offsets_deg": {"pan": 0.0, "tilt": 0.0}, "effective_translation_m": [0.04498209755785495, 0.009, 0.05860555348510601], "returned_translation_m": [0.047, 0.009, 0.057]}
+{"j6_staged_offsets_deg": [-2.0, -1.0, -0.8, -0.6400000000000001, -0.5120000000000001, -0.40960000000000013], "returned_offset_deg": -0.4164266666666668, "converged": false}
+test_head_solution_preserves_stationary_marker_in_3d (test_step1_head_contracts.StepContracts.test_head_solution_preserves_stationary_marker_in_3d) ... FAIL
+test_step1_constant_absolute_j6_target_converges_to_target (test_step1_head_contracts.StepContracts.test_step1_constant_absolute_j6_target_converges_to_target) ... FAIL
+
+======================================================================
+FAIL: test_head_solution_preserves_stationary_marker_in_3d (test_step1_head_contracts.StepContracts.test_head_solution_preserves_stationary_marker_in_3d)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\User\Desktop\camera_ws\tests\test_step1_head_contracts.py", line 61, in test_head_solution_preserves_stationary_marker_in_3d
+    self.assertLess(rms_mm, .01,
+AssertionError: 0.3092081254967991 not less than 0.01 : Head/camera gauge must preserve full SE(3), including translation
+
+======================================================================
+FAIL: test_step1_constant_absolute_j6_target_converges_to_target (test_step1_head_contracts.StepContracts.test_step1_constant_absolute_j6_target_converges_to_target)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\User\Desktop\camera_ws\tests\test_step1_head_contracts.py", line 85, in test_step1_constant_absolute_j6_target_converges_to_target
+    self.assertAlmostEqual(result['recommended_joint_offset'], -1., places=10,
+AssertionError: -0.4164266666666668 != -1.0 within 10 places (0.5835733333333333 difference) : Damp target minus current, never the absolute target itself
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.110s
+
+FAILED (failures=2)

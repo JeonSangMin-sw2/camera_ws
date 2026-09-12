@@ -108,98 +108,253 @@ class MarkerCalibrator(BaseCalibrator):
             if getattr(self, 'stop_requested', False):
                 return None
 
-            if save_debug and pass_idx == 1:
-                from core.paths import CONFIG_PATHS
-                result_txt_dir = CONFIG_PATHS["txt_dir"]
-                fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_marker_axis_{axis_mode}.txt")
-                if os.path.exists(fname):
-                    try: os.remove(fname)
-                    except: pass
+            self.current_calib_mode = "marker"
+            max_readjust_retries = 2
+            readjust_retry_count = 0
 
-            if log_callback:
-                log_callback("\n" + "="*50)
-                log_callback(f"   STARTING {str(axis_mode).upper()} CONTINUOUS MARKER SWEEP")
-                log_callback("="*50)
-                
-            is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
+            while True:
+                if getattr(self, 'stop_requested', False):
+                    return None
 
-            if not is_camera_mock:
-                # Pre-check marker visibility
-                initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
-                if not initial_check:
-                    if log_callback: log_callback("[ERROR] Marker is not visible in ready pose.")
-                    if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
-                        if log_callback: log_callback("[INFO] Prompting user for manual teaching due to marker visibility error...")
-                        resolved = self.marker_problem_callback(arm_side)
-                        if resolved:
-                            self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
-                            initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+                if save_debug and pass_idx == 1:
+                    from core.paths import CONFIG_PATHS
+                    result_txt_dir = CONFIG_PATHS["txt_dir"]
+                    fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_marker_axis_{axis_mode}.txt")
+                    if os.path.exists(fname):
+                        try: os.remove(fname)
+                        except: pass
+
+                if log_callback:
+                    log_callback("\n" + "="*50)
+                    log_callback(f"   STARTING {str(axis_mode).upper()} CONTINUOUS MARKER SWEEP")
+                    log_callback("="*50)
+                    
+                if not getattr(self.marker_st, 'sim', False):
+                    # Pre-check marker visibility
+                    initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
                     if not initial_check:
-                        if status_callback: status_callback(False)
+                        if log_callback: log_callback("[ERROR] Marker is not visible in ready pose.")
+                        if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                            readjust_retry_count += 1
+                            if log_callback: log_callback(f"[INFO] Prompting user for manual teaching due to marker visibility error (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                            resolved = self.marker_problem_callback(arm_side, mode="marker")
+                            if resolved:
+                                self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
+                                initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
+                                if initial_check:
+                                    continue
+                        if not initial_check:
+                            if status_callback: status_callback(False)
+                            return None
+                    if status_callback: status_callback(True)
+                else:
+                    if status_callback: status_callback(True)
+
+                if not self.robot:
+                    if log_callback: log_callback("[ERROR] Robot is not connected.")
+                    return None
+
+                state = self.robot.get_state()
+                model = self.robot.model()
+                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                
+                # Check if user-taught ready pose exists, prioritizing taught pose
+                taught_pose = None
+                if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+                    arm_dict = self.user_taught_ready_poses.get(arm_side, {})
+                    if isinstance(arm_dict, dict) and "marker" in arm_dict and arm_dict["marker"] is not None:
+                        taught_pose = list(arm_dict["marker"])
+
+                if taught_pose is not None:
+                    cur_initial_pos = list(taught_pose)
+                elif initial_joint_pos is not None:
+                    cur_initial_pos = list(initial_joint_pos)
+                else:
+                    cur_initial_pos = list(np.array(state.position)[arm_idx])
+
+                # Sweep configuration from MARKER_CONFIGS
+                axis_str = str(axis_mode).lower()
+                mcfg = None
+                for key in self.MARKER_CONFIGS:
+                    if key in axis_str or key.split("_")[-1] in axis_str:
+                        mcfg = self.MARKER_CONFIGS[key]
+                        break
+                if mcfg is None:
+                    raise ValueError(f"Unknown marker sweep axis mode: {axis_mode}")
+                
+                start_deg = mcfg["start_deg"]
+                end_deg = mcfg["end_deg"]
+                joint_i = mcfg["joint_i"]
+
+                head_idx = list(model.head_idx[:2]) if len(model.head_idx) >= 2 else None
+                q_head_0 = np.array([float(state.position[i]) for i in head_idx], dtype=np.float64) if head_idx is not None else None
+                dyn_model = self.robot.get_dynamics()
+                
+                q_head_start = None
+                if use_head_tracking and self.is_head_active() and head_idx is not None and q_head_0 is not None:
+                    q_head_start = q_head_0
+
+                dataset = self.perform_single_joint_sweep(
+                    arm_side, joint_i, cur_initial_pos, start_deg, end_deg, sweep_duration,
+                    q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback, mode="marker"
+                )
+                if dataset is None:
+                    if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                        readjust_retry_count += 1
+                        if log_callback:
+                            log_callback(f"\n[WARNING] Marker Axis {axis_mode} sweep failed (marker lost or movement aborted).")
+                            log_callback(f"[INFO] Prompting posture readjustment (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                        self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
+                        resolved = self.marker_problem_callback(arm_side, mode="marker")
+                        if resolved:
+                            state = self.robot.get_state()
+                            new_pose = list(np.array(state.position)[arm_idx])
+                            cur_initial_pos = list(new_pose)
+                            initial_joint_pos = list(new_pose)
+                            if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+                                if arm_side not in self.user_taught_ready_poses:
+                                    self.user_taught_ready_poses[arm_side] = {}
+                                self.user_taught_ready_poses[arm_side]["marker"] = list(new_pose)
+                            if log_callback:
+                                log_callback(f"[INFO] Posture readjusted and preserved. Restarting Marker Axis {axis_mode} sweep...")
+                            time.sleep(1.0)
+                            continue
+                        else:
+                            if log_callback: log_callback("[ERROR] Posture readjustment cancelled by user. Aborting marker sweep.")
+                            return None
+                    else:
+                        if log_callback: log_callback(f"[ERROR] Marker Axis {axis_mode} sweep failed (consecutive retry limit reached). Aborting.")
                         return None
-                if status_callback: status_callback(True)
-            else:
-                if status_callback: status_callback(True)
 
-            if not self.robot:
-                if log_callback: log_callback("[ERROR] Robot is not connected.")
-                return None
+                if dataset:
+                    cur_initial_pos = list(np.array(dataset[0][0])[arm_idx])
 
-            state = self.robot.get_state()
-            model = self.robot.model()
-            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-            if initial_joint_pos is None:
-                initial_joint_pos = list(np.array(state.position)[arm_idx])
+                captured_poses = [pose for _, pose in dataset]
+                captured_angles = [np.degrees(np.array(q_full)[arm_idx[joint_i]] - cur_initial_pos[joint_i]) for q_full, _ in dataset]
+                captured_q_full = [q_full for q_full, _ in dataset]
 
-            # Sweep configuration from MARKER_CONFIGS
-            axis_str = str(axis_mode).lower()
-            mcfg = None
-            for key in self.MARKER_CONFIGS:
-                if key in axis_str or key.split("_")[-1] in axis_str:
-                    mcfg = self.MARKER_CONFIGS[key]
-                    break
-            if mcfg is None:
-                raise ValueError(f"Unknown marker sweep axis mode: {axis_mode}")
-            
-            start_deg = mcfg["start_deg"]
-            end_deg = mcfg["end_deg"]
-            joint_i = mcfg["joint_i"]
+                if getattr(self, 'stop_requested', False):
+                    if log_callback: log_callback("[INFO] Stop requested during marker sweep.")
+                    return None
 
-            head_idx = list(model.head_idx[:2]) if len(model.head_idx) >= 2 else None
-            q_head_0 = np.array([float(state.position[i]) for i in head_idx], dtype=np.float64) if head_idx is not None else None
-            dyn_model = self.robot.get_dynamics()
-            
-            q_head_start = None
-            if use_head_tracking and self.is_head_active() and head_idx is not None and q_head_0 is not None:
-                q_head_start = q_head_0
+                if len(captured_poses) < 20:
+                    if log_callback: log_callback(f"[ERROR] Too few valid marker poses ({len(captured_poses)} < 20).")
+                    if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                        readjust_retry_count += 1
+                        if log_callback: log_callback(f"[INFO] Prompting posture readjustment (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                        self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
+                        resolved = self.marker_problem_callback(arm_side, mode="marker")
+                        if resolved:
+                            state = self.robot.get_state()
+                            new_pose = list(np.array(state.position)[arm_idx])
+                            cur_initial_pos = list(new_pose)
+                            initial_joint_pos = list(new_pose)
+                            if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+                                if arm_side not in self.user_taught_ready_poses:
+                                    self.user_taught_ready_poses[arm_side] = {}
+                                self.user_taught_ready_poses[arm_side]["marker"] = list(new_pose)
+                            if log_callback:
+                                log_callback(f"[INFO] Posture readjusted and preserved. Restarting Marker Axis {axis_mode} sweep...")
+                            time.sleep(1.0)
+                            continue
+                        else:
+                            if log_callback: log_callback("[ERROR] Posture readjustment cancelled by user. Aborting marker sweep.")
+                            return None
+                    else:
+                        if log_callback: log_callback("[ERROR] Too few valid marker poses and retry limit reached. Aborting.")
+                        return None
 
-            dataset = self.perform_single_joint_sweep(
-                arm_side, joint_i, initial_joint_pos, start_deg, end_deg, sweep_duration,
-                q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback, mode="marker"
-            )
-            if dataset is None:
-                return None
+                # Solve Circle Fitting
+                n_nom = mcfg["n_nom_v13"] if self.is_v13() else mcfg["n_nom_v12"]
+                res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom, robust=True)
 
-            if dataset:
-                initial_joint_pos = list(dataset[0][0][arm_idx])
+                # Anomaly detection on fitted circle and rotation axis in marker coordinate system:
+                ver_key = "1.3" if self.is_v13() else "1.2"
+                nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
+                nominal_rpy = nominal_vec[3:6]
+                R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
 
-            captured_poses = [pose for _, pose in dataset]
-            captured_angles = [np.degrees(q_full[arm_idx[joint_i]] - initial_joint_pos[joint_i]) for q_full, _ in dataset]
-            captured_q_full = [q_full for q_full, _ in dataset]
+                x_ee_m_ideal = R_ee_m_ideal.T @ np.array([1.0, 0.0, 0.0])
+                y_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 1.0, 0.0])
+                z_ee_m_ideal = R_ee_m_ideal.T @ np.array([0.0, 0.0, 1.0])
 
-            if getattr(self, 'stop_requested', False):
-                if log_callback: log_callback("[INFO] Stop requested during marker sweep.")
-                return None
+                # Account for intermediate wrist angles between sweeping joint axis and flange
+                q_5 = float(cur_initial_pos[5]) if len(cur_initial_pos) > 5 else 0.0
+                q_6 = float(cur_initial_pos[6]) if len(cur_initial_pos) > 6 else 0.0
+                if hasattr(self, 'joint_offsets') and self.joint_offsets:
+                    offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+                    q_6_eff = q_6 - np.radians(offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0))
+                    q_5_eff = q_5 - np.radians(offsets.get("wrist_pitch", 0.0))
+                else:
+                    q_6_eff = q_6
+                    q_5_eff = q_5
 
-            if len(captured_poses) < 20:
-                if log_callback: log_callback("[ERROR] Too few valid marker poses (<10). Prompting posture adjustment...")
-                if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
-                    self.marker_problem_callback(arm_side)
-                return None
+                axis_str = str(axis_mode).lower()
+                if "6" in axis_str:
+                    target_ideal = x_ee_m_ideal if self.is_v13() else z_ee_m_ideal
+                elif "5" in axis_str:
+                    # In marker frame, Joint 5 axis (Link 5 Y) is rotated by Joint 6 around Flange Z (v1.2) or Flange X (v1.3)
+                    if self.is_v13():
+                        target_ideal = self.rodrigues_rotation(y_ee_m_ideal, x_ee_m_ideal, q_6_eff)
+                    else:
+                        target_ideal = self.rodrigues_rotation(y_ee_m_ideal, z_ee_m_ideal, q_6_eff)
+                else: # Axis 4
+                    if self.is_v13():
+                        v4_ee = R_scipy.from_euler('X', q_6_eff).as_matrix() @ R_scipy.from_euler('Y', q_5_eff).as_matrix() @ np.array([0.0, 0.0, 1.0])
+                    else:
+                        v4_ee = R_scipy.from_euler('Z', q_6_eff).as_matrix() @ R_scipy.from_euler('Y', q_5_eff).as_matrix() @ np.array([0.0, 0.0, 1.0])
+                    target_ideal = R_ee_m_ideal.T @ v4_ee
 
-            # Solve Circle Fitting
-            n_nom = mcfg["n_nom_v13"] if self.is_v13() else mcfg["n_nom_v12"]
-            res = self.fit_circle_3d_and_6dof_misalignment(captured_poses, captured_angles, axis_prior=n_nom, robust=not self.is_mock)
+                target_ideal = target_ideal / np.linalg.norm(target_ideal)
+
+                n_marker_actual = self.extract_axis_from_rotations(captured_poses, target_ideal)
+                dot_val = np.clip(abs(np.dot(n_marker_actual, target_ideal)), -1.0, 1.0)
+                axis_dev_deg = float(np.degrees(np.arccos(dot_val)))
+                rmse = res.get('rmse', 0.0)
+
+                is_anomalous = False
+                anomaly_reasons = []
+                if axis_dev_deg > 35.0:
+                    is_anomalous = True
+                    anomaly_reasons.append(f"Fitted rotation axis in marker frame deviated {axis_dev_deg:.2f}° > 35.0° from nominal axis")
+                if rmse > 20.0:
+                    is_anomalous = True
+                    anomaly_reasons.append(f"Circle fitting RMSE {rmse:.2f} mm > 20.0 mm")
+
+                if is_anomalous:
+                    if log_callback:
+                        log_callback(f"\n[ALERT] Runtime measurement anomaly detected for Marker Axis {axis_mode}:")
+                        for r in anomaly_reasons:
+                            log_callback(f"  - {r}")
+                    if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                        readjust_retry_count += 1
+                        if log_callback:
+                            log_callback(f"[INFO] Moving arm to ready pose and prompting user for posture readjustment (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                        self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
+                        resolved = self.marker_problem_callback(arm_side, mode="marker")
+                        if resolved:
+                            state = self.robot.get_state()
+                            new_pose = list(np.array(state.position)[arm_idx])
+                            cur_initial_pos = list(new_pose)
+                            initial_joint_pos = list(new_pose)
+                            if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
+                                if arm_side not in self.user_taught_ready_poses:
+                                    self.user_taught_ready_poses[arm_side] = {}
+                                self.user_taught_ready_poses[arm_side]["marker"] = list(new_pose)
+                            if log_callback:
+                                log_callback(f"[INFO] Posture readjusted and preserved. Restarting Marker Axis {axis_mode} sweep...")
+                            time.sleep(1.0)
+                            continue
+                        else:
+                            if log_callback: log_callback("[ERROR] Posture readjustment cancelled by user. Aborting marker sweep.")
+                            return None
+                    else:
+                        if log_callback:
+                            log_callback(f"[ERROR] Consecutive anomaly retry limit reached ({readjust_retry_count}/{max_readjust_retries}). Aborting marker sweep.")
+                        return None
+
+                # Normal success: break out of retry loop
+                break
             
             # Load camera transform relative to mount link
             if self.is_head_active():
@@ -254,11 +409,11 @@ class MarkerCalibrator(BaseCalibrator):
             if save_debug:
                 dataset = list(zip(captured_q_full, captured_poses))
                 self.save_debug_points(
-                    arm_side, axis_mode, dataset, initial_joint_pos, ee_name, dyn_model, T_cam_fixed, "marker", log_callback
+                    arm_side, axis_mode, dataset, cur_initial_pos, ee_name, dyn_model, T_cam_fixed, "marker", log_callback
                 )
             return res
         finally:
-            pass
+            self.current_calib_mode = None
 
     def get_link_length(self, arm_side):
         try:
@@ -273,17 +428,30 @@ class MarkerCalibrator(BaseCalibrator):
             raise e
 
     def get_z_sign(self, arm_side):
-        try:
-            if not self.robot:
-                raise RuntimeError("Robot instance is not initialized")
-            dyn_model = self.robot.get_dynamics()
-            q = np.array(self.robot.get_state().position)
-            T = BaseCalibrator.compute_fk(self.robot, dyn_model, q, f"ee_{arm_side}", f"link_{arm_side}_arm_5")
-            # If Z translation is negative, the EE Z-axis points inward (toward J5), so z_sign = -1.0
-            return -1.0 if T[2, 3] < 0.0 else 1.0
-        except Exception as e:
-            logging.error(f"Failed to get link z_sign: {e}")
-            raise e
+        """
+        Dynamically determines the link Z-translation direction between link_5 (Wrist Pitch) and ee (Flange).
+        
+        Geometric Derivation:
+        - In forward kinematics, T = compute_fk(robot, dyn_model, q, 'ee_{arm_side}', 'link_{arm_side}_arm_5').
+        - T[2, 3] represents the signed Z translation from link_5 to the end-effector.
+        - For v1.2: The end-effector is located along the negative Z direction of link_5 (T[2, 3] ≈ -0.133 m = -133 mm).
+          Because get_link_length() computes the Euclidean norm (always positive, +133 mm), z_sign (-1.0)
+          restores the true physical vector: z_sign * L_5_ee = -133 mm.
+        - For v1.3: The link arrangement is along positive/zero Z, so z_sign is +1.0.
+        """
+        if self.robot and hasattr(self.robot, "get_dynamics"):
+            try:
+                dyn_model = self.robot.get_dynamics()
+                if dyn_model is not None:
+                    q = np.array(self.robot.get_state().position)
+                    T = BaseCalibrator.compute_fk(self.robot, dyn_model, q, f"ee_{arm_side}", f"link_{arm_side}_arm_5")
+                    # Dynamically evaluate the actual sign of the Z-translation vector from forward kinematics
+                    return -1.0 if T[2, 3] < 0.0 else 1.0
+            except Exception as e:
+                logging.warning(f"Could not dynamically query link kinematics in get_z_sign: {e}. Falling back to CAD nominal.")
+        
+        # Nominal fallback when robot instance is not connected (e.g. offline testing / simulation)
+        return 1.0 if self.is_v13() else -1.0
 
 
     def extract_axis_from_rotations(self, poses, ideal_axis):
@@ -551,70 +719,41 @@ class MarkerCalibrator(BaseCalibrator):
                 return avg_axis / np.linalg.norm(avg_axis)
             return ideal_axis
 
-        # 2. 정밀 회전축 벡터 산출 (신뢰도 평가 및 Fallback 용)
+        # Joint 6 angle correction for Joint 5 sweep
+        theta_6 = marker_data_5.get('theta_6', None)
+        if theta_6 is None:
+            q_full_5 = marker_data_5.get('captured_q_full', [])
+            if len(q_full_5) > 0:
+                if not self.robot:
+                    raise RuntimeError("Robot instance is not initialized")
+                model = self.robot.model()
+                arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                q_idx = arm_idx[6]
+                theta_6 = np.mean([q[q_idx] for q in q_full_5])
+            else:
+                theta_6 = 0.0
+
+        # Correct J6 joint offset if available
+        if hasattr(self, 'joint_offsets') and self.joint_offsets:
+            offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
+            offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
+            theta_6 -= np.radians(offset_val)
+
+        # 2. 정밀 회전축 벡터 산출 (Orientation 변화량 기반)
         poses_6 = marker_data_6.get('captured_poses', [])
-        mid_idx_6 = len(poses_6) // 2
-        R_ref_6 = poses_6[mid_idx_6][:3, :3] if len(poses_6) > 0 else np.eye(3)
-        n6_cam = marker_data_6.get('axis_opt')
         target_ideal_6 = x_ee_m_ideal if self.is_v13() else z_ee_m_ideal
-        if n6_cam is not None:
-            n6_marker_actual = R_ref_6.T @ n6_cam
-            if np.dot(n6_marker_actual, target_ideal_6) < 0:
-                n6_marker_actual = -n6_marker_actual
-        else:
-            n6_marker_actual = extract_axis_from_rotations(poses_6, target_ideal_6)
+        n6_marker_actual = extract_axis_from_rotations(poses_6, target_ideal_6)
         
         poses_5 = marker_data_5.get('captured_poses', [])
-        mid_idx_5 = len(poses_5) // 2
-        R_ref_5 = poses_5[mid_idx_5][:3, :3] if len(poses_5) > 0 else np.eye(3)
-        n5_cam = marker_data_5.get('axis_opt')
-        target_ideal_5 = y_ee_m_ideal
-        if n5_cam is not None:
-            n5_marker_actual = R_ref_5.T @ n5_cam
-            if np.dot(n5_marker_actual, target_ideal_5) < 0:
-                n5_marker_actual = -n5_marker_actual
-        else:
-            n5_marker_actual = extract_axis_from_rotations(poses_5, target_ideal_5)
+        target_ideal_5 = self.rodrigues_rotation(y_ee_m_ideal, target_ideal_6, theta_6)
+        n5_marker_actual = extract_axis_from_rotations(poses_5, target_ideal_5)
  
         # [BYPASS] Bypassed permanently to calculate using ONLY the marker and rotation axis trajectory.
         kinematic_success = False
 
         if not kinematic_success:
 
-            # Joint 6 angle correction for Joint 5 sweep
-            theta_6 = marker_data_5.get('theta_6', None)
-            if theta_6 is None:
-                q_full_5 = marker_data_5.get('captured_q_full', [])
-                if len(q_full_5) > 0:
-                    if not self.robot:
-                        raise RuntimeError("Robot instance is not initialized")
-                    model = self.robot.model()
-                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                    q_idx = arm_idx[6]
-                    theta_6 = np.mean([q[q_idx] for q in q_full_5])
-                else:
-                    theta_6 = 0.0
-
-            # Correct J6 joint offset if available
-            if hasattr(self, 'joint_offsets') and self.joint_offsets:
-                offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
-                offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
-                theta_6 -= np.radians(offset_val)
-
             if marker_data_4 is not None:
-                # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
-                poses_4 = marker_data_4.get('captured_poses', [])
-                mid_idx_4 = len(poses_4) // 2
-                R_ref_4 = poses_4[mid_idx_4][:3, :3] if len(poses_4) > 0 else np.eye(3)
-                n4_cam = marker_data_4.get('axis_opt')
-                target_ideal_4 = z_ee_m_ideal if self.is_v13() else x_ee_m_ideal
-                if n4_cam is not None:
-                    n4_marker_actual = R_ref_4.T @ n4_cam
-                    if np.dot(n4_marker_actual, target_ideal_4) < 0:
-                        n4_marker_actual = -n4_marker_actual
-                else:
-                    n4_marker_actual = extract_axis_from_rotations(poses_4, target_ideal_4)
-
                 # Joint 6 angle correction for Joint 4 sweep
                 theta_6_4 = marker_data_4.get('theta_6', None)
                 if theta_6_4 is None:
@@ -629,11 +768,16 @@ class MarkerCalibrator(BaseCalibrator):
                     else:
                         theta_6_4 = 0.0
 
-                # Correct J6 joint offset if available
                 if hasattr(self, 'joint_offsets') and self.joint_offsets:
                     offsets = self.joint_offsets[arm_side] if arm_side in self.joint_offsets else self.joint_offsets
                     offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
                     theta_6_4 -= np.radians(offset_val)
+
+                # --- 3-Axis SVD Alignment (Using Joint 4, 5, and 6) ---
+                poses_4 = marker_data_4.get('captured_poses', [])
+                target_ideal_4_base = z_ee_m_ideal if self.is_v13() else x_ee_m_ideal
+                target_ideal_4 = self.rodrigues_rotation(target_ideal_4_base, target_ideal_6, theta_6_4)
+                n4_marker_actual = extract_axis_from_rotations(poses_4, target_ideal_4)
 
                 if not self.is_v13():
                     z_col = n6_marker_actual

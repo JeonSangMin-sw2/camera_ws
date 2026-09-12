@@ -4,8 +4,8 @@
 *.json
 __pycache__/
 *.pyc
-rby1_camera_utils.egg-info/
-core/rby1_camera_utils.egg-info/
+*.egg-info/
+*/*.egg-info/
 result/
 build/
 dist/

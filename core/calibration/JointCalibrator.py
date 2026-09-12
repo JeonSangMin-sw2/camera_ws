@@ -2,12 +2,12 @@ import time
 import logging
 import os
 import numpy as np
-import rby1_sdk as rby
+# import rby1_sdk as rby
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
-from scipy.optimize import least_squares, minimize_scalar
-from scipy.spatial.transform import Rotation as R_scipy
+# from scipy.optimize import least_squares, minimize_scalar
+# from scipy.spatial.transform import Rotation as R_scipy
 from .CalibratorBase import BaseCalibrator
 class DebugLogger:
     def __init__(self, original_log_callback, file_path):
@@ -19,6 +19,7 @@ class DebugLogger:
         self.buffer.append(msg)
         msg_upper = msg.upper()
         if (
+            "[ALERT]" in msg_upper or
             "[SAFETY WARNING]" in msg_upper or
             "[SUCCESS]" in msg_upper or
             "[ERROR]" in msg_upper or
@@ -31,7 +32,9 @@ class DebugLogger:
             "COMMENCING" in msg_upper or
             "SWEPT" in msg_upper or
             "SWEEP COMPLETE" in msg_upper or
-            "STARTING" in msg_upper
+            "STARTING" in msg_upper or
+            msg.strip().startswith("-") or
+            msg.strip().startswith("*")
         ):
             if self.original_log_callback:
                 self.original_log_callback(msg)
@@ -79,6 +82,7 @@ class JointCalibrator(BaseCalibrator):
         log_callback = logger.log
 
         try:
+            self.current_calib_mode = mode
             self.last_staged_offset = None
             self.last_diff_angle = None
             if original_log:
@@ -87,153 +91,230 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"   Target Arm: {arm_side.upper()} | Joint Target: {mode.upper()}")
                 log_callback("="*60 + "\n")
                 
-            first_starting_pose = None
-            if self.robot:
-                try:
-                    state = self.robot.get_state()
-                    model = self.robot.model()
-                    arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-                    first_starting_pose = list(state.position[arm_idx])
-                except Exception:
-                    pass
-
-            # save_debug는 첫 번째 sweep(원본 데이터)에서만 저장
-            _sweep_count = [0]
-            def run_single_sweep(offset):
-                _sweep_count[0] += 1
-                do_save = save_debug and (_sweep_count[0] == 1)
-                return self.perform_calibration_sweep_continuous(
-                    arm_side, mode, log_callback=log_callback, status_callback=status_callback,
-                    current_offset_deg=offset, sweep_duration=sweep_duration,
-                    use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save,
-                    first_starting_pose=first_starting_pose
-                )
-                
+            max_readjust_retries = 2
+            readjust_retry_count = 0
             max_iterations = 6
-            staged_offset = current_offset_deg
-            staged_offsets_history = [staged_offset]
-            final_res = None
-            first_res = None
-            converged = False
-            
-            # Sign-reversal tracking state
-            prev_error = None
-            prev_step_correction = 0.0
-            direction_multiplier = 1.0
-            dynamic_damping = 1.0
-            prev_step_correction = 0.0
-            
-            for i in range(1, max_iterations + 1):
-                # Update self.joint_offsets with staged_offset for proper FK offset subtraction in this iteration
-                jcfg = self.JOINT_CONFIGS.get(mode, {})
-                offset_key = jcfg.get("offset_key")
-                if offset_key:
-                    if arm_side in self.joint_offsets:
-                        self.joint_offsets[arm_side][offset_key] = staged_offset
-                    else:
-                        self.joint_offsets[offset_key] = staged_offset
 
-                if getattr(self, 'stop_requested', False):
-                    if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
-                    return None
+            while True:
+                staged_offset = current_offset_deg
+                staged_offsets_history = [staged_offset]
+                final_res = None
+                first_res = None
+                converged = False
+                
+                # Sign-reversal tracking state
+                prev_error = None
+                prev_step_correction = 0.0
+                direction_multiplier = 1.0
+                dynamic_damping = 1.0
 
-                if log_callback:
-                    log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
+                # Refresh starting pose from robot state in case user taught a new pose
+                first_starting_pose = None
+                if self.robot:
+                    try:
+                        state = self.robot.get_state()
+                        model = self.robot.model()
+                        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+                        first_starting_pose = list(state.position[arm_idx])
+                    except Exception:
+                        pass
+
+                # save_debug는 각 시퀀스의 첫 번째 sweep(원본 데이터)에서만 저장
+                _sweep_count = [0]
+                def run_single_sweep(offset):
+                    _sweep_count[0] += 1
+                    do_save = save_debug and (_sweep_count[0] == 1)
+                    return self.perform_calibration_sweep_continuous(
+                        arm_side, mode, log_callback=log_callback, status_callback=status_callback,
+                        current_offset_deg=offset, sweep_duration=sweep_duration,
+                        use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save,
+                        first_starting_pose=first_starting_pose
+                    )
+
+                restart_sequence = False
                 
-                # Perform physical sweep (or simulated sweep in mock mode) at the current staged offset
-                res = run_single_sweep(staged_offset)
-                if not res:
-                    if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed. Aborting calibration.")
-                    return None
-                
-                if i == 1:
-                    first_res = res
-                final_res = res
-        
-                angle_error = res.get('angle_between_normals', 0.0)
-                sign = res.get('sign', 1.0)
-                
-                # wrist_roll_v13 (J6 vs J5) and wrist_pitch_v13 (J6 vs J4) have perpendicular axes (target 90 deg)
-                if mode in ("wrist_roll_v13", "wrist_pitch_v13"):
-                    angle_dev = abs(angle_error - 90.0)
-                    center_dist = res.get('perp_dist_after', 999.0)
-                else:
-                    angle_dev = angle_error
-                    center_dist = res.get('center_dist', 999.0)
-                    
-                r_A = res.get('r_A', 0.0)
-                r_B = res.get('r_B', 0.0)
-                size_error = abs(r_A - r_B)
-                current_error = max(size_error, center_dist)
-                
-                # Print iteration summary
-                if log_callback:
-                    if mode in ("wrist_roll_v13", "wrist_pitch_v13"):
-                        log_callback(f"  * Angle Error (Deviation)          : {angle_dev:.4f}°")
-                        log_callback(f"  * Perpendicular Distance (After)   : {center_dist:.4f} mm")
-                        log_callback(f"  * Perpendicular Distance (Before)  : {res.get('perp_dist_before', 999.0):.4f} mm")
-                    else:
-                        log_callback(f"  * Angle Error (Deviation)     : {angle_error:.4f}°")
-                        if mode == "wrist_pitch_v13":
-                            log_callback(f"  * Forearm Length (Center Dist): {center_dist:.4f} mm")
-                            log_callback(f"  * Radii Difference (r3 - r5)  : {size_error:.4f} mm")
+                for i in range(1, max_iterations + 1):
+                    # Update self.joint_offsets with staged_offset for proper FK offset subtraction in this iteration
+                    jcfg = self.JOINT_CONFIGS.get(mode, {})
+                    offset_key = jcfg.get("offset_key")
+                    if offset_key:
+                        if arm_side in self.joint_offsets:
+                            self.joint_offsets[arm_side][offset_key] = staged_offset
                         else:
-                            log_callback(f"  * Circle Size Error (r_A-r_B) : {size_error:.4f} mm")
-                            log_callback(f"  * Center Distance Error       : {center_dist:.4f} mm")
-                            log_callback(f"  * Max Fitting Error Metric    : {current_error:.4f} mm")
-                
-                # Use the pre-calculated damped optimal offset correction to ensure convergence
-                raw_optimal_offset = res.get('optimal_offset', 0.0)
-                
-                # Dynamic damping: halve the damping factor if the correction direction flips
-                # This squashes noise-floor oscillations rapidly
-                if i > 1 and raw_optimal_offset * prev_step_correction < 0:
-                    dynamic_damping *= 0.8
-                elif i == 1:
-                    dynamic_damping = 1.0
-                    
-                step_correction = direction_multiplier * raw_optimal_offset * dynamic_damping
-                
-                # Calculate relative step delta for convergence check
-                if mode in ("wrist_roll_v13", "wrist_yaw2"):
-                    step_correction_delta = step_correction - staged_offset
-                else:
-                    step_correction_delta = step_correction
+                            self.joint_offsets[offset_key] = staged_offset
 
-                # Convergence check:
-                # step correction delta < 0.06° to handle bracket RPY noise
-                converged_criteria = (abs(step_correction_delta) < 0.06)
-                
-                if converged_criteria:
-                    converged = True
+                    if getattr(self, 'stop_requested', False):
+                        if log_callback: log_callback("[INFO] Joint calibration aborted due to stop request.")
+                        return None
+
                     if log_callback:
-                        log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
-                        log_callback(f"  * Step Correction: {step_correction_delta:.4f}° < 0.06° (reached resolution limit)")
-                        log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
-                    break
-                
-                # Normal update: apply correction
-                prev_error = angle_dev
-                prev_step_correction = step_correction_delta
-                if mode in ("wrist_roll_v13", "wrist_yaw2"):
-                    # J6 modes return absolute recommended offset, not relative steps.
-                    # Update staged_offset directly with the absolute value.
-                    staged_offset = step_correction
+                        log_callback(f"\n[ITERATION {i}/{max_iterations}] Sweeping physically with staged offset {staged_offset:.4f}°...")
+                    
+                    # Perform continuous sweep at the current staged offset
+                    res = run_single_sweep(staged_offset)
+                    if not res:
+                        if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                            readjust_retry_count += 1
+                            if log_callback:
+                                log_callback(f"\n[WARNING] Iteration {i} sweep failed (marker lost or insufficient points).")
+                                log_callback(f"[INFO] Prompting user for posture readjustment (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                            # Reset staged offset in memory before moving
+                            if offset_key:
+                                if arm_side in self.joint_offsets:
+                                    self.joint_offsets[arm_side][offset_key] = current_offset_deg
+                                else:
+                                    self.joint_offsets[offset_key] = current_offset_deg
+                            self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
+                            resolved = self.marker_problem_callback(arm_side, mode=mode)
+                            if resolved:
+                                if log_callback:
+                                    log_callback(f"[INFO] Posture readjusted. Resetting staged offset to initial ({current_offset_deg:.4f}°) and restarting calibration from Iteration 1...")
+                                self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
+                                time.sleep(1.0)
+                                restart_sequence = True
+                                break
+                            else:
+                                if log_callback: log_callback("[ERROR] Posture readjustment cancelled by user. Aborting calibration.")
+                                return None
+                        else:
+                            if log_callback: log_callback(f"[ERROR] Iteration {i} sweep failed (consecutive retry limit reached). Aborting calibration.")
+                            return None
+                    
+                    if i == 1:
+                        first_res = res
+                    final_res = res
+            
+                    angle_error = res.get('angle_between_normals', 0.0)
+                    sign = res.get('sign', 1.0)
+                    
+                    # Modes with perpendicular axes (target 90 deg): wrist_yaw2 (v1.2), wrist_roll_v13, wrist_pitch_v13
+                    if mode in ("wrist_yaw2", "wrist_roll_v13", "wrist_pitch_v13"):
+                        angle_dev = abs(angle_error - 90.0)
+                        center_dist = res.get('perp_dist_after', res.get('center_dist', 999.0))
+                    else: # Modes with parallel axes (target 0 deg): wrist_pitch (v1.2), elbow
+                        angle_dev = angle_error
+                        center_dist = res.get('center_dist', 999.0)
+                        
+                    r_A = res.get('r_A', 0.0)
+                    r_B = res.get('r_B', 0.0)
+                    size_error = abs(r_A - r_B)
+                    current_error = max(size_error, center_dist)
+                    
+                    # Print iteration summary
+                    if log_callback:
+                        if mode in ("wrist_yaw2", "wrist_roll_v13", "wrist_pitch_v13"):
+                            log_callback(f"  * Angle Error (from 90.0°)         : {angle_dev:.4f}° (Raw: {angle_error:.4f}°)")
+                            log_callback(f"  * Circle Radii (r_A / r_B)         : {r_A:.1f} mm / {r_B:.1f} mm")
+                            log_callback(f"  * Center Distance                  : {center_dist:.4f} mm")
+                        else:
+                            log_callback(f"  * Angle Error (Deviation)          : {angle_error:.4f}°")
+                            log_callback(f"  * Circle Size Error (r_A-r_B)      : {size_error:.4f} mm")
+                            log_callback(f"  * Center Distance Error            : {center_dist:.4f} mm")
+                            log_callback(f"  * Max Fitting Error Metric         : {current_error:.4f} mm")
+                    
+                    raw_optimal_offset = res.get('optimal_offset', 0.0)
+
+                    # Runtime Anomaly Detection during sweep iterations:
+                    # 1. center_dist > 40.0 mm (ONLY for parallel concentric modes: elbow, wrist_pitch)
+                    # 2. abs(raw_optimal_offset) > 3.5 deg (runaway jump)
+                    is_anomalous = False
+                    anomaly_reasons = []
+                    if mode in ("elbow", "wrist_pitch") and center_dist > 40.0:
+                        is_anomalous = True
+                        anomaly_reasons.append(f"Center distance error {center_dist:.2f} mm > 40.0 mm")
+                    if abs(raw_optimal_offset) > 3.5:
+                        is_anomalous = True
+                        anomaly_reasons.append(f"Optimal offset correction {raw_optimal_offset:.2f}° > 3.5° (runaway step)")
+
+                    if is_anomalous:
+                        if log_callback:
+                            log_callback(f"\n[ALERT] Runtime measurement anomaly detected in Iteration {i}:")
+                            for r in anomaly_reasons:
+                                log_callback(f"  - {r}")
+                        if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
+                            readjust_retry_count += 1
+                            if log_callback:
+                                log_callback(f"[INFO] Moving arm to ready pose and prompting user for posture readjustment (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                            # Reset staged offset in memory before moving
+                            if offset_key:
+                                if arm_side in self.joint_offsets:
+                                    self.joint_offsets[arm_side][offset_key] = current_offset_deg
+                                else:
+                                    self.joint_offsets[offset_key] = current_offset_deg
+                            self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
+                            resolved = self.marker_problem_callback(arm_side, mode=mode)
+                            if resolved:
+                                if log_callback:
+                                    log_callback(f"[INFO] Posture readjusted. Resetting staged offset to initial ({current_offset_deg:.4f}°) and restarting calibration from Iteration 1...")
+                                self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
+                                time.sleep(1.0)
+                                restart_sequence = True
+                                break
+                            else:
+                                if log_callback: log_callback("[ERROR] Posture readjustment cancelled by user. Aborting calibration.")
+                                return None
+                        else:
+                            if log_callback:
+                                log_callback(f"[ERROR] Consecutive anomaly retry limit reached ({readjust_retry_count}/{max_readjust_retries}). Aborting calibration.")
+                            return None
+                    
+                    # Calculate raw measurement residual first:
+                    # J6 modes (wrist_roll_v13, wrist_yaw2) return absolute recommended target offset.
+                    # Other modes return relative correction offset.
+                    if mode in ("wrist_roll_v13", "wrist_yaw2"):
+                        raw_residual = direction_multiplier * raw_optimal_offset - staged_offset
+                    else:
+                        raw_residual = direction_multiplier * raw_optimal_offset
+
+                    # Dynamic damping: halve the damping factor if the correction direction flips
+                    # This squashes noise-floor oscillations rapidly
+                    if i > 1 and raw_residual * prev_step_correction < 0:
+                        dynamic_damping *= 0.8
+                    elif i == 1:
+                        dynamic_damping = 1.0
+
+                    # Apply damping to the residual step delta, NEVER directly to the absolute target itself
+                    step_correction_delta = raw_residual * dynamic_damping
+
+                    # Convergence check:
+                    # Based on raw measurement residual (< 0.06°) to ensure genuine physical convergence
+                    # rather than premature termination from small damped steps.
+                    converged_criteria = (abs(raw_residual) < 0.06)
+                    
+                    if converged_criteria:
+                        converged = True
+                        if mode in ("wrist_roll_v13", "wrist_yaw2"):
+                            # On convergence for absolute modes, record the exact target offset
+                            staged_offset = direction_multiplier * raw_optimal_offset
+                        if log_callback:
+                            log_callback(f"\n[SUCCESS] Calibration CONVERGED successfully:")
+                            log_callback(f"  * Residual Error: {raw_residual:.4f}° < 0.06° (reached resolution limit)")
+                            log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
+                        break
+                    
+                    # Normal update: apply correction with per-iteration step clamping to [-1.5°, 1.5°]
+                    prev_error = angle_dev
+                    prev_step_correction = step_correction_delta
+                    clamped_step = float(np.clip(step_correction_delta, -1.5, 1.5))
+                    staged_offset = staged_offset + clamped_step
+                    
+                    # Safety: clamp staged_offset to the joint's configured offset range
+                    jcfg = self.JOINT_CONFIGS.get(mode, {})
+                    off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
+                    if staged_offset < off_min or staged_offset > off_max:
+                        if log_callback:
+                            log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+                        staged_offset = float(np.clip(staged_offset, off_min, off_max))
+                        
+                    staged_offsets_history.append(staged_offset)
+                    if log_callback:
+                        log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
+                        
+                if restart_sequence:
+                    continue
                 else:
-                    staged_offset += step_correction
-                
-                # Safety: clamp staged_offset to the joint's configured offset range
-                jcfg = self.JOINT_CONFIGS.get(mode, {})
-                off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
-                if staged_offset < off_min or staged_offset > off_max:
-                    if log_callback:
-                        log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
-                    staged_offset = float(np.clip(staged_offset, off_min, off_max))
-                    
-                staged_offsets_history.append(staged_offset)
-                if log_callback:
-                    log_callback(f"  * Updated Absolute Offset     : {staged_offset:.4f}°")
-                    
+                    break
+
             # Damping fallback for oscillation/noise-floor:
             if not converged and len(staged_offsets_history) >= 3:
                 avg_offset = float(np.mean(staged_offsets_history[-3:]))
@@ -293,6 +374,7 @@ class JointCalibrator(BaseCalibrator):
             
             return final_output
         finally:
+            self.current_calib_mode = None
             logger.save()
 
 
@@ -347,8 +429,8 @@ class JointCalibrator(BaseCalibrator):
             pts_b = np.array(pts_b)
             
             # 3D fit circles
-            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a, robust=not self.is_mock)
-            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b, robust=not self.is_mock)
+            c_A, R_c_A, r_A, rmse_A, pts_2d_A, uc_A, vc_A = BaseCalibrator.fit_circle_3d(pts_a, robust=True)
+            c_B, R_c_B, r_B, rmse_B, pts_2d_B, uc_B, vc_B = BaseCalibrator.fit_circle_3d(pts_b, robust=True)
             
             n_A = R_c_A[:, 2]
             n_B = R_c_B[:, 2]
@@ -645,6 +727,7 @@ class JointCalibrator(BaseCalibrator):
             return None
 
     def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None):
+        self.current_calib_mode = mode
         if getattr(self, 'stop_requested', False):
             return None
 
@@ -658,9 +741,7 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
             log_callback("="*50)
 
-        is_camera_mock = (self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform")
-
-        if not is_camera_mock:
+        if not getattr(self.marker_st, 'sim', False):
             # Pre-check marker visibility after settling delay
             time.sleep(1.0)
             initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
@@ -668,7 +749,7 @@ class JointCalibrator(BaseCalibrator):
                 if log_callback: log_callback("[ERROR] Marker is not visible.")
                 if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
                     if log_callback: log_callback("[INFO] Prompting user for manual teaching due to marker visibility error...")
-                    resolved = self.marker_problem_callback(arm_side)
+                    resolved = self.marker_problem_callback(arm_side, mode=mode)
                     if resolved:
                         self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
                         time.sleep(1.0)
@@ -899,7 +980,7 @@ class JointCalibrator(BaseCalibrator):
         angles_B = [np.degrees(q_full[arm_idx[sweep_joint_B]] - initial_joint_pos[sweep_joint_B]) for q_full, _ in dataset_B]
 
         # 3. Fit Sweep A and B axes in the camera frame
-        robust_fit = not self.is_mock
+        robust_fit = True
         res_A = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_A, angles_A, axis_prior=a_A_cam, robust=robust_fit)
         res_B = BaseCalibrator.fit_circle_3d_and_6dof_misalignment(poses_B, angles_B, axis_prior=a_B_cam_nom, robust=robust_fit)
 

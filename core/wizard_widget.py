@@ -7,7 +7,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont, QPixmap
-from core.i18n import I18nManager, tr
+from core.language import LanguageManager, tr
 
 def get_asset_path(relative_path):
     if getattr(sys, 'frozen', False):
@@ -17,10 +17,9 @@ def get_asset_path(relative_path):
         return os.path.abspath(os.path.join(current_dir, relative_path))
 
 class HowToMoveArmsDialog(QDialog):
-    def __init__(self, parent=None, is_ko=False):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        is_ko = (I18nManager.instance().current_lang == "ko")
-        self.setWindowTitle("팔 이동 방법 (Direct Teaching)" if is_ko else "How to Move Arms (Direct Teaching)")
+        self.setWindowTitle(tr("dialogs.how_to_move_arms.title"))
         self.resize(750, 520)
         self.setStyleSheet("""
             QDialog { background-color: #1e1e1e; color: #ffffff; }
@@ -34,7 +33,7 @@ class HowToMoveArmsDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         
-        lbl_title = QLabel("직접 교시 버튼 사용 안내" if is_ko else "Direct Teaching Button Usage")
+        lbl_title = QLabel(tr("dialogs.how_to_move_arms.lbl_title"))
         lbl_title.setStyleSheet("font-size: 20px; font-weight: bold; color: #ffd700;")
         lbl_title.setAlignment(Qt.AlignCenter)
         layout.addWidget(lbl_title)
@@ -48,13 +47,13 @@ class HowToMoveArmsDialog(QDialog):
         img_lbl.setAlignment(Qt.AlignCenter)
         layout.addWidget(img_lbl)
         
-        box = QGroupBox("직접 교시 사용 안내" if is_ko else "Direct Teaching Steps")
+        box = QGroupBox(tr("dialogs.how_to_move_arms.box_title"))
         box_layout = QVBoxLayout(box)
         box_layout.setSpacing(8)
         
         insts = [
-            "1. 각 팔의 직접 교시 버튼을 눌러 수동으로 주요 관절 위치를 설정합니다." if is_ko else "1. Press the direct teaching button on each arm to manually adjust key joint postures.",
-            "2. 중요: 보정값이 반대 방향으로 계산되어 오작동을 일으키지 않도록, 지정된 주요 관절을 수작업으로 옮겨주어야 합니다." if is_ko else "2. Important: Manually move target joints so calibration offsets are calculated in the correct direction."
+            tr("dialogs.how_to_move_arms.step1"),
+            tr("dialogs.how_to_move_arms.step2")
         ]
         for txt in insts:
             lbl = QLabel(txt)
@@ -62,7 +61,7 @@ class HowToMoveArmsDialog(QDialog):
             lbl.setWordWrap(True)
             box_layout.addWidget(lbl)
             
-        warn_lbl = QLabel("⚠️ 경고: 양팔의 직접 교시 버튼을 절대로 동시에 누르지 마십시오!" if is_ko else "⚠️ Warning: NEVER press teaching buttons on both arms simultaneously!")
+        warn_lbl = QLabel(tr("dialogs.how_to_move_arms.warn_lbl"))
         warn_lbl.setStyleSheet("font-size: 16px; color: #ff5252; font-weight: bold;")
         warn_lbl.setWordWrap(True)
         warn_lbl.setAlignment(Qt.AlignCenter)
@@ -70,7 +69,7 @@ class HowToMoveArmsDialog(QDialog):
         
         layout.addWidget(box)
         
-        btn_close = QPushButton("확인 (Close)" if is_ko else "Close")
+        btn_close = QPushButton(tr("dialogs.how_to_move_arms.btn_close"))
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close, alignment=Qt.AlignCenter)
 
@@ -136,7 +135,7 @@ class CalibrationWizardWidget(QWidget):
         self.unified_elapsed = 0
         
         # Connect language changed signal
-        I18nManager.instance().language_changed.connect(self.on_language_changed)
+        LanguageManager.instance().language_changed.connect(self.on_language_changed)
         
         self.setup_slides()
         self.stacked_widget.currentChanged.connect(self.update_navigation)
@@ -237,13 +236,13 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'lbl_apply3'): self.lbl_apply3.setText(tr("wizard.slides.slide_8.inst3"))
         if hasattr(self, 'lbl_apply4'): self.lbl_apply4.setText(tr("wizard.slides.slide_8.inst4"))
         if hasattr(self, 'btn_rollback_preview'):
-            self.btn_rollback_preview.setText("Rollback Preview" if lang != "ko" else "롤백 자세 확인")
+            self.btn_rollback_preview.setText(tr("wizard.slides.slide_8.btn_rollback_preview"))
         if hasattr(self, 'btn_new_offset_preview'):
-            self.btn_new_offset_preview.setText("New Offset Preview" if lang != "ko" else "보정 자세 확인")
+            self.btn_new_offset_preview.setText(tr("wizard.slides.slide_8.btn_new_offset_preview"))
         if hasattr(self, 'btn_rollback_joint'):
-            self.btn_rollback_joint.setText("Rollback Joint" if lang != "ko" else "기존 영점 복구 (Rollback)")
+            self.btn_rollback_joint.setText(tr("wizard.slides.slide_8.btn_rollback_joint"))
         if hasattr(self, 'btn_apply_new_offset'):
-            self.btn_apply_new_offset.setText("Apply New Offset" if lang != "ko" else "신규 보정 적용 (Apply)")
+            self.btn_apply_new_offset.setText(tr("wizard.slides.slide_8.btn_apply_new_offset"))
         
     def setup_slides(self):
         # -----------------------------------------
@@ -751,9 +750,9 @@ class CalibrationWizardWidget(QWidget):
         lbl_ip.setStyleSheet("font-size: 15px; font-weight: bold;")
         ip_row.addWidget(lbl_ip)
         
-        self.wizard_ip_input = QLineEdit("192.168.30.1:50051")
-        if self.parent_app.ui_only:
-            self.wizard_ip_input.setText("127.0.0.1:50051")
+        is_sim_or_ui = self.parent_app.ui_only or getattr(self.parent_app.marker_st, 'sim', False)
+        default_ip = "127.0.0.1:50051" if is_sim_or_ui else "192.168.30.1:50051"
+        self.wizard_ip_input = QLineEdit(default_ip)
         self.wizard_ip_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 6px; font-size: 15px;")
         ip_row.addWidget(self.wizard_ip_input)
         conn_layout.addLayout(ip_row)
@@ -1026,13 +1025,13 @@ class CalibrationWizardWidget(QWidget):
         row1_layout = QHBoxLayout()
         row1_layout.setSpacing(15)
         
-        self.btn_rollback_preview = QPushButton("Rollback Preview" if I18nManager.instance().current_lang != "ko" else "롤백 자세 확인")
+        self.btn_rollback_preview = QPushButton(tr("wizard.slides.slide_8.btn_rollback_preview"))
         self.btn_rollback_preview.setMinimumHeight(40)
         self.btn_rollback_preview.setStyleSheet("background-color: #546e7a; color: white; font-weight: bold; font-size: 15px; border-radius: 6px;")
         self.btn_rollback_preview.clicked.connect(lambda: self.wizard_move_check("baseline"))
         row1_layout.addWidget(self.btn_rollback_preview)
         
-        self.btn_new_offset_preview = QPushButton("New Offset Preview" if I18nManager.instance().current_lang != "ko" else "보정 자세 확인")
+        self.btn_new_offset_preview = QPushButton(tr("wizard.slides.slide_8.btn_new_offset_preview"))
         self.btn_new_offset_preview.setMinimumHeight(40)
         self.btn_new_offset_preview.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; border-radius: 6px;")
         self.btn_new_offset_preview.clicked.connect(lambda: self.wizard_move_check("optimized"))
@@ -1043,13 +1042,13 @@ class CalibrationWizardWidget(QWidget):
         row2_layout = QHBoxLayout()
         row2_layout.setSpacing(15)
         
-        self.btn_rollback_joint = QPushButton("Rollback Joint" if I18nManager.instance().current_lang != "ko" else "기존 영점 복구 (Rollback)")
+        self.btn_rollback_joint = QPushButton(tr("wizard.slides.slide_8.btn_rollback_joint"))
         self.btn_rollback_joint.setMinimumHeight(45)
         self.btn_rollback_joint.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_rollback_joint.clicked.connect(lambda: self.wizard_apply_offset("baseline"))
         row2_layout.addWidget(self.btn_rollback_joint)
         
-        self.btn_apply_new_offset = QPushButton("Apply New Offset" if I18nManager.instance().current_lang != "ko" else "신규 보정 적용 (Apply)")
+        self.btn_apply_new_offset = QPushButton(tr("wizard.slides.slide_8.btn_apply_new_offset"))
         self.btn_apply_new_offset.setMinimumHeight(45)
         self.btn_apply_new_offset.setStyleSheet("background-color: #43a047; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
         self.btn_apply_new_offset.clicked.connect(lambda: self.wizard_apply_offset("optimized"))
@@ -1061,7 +1060,7 @@ class CalibrationWizardWidget(QWidget):
         self.stacked_widget.addWidget(slide6)
 
     def show_how_to_move_arms_dialog(self):
-        dlg = HowToMoveArmsDialog(self, is_ko=False)
+        dlg = HowToMoveArmsDialog(self)
         dlg.exec()
 
     def on_wiz_auto_exp_toggled(self, checked):
@@ -1145,7 +1144,7 @@ class CalibrationWizardWidget(QWidget):
             self.lbl_wiz_exp_status.setStyleSheet("color: #ff9800; font-size: 13px; font-weight: bold;")
 
     def show_how_to_move_arms_dialog(self):
-        dlg = HowToMoveArmsDialog(self, is_ko=False)
+        dlg = HowToMoveArmsDialog(self)
         dlg.exec()
 
     def mark_step_completed(self, step_idx, success=True, msg=""):
@@ -1661,15 +1660,13 @@ class CalibrationWizardWidget(QWidget):
         result_path, baseline_path = self.get_apply_paths()
         path = baseline_path if state == "baseline" else result_path
         
-        is_ko = (I18nManager.instance().current_lang == "ko")
-        
         if not path or not os.path.exists(path):
-            QMessageBox.warning(self, "Warning" if not is_ko else "경고", 
-                                f"No {state} JSON found." if not is_ko else f"{state} 설정 파일을 찾을 수 없습니다.")
+            QMessageBox.warning(self, tr("common.status_error"), 
+                                tr("wizard.step6.no_json", state=state))
             return
 
         self.set_wizard_buttons_enabled(False)
-        self.lbl_step6_status.setText(f"Status: Moving to {state} check posture..." if not is_ko else f"상태: {state} 체크 자세로 이동 중...")
+        self.lbl_step6_status.setText(tr("wizard.step6.moving_check", state=state))
         self.lbl_step6_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
         
         from main_ui import Step2ApplyHomeOffsetWorker
@@ -1688,14 +1685,14 @@ class CalibrationWizardWidget(QWidget):
             self.set_wizard_buttons_enabled(True)
             if success:
                 self.check_pose_init_done = True
-                self.lbl_step6_status.setText(f"Status: Arrived at {state} check posture." if not is_ko else f"상태: {state} 체크 자세 도착 완료.")
+                self.lbl_step6_status.setText(tr("wizard.step6.arrived_check", state=state))
                 self.lbl_step6_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
-                QMessageBox.information(self, "Preview Complete" if not is_ko else "이동 완료", 
-                                        f"Moved to {state} check position." if not is_ko else f"{state} 체크 자세로 이동 완료되었습니다.")
+                QMessageBox.information(self, tr("wizard.step6.preview_complete_title"), 
+                                        tr("wizard.step6.preview_complete_msg", state=state))
             else:
-                self.lbl_step6_status.setText(f"Status: Preview Error" if not is_ko else f"상태: 이동 에러")
+                self.lbl_step6_status.setText(tr("wizard.step6.preview_error_status"))
                 self.lbl_step6_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
-                QMessageBox.critical(self, "Preview Error" if not is_ko else "이동 에러", error_msg)
+                QMessageBox.critical(self, tr("wizard.step6.preview_error_title"), error_msg)
                 
         self.wizard_worker.finished_signal.connect(on_finished)
         self.wizard_worker.start()
@@ -1704,26 +1701,15 @@ class CalibrationWizardWidget(QWidget):
         result_path, baseline_path = self.get_apply_paths()
         path = baseline_path if state == "baseline" else result_path
         
-        is_ko = (I18nManager.instance().current_lang == "ko")
-        
         if not path or not os.path.exists(path):
-            QMessageBox.warning(self, "Warning" if not is_ko else "경고", 
-                                f"No {state} JSON found." if not is_ko else f"{state} 설정 파일을 찾을 수 없습니다.")
+            QMessageBox.warning(self, tr("common.status_error"), 
+                                tr("wizard.step6.no_json", state=state))
             return
 
-        confirm_msg = (
-            f"Are you sure you want to apply the '{state.upper()}' offsets?\n\n"
-            f"The robot will move to the Zero Pose of '{state.upper()}', and then reset/apply the home offset.\n"
-            f"Please ensure the workspace around the robot is clear."
-        ) if not is_ko else (
-            f"'{state.upper()}' 오프셋을 정말로 적용하시겠습니까?\n\n"
-            f"로봇이 '{state.upper()}'의 영점(Zero Pose)으로 이동한 후, 물리 홈 오프셋 리셋을 수행합니다.\n"
-            f"로봇 주변의 작업 공간이 비어 있는지 확인해 주세요."
-        )
-        
+        confirm_msg = tr("wizard.step6.confirm_msg", state=state.upper())
         confirm = QMessageBox.question(
             self, 
-            "Confirm Apply" if not is_ko else "적용 확인", 
+            tr("wizard.step6.confirm_title"), 
             confirm_msg,
             QMessageBox.Yes | QMessageBox.No, 
             QMessageBox.No
@@ -1734,7 +1720,7 @@ class CalibrationWizardWidget(QWidget):
 
         self.set_wizard_buttons_enabled(False)
         self.parent_app.log_msg(f"[INFO] Moving robot to '{state.upper()}' Zero Pose before applying home offset...")
-        self.lbl_step6_status.setText(f"Status: Moving to {state} Zero Pose..." if not is_ko else f"상태: {state} 영점으로 이동 중...")
+        self.lbl_step6_status.setText(tr("wizard.step6.moving_zero", state=state))
         self.lbl_step6_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
         
         from main_ui import Step2ApplyHomeOffsetWorker
@@ -1754,15 +1740,15 @@ class CalibrationWizardWidget(QWidget):
         def on_move_finished(success, error_msg, res):
             if not success:
                 self.set_wizard_buttons_enabled(True)
-                self.lbl_step6_status.setText(f"Status: Move Error" if not is_ko else f"상태: 이동 에러")
+                self.lbl_step6_status.setText(tr("wizard.step6.move_zero_error_status"))
                 self.lbl_step6_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
-                QMessageBox.critical(self, "Zero Pose Move Error" if not is_ko else "영점 이동 에러", 
-                                     f"Failed to move to zero pose before applying: {error_msg}" if not is_ko else f"적용 전 영점 이동 실패: {error_msg}")
+                QMessageBox.critical(self, tr("wizard.step6.move_zero_error_title"), 
+                                     tr("wizard.step6.move_zero_error_msg", error_msg=error_msg))
                 return
             
             arm_to_apply = res.get("arm", current_apply_arm)
             self.parent_app.log_msg(f"[INFO] Arrived at '{state.upper()}' Zero Pose. Now resetting and applying home offset...")
-            self.lbl_step6_status.setText(f"Status: Applying {state} Home Offset..." if not is_ko else f"상태: {state} 물리 홈 리셋 적용 중...")
+            self.lbl_step6_status.setText(tr("wizard.step6.applying_offset", state=state))
 
             self.wizard_worker_apply = Step2ApplyHomeOffsetWorker(
                 self.parent_app,
@@ -1827,23 +1813,21 @@ class CalibrationWizardWidget(QWidget):
                             except Exception as e:
                                 self.parent_app.log_msg(f"[WARN] Failed to zero out baseline json: {e}")
 
-                        self.lbl_step6_status.setText(f"Status: SUCCESS - {state.upper()} applied" if not is_ko else f"상태: 성공 - {state.upper()} 적용 완료")
+                        self.lbl_step6_status.setText(tr("wizard.step6.success_status", state=state.upper()))
                         self.lbl_step6_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
                         self.mark_step_completed(9, True, f"'{state.upper()}' home offset applied.")
                         
-                        QMessageBox.information(self, "Success" if not is_ko else "성공", 
-                                                f"Robot moved to Zero Pose and '{state.upper()}' home offset applied successfully." if not is_ko 
-                                                else f"로봇이 영점으로 이동하였으며 '{state.upper()}' 물리 홈 오프셋 리셋이 성공적으로 적용되었습니다.")
+                        QMessageBox.information(self, tr("wizard.step6.success_title"), 
+                                                tr("wizard.step6.success_msg", state=state.upper()))
                     else:
-                        self.lbl_step6_status.setText(f"Status: Partial Failure" if not is_ko else f"상태: 부분 실패")
+                        self.lbl_step6_status.setText(tr("wizard.step6.partial_fail_status"))
                         self.lbl_step6_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
-                        QMessageBox.warning(self, "Warning" if not is_ko else "경고", 
-                                            "Home offset apply finished, but some joints failed to reset. Please check the logs." if not is_ko
-                                            else "홈 오프셋 리셋이 끝났으나 일부 관절 리셋에 실패했습니다. 로그를 확인해 주세요.")
+                        QMessageBox.warning(self, tr("wizard.step6.partial_fail_title"), 
+                                            tr("wizard.step6.partial_fail_msg"))
                 else:
-                    self.lbl_step6_status.setText(f"Status: Apply Error" if not is_ko else f"상태: 적용 에러")
+                    self.lbl_step6_status.setText(tr("wizard.step6.apply_error_status"))
                     self.lbl_step6_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
-                    QMessageBox.critical(self, "Apply Pose Error" if not is_ko else "적용 에러", app_error_msg)
+                    QMessageBox.critical(self, tr("wizard.step6.apply_error_title"), app_error_msg)
 
             self.wizard_worker_apply.finished_signal.connect(on_apply_finished)
             self.wizard_worker_apply.start()

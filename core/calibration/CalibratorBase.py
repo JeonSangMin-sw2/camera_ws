@@ -28,36 +28,6 @@ class BaseCalibrator:
         "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -30.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
         "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
-    MOCK_GT_OFFSETS = {
-        "right": {
-            "joint0": 0.5,
-            "joint1": 2.5,
-            "joint2": 1.2,
-            "joint3": 0.5,
-            "joint4": -1.5,
-            "joint5_v13": -2.1,
-            "joint5_v12": 5.4,
-            "joint6": 2.3,
-            "bracket_pos": [0.0005, 0.0, 0.002],  # meters
-            "bracket_rpy": [-0.1, -0.1, 0.05]        # degrees
-        },
-        "left": {
-            "joint0": -0.4,
-            "joint1": -1.6,
-            "joint2": -1.0,
-            "joint3": 0.7,
-            "joint4": 1.1,
-            "joint5_v13": 3.6,
-            "joint5_v12": -3.0,
-            "joint6": 3.5,
-            "bracket_pos": [0.001, 0.0005, -0.002], # meters
-            "bracket_rpy": [0.1, 0.1, 0.0]        # degrees
-        },
-        "head": {
-            "pan": 0.8,    # degrees
-            "tilt": -1.5   # degrees
-        }
-    }
     NOMINAL_BRACKET_TEMPLATES = {
         "1.3": {
             "left":  [0.067, 0.0, 0.0, 90.0, 0.0, -90.0],
@@ -121,10 +91,6 @@ class BaseCalibrator:
     def get_robot_version(self) -> str:
         """Returns the robot version as a string: '1.0', '1.1', '1.2', or '1.3'."""
         return str(getattr(self, "robot_version", "1.2"))
-
-    @property
-    def is_mock(self) -> bool:
-        return self.marker_st is None or type(self.marker_st).__name__ == "SimulatedMarkerTransform"
 
     def is_v13(self) -> bool:
         """Returns True only for model-m v1.3 robots."""
@@ -469,87 +435,69 @@ class BaseCalibrator:
         T[:3, :3] = R_scipy.from_euler('ZYX', [yaw, pitch, roll], degrees=True).as_matrix()
         return T
 
+    @staticmethod
+    def filter_sweep_dataset(dataset, arm_idx, sweep_joint, mismatch_threshold_deg=3.0, log_callback=None):
+        """
+        Filters out IPPE planar ambiguity flip spikes from a single joint sweep dataset.
+        dataset: list of (q_full, pose_mat)
+        """
+        if not dataset or len(dataset) < 4:
+            return dataset
 
+        angles_deg = [np.degrees(q_full[arm_idx[sweep_joint]]) for q_full, _ in dataset]
+        poses = [pose for _, pose in dataset]
+        n = len(dataset)
 
-    def get_simulated_marker_pose(self, arm_side, sweep_joint=None, current_offset_deg=0.0, cand_joint=None, q_actual=None):
-        if not self.robot:
-            raise RuntimeError("Robot is not initialized or connected.")
+        bad_indices = set()
+        for i in range(1, n):
+            R_prev = poses[i-1][:3, :3]
+            R_curr = poses[i][:3, :3]
+            R_rel = R_curr @ R_prev.T
+            tr = np.trace(R_rel)
+            cos_val = np.clip((tr - 1.0) / 2.0, -1.0, 1.0)
+            dR = np.degrees(np.arccos(cos_val))
+            dq = abs(angles_deg[i] - angles_deg[i-1])
+            if abs(dR - dq) > mismatch_threshold_deg:
+                bad_indices.add(i)
 
-        is_v13 = self.is_v13()
-        model = self.robot.model()
-        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
-        ee_name = f"ee_{arm_side}"
-        
-        mock_gt = self.MOCK_GT_OFFSETS[arm_side]
-        bracket_pos_gt = mock_gt["bracket_pos"]
-        bracket_rpy_gt = mock_gt["bracket_rpy"]
-            
-        injected_joint_offsets_deg = [0.0] * 7
-        injected_joint_offsets_deg[0] = mock_gt.get("joint0", 0.0)
-        injected_joint_offsets_deg[1] = mock_gt.get("joint1", 0.0)
-        injected_joint_offsets_deg[2] = mock_gt.get("joint2", 0.0)
-        injected_joint_offsets_deg[3] = mock_gt.get("joint3", 0.0)
-        injected_joint_offsets_deg[4] = mock_gt.get("joint4", 0.0)
-        injected_joint_offsets_deg[5] = mock_gt.get("joint5_v13" if is_v13 else "joint5_v12", 0.0)
-        injected_joint_offsets_deg[6] = mock_gt.get("joint6", 0.0)
+        if not bad_indices:
+            return dataset
 
-        if q_actual is None:
-            state = self.robot.get_state()
-            q_actual = np.array(state.position)
-        else:
-            q_actual = np.array(q_actual)
-        
-        for i in range(7):
-            q_actual[arm_idx[i]] += np.radians(injected_joint_offsets_deg[i])
-            
-        head_idx = model.head_idx if hasattr(model, 'head_idx') else []
-        if len(head_idx) >= 2:
-            head_gt = self.MOCK_GT_OFFSETS.get("head", {"pan": 0.0, "tilt": 0.0})
-            q_actual[head_idx[0]] += np.radians(head_gt.get("pan", 0.0))
-            q_actual[head_idx[1]] += np.radians(head_gt.get("tilt", 0.0))
-
-        dyn_model = self.robot.get_dynamics()
-        T_t5_to_ee = self.compute_fk(self.robot, dyn_model, q_actual, ee_name)
-        
-        # Always use the version-specific nominal design values as the baseline for simulation data generation
-        version_suffix = "_v13" if is_v13 else "_v12"
-        tf_key = f"Tf_to_marker_{arm_side}{version_suffix}"
-        tf_vec = self.camera_config.get(tf_key)
-        if tf_vec is None:
-            ver_key = "1.3" if is_v13 else "1.2"
-            tf_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
-            
-        nominal_pos = tf_vec[:3]
-        nominal_rpy = tf_vec[3:6]
+        confirmed_spikes = set()
+        for i in bad_indices:
+            prev_idx = i - 1
+            while prev_idx in bad_indices and prev_idx > 0:
+                prev_idx -= 1
+            next_idx = i + 1
+            while next_idx in bad_indices and next_idx < n - 1:
+                next_idx += 1
                 
-        marker_pos_gt = np.array(nominal_pos) + np.array(bracket_pos_gt)
-        R_ee_m_ideal = R_scipy.from_euler('ZYX', [nominal_rpy[2], nominal_rpy[1], nominal_rpy[0]], degrees=True).as_matrix()
-        R_bracket_offset = R_scipy.from_euler('ZYX', [bracket_rpy_gt[2], bracket_rpy_gt[1], bracket_rpy_gt[0]], degrees=True).as_matrix()
-        R_ee_m_gt = R_bracket_offset @ R_ee_m_ideal
-        
-        T_ee_to_marker_gt = np.eye(4)
-        T_ee_to_marker_gt[:3, :3] = R_ee_m_gt
-        T_ee_to_marker_gt[:3, 3] = marker_pos_gt
-        
-        T_t5_to_marker = T_t5_to_ee @ T_ee_to_marker_gt
-        
-        if self.is_head_active():
-            mount_to_cam = self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])
-            T_head_to_cam_gt = self.make_transform(mount_to_cam)
-            T_t5_to_head = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_2", "link_torso_5")
-            T_t5_to_cam = T_t5_to_head @ T_head_to_cam_gt
-        else:
-            head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
-            T_head_base_to_cam_gt = self.make_transform(head_base_to_cam)
-            try:
-                T_t5_to_head_0 = self.compute_fk(self.robot, dyn_model, q_actual, "link_head_0", "link_torso_5")
-            except Exception:
-                T_t5_to_head_0 = np.eye(4)
-            T_t5_to_cam = T_t5_to_head_0 @ T_head_base_to_cam_gt
-        
-        T_cam_to_marker = np.linalg.inv(T_t5_to_cam) @ T_t5_to_marker
-        
-        return T_cam_to_marker
+            if prev_idx >= 0 and next_idx < n:
+                R_p = poses[prev_idx][:3, :3]
+                R_n = poses[next_idx][:3, :3]
+                R_i = poses[i][:3, :3]
+                
+                dR_skip = np.degrees(np.arccos(np.clip((np.trace(R_n @ R_p.T) - 1.0) / 2.0, -1.0, 1.0)))
+                dq_skip = abs(angles_deg[next_idx] - angles_deg[prev_idx])
+                
+                dR_i_p = np.degrees(np.arccos(np.clip((np.trace(R_i @ R_p.T) - 1.0) / 2.0, -1.0, 1.0)))
+                dq_i_p = abs(angles_deg[i] - angles_deg[prev_idx])
+                
+                if abs(dR_skip - dq_skip) < abs(dR_i_p - dq_i_p):
+                    confirmed_spikes.add(i)
+            else:
+                confirmed_spikes.add(i)
+
+        if confirmed_spikes:
+            msg = f"[FILTER] Filtered {len(confirmed_spikes)} IPPE flip spike frame(s) at indices: {sorted(list(confirmed_spikes))}"
+            if log_callback:
+                log_callback(msg)
+            logging.info(msg)
+
+        clean_dataset = [item for idx, item in enumerate(dataset) if idx not in confirmed_spikes]
+        return clean_dataset
+
+
 
     def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
         if getattr(self, 'stop_requested', False):
@@ -1145,15 +1093,17 @@ class BaseCalibrator:
             if isinstance(arm_dict, dict):
                 taught_pose = arm_dict.get(norm_mode)
 
+        apply_offsets_flag = True
         if taught_pose is not None:
             if log_callback:
                 log_callback(f"[INFO] Preserved user-taught ready pose detected for {arm_side} arm ({norm_mode}). Using taught posture.")
             if arm_side == "right":
-                right_arm = taught_pose
+                right_arm = list(taught_pose)
                 left_arm = None
             else:
                 right_arm = None
-                left_arm = taught_pose
+                left_arm = list(taught_pose)
+            apply_offsets_flag = False
         else:
             if arm_side == "right":
                 right_arm = self.get_ready_pose(version_key, type_key, ready_mode, "right")
@@ -1162,7 +1112,7 @@ class BaseCalibrator:
                 right_arm = None
                 left_arm = self.get_ready_pose(version_key, type_key, ready_mode, "left")
 
-        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=None, minimum_time=5.0)
+        success = self.movej(self.robot, torso=torso, right_arm=right_arm, left_arm=left_arm, head=None, minimum_time=5.0, apply_offsets=apply_offsets_flag)
         if success and log_callback:
             log_callback("[INFO] Ready Pose Reached.")
         return success
@@ -1383,7 +1333,6 @@ class BaseCalibrator:
             if log_callback: log_callback("[ERROR] Robot is not connected.")
             return None
 
-        is_camera_mock = self.is_mock
         model = self.robot.model()
         arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
 
@@ -1434,10 +1383,8 @@ class BaseCalibrator:
             if log_callback: log_callback(f"[ERROR] Failed to move {label} to start pose or stop requested.")
             return None
 
-        if self.robot and self.robot != "mock_robot":
+        if self.robot:
             time.sleep(0.5)
-        else:
-            time.sleep(0.01)
 
         # 2. Continuous sweep from start to end position
         logging.info(f"[INFO] Commencing continuous sweep on {label} (duration={sweep_duration}s)...")
@@ -1479,22 +1426,7 @@ class BaseCalibrator:
                 else:
                     q_full_captured = np.zeros(26)
 
-            if is_camera_mock:
-                if hasattr(self, 'get_simulated_marker_pose'):
-                    try:
-                        pose = self.get_simulated_marker_pose(
-                            arm_side, sweep_joint=sweep_joint, 
-                            current_offset_deg=kwargs.get('current_offset_deg', 0.0), 
-                            cand_joint=kwargs.get('cand_joint', None),
-                            q_actual=q_full_captured
-                        )
-                    except TypeError:
-                        pose = self.get_simulated_marker_pose(arm_side, sweep_joint=sweep_joint, q_actual=q_full_captured)
-                else:
-                    pose = np.eye(4)
-                res = [pose.tolist()] if pose is not None else None
-            else:
-                res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False)
+            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False, q_encoder=q_full_captured)
 
             if res:
                 pose_flat = res[0] if isinstance(res, list) else list(res.values())[0]
@@ -1505,15 +1437,15 @@ class BaseCalibrator:
                     if len(dataset) == 0 or not np.allclose(dataset[-1][1], pose_mat, atol=1e-5):
                         dataset.append((q_full_captured, pose_mat))
 
-            if is_camera_mock:
-                time.sleep(0.005 if sweep_duration <= 2.0 else 0.033)
-            else:
-                time.sleep(0.01)
+            time.sleep(0.01)
 
         move_thread.join()
         if not move_thread.success:
             if log_callback: log_callback(f"[ERROR] {label} sweep motion failed or was cancelled.")
             return None
+
+        # Defense-in-depth: Filter out any IPPE planar ambiguity flip spikes before circle/axis fitting
+        dataset = self.filter_sweep_dataset(dataset, arm_idx, sweep_joint, mismatch_threshold_deg=3.0, log_callback=log_callback)
 
         if len(dataset) < 10:
             if log_callback: log_callback(f"[ERROR] Too few valid captured points for {label} ({len(dataset)} points). Returning to ready pose and prompting posture adjustment...")

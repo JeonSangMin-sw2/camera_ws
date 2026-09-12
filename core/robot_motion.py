@@ -854,3 +854,213 @@ def check_calibration_state(robot, model_name, active_arms, data, offset, log_cb
     rv2 = robot.send_command(cmd2, 10).get()
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError(f"Failed to move to Cartesian Checking Pose. FinishCode: {rv2.finish_code}")
+
+
+def execute_draw_square_trajectory(robot, active_arms, offset=0.0, log_cb=None):
+    """Draw square trajectory with dual arms to verify calibration status."""
+    def _log(msg):
+        if log_cb:
+            log_cb(msg)
+
+    square_points = [
+        [0.35, 0.07, 0.0],
+        [0.35, 0.0, 0.07],
+        [0.35, -0.07, 0.0],
+        [0.35, 0.0, -0.07],
+    ]
+    
+    _log("Starting square drawing sequence (2 loops)...")
+    for loop_idx in range(2):
+        _log(f"Loop {loop_idx + 1} / 2")
+        for pt_idx, pt in enumerate(square_points):
+            _log(f"  Target Point {pt_idx + 1}: X={pt[0]}, Y={pt[1]}, Z={pt[2]}")
+            
+            roll_r = 90.0 * D2R
+            pitch_r = -90.0 * D2R
+            yaw_r = 0.0
+            cr_r = np.cos(roll_r); sr_r = np.sin(roll_r)
+            cp_r = np.cos(pitch_r); sp_r = np.sin(pitch_r)
+            cy_r = np.cos(yaw_r); sy_r = np.sin(yaw_r)
+            
+            T_right = np.eye(4, dtype=np.float64)
+            T_right[0, 0] = cy_r * cp_r
+            T_right[0, 1] = sr_r * sp_r * cy_r - cr_r * sy_r
+            T_right[0, 2] = cr_r * sp_r * cy_r + sr_r * sy_r
+            T_right[0, 3] = pt[0]
+            T_right[1, 0] = sy_r * cp_r
+            T_right[1, 1] = sr_r * sp_r * sy_r + cr_r * cy_r
+            T_right[1, 2] = cr_r * sp_r * sy_r - sr_r * cy_r
+            T_right[1, 3] = pt[1] - offset
+            T_right[2, 0] = -sp_r
+            T_right[2, 1] = cp_r * sr_r
+            T_right[2, 2] = cp_r * cr_r
+            T_right[2, 3] = pt[2]
+            
+            roll_l = -90.0 * D2R
+            pitch_l = -90.0 * D2R
+            yaw_l = 0.0
+            cr_l = np.cos(roll_l); sr_l = np.sin(roll_l)
+            cp_l = np.cos(pitch_l); sp_l = np.sin(pitch_l)
+            cy_l = np.cos(yaw_l); sy_l = np.sin(yaw_l)
+            
+            T_left = np.eye(4, dtype=np.float64)
+            T_left[0, 0] = cy_l * cp_l
+            T_left[0, 1] = sr_l * sp_l * cy_l - cr_l * sy_l
+            T_left[0, 2] = cr_l * sp_l * cy_l + sr_l * sy_l
+            T_left[0, 3] = pt[0]
+            T_left[1, 0] = sy_l * cp_l
+            T_left[1, 1] = sr_l * sp_l * sy_l + cr_l * cy_l
+            T_left[1, 2] = cr_l * sp_l * sy_l - sr_l * cy_l
+            T_left[1, 3] = pt[1] + offset
+            T_left[2, 0] = -sp_l
+            T_left[2, 1] = cp_l * sr_l
+            T_left[2, 2] = cp_l * cr_l
+            T_left[2, 3] = pt[2]
+            
+            cmd = make_dual_arm_head_cmd(
+                T_right=T_right,
+                T_left=T_left,
+                active_arms=active_arms,
+                head_position=None,
+                min_time=2.0,
+                hold_time=0.2
+            )
+            rv = robot.send_command(cmd, 10).get()
+            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+                raise RuntimeError(f"Draw point move failed: {rv.finish_code}")
+            time.sleep(0.5)
+            
+    _log("Square drawing sequence completed successfully.")
+    return True
+
+
+def move_to_zero_pose(robot, model, arm="both", include_head=True, log_cb=None):
+    """Move robot arms and head to zero joint angle pose."""
+    def _log(msg):
+        if log_cb:
+            log_cb(msg)
+
+    if robot is None or model is None:
+        raise RuntimeError("Robot or model is not available.")
+
+    try:
+        from core.calibration.homeoffset_core import movej
+    except ImportError:
+        from calibration.homeoffset_core import movej
+    right_zero_pose = np.zeros(len(model.right_arm_idx))
+    left_zero_pose = np.zeros(len(model.left_arm_idx))
+    head_zero_pose = (
+        np.zeros(len(model.head_idx))
+        if (include_head and hasattr(model, 'head_idx') and model.head_idx is not None and len(model.head_idx) >= 2)
+        else None
+    )
+
+    _log("Moving robot to zero pose...")
+    ok = movej(
+        robot,
+        right_arm=right_zero_pose if arm in ("right", "both") else None,
+        left_arm=left_zero_pose if arm in ("left", "both") else None,
+        head=head_zero_pose,
+        minimum_time=5,
+    )
+    if not ok:
+        raise RuntimeError("Failed to move robot to zero pose")
+    return True
+
+
+def verify_and_align_head_at_ready_pose(
+    robot,
+    marker_st,
+    model,
+    active_arms,
+    priority=10,
+    include_head_motion=True,
+    prompt_teaching_cb=None,
+    log_cb=None,
+    on_head_aligned_cb=None,
+):
+    """Verifies marker visibility at ready pose, prompting user teaching if needed,
+    and automatically centers the head camera to align markers."""
+    def _log(msg):
+        if log_cb:
+            log_cb(msg)
+
+    if marker_st is None:
+        return True
+
+    _log("[Step2] Verifying marker visibility at the initial ready pose...")
+    time.sleep(1.5)
+
+    # Check right arm
+    right_check = marker_st.get_marker_transform(sampling_time=1.5, side="right")
+    if right_check is None:
+        _log("[INFO] Right arm marker not visible at Init Pose. Showing teaching dialog...")
+        resolved = prompt_teaching_cb("right") if prompt_teaching_cb else False
+        if not resolved:
+            raise RuntimeError("Right arm posture teaching canceled by user.")
+
+    # Check left arm
+    left_check = marker_st.get_marker_transform(sampling_time=1.5, side="left")
+    if left_check is None:
+        _log("[INFO] Left arm marker not visible at Init Pose. Showing teaching dialog...")
+        resolved = prompt_teaching_cb("left") if prompt_teaching_cb else False
+        if not resolved:
+            raise RuntimeError("Left arm posture teaching canceled by user.")
+
+    # Re-verify visibility
+    _log("[INFO] Re-verifying marker visibility at the new posture...")
+    right_check = marker_st.get_marker_transform(sampling_time=1.5, side="right")
+    left_check = marker_st.get_marker_transform(sampling_time=1.5, side="left")
+    if right_check is None or left_check is None:
+        raise RuntimeError("Marker still not detected at Init Pose after teaching.")
+
+    # Auto-center head if markers are vertically or horizontally offset from camera optical center
+    if include_head_motion and model is not None:
+        try:
+            head_idx = getattr(model, "head_idx", None)
+            if head_idx is not None and len(head_idx) >= 2:
+                pts = []
+                if right_check is not None and len(right_check) > 0:
+                    T_r = np.array(right_check[0]) if (isinstance(right_check, list) and isinstance(right_check[0], list)) else np.array(right_check)
+                    if T_r.ndim == 2 and T_r.shape == (4, 4):
+                        pts.append(T_r[:3, 3])
+                if left_check is not None and len(left_check) > 0:
+                    T_l = np.array(left_check[0]) if (isinstance(left_check, list) and isinstance(left_check[0], list)) else np.array(left_check)
+                    if T_l.ndim == 2 and T_l.shape == (4, 4):
+                        pts.append(T_l[:3, 3])
+                if len(pts) > 0:
+                    p_mid = np.mean(pts, axis=0)  # [X_cam, Y_cam, Z_cam] in camera frame
+                    pitch_err_rad = np.arctan2(p_mid[1], p_mid[2])
+                    yaw_err_rad = np.arctan2(p_mid[0], p_mid[2])
+
+                    if abs(pitch_err_rad) > np.deg2rad(1.0) or abs(yaw_err_rad) > np.deg2rad(1.5):
+                        _log(f"[INFO] Auto-centering head: aligning camera optical center (Pitch: {np.rad2deg(pitch_err_rad):+.2f}°, Yaw: {np.rad2deg(yaw_err_rad):+.2f}°)...")
+                        state = robot.get_state()
+                        if state is not None and getattr(state, 'position', None) is not None:
+                            q_full = np.array(state.position)
+                            h_idx = list(head_idx)
+                            q_head_curr = np.array([float(q_full[i]) for i in h_idx], dtype=np.float64)
+                            q_head_target = q_head_curr + np.array([yaw_err_rad, pitch_err_rad], dtype=np.float64)
+
+                            # Clip to safe head limits
+                            q_head_target[0] = np.clip(q_head_target[0], -25.0 * D2R, 25.0 * D2R)
+                            q_head_target[1] = np.clip(q_head_target[1], -20.0 * D2R, 20.0 * D2R)
+
+                            comp = rby.ComponentBasedCommandBuilder().set_head_command(
+                                rby.JointPositionCommandBuilder()
+                                .set_position(q_head_target)
+                                .set_minimum_time(2.0)
+                            )
+                            cmd = rby.RobotCommandBuilder().set_command(comp)
+                            robot.send_command(cmd, priority).get()
+                            time.sleep(1.0)
+
+                            if on_head_aligned_cb:
+                                on_head_aligned_cb(q_head_target)
+                            _log(f"[SUCCESS] Head auto-centered successfully to (Pan: {np.rad2deg(q_head_target[0]):+.2f}°, Tilt: {np.rad2deg(q_head_target[1]):+.2f}°).")
+        except Exception as ex:
+            _log(f"[WARNING] Auto-centering head encountered a minor issue: {ex}")
+
+    _log("[SUCCESS] Marker visibility verified successfully at the ready pose.")
+    return True
+

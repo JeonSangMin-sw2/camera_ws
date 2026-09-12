@@ -1,0 +1,27 @@
+camera:
+  auto_exposure: true
+  camera_mount_link: link_head_2
+  device_name: D405
+  exposure: 10000
+  fps: 30
+  head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  head_base_to_cam_nominal: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  height: 720
+  mount_to_cam: [0.047, 0.009, 0.057, -91.8593, -0.1242, -89.2789]
+  mount_to_cam_nominal: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
+  width: 1280
+joint_offset:
+  head: {pan: 0.0, tilt: 0.0}
+  left: {joint3: -1.9968416923730772, joint5: -0.2953208918406431, joint6: -0.26590609382898145}
+  right: {joint3: -2.226742552044663, joint5: -0.3481424184524526, joint6: -0.11441105511181937}
+marker:
+  Tf_to_marker_left: [0.0, 0.0541, -0.0482, 90.31, 2.45, 0.0]
+  Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
+  Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  Tf_to_marker_right: [0.0, -0.0504, -0.0476, 89.32, 3.93, 180.0]
+  Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
+  Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  plate:
+    left_ids: [7]
+    plate_size_mm: 80.0
+    right_ids: [8]

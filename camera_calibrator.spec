@@ -24,7 +24,7 @@ hiddenimports = [
 
 a = Analysis(
     ['main_ui.py'],
-    pathex=['core'],
+    pathex=['core', 'core/calibration'],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

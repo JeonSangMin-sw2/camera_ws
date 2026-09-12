@@ -1,0 +1,31 @@
+ M config/setting.yaml
+A  config/simulation.yaml
+ M core/calibration/CalibratorBase.py
+ M core/calibration/HeadCameraCalibrator.py
+ M core/calibration/JointCalibrator.py
+ M core/calibration/MarkerCalibrator.py
+ M core/marker_detection.py
+ M core/paths.py
+ M main_ui.py
+?? reports/
+?? scratch/analyze_bracket_98.py
+?? scratch/analyze_real_result_20260910.py
+?? scratch/evaluate_step2_corruption.py
+?? scratch/main_ui_backup.py
+?? scratch/parse_urdf_v12.py
+?? scratch/plan_ce00cee.md
+?? scratch/test_anomaly_recovery.py
+?? scratch/test_axes_directions.py
+?? scratch/test_bracket_recalc.py
+?? scratch/test_exact_bracket.py
+?? scratch/test_ippe_filtering.py
+?? scratch/test_joint_calib_replay.py
+?? scratch/test_joint_calib_spikes.py
+?? scratch/test_step2_compare.py
+?? scratch/test_unified_sim_architecture.py
+?? scratch/test_verification_suite.py
+?? scratch/test_wrist_pitch_center_dist.py
+?? scratch/test_wrist_pitch_circles.py
+?? scratch/test_wrist_pitch_solver.py
+?? scratch/test_wrist_pitch_v12.py
+?? tests/

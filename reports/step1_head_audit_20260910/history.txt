@@ -1,0 +1,20 @@
+b9efde9 2026-09-10 09:31:48 +0900 feat: add direct windows launcher and core sys.path handling
+d3a2022 2026-09-07 19:49:28 +0900 test_for_head_camera
+10ccd0f 2026-09-07 19:49:04 +0900 test_for_head_camera
+dfe5f4f 2026-09-02 18:17:43 +0900 update
+af0518b 2026-09-02 17:14:02 +0900 update files
+031f4e0 2026-09-01 18:09:57 +0900 debug nohead
+fc4e9d7 2026-09-01 13:55:17 +0900 update files
+8b17971 2026-09-01 13:00:25 +0900 debug nohead
+15939e2 2026-09-01 09:22:58 +0900 update bracket info
+8ec3cda 2026-08-28 18:25:37 +0900 debug 1.3
+1d1b018 2026-08-28 17:54:40 +0900 debug 1.3
+ea6b818 2026-08-28 17:07:47 +0900 debug 1.3
+1deb053 2026-08-28 16:59:18 +0900 debug 1.3
+79640cb 2026-08-28 16:44:43 +0900 debug 1.3
+dc4aca6 2026-08-28 16:07:46 +0900 debug 1.3 step1
+2c8d389 2026-08-28 15:31:18 +0900 update 1.3
+7b963e4 2026-08-26 22:46:28 +0900 feat(optimizer): implement Option B with anchored head/camera in Stage 3
+79e3461 2026-08-26 22:26:29 +0900 feat(optimizer): set max_iter=50 across all stages and add explicit mode/dataset logging
+3e1189d 2026-08-26 22:11:20 +0900 feat(optimizer): include Stage 3 Dual-Arm Unified Fine Integration
+c5594a2 2026-08-26 22:09:07 +0900 feat(optimizer): apply validated independent anchored optimization with max_iter=100
