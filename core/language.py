@@ -1,7 +1,9 @@
+from core.storage import ConfigStorage
+from core.storage import FileStorage
 import os
 import yaml
 from PySide6.QtCore import QObject, Signal
-from core.paths import CONFIG_PATHS
+from core.storage import CONFIG_PATHS
 
 DEFAULT_UI_DROPDOWNS = {
     "robot_models": ["a", "m"],
@@ -21,7 +23,7 @@ def load_ui_dropdowns(config_path=None) -> dict:
 
     if config_path and os.path.exists(config_path):
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with FileStorage.open(config_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
                 if isinstance(data, dict):
                     return data
@@ -42,7 +44,7 @@ def load_stylesheet(config_path=None, reload=False) -> str:
 
     if config_path and os.path.exists(config_path):
         try:
-            with open(config_path, "r", encoding="utf-8") as f:
+            with FileStorage.open(config_path, "r", encoding="utf-8") as f:
                 _CACHED_STYLESHEET = f.read()
                 return _CACHED_STYLESHEET
         except Exception as e:
@@ -88,8 +90,7 @@ class LanguageManager(QObject):
 
         if config_path and os.path.exists(config_path):
             try:
-                with open(config_path, "r", encoding="utf-8") as f:
-                    self.translations = yaml.safe_load(f) or {}
+                self.translations = ConfigStorage.load(config_path)
             except Exception as e:
                 print(f"[LanguageManager] Failed to load translations from {config_path}: {e}")
         else:

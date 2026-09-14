@@ -4,7 +4,7 @@ position_noise_std_m: 0.0001
 orientation_noise_std_deg: 0.0
 # Independent physical truth. Never rewritten by calibration result saves.
 camera_mount_mode: head
-mount_to_cam: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
+mount_to_cam: [0.050, 0.012, 0.060, -90.3, 0.6, -90.4]
 head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
 brackets:
   '1.2':
@@ -24,7 +24,7 @@ offsets:
     joint5_v13: -2.1
     joint6: 2.3
     bracket_pos: [0.0005, 0.0, 0.002]
-    bracket_rpy: [-0.1, -0.1, 0.05]
+    bracket_rpy: [-0.8, -0.6, 0.5]
   left:
     joint0: -0.4
     joint1: -1.6
@@ -35,5 +35,5 @@ offsets:
     joint5_v13: 3.6
     joint6: 3.5
     bracket_pos: [0.001, 0.0005, -0.002]
-    bracket_rpy: [0.1, 0.1, 0.0]
+    bracket_rpy: [0.7, -0.5, 0.6]
   head: {pan: 0.8, tilt: -1.5}

@@ -1,3 +1,6 @@
+from core.storage import ConfigStorage
+from core.storage import FileStorage, ArtifactStorage
+from core.robot.robot_core import RobotOperations
 import sys
 import time
 import logging
@@ -15,7 +18,7 @@ from scipy.spatial.transform import Rotation as R_scipy
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
-class BaseCalibrator:
+class BaseCalibrator(RobotOperations):
     JOINT_CONFIGS = {
         "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
         "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 6, "sweep_joint_B": 4, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
@@ -56,7 +59,7 @@ class BaseCalibrator:
             "right": {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0},
             "left":  {"wrist_pitch": 0.0, "wrist_roll": 0.0, "wrist_yaw2": 0.0, "elbow": 0.0}
         }
-        self.app = None
+        self.partial_data = {}
         self.include_head_motion = True
         self.user_taught_ready_poses = {}
         self.stop_requested = False
@@ -74,12 +77,11 @@ class BaseCalibrator:
                 self.user_taught_ready_poses.clear()
 
     def load_ready_poses(self):
-        from core.paths import CONFIG_PATHS
+        from core.storage import CONFIG_PATHS
         yaml_path = CONFIG_PATHS["ready_poses_yaml"]
         if os.path.exists(yaml_path):
             try:
-                with open(yaml_path, "r", encoding="utf-8") as f:
-                    self.ready_poses = yaml.safe_load(f) or {}
+                self.ready_poses = ConfigStorage.load(yaml_path)
                 logging.info(f"Loaded ready poses from {yaml_path}")
             except Exception as e:
                 logging.error(f"Failed to load ready_poses.yaml: {e}")
@@ -101,11 +103,6 @@ class BaseCalibrator:
             return False
         if getattr(self, 'head_enabled', None) is False:
             return False
-        if hasattr(self, 'app') and self.app is not None:
-            if getattr(self.app, 'include_head_motion', None) is False:
-                return False
-            if hasattr(self.app, 'chk_servo_head') and not self.app.chk_servo_head.isChecked():
-                return False
         model = getattr(self.robot, 'model', lambda: None)() if hasattr(self, 'robot') and self.robot else None
         if model is not None:
             return hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2
@@ -153,15 +150,14 @@ class BaseCalibrator:
 
     def load_camera_config(self):
         # Locate setting.yaml
-        from core.paths import CONFIG_PATHS
+        from core.storage import CONFIG_PATHS
         yaml_path = CONFIG_PATHS["setting_yaml"]
         if not os.path.exists(yaml_path):
             logging.error(f"[CRITICAL ERROR] setting.yaml not found at {yaml_path}!")
             raise FileNotFoundError(f"[CRITICAL ERROR] setting.yaml not found at {yaml_path}!")
 
         try:
-            with open(yaml_path, "r", encoding="utf-8") as f:
-                config_data = yaml.safe_load(f) or {}
+            config_data = ConfigStorage.load(yaml_path)
             self.camera_config = config_data.get("camera", {})
             self.markers_config = config_data.get("marker", {}) or {}
             
@@ -206,9 +202,9 @@ class BaseCalibrator:
                 else:
                     head_base_to_cam = self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])
                     T_mount_to_cam = self.make_transform(head_base_to_cam)
-            from core.paths import CONFIG_PATHS
+            from core.storage import CONFIG_PATHS
             result_txt_dir = CONFIG_PATHS["txt_dir"]
-            os.makedirs(result_txt_dir, exist_ok=True)
+            FileStorage.ensure_dir(result_txt_dir, exist_ok=True)
             if not self.robot:
                 raise RuntimeError("Robot instance is not initialized")
             arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
@@ -223,7 +219,7 @@ class BaseCalibrator:
             else:
                 angle_header_name = f"Joint_{axis_num}"
             file_exists = os.path.exists(filename)
-            with open(filename, "a") as f:
+            with FileStorage.open(filename, "a") as f:
                 if file_exists:
                     f.write("\n=== NEW ITERATION ===\n")
                 f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
@@ -267,159 +263,8 @@ class BaseCalibrator:
                 log_callback(f"[ERROR] Failed to save debug points: {e}")
 
 
-    @staticmethod
-    def initialize_robot(address, model, power=".*", servo=None, include_head=True):
-        robot = rby.create_robot(address, model)
-        if not robot.connect():
-            logging.error(f"Failed to connect robot {address}")
-            return None
-        
-        # Safety check: Verify actual connected robot model matches expected model
-        try:
-            robot_info = robot.get_robot_info()
-            actual_model = robot_info.robot_model_name.lower()
-            expected_model = model.lower()
-            if actual_model != expected_model:
-                logging.warning(f"Model mismatch! UI selected model: {model}, but actual robot model is: {robot_info.robot_model_name}. Auto-reconnecting with actual model...")
-                robot.disconnect()
-                robot = rby.create_robot(address, robot_info.robot_model_name)
-                if not robot.connect():
-                    logging.error(f"Failed to connect robot {address} with actual model {robot_info.robot_model_name}")
-                    return None
-        except Exception as e:
-            logging.error(f"Failed to verify robot model: {e}")
-            robot.disconnect()
-            return None
 
-        # Check if connecting to localhost/simulator
-        is_local = any(loc in str(address) for loc in ["127.0.0.1", "localhost", "0.0.0.0"])
 
-        # Check if power is ON; if not, turn on power
-        try:
-            power_pattern = ".*" if is_local else "48v"
-            if not robot.is_power_on(power_pattern):
-                logging.info(f"Power ({power_pattern}) is not ON. Turning power on...")
-                if not robot.power_on(power_pattern):
-                    logging.error(f"Failed to turn power ({power_pattern}) on.")
-                    robot.disconnect()
-                    return None
-                time.sleep(1.0)
-            else:
-                logging.info(f"Power ({power_pattern}) is already ON.")
-        except Exception as e:
-            logging.error(f"Failed to check or set power status: {e}")
-            robot.disconnect()
-            return None
-
-        # Wait 1 second
-        time.sleep(1.0)
-
-        # Check and reset control manager fault if necessary
-        try:
-            cm_state = robot.get_control_manager_state().state
-            if cm_state in [
-                rby.ControlManagerState.State.MajorFault,
-                rby.ControlManagerState.State.MinorFault,
-            ]:
-                logging.warning("Control manager is in fault state. Resetting...")
-                robot.reset_fault_control_manager()
-                time.sleep(0.5)
-            cm_state = robot.get_control_manager_state().state
-            is_cm_enabled = (cm_state == rby.ControlManagerState.State.Enabled)
-        except Exception as e:
-            logging.warning(f"Failed to check control manager state: {e}")
-            is_cm_enabled = False
-
-        # Configure servo pattern based on include_head flag (independent of physical hardware)
-        if servo is not None and servo != ".*":
-            target_servo_pattern = servo
-        elif is_local:
-            target_servo_pattern = ".*"
-        else:
-            target_servo_pattern = "^(?!.*wheel).*$" if include_head else "^(?!.*(head|wheel)).*$"
-
-        # Check if servos are ON
-        try:
-            is_servo_ok = robot.is_servo_on(target_servo_pattern)
-        except Exception as e:
-            logging.warning(f"Failed to check servo status: {e}")
-            is_servo_ok = False
-
-        def enable_cm_helper(r):
-            try:
-                cm_state_post = r.get_control_manager_state()
-                if cm_state_post.state in [
-                    rby.ControlManagerState.State.MajorFault,
-                    rby.ControlManagerState.State.MinorFault,
-                ]:
-                    logging.warning(f"Control manager is in fault state: {cm_state_post.state}. Resetting...")
-                    if not r.reset_fault_control_manager():
-                        logging.error("Failed to reset control manager")
-                
-                cm_state_post = r.get_control_manager_state()
-                if cm_state_post.state == rby.ControlManagerState.State.Enabled:
-                    logging.info("Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...")
-                    try:
-                        r.disable_control_manager()
-                        time.sleep(0.5)
-                    except Exception as ex:
-                        logging.warning(f"Failed to disable control manager: {ex}")
-                
-                logging.info("Enabling control manager with unlimited_mode_enabled=True...")
-                if not r.enable_control_manager(unlimited_mode_enabled=True):
-                    logging.error("Failed to enable control manager with unlimited_mode_enabled=True")
-                else:
-                    time.sleep(1.0)
-            except Exception as ex:
-                logging.error(f"Failed to configure control manager: {ex}")
-
-        if is_servo_ok:
-            logging.info("Servos are ON. Ensuring Control Manager is enabled with unlimited mode...")
-            enable_cm_helper(robot)
-        else:
-            # Otherwise, disable control manager first, then turn on servos and enable
-            logging.info("Servos are not ON. Disabling Control Manager first to turn on servos...")
-            if is_cm_enabled:
-                try:
-                    robot.disable_control_manager()
-                    time.sleep(0.5)
-                except Exception as e:
-                    logging.warning(f"Failed to disable control manager: {e}")
-            
-            logging.info(f"Turning servos on with pattern '{target_servo_pattern}'...")
-            if not robot.servo_on(target_servo_pattern):
-                logging.error(f"Failed to turn servos on with pattern '{target_servo_pattern}'.")
-            else:
-                time.sleep(0.5)
-            
-            enable_cm_helper(robot)
-
-        return robot
-
-    @staticmethod
-    def terminate_robot(robot):
-        if robot:
-            try:
-                robot.disconnect()
-                return True
-            except Exception as e:
-                logging.error(f"Failed to disconnect robot: {e}")
-        return False
-
-    @staticmethod
-    def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):
-        model = robot.model()
-        state = dyn_model.make_state([base_link, ee_link], model.robot_joint_names)
-        num_joints = len(model.robot_joint_names)
-        q_arr = np.zeros(num_joints)
-        if len(q) >= num_joints:
-            q_arr = np.array(q[:num_joints])
-        else:
-            q_arr[:len(q)] = q
-        state.set_q(q_arr)
-        dyn_model.compute_forward_kinematics(state)
-        T = dyn_model.compute_transformation(state, 0, 1)
-        return T
 
     @staticmethod
     def make_transform(data):
@@ -499,97 +344,6 @@ class BaseCalibrator:
 
 
 
-    def movej(self, robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_time=0, apply_offsets=True, priority=10):
-        if getattr(self, 'stop_requested', False):
-            return False
-        if not robot:
-            return False
-            
-        if head is not None:
-            model = robot.model()
-            has_head = hasattr(model, 'head_idx') and len(model.head_idx) > 0
-            if not has_head:
-                head = None
-
-        if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:
-            # Offset mapping: Joint 3 (index 3) is elbow
-            # For v1.3:
-            # - Joint 5 (index 5) is wrist pitch
-            # - Joint 6 (index 6) is wrist roll
-            # For v1.2:
-            # - Joint 5 (index 5) is wrist pitch
-            is_v13 = self.is_v13()
-            
-            # Support both flat and nested left/right dictionary structures
-            if "left" in self.joint_offsets and "right" in self.joint_offsets:
-                left_offsets = self.joint_offsets["left"]
-                right_offsets = self.joint_offsets["right"]
-            else:
-                left_offsets = self.joint_offsets
-                right_offsets = self.joint_offsets
-                
-            if right_arm is not None:
-                right_arm = list(right_arm)
-                r_j6_offset = right_offsets.get("wrist_roll", 0.0) if is_v13 else right_offsets.get("wrist_yaw2", 0.0)
-                right_arm[6] += np.radians(r_j6_offset)
-                right_arm[5] += np.radians(right_offsets.get("wrist_pitch", 0.0))
-                right_arm[3] += np.radians(right_offsets.get("elbow", 0.0))
-            if left_arm is not None:
-                left_arm = list(left_arm)
-                l_j6_offset = left_offsets.get("wrist_roll", 0.0) if is_v13 else left_offsets.get("wrist_yaw2", 0.0)
-                left_arm[6] += np.radians(l_j6_offset)
-                left_arm[5] += np.radians(left_offsets.get("wrist_pitch", 0.0))
-                left_arm[3] += np.radians(left_offsets.get("elbow", 0.0))
-
-        comp_cmd = rby.ComponentBasedCommandBuilder()
-        
-        has_body = False
-        body_cmd = rby.BodyComponentBasedCommandBuilder()
-        if torso is not None:
-            body_cmd.set_torso_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(torso)
-            )
-            has_body = True
-        if right_arm is not None:
-            body_cmd.set_right_arm_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(right_arm)
-            )
-            has_body = True
-        if left_arm is not None:
-            body_cmd.set_left_arm_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(left_arm)
-            )
-            has_body = True
-        
-        if has_body:
-            comp_cmd.set_body_command(body_cmd)
-
-        if head is not None:
-            comp_cmd.set_head_command(
-                rby.JointPositionCommandBuilder()
-                .set_minimum_time(minimum_time)
-                .set_position(head)
-            )
-        
-        cmd = rby.RobotCommandBuilder().set_command(comp_cmd)
-        
-        try:
-            rv = robot.send_command(cmd, priority).get()
-            if rv.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-                print(f"[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: {rv.finish_code}", flush=True)
-                logging.error(f"Failed to conduct movej. Finish code: {rv.finish_code}")
-                return False
-            return True
-        except Exception as e:
-            print(f"[DEBUG MOVEJ EXCEPTION] movej exception: {e}", flush=True)
-            logging.error(f"movej exception: {e}")
-            return False
 
     @staticmethod
     def fit_circle_3d(points, robust=True):
@@ -1284,11 +1038,11 @@ class BaseCalibrator:
             )
             plt.tight_layout()
 
-            from core.paths import CONFIG_PATHS
+            from core.storage import CONFIG_PATHS
             result_dir = CONFIG_PATHS["plot_dir"]
-            os.makedirs(result_dir, exist_ok=True)
+            FileStorage.ensure_dir(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
-            plt.savefig(plot_save_path, dpi=150)
+            ArtifactStorage.save_figure(plot_save_path, dpi=150)
             plt.close()
 
             if log_callback:
@@ -1399,47 +1153,53 @@ class BaseCalibrator:
         )
 
         dataset = []
+        self.partial_data[label] = dataset
         t_start = time.time()
         move_thread.start()
 
-        # Capture poses and joint positions at high frequency
-        while move_thread.is_alive():
-            if getattr(self, 'stop_requested', False):
+        try:
+            # Capture poses and joint positions at high frequency
+            while move_thread.is_alive():
+                if getattr(self, 'stop_requested', False):
+                    self.robot.cancel_control()
+                    move_thread.join()
+                    return None
+
+                q_full_captured = None
+                for retry in range(3):
+                    try:
+                        state_obj = self.robot.get_state()
+                        if state_obj is not None and getattr(state_obj, 'position', None) is not None:
+                            q_full_captured = np.array(state_obj.position)
+                            break
+                    except Exception as e:
+                        if retry == 2:
+                            self.logger.warning(f"get_state() failed after 3 retries: {e}")
+                        time.sleep(0.005)
+                if q_full_captured is None:
+                    if len(dataset) > 0:
+                        q_full_captured = dataset[-1][0].copy()
+                    else:
+                        q_full_captured = np.zeros(26)
+
+                res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False, q_encoder=q_full_captured)
+
+                if res:
+                    pose_flat = res[0] if isinstance(res, list) else list(res.values())[0]
+                    pose_mat = np.array(pose_flat).reshape(4, 4)
+
+                    if np.linalg.norm(pose_mat[:3, 3]) > 0.01:
+                        # Deduplicate: Only append if the pose is actually new (camera updated)
+                        if len(dataset) == 0 or not np.allclose(dataset[-1][1], pose_mat, atol=1e-5):
+                            dataset.append((q_full_captured, pose_mat))
+
+                time.sleep(0.01)
+
+        finally:
+            if move_thread.is_alive():
                 self.robot.cancel_control()
-                move_thread.join()
-                return None
+            move_thread.join()
 
-            q_full_captured = None
-            for retry in range(3):
-                try:
-                    state_obj = self.robot.get_state()
-                    if state_obj is not None and getattr(state_obj, 'position', None) is not None:
-                        q_full_captured = np.array(state_obj.position)
-                        break
-                except Exception as e:
-                    if retry == 2:
-                        self.logger.warning(f"get_state() failed after 3 retries: {e}")
-                    time.sleep(0.005)
-            if q_full_captured is None:
-                if len(dataset) > 0:
-                    q_full_captured = dataset[-1][0].copy()
-                else:
-                    q_full_captured = np.zeros(26)
-
-            res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False, q_encoder=q_full_captured)
-
-            if res:
-                pose_flat = res[0] if isinstance(res, list) else list(res.values())[0]
-                pose_mat = np.array(pose_flat).reshape(4, 4)
-
-                if np.linalg.norm(pose_mat[:3, 3]) > 0.01:
-                    # Deduplicate: Only append if the pose is actually new (camera updated)
-                    if len(dataset) == 0 or not np.allclose(dataset[-1][1], pose_mat, atol=1e-5):
-                        dataset.append((q_full_captured, pose_mat))
-
-            time.sleep(0.01)
-
-        move_thread.join()
         if not move_thread.success:
             if log_callback: log_callback(f"[ERROR] {label} sweep motion failed or was cancelled.")
             return None

@@ -1,19 +1,21 @@
 """Two offline regression contracts, adapted from backup ccfd791 tests.
 
-Intentionally expose unresolved production defects; no expectedFailure/skip.
+Current API regression contracts; no expectedFailure/skip.
 No robot client, camera, UI, motion, or production configuration writes.
 """
 import json
 import tempfile
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 import numpy as np
 from scipy.spatial.transform import Rotation
 
 from core.calibration.HeadCameraCalibrator import HeadCameraCalibrator
 from core.calibration.JointCalibrator import JointCalibrator
-from core.paths import CONFIG_PATHS
+from core.calibration.CalibratorBase import BaseCalibrator
+from core.storage import CONFIG_PATHS
 
 
 class StepContracts(unittest.TestCase):
@@ -38,8 +40,22 @@ class StepContracts(unittest.TestCase):
             for p, t in angles
         ])
         solver = HeadCameraCalibrator.__new__(HeadCameraCalibrator)
-        result = solver._compute_head_camera_solution(
-            observations[:11], observations[11:], tilt, pan, nominal, mount_r)
+        # Current solver uses FK. Supply an independent analytical chain instead
+        # of a connected robot; the stationary-point prior is nominal, not truth.
+        solver.robot = SimpleNamespace(
+            model=lambda: SimpleNamespace(head_idx=[0, 1]),
+            get_dynamics=lambda: None,
+            get_state=lambda: SimpleNamespace(position=np.zeros(2)),
+        )
+        def fk(robot, dynamics, q, ee_link, base_link):
+            transform = np.eye(4)
+            transform[:3, :3] = head_r(*np.rad2deg(q))
+            return transform
+        nominal_marker_prior = mount_r @ observations[5] + mount_t
+        with patch.object(BaseCalibrator, 'compute_fk', side_effect=fk):
+            result = solver._compute_head_camera_solution(
+                observations[:11], observations[11:], tilt, pan, nominal, mount_r,
+                P_marker_t5_nom=nominal_marker_prior)
         fitted = result['calibrated_mount_to_cam']
         fitted_r = Rotation.from_euler('xyz', fitted[3:], degrees=True).as_matrix()
         fitted_t = np.array(fitted[:3])

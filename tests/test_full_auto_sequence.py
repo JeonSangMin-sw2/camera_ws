@@ -1,8 +1,9 @@
 import unittest
 from unittest.mock import MagicMock, patch
 import threading
-from core.calibration.FullAutoSequence import execute_full_auto_sequence
-from main_ui import FullAutoWorker
+from core.calibration.sequences.step1 import execute_step1_sequence
+from ui.core_bridge import FullAutoWorker
+from core.calibration import CalibrationCore, SequenceResult
 
 
 class TestFullAutoSequenceContracts(unittest.TestCase):
@@ -19,15 +20,15 @@ class TestFullAutoSequenceContracts(unittest.TestCase):
         }
         self.marker_calibrator.camera_config = {}
 
-    def test_robot_not_connected_raises_runtime_error(self):
+    def test_robot_not_connected_returns_failed_result(self):
         self.joint_calibrator.robot = None
-        with self.assertRaises(RuntimeError) as ctx:
-            execute_full_auto_sequence(
+        result = execute_step1_sequence(
                 joint_calibrator=self.joint_calibrator,
                 marker_calibrator=self.marker_calibrator,
                 joint_offsets_store=self.joint_offsets_store
             )
-        self.assertIn("Robot is not connected", str(ctx.exception))
+        self.assertEqual(result.status, "failed")
+        self.assertIn("Robot is not connected", result.error)
 
     def test_stop_event_triggers_early_return(self):
         self.joint_calibrator.robot = MagicMock()
@@ -38,7 +39,7 @@ class TestFullAutoSequenceContracts(unittest.TestCase):
         stop_event.set()  # Already stopped before sweeps start
 
         logs = []
-        execute_full_auto_sequence(
+        execute_step1_sequence(
             joint_calibrator=self.joint_calibrator,
             marker_calibrator=self.marker_calibrator,
             joint_offsets_store=self.joint_offsets_store,
@@ -48,19 +49,14 @@ class TestFullAutoSequenceContracts(unittest.TestCase):
         # Should exit without calling marker sweep
         self.marker_calibrator.perform_calibration_sweep.assert_not_called()
 
-    def test_full_auto_worker_delegates_to_execute_full_auto_sequence(self):
-        worker = FullAutoWorker(
-            joint_calibrator=self.joint_calibrator,
-            marker_calibrator=self.marker_calibrator,
-            joint_offsets_store=self.joint_offsets_store
-        )
-        with patch("main_ui.execute_full_auto_sequence") as mock_exec:
-            worker.run()
-            mock_exec.assert_called_once()
-            call_kwargs = mock_exec.call_args[1]
-            self.assertEqual(call_kwargs["joint_calibrator"], self.joint_calibrator)
-            self.assertEqual(call_kwargs["marker_calibrator"], self.marker_calibrator)
-            self.assertEqual(call_kwargs["joint_offsets_store"], self.joint_offsets_store)
+    def test_full_auto_worker_delegates_to_core(self):
+        core = MagicMock(spec=CalibrationCore)
+        core.run.return_value = SequenceResult("full").finish("completed")
+        worker = FullAutoWorker(core)
+        core.prepare_run.assert_called_once()
+        worker.run()
+        core.run.assert_called_once_with("full", prepared=True)
+        self.assertTrue(worker.result.success)
 
 
 if __name__ == "__main__":

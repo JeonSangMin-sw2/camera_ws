@@ -24,7 +24,13 @@ hiddenimports = [
 
 a = Analysis(
     ['main_ui.py'],
-    pathex=['core', 'core/calibration'],
+    # No extra pathex needed: core/ and ui/ are real packages imported as
+    # core.xxx / ui.xxx from the project root, which is already on sys.path
+    # as main_ui.py's own directory. The old ['core', 'core/calibration']
+    # entries were a leftover from when core/ contents were flat top-level
+    # modules; keeping them risks resolving e.g. calibration_optimizer as
+    # both a bare top-level module and core.calibration.calibration_optimizer.
+    pathex=[],
     binaries=binaries,
     datas=datas,
     hiddenimports=hiddenimports,

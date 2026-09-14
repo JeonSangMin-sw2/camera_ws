@@ -11,3 +11,7 @@ build/
 dist/
 camera_calibrator*
 camera_ws.code-workspace
+
+# Graft runtime data
+.graft/
+!docs/graft_visualizations/graft-analysis.json

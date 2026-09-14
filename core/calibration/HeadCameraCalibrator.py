@@ -1,9 +1,12 @@
+from core.storage import ConfigStorage
+from core.storage import FileStorage
 import os
 import time
 import yaml
 import logging
 import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
+from scipy.optimize import least_squares
 from .CalibratorBase import BaseCalibrator
 
 D2R = np.pi / 180.0
@@ -65,7 +68,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             return False
 
         try:
-            from core.robot_motion import move_to_auto_ready_pose
+            from core.robot.motion import move_to_auto_ready_pose
             robot_ver = getattr(self, "robot_version", "1.2")
             move_to_auto_ready_pose(
                 robot=self.robot,
@@ -126,7 +129,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         self,
         arm_side="auto",
         pan_range_deg=15.0,
-        tilt_range_deg=10.0,
+        tilt_range_deg=20.0,
         num_steps=11,
         step_delay=0.8,
         log_callback=None,
@@ -149,6 +152,29 @@ class HeadCameraCalibrator(BaseCalibrator):
             log_callback(f"  Pan Sweep Range   : ±{pan_range_deg:.1f}° ({num_steps} steps)")
             log_callback(f"  Tilt Sweep Range  : ±{tilt_range_deg:.1f}° ({num_steps} steps)")
             log_callback("=" * 60)
+
+        # Per-step "Marker Cam Pos" readings are noisy at GUI scale (up to
+        # num_steps=11 lines per sweep phase) and only useful for offline
+        # debugging -- route them to a debug file instead of log_callback;
+        # the GUI still sees phase headers, [WARN] (marker lost), and the
+        # final [Step 1.5 Calibration Results] block below.
+        try:
+            from core.storage import CONFIG_PATHS
+            debug_txt_dir = CONFIG_PATHS["txt_dir"]
+            FileStorage.ensure_dir(debug_txt_dir, exist_ok=True)
+            sweep_debug_path = os.path.join(debug_txt_dir, "head_camera_sweep_debug.txt")
+            FileStorage.open(sweep_debug_path, "w", encoding="utf-8").close()
+        except Exception:
+            sweep_debug_path = None
+
+        def _sweep_debug_write(line):
+            if not sweep_debug_path:
+                return
+            try:
+                with FileStorage.open(sweep_debug_path, "a", encoding="utf-8") as f:
+                    f.write(line + "\n")
+            except Exception:
+                pass
 
         has_head = getattr(self, "include_head_motion", True)
         head_idx = [0, 1]
@@ -227,6 +253,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         tilt_angles_deg = np.linspace(-tilt_range_deg, tilt_range_deg, num_steps)
         pts_tilt_cam = []
         captured_tilt_angles = []
+        self.partial_data = {"tilt_points": pts_tilt_cam, "tilt_angles": captured_tilt_angles}
 
         for idx, t_deg in enumerate(tilt_angles_deg):
             if stop_event and stop_event.is_set():
@@ -257,8 +284,7 @@ class HeadCameraCalibrator(BaseCalibrator):
 
             pts_tilt_cam.append(p_marker)
             captured_tilt_angles.append(actual_t_deg)
-            if log_callback:
-                log_callback(f"  [{idx+1}/{num_steps}] Tilt={actual_t_deg:+5.1f}° -> Marker Cam Pos: [{p_marker[0]*1000:+6.1f}, {p_marker[1]*1000:+6.1f}, {p_marker[2]*1000:+6.1f}] mm")
+            _sweep_debug_write(f"  [{idx+1}/{num_steps}] Tilt={actual_t_deg:+5.1f}° -> Marker Cam Pos: [{p_marker[0]*1000:+6.1f}, {p_marker[1]*1000:+6.1f}, {p_marker[2]*1000:+6.1f}] mm")
 
         if len(pts_tilt_cam) < 5:
             raise RuntimeError(f"Insufficient marker points collected during Tilt sweep ({len(pts_tilt_cam)} points). Calibration cannot proceed.")
@@ -275,6 +301,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         pan_angles_deg = np.linspace(-pan_range_deg, pan_range_deg, num_steps)
         pts_pan_cam = []
         captured_pan_angles = []
+        self.partial_data.update(pan_points=pts_pan_cam, pan_angles=captured_pan_angles)
 
         for idx, p_deg in enumerate(pan_angles_deg):
             if stop_event and stop_event.is_set():
@@ -304,8 +331,7 @@ class HeadCameraCalibrator(BaseCalibrator):
 
             pts_pan_cam.append(p_marker)
             captured_pan_angles.append(actual_p_deg)
-            if log_callback:
-                log_callback(f"  [{idx+1}/{num_steps}] Pan={actual_p_deg:+5.1f}°  -> Marker Cam Pos: [{p_marker[0]*1000:+6.1f}, {p_marker[1]*1000:+6.1f}, {p_marker[2]*1000:+6.1f}] mm")
+            _sweep_debug_write(f"  [{idx+1}/{num_steps}] Pan={actual_p_deg:+5.1f}°  -> Marker Cam Pos: [{p_marker[0]*1000:+6.1f}, {p_marker[1]*1000:+6.1f}, {p_marker[2]*1000:+6.1f}] mm")
 
         if len(pts_pan_cam) < 5:
             raise RuntimeError(f"Insufficient marker points collected during Pan sweep ({len(pts_pan_cam)} points). Calibration cannot proceed.")
@@ -342,7 +368,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         n_tilt_cam, c_tilt = self.fit_plane_normal_svd(pts_tilt_cam)
         n_pan_cam, c_pan = self.fit_plane_normal_svd(pts_pan_cam)
 
-        # Calculate plane fit RMSE
+        # Calculate plane fit RMSE (diagnostics only, not used in the solve below)
         d_tilt = np.abs(np.dot(pts_tilt_cam - c_tilt, n_tilt_cam))
         rmse_tilt_plane = np.sqrt(np.mean(d_tilt**2)) * 1000.0 # mm
 
@@ -350,11 +376,13 @@ class HeadCameraCalibrator(BaseCalibrator):
         rmse_pan_plane = np.sqrt(np.mean(d_pan**2)) * 1000.0 # mm
 
         # Sign consistency: Nominal Tilt axis in camera coords is [-1, 0, 0], Pan is [0, -1, 0]
-        if n_tilt_cam[0] > 0: n_tilt_cam = -n_tilt_cam
-        if n_pan_cam[1] > 0: n_pan_cam = -n_pan_cam
+        if n_tilt_cam[0] > 0: n_tilt_cam_signed = -n_tilt_cam
+        else: n_tilt_cam_signed = n_tilt_cam
+        if n_pan_cam[1] > 0: n_pan_cam_signed = -n_pan_cam
+        else: n_pan_cam_signed = n_pan_cam
 
         # Orthogonality diagnostic
-        dot_ortho = np.dot(n_tilt_cam, n_pan_cam)
+        dot_ortho = np.dot(n_tilt_cam_signed, n_pan_cam_signed)
         ortho_err_deg = abs(np.arcsin(np.clip(dot_ortho, -1.0, 1.0))) * R2D
 
         nom_roll = float(nominal_mount_to_cam[3])
@@ -362,30 +390,88 @@ class HeadCameraCalibrator(BaseCalibrator):
         nom_yaw = float(nominal_mount_to_cam[5])
 
         # ----------------------------------------------------
+        # Phase C: Joint least-squares solution for camera rotation (3 DOF) + Head
+        # Pan/Tilt zero offsets, using the raw 3D sweep points (not just plane
+        # normals). Camera mount TRANSLATION is held fixed at the CAD nominal and
+        # is deliberately NOT re-derived from the estimated rotation: analysis
+        # showed that tying position to rotation (t_cam = R_rel @ nom_t) makes the
+        # position term cancel out of the observation model, which reopens the
+        # exact rank-1 degeneracy between camera-mount pitch (eps_y) and the head
+        # tilt joint offset (dtilt). Holding position independently FIXED is what
+        # keeps that pair identifiable from data instead of by convention.
+        # Unknowns: eps (camera rotation error, axis-angle, in nominal mount
+        # frame), dtilt, dpan (head joint zero offsets), Pw (stationary marker
+        # position in link_torso_5 frame, nuisance parameter).
         # ----------------------------------------------------
-        # Phase C: Mathematical Solution for Head-Camera Calibration
-        # ----------------------------------------------------
-        # Align measured sweep plane normals with nominal head axes via symmetric SVD Procrustes projection
-        # In mount frame (link_head_2):
-        # 1. Tilt axis is [0, 1, 0] (y). In camera optical frame: v_c_y = n_tilt_cam / ||n_tilt_cam||
-        # 2. Pan axis is [0, 0, 1] (z). In camera optical frame: v_c_z = n_pan_cam / ||n_pan_cam||
-        # Note: With stationary arm markers, camera bracket pitch error and head tilt joint offset
-        # are collinear (rotate around the same physical axis). Step 1.5 calibrates the physical
-        # camera mount extrinsics (mount_to_cam), while keeping joint zero offsets at 0.0.
-        # Joint zero offsets are refined jointly in Step 2 with full-body arm kinematics.
-        v_c_y = n_tilt_cam / np.linalg.norm(n_tilt_cam)
-        v_c_z = n_pan_cam / np.linalg.norm(n_pan_cam)
+        nom_t = np.array(nominal_mount_to_cam[:3], dtype=np.float64)
 
-        head_tilt_offset_deg = 0.0
-        v_c_z_untilted = v_c_z / np.linalg.norm(v_c_z)
-        v_c_x = np.cross(v_c_y, v_c_z_untilted)
-        v_c_x = v_c_x / np.linalg.norm(v_c_x)
+        head_idx = [0, 1]
+        try:
+            m = self.robot.model()
+            if hasattr(m, 'head_idx') and m.head_idx is not None and len(m.head_idx) >= 2:
+                head_idx = list(m.head_idx)
+        except Exception:
+            pass
 
-        # SVD Procrustes projection with measured Pan and Tilt normals:
-        A = np.column_stack([v_c_x, v_c_y, v_c_z_untilted])
-        U, _, Vt = np.linalg.svd(A)
-        R_cam_T = U @ np.diag([1.0, 1.0, np.linalg.det(U @ Vt)]) @ Vt
-        R_cam_est = R_cam_T.T
+        dyn_model = self.robot.get_dynamics()
+        q_base = np.array(self.robot.get_state().position, dtype=np.float64)
+        tilt_rad = np.deg2rad(np.asarray(captured_tilt_angles, dtype=np.float64))
+        pan_rad = np.deg2rad(np.asarray(captured_pan_angles, dtype=np.float64))
+        Pw0 = np.array(P_marker_t5_nom, dtype=np.float64) if P_marker_t5_nom is not None else np.mean(
+            np.vstack([pts_tilt_cam, pts_pan_cam]), axis=0
+        )
+
+        def fk_t5_to_head2(pan_val, tilt_val):
+            q_full = q_base.copy()
+            q_full[head_idx[0]] = pan_val
+            q_full[head_idx[1]] = tilt_val
+            return BaseCalibrator.compute_fk(self.robot, dyn_model, q_full, "link_head_2", "link_torso_5")
+
+        def predict_all(params):
+            eps = params[0:3]
+            dtilt = params[3]
+            dpan = params[4]
+            Pw = params[5:8]
+            R_cam = R_nom @ R_scipy.from_rotvec(eps).as_matrix()
+            preds = []
+            for t in tilt_rad:
+                T = fk_t5_to_head2(0.0 + dpan, t + dtilt)
+                T_rot, T_trans = T[:3, :3], T[:3, 3]
+                cam_rot_in_t5 = T_rot @ R_cam
+                cam_origin_in_t5 = T_rot @ nom_t + T_trans
+                preds.append(cam_rot_in_t5.T @ (Pw - cam_origin_in_t5))
+            for p in pan_rad:
+                T = fk_t5_to_head2(p + dpan, 0.0 + dtilt)
+                T_rot, T_trans = T[:3, :3], T[:3, 3]
+                cam_rot_in_t5 = T_rot @ R_cam
+                cam_origin_in_t5 = T_rot @ nom_t + T_trans
+                preds.append(cam_rot_in_t5.T @ (Pw - cam_origin_in_t5))
+            return np.array(preds)
+
+        meas = np.vstack([pts_tilt_cam, pts_pan_cam])
+
+        def residual(params):
+            return (predict_all(params) - meas).ravel()
+
+        # Marker position bound: this direction is EXACTLY degenerate with head Pan
+        # offset (dpan) using pan-sweep data alone -- the achievable dpan accuracy
+        # is set almost entirely by this bound's width (empirically ~1 deg of dpan
+        # error per ~35mm of position slack), not by data/noise. 20mm is chosen to
+        # roughly match the single-joint FK lever-arm error expected from
+        # not-yet-calibrated shoulder joints (J0/J1/J2/J4) at Step 1.5 time -- tighter
+        # would risk biasing against real uncalibrated-shoulder error; looser
+        # reopens the degeneracy (see project memory on this identifiability limit).
+        marker_pos_bound_m = 0.02
+        x0 = np.concatenate([np.zeros(5), Pw0])
+        bounds_lo = np.concatenate([np.full(3, -np.deg2rad(5.0)), [-np.deg2rad(20.0), -np.deg2rad(20.0)], Pw0 - marker_pos_bound_m])
+        bounds_hi = np.concatenate([np.full(3, np.deg2rad(5.0)), [np.deg2rad(20.0), np.deg2rad(20.0)], Pw0 + marker_pos_bound_m])
+
+        sol = least_squares(residual, x0, bounds=(bounds_lo, bounds_hi), method='trf', xtol=1e-13, ftol=1e-13)
+        eps_sol = sol.x[0:3]
+        dtilt_sol = float(sol.x[3])
+        dpan_sol = float(sol.x[4])
+
+        R_cam_est = R_nom @ R_scipy.from_rotvec(eps_sol).as_matrix()
 
         try:
             from .calibration_optimizer import rot_to_euler_zyx
@@ -400,38 +486,21 @@ class HeadCameraCalibrator(BaseCalibrator):
         diff_pitch = est_pitch_deg - nom_pitch
         diff_yaw = est_yaw_deg - nom_yaw
 
-        # Relative rotation between estimated camera orientation and nominal mount orientation in link_head_2:
-        # In link_head_2 frame, any absorbed tilt/orientation error rotates the camera rigid body around the mount origin.
-        # To preserve full SE(3) transformation consistency, camera translation must also be rotated by R_rel.
-        R_rel_mount = R_cam_est @ R_nom.T
-        nom_t = np.array(nominal_mount_to_cam[:3], dtype=np.float64)
-        calibrated_t = R_rel_mount @ nom_t
+        # Camera mount translation is reported at CAD nominal (not re-derived from
+        # the solved rotation) -- see note above on why tying it to rotation
+        # reopens the eps_y/dtilt degeneracy. Fine position correction (a few mm)
+        # is left to Step 2's bounded camera-position optimization.
+        calibrated_t = nom_t
 
-        # Head Pan & Tilt zero offsets are refined in Step 2 through 64 multi-channel 3D poses without soft anchoring
-        head_pan_offset_deg = 0.0
-        head_tilt_offset_deg = 0.0
+        head_pan_offset_deg = float(np.degrees(dpan_sol))
+        head_tilt_offset_deg = float(np.degrees(dtilt_sol))
 
-        # Compute true 3D stationary marker reconstruction spread across all captured poses
-        # to ensure full SE(3) transformation consistency
-        reconstructed_pts = []
-        for t_deg, obs in zip(captured_tilt_angles, pts_tilt_cam):
-            R_head = (R_scipy.from_euler('z', 0.0, degrees=True).as_matrix()
-                      @ R_scipy.from_euler('y', t_deg, degrees=True).as_matrix())
-            reconstructed_pts.append(R_head @ (R_cam_est @ obs + calibrated_t))
-        for p_deg, obs in zip(captured_pan_angles, pts_pan_cam):
-            R_head = (R_scipy.from_euler('z', p_deg, degrees=True).as_matrix()
-                      @ R_scipy.from_euler('y', 0.0, degrees=True).as_matrix())
-            reconstructed_pts.append(R_head @ (R_cam_est @ obs + calibrated_t))
+        final_residuals = residual(sol.x).reshape(-1, 3)
+        rmse_3d_marker_mm = float(np.sqrt(np.mean(np.sum(final_residuals ** 2, axis=1))) * 1000.0)
 
-        if len(reconstructed_pts) > 0:
-            reconstructed_pts = np.array(reconstructed_pts)
-            mean_pt = np.mean(reconstructed_pts, axis=0)
-            rmse_3d_marker_mm = float(np.sqrt(np.mean(np.sum((reconstructed_pts - mean_pt) ** 2, axis=1))) * 1000.0)
-        else:
-            rmse_3d_marker_mm = 0.0
-
-        # Step 1.5 absorbs tilt into mount extrinsics gauge; independent identification is deferred to Step 2
-        decoupled_success = False
+        # Genuine joint identification (not a gauge-fixing convention): success
+        # tracks solver convergence rather than a hardcoded value.
+        decoupled_success = bool(sol.success) and rmse_3d_marker_mm < 5.0
 
         calibrated_mount_to_cam = [
             round(float(calibrated_t[0]), 6),
@@ -443,7 +512,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         ]
 
         results = {
-            "success": True,
+            "success": decoupled_success,
             "nominal_mount_to_cam": nominal_mount_to_cam,
             "calibrated_mount_to_cam": calibrated_mount_to_cam,
             "cam_rot_diff_deg": {
@@ -466,7 +535,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             "pts_pan_count": len(pts_pan_cam)
         }
 
-        self.calibrated_results = results
+        self.calibrated_results = results if decoupled_success else None
 
         if log_callback:
             log_callback("\n" + "=" * 60)
@@ -496,7 +565,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         if results is None:
             results = self.calibrated_results
 
-        if not results:
+        if not results or not results.get("success", False):
             if log_callback: log_callback("[ERROR] No calibration results to apply!")
             return False
 
@@ -517,11 +586,10 @@ class HeadCameraCalibrator(BaseCalibrator):
             self.camera_config["mount_to_cam"] = calib_mount_to_cam
 
             # 2. Update setting.yaml file
-            from core.paths import CONFIG_PATHS
+            from core.storage import CONFIG_PATHS
             setting_path = CONFIG_PATHS.get("setting_yaml") or CONFIG_PATHS.get("setting")
             if setting_path and os.path.exists(setting_path):
-                with open(setting_path, "r", encoding="utf-8") as f:
-                    cfg = yaml.safe_load(f) or {}
+                cfg = ConfigStorage.load(setting_path)
 
                 if "camera" not in cfg:
                     cfg["camera"] = {}
@@ -539,26 +607,13 @@ class HeadCameraCalibrator(BaseCalibrator):
                 cfg["joint_offset"]["head"]["pan"] = head_offsets.get("pan", 0.0)
                 cfg["joint_offset"]["head"]["tilt"] = head_offsets.get("tilt", 0.0)
 
-                with open(setting_path, "w", encoding="utf-8") as f:
-                    yaml.dump(cfg, f, default_flow_style=None)
+                FileStorage.write_text(setting_path, yaml.dump(cfg, default_flow_style=None))
 
                 if log_callback:
                     log_callback(f"[SUCCESS] Updated setting.yaml with calibrated mount_to_cam: {calib_mount_to_cam}")
                     log_callback(f"[SUCCESS] Updated setting.yaml with head offsets: {head_offsets}")
 
             # 3. Update in-memory joint offsets store and camera configs if app reference exists
-            if hasattr(self, 'app') and self.app is not None:
-                if not hasattr(self.app, 'joint_offsets_store'):
-                    self.app.joint_offsets_store = {}
-                if "head" not in self.app.joint_offsets_store:
-                    self.app.joint_offsets_store["head"] = {}
-                self.app.joint_offsets_store["head"]["pan"] = head_offsets.get("pan", 0.0)
-                self.app.joint_offsets_store["head"]["tilt"] = head_offsets.get("tilt", 0.0)
-
-                if hasattr(self.app, 'marker_calibrator') and self.app.marker_calibrator is not None:
-                    self.app.marker_calibrator.camera_config["mount_to_cam"] = calib_mount_to_cam
-                if hasattr(self.app, 'joint_calibrator') and self.app.joint_calibrator is not None:
-                    self.app.joint_calibrator.camera_config["mount_to_cam"] = calib_mount_to_cam
 
             return True
         except Exception as e:

@@ -1,3 +1,5 @@
+from core.storage import FileStorage
+from core.storage import ArtifactStorage
 import time
 import logging
 import os
@@ -117,11 +119,11 @@ class MarkerCalibrator(BaseCalibrator):
                     return None
 
                 if save_debug and pass_idx == 1:
-                    from core.paths import CONFIG_PATHS
+                    from core.storage import CONFIG_PATHS
                     result_txt_dir = CONFIG_PATHS["txt_dir"]
                     fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_marker_axis_{axis_mode}.txt")
                     if os.path.exists(fname):
-                        try: os.remove(fname)
+                        try: FileStorage.remove(fname)
                         except: pass
 
                 if log_callback:
@@ -1101,8 +1103,8 @@ class MarkerCalibrator(BaseCalibrator):
         
         plt.tight_layout()
         try:
-            os.makedirs(os.path.dirname(save_path), exist_ok=True)
-            plt.savefig(save_path, dpi=150)
+            FileStorage.ensure_dir(os.path.dirname(save_path), exist_ok=True)
+            ArtifactStorage.save_figure(save_path, dpi=150)
             return True
         except Exception as e:
             logging.warning(f"[generate_marker_plot] Failed to save plot: {e}")

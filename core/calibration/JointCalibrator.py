@@ -1,3 +1,4 @@
+from core.storage import FileStorage, ArtifactStorage
 import time
 import logging
 import os
@@ -15,6 +16,11 @@ class DebugLogger:
         self.file_path = file_path
         self.buffer = []
         
+    # GUI gets only the per-iteration headline (number, offset, pass/fail vs
+    # tolerance) plus warnings/errors/final result; the full bullet-by-bullet
+    # breakdown (circle radii, center distance, etc. -- still useful for
+    # offline debugging) is always buffered below and written to
+    # joint_calib_debug_{arm}_{mode}.txt regardless of what reaches the GUI.
     def log(self, msg):
         self.buffer.append(msg)
         msg_upper = msg.upper()
@@ -27,21 +33,14 @@ class DebugLogger:
             "[INFO]" in msg_upper or
             "[VALIDATION SWEEP]" in msg_upper or
             "[ITERATION" in msg_upper or
-            "RECOMMENDED ABSOLUTE OFFSET" in msg_upper or
-            "STEP CORRECTION" in msg_upper or
-            "COMMENCING" in msg_upper or
-            "SWEPT" in msg_upper or
-            "SWEEP COMPLETE" in msg_upper or
-            "STARTING" in msg_upper or
-            msg.strip().startswith("-") or
-            msg.strip().startswith("*")
+            "RECOMMENDED ABSOLUTE OFFSET" in msg_upper
         ):
             if self.original_log_callback:
                 self.original_log_callback(msg)
                 
     def save(self):
         try:
-            with open(self.file_path, "a", encoding="utf-8") as f:
+            with FileStorage.open(self.file_path, "a", encoding="utf-8") as f:
                 f.write("\n=== NEW ITERATION ===\n")
                 f.write("\n".join(self.buffer) + "\n")
         except Exception:
@@ -57,15 +56,15 @@ class JointCalibrator(BaseCalibrator):
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
         config_dir = os.path.abspath(os.path.dirname(__file__))
-        from core.paths import CONFIG_PATHS
+        from core.storage import CONFIG_PATHS
         result_txt_dir = CONFIG_PATHS["txt_dir"]
-        os.makedirs(result_txt_dir, exist_ok=True)
+        FileStorage.ensure_dir(result_txt_dir, exist_ok=True)
         debug_file_path = os.path.join(result_txt_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
         
         # 처음 시작(pass 1)일 때는 덮어쓰기 위해 기존 파일들 삭제
         if pass_idx == 1:
             if os.path.exists(debug_file_path):
-                try: os.remove(debug_file_path)
+                try: FileStorage.remove(debug_file_path)
                 except: pass
                 
             jcfg = self.JOINT_CONFIGS.get(mode, {})
@@ -74,7 +73,7 @@ class JointCalibrator(BaseCalibrator):
                 if axis is not None:
                     fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{key_type}_axis_{axis}.txt")
                     if os.path.exists(fname):
-                        try: os.remove(fname)
+                        try: FileStorage.remove(fname)
                         except: pass
 
         logger = DebugLogger(log_callback, debug_file_path)
@@ -107,6 +106,10 @@ class JointCalibrator(BaseCalibrator):
                 prev_step_correction = 0.0
                 direction_multiplier = 1.0
                 dynamic_damping = 1.0
+                prev_raw_optimal_offset = None
+                # The actual (post-clamp) staged_offset change applied last iteration, used
+                # to adjust the runaway-step check below for relative/delta modes.
+                prev_applied_step_deg = 0.0
 
                 # Refresh starting pose from robot state in case user taught a new pose
                 first_starting_pose = None
@@ -216,15 +219,42 @@ class JointCalibrator(BaseCalibrator):
 
                     # Runtime Anomaly Detection during sweep iterations:
                     # 1. center_dist > 40.0 mm (ONLY for parallel concentric modes: elbow, wrist_pitch)
-                    # 2. abs(raw_optimal_offset) > 3.5 deg (runaway jump)
+                    # 2. Unexplained jump > 3.5 deg between consecutive raw measurements. Skipped
+                    #    on iteration 1: with no prior measurement there is nothing for a "jump"
+                    #    to be relative to, and a genuinely large true joint offset (e.g. an
+                    #    uncalibrated wrist that is several degrees off) is a normal, correct
+                    #    first reading -- not an anomaly.
+                    #    wrist_roll_v13/wrist_yaw2 report an ABSOLUTE target offset, which should
+                    #    stay stable across iterations regardless of how far staged_offset just
+                    #    moved -- compare the raw values directly.
+                    #    Every other mode (elbow, wrist_pitch, wrist_pitch_v13) reports a RELATIVE
+                    #    remaining-correction, which is *expected* to shrink by roughly the
+                    #    previous iteration's applied step each time -- compare only the part of
+                    #    the jump that isn't explained by that expected shrinkage. Without this
+                    #    adjustment, raising MAX_STEP_CLAMP_DEG (2026-09-14, 1.5->2.5) made a
+                    #    normal convergence step (~2.5 deg) plus ordinary measurement noise
+                    #    (~1 deg) exceed the flat 3.5 deg threshold and falsely abort calibration
+                    #    (observed live on v1.3 wrist_pitch_v13, 2026-09-15).
                     is_anomalous = False
                     anomaly_reasons = []
                     if mode in ("elbow", "wrist_pitch") and center_dist > 40.0:
                         is_anomalous = True
                         anomaly_reasons.append(f"Center distance error {center_dist:.2f} mm > 40.0 mm")
-                    if abs(raw_optimal_offset) > 3.5:
-                        is_anomalous = True
-                        anomaly_reasons.append(f"Optimal offset correction {raw_optimal_offset:.2f}° > 3.5° (runaway step)")
+                    if prev_raw_optimal_offset is not None:
+                        raw_jump = raw_optimal_offset - prev_raw_optimal_offset
+                        if mode in ("wrist_roll_v13", "wrist_yaw2"):
+                            unexplained_jump = raw_jump
+                        else:
+                            unexplained_jump = raw_jump + prev_applied_step_deg
+                        if abs(unexplained_jump) > 3.5:
+                            is_anomalous = True
+                            anomaly_reasons.append(
+                                f"Optimal offset jumped {raw_jump:+.2f}° "
+                                f"between iterations ({prev_raw_optimal_offset:.2f}° -> {raw_optimal_offset:.2f}°), "
+                                f"{unexplained_jump:+.2f}° unexplained by the last applied step "
+                                f"({prev_applied_step_deg:+.2f}°) > 3.5° (runaway step)"
+                            )
+                    prev_raw_optimal_offset = raw_optimal_offset
 
                     if is_anomalous:
                         if log_callback:
@@ -280,7 +310,14 @@ class JointCalibrator(BaseCalibrator):
                     # Based on raw measurement residual (< 0.06°) to ensure genuine physical convergence
                     # rather than premature termination from small damped steps.
                     converged_criteria = (abs(raw_residual) < 0.06)
-                    
+
+                    if log_callback:
+                        tol_status = "OK (within 0.06°)" if converged_criteria else "retry (exceeds 0.06° tolerance)"
+                        log_callback(
+                            f"[ITERATION {i}/{max_iterations}] offset={staged_offset:.4f}°, "
+                            f"residual={raw_residual:+.4f}° -> {tol_status}"
+                        )
+
                     if converged_criteria:
                         converged = True
                         if mode in ("wrist_roll_v13", "wrist_yaw2"):
@@ -292,12 +329,21 @@ class JointCalibrator(BaseCalibrator):
                             log_callback(f"  * Recommended Absolute Offset: {staged_offset:.4f}°")
                         break
                     
-                    # Normal update: apply correction with per-iteration step clamping to [-1.5°, 1.5°]
+                    # Normal update: apply correction with per-iteration step clamping.
+                    # 2026-09-14: raised from 1.5deg to 2.5deg to cut iteration count for
+                    # larger real offsets (e.g. right after a motor/joint swap) -- a 5.4deg
+                    # offset now takes ~3 iterations instead of ~5. Kept well under the
+                    # runaway-step anomaly threshold (3.5deg, on the raw per-iteration
+                    # measurement -- see MAX_STEP_CLAMP_DEG usage below and the anomaly
+                    # check a few lines above) so a genuine overshoot/marker-lost event is
+                    # still caught before being acted on.
+                    MAX_STEP_CLAMP_DEG = 2.5
                     prev_error = angle_dev
                     prev_step_correction = step_correction_delta
-                    clamped_step = float(np.clip(step_correction_delta, -1.5, 1.5))
+                    staged_offset_before_step = staged_offset
+                    clamped_step = float(np.clip(step_correction_delta, -MAX_STEP_CLAMP_DEG, MAX_STEP_CLAMP_DEG))
                     staged_offset = staged_offset + clamped_step
-                    
+
                     # Safety: clamp staged_offset to the joint's configured offset range
                     jcfg = self.JOINT_CONFIGS.get(mode, {})
                     off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
@@ -305,6 +351,9 @@ class JointCalibrator(BaseCalibrator):
                         if log_callback:
                             log_callback(f"  [SAFETY WARNING] Staged offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
                         staged_offset = float(np.clip(staged_offset, off_min, off_max))
+                    # Record the *actual* change (post safety-clamp too) for next iteration's
+                    # runaway-step check above.
+                    prev_applied_step_deg = staged_offset - staged_offset_before_step
                         
                     staged_offsets_history.append(staged_offset)
                     if log_callback:
@@ -527,11 +576,11 @@ class JointCalibrator(BaseCalibrator):
             )
             plt.tight_layout()
             
-            from core.paths import CONFIG_PATHS
+            from core.storage import CONFIG_PATHS
             result_dir = CONFIG_PATHS["plot_dir"]
-            os.makedirs(result_dir, exist_ok=True)
+            FileStorage.ensure_dir(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"debug_orthogonal_circles_{arm_side}_{frame}.png"))
-            plt.savefig(plot_save_path, dpi=150)
+            ArtifactStorage.save_figure(plot_save_path, dpi=150)
             plt.close()
             if log_callback:
                 log_callback(f"[SUCCESS] Orthogonal debug plot saved to: {plot_save_path}")
@@ -704,16 +753,16 @@ class JointCalibrator(BaseCalibrator):
             )
             plt.tight_layout()
 
-            from core.paths import CONFIG_PATHS
+            from core.storage import CONFIG_PATHS
             result_dir = CONFIG_PATHS["plot_dir"]
-            os.makedirs(result_dir, exist_ok=True)
+            FileStorage.ensure_dir(result_dir, exist_ok=True)
             plot_save_path = os.path.abspath(os.path.join(result_dir, f"circle_fit_{arm_side}_{mode}_joint_calib.png"))
             if not force_overwrite and os.path.exists(plot_save_path):
                 plt.close()
                 if log_callback:
                     log_callback(f"[INFO] Comparison plot already exists at: {plot_save_path}, skipping overwrite.")
             else:
-                plt.savefig(plot_save_path, dpi=150)
+                ArtifactStorage.save_figure(plot_save_path, dpi=150)
                 plt.close()
                 if log_callback:
                     log_callback(f"[SUCCESS] Saved combined calibration comparison plot to: {plot_save_path}")
@@ -1077,15 +1126,16 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}\n{traceback.format_exc()}. Using 0.0.")
                 optimal_offset_deg = 0.0
                 diff_angle = 0.0
-        elif mode == "wrist_pitch_v13":
-            # Orthogonal normal vector projection solver for v1.3 spherical wrist Pitch (J5)
-            # Sweep A is J6 (Roll, nominal axis X) and Sweep B is J4 (Yaw, nominal axis Z).
-            # J6 and J4 are nominally orthogonal (90.0°).
-            cross = np.cross(n_A, n_B)
-            sin_sign = np.sign(np.dot(cross, a_cand_cam))
-            optimal_offset_deg = (angle_between_normals - 90.0) * sin_sign
-            diff_angle = np.radians(optimal_offset_deg)
         else:
+            # wrist_pitch_v13 (J5) falls through to here too, same as v1.2's wrist_pitch and
+            # elbow -- only the JOINT_CONFIGS axis assignment (cand_joint/sweep_joint_A/B) and
+            # nominal local axis vectors differ per mode/version, not the computation method.
+            # Unlike elbow/wrist_pitch (whose A/B sweep axes are nominally concentric, so their
+            # own center-distance method below overrides this with a vibration-robust
+            # measurement), wrist_pitch_v13's A/B axes (joints 6 and 4) are nominally
+            # *orthogonal*, not concentric -- the center-distance method's parallel-axis
+            # assumption doesn't hold, so this signed projected-angle deviation IS the final
+            # optimal_offset_deg for wrist_pitch_v13 (see the final `elif` below).
             # Project axes onto the candidate joint's rotation plane to absorb physical DH twist errors
             # This ensures smooth zero-crossing even if the sweep axes are not perfectly parallel.
             a_A_proj = a_A_cam - np.dot(a_A_cam, a_cand_cam) * a_cand_cam
@@ -1168,10 +1218,11 @@ class JointCalibrator(BaseCalibrator):
                 else:
                     optimal_offset_deg = 0.0
                     
-            elif mode == "wrist_pitch_v13":
-                pass # Already computed directly above
             elif mode not in ("wrist_roll_v13", "wrist_yaw2"):
-                optimal_offset_deg = -np.degrees(diff_angle)
+                # Empirically verified sign against the live v1.3 simulator (2026-09-15):
+                # the negated form drove staged_offset in the wrong direction, growing the
+                # residual monotonically each iteration instead of shrinking it.
+                optimal_offset_deg = np.degrees(diff_angle)
 
         if log_callback:
             log_callback("\n" + "="*50)

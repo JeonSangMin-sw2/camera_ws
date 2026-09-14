@@ -1,3 +1,4 @@
+from .sequences.result import SequenceCancelled
 import math
 
 import numpy as np
@@ -23,6 +24,86 @@ ARM_SIDES = ("right", "left")
 ARM_OPTIMIZATION_NDOF = {14, 16, 20, 22}
 HEAD_OPTIMIZATION_NDOF = {2, 16, 22}
 CAMERA_OPTIMIZATION_NDOF = {6, 20, 22}
+
+# Step 1.5's Head Pan/Tilt anchor in Step 2: treated like camera rotation
+# (DEFAULT_LAMBDA_CAM_ROT-scale soft pull + a few-degree hard bound), NOT like
+# the Step-1-grade arm anchors (1e7 + 0.05 deg) -- Step 1.5's own accuracy has
+# real identifiability limits (see HeadCameraCalibrator._compute_head_camera_solution),
+# so locking this hard would just force its residual error into other DOFs.
+# weight would be mis-calibrated for any actual sensor noise level other than
+# the one it happened to be tuned against.
+#
+# NOTE ON NOISE ADAPTATION (tried and reverted): it's tempting to also scale
+# these by the live noise estimate, but that double-counts noise. H's DATA term
+# already carries a 1/sigma_rot^2 factor (add_weighted_normal_equation weights
+# each residual by 1/sigma, squared through J^T W J). These constants are added
+# directly to that already-noise-weighted H, which is exactly the right place
+# for a FIXED prior-strength term (1/sigma_prior^2 in Bayesian terms): when
+# sensor noise rises, the data term shrinks and this fixed prior automatically
+# becomes relatively more influential; when noise falls, the data term grows and
+# the same fixed prior automatically becomes relatively less influential. That's
+# already correct adaptive behavior for free. Multiplying this constant by an
+# additional noise-derived scale factor (as an earlier version of this code did)
+# applies that adaptation a second time -- confirmed on real data to blow up the
+# effective weight ~5x when the estimated noise came in below the value these
+# constants happened to be tuned against, reproducing the exact over-regularization
+# failure mode (biased J0, worse Head Tilt) found earlier at a too-strong fixed
+# weight. Keep these as plain constants.
+#
+# 2026-09-14 update: Pan and Tilt do NOT share the same identifiability
+# situation, so they must not share the same anchor strength either.
+#   - Head Tilt is coupled with Camera mount Y-rotation by an EXACT gauge
+#     degeneracy (only their sum is observable) that persists in Step 2's own
+#     H-matrix (confirmed by eigendecomposition: this is Step 2's single
+#     weakest direction even with all 64 poses). A tight anchor is genuinely
+#     needed here -- Step 2's own data cannot resolve it either.
+#   - Head Pan is coupled with marker position ONLY in Step 1.5's single
+#     stationary-marker sweep (a pure rotation-phase symmetry: with only one
+#     marker pose family, Pan and the marker's position trade off exactly).
+#     That specific ambiguity does not exist in Step 2: Step 2 observes the
+#     marker across 64 kinematically-diverse arm poses, so Pan is NOT among
+#     Step 2's weak eigen-directions (confirmed by the same eigendecomposition
+#     above -- only Cam.rx/Head.tilt and J0-common-mode are weak). Step 1.5's
+#     Pan estimate can therefore be off by several degrees on a bad run (pure
+#     noise along its own degenerate direction) while Step 2 can still recover
+#     the true value on its own. A tight anchor on Pan does not help; it
+#     actively locks in Step 1.5's noise and prevents Step 2 from correcting
+#     it (observed live: Step 1.5 Pan off by 3.7 deg, HEAD_ANCHOR_BOUND_DEG=2
+#     deg clamped Step 2's result to the anchor boundary, reproducing almost
+#     exactly Step 1.5's own error instead of fixing it).
+#
+# 2026-09-14 follow-up (two rounds, both confirmed live): after splitting Pan
+# out (above), a live-sim run showed Tilt itself getting dragged the full
+# HEAD_ANCHOR_BOUND_DEG_TILT=2 deg away from Step 1.5's own (good, 0.3
+# deg-accurate) estimate, all the way to the anchor's hard boundary, during
+# Pass 1's very first QP solve, at the original weight=100. Raising the
+# weight to 2000 (matching J0_COMMON_WEIGHT_REF's order of magnitude) reduced
+# but did not eliminate the pull -- Tilt still drifted off Step 1.5's estimate
+# (just no longer far enough to hit the bound), confirming this is a real,
+# systematic bias (most likely leftover unexplained residual from other
+# known-imperfect estimates -- J6's irreducible ~0.5-0.6 deg bracket-roll
+# coupling bias, sub-mm bracket position residuals -- draining into this
+# near-null direction because it is the cheapest place in the whole system
+# for the QP to dump unmodeled residual), not just noise a bigger spring
+# would average out.
+#
+# Unlike Pan, this is expected: the Tilt/Camera-rotation degeneracy is a
+# structural property of the head kinematic chain itself (proven exact,
+# independent of which/how many arm poses Step 2 observes), so Step 2 has
+# ZERO genuine information to add here, unlike Pan where more pose diversity
+# genuinely breaks the ambiguity. Since Step 2 cannot legitimately improve on
+# Step 1.5's Tilt estimate, treat it like the Step-1-grade J3/J5/J6 anchors
+# (near-hard lock) rather than a loose prior meant to let Step 2 refine it.
+HEAD_ANCHOR_WEIGHT_TILT = 2.0e6
+HEAD_ANCHOR_BOUND_DEG_TILT = 2.0
+HEAD_ANCHOR_WEIGHT_PAN = 5.0
+HEAD_ANCHOR_BOUND_DEG_PAN = 15.0
+
+# J0's null-space valley (shared with Head Tilt / camera rotation) is a COMMON-MODE
+# direction between the two arms' shoulder-pitch offsets (confirmed via eigendecomposition
+# of the real assembled H matrix on live-sim data) -- see the comment in compute_step
+# where this is applied.
+J0_COMMON_WEIGHT_REF = 2000.0
 
 D2R = np.pi / 180.0
 
@@ -464,9 +545,28 @@ class QPCalibrationOptimizer:
             upper_parts.append(q_upper)
 
         if self.optimize_head:
-            head_limit_rad = 20.0 * D2R
-            lower_parts.append(np.array([-head_limit_rad, -head_limit_rad]))
-            upper_parts.append(np.array([head_limit_rad, head_limit_rad]))
+            head_jo = None
+            if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
+                head_jo = self.joint_offsets_to_apply.get("head")
+            if head_jo is not None:
+                # Head Pan/Tilt come from Step 1.5's joint least-squares, but
+                # (unlike J3/J5/J6, which Step 1 nails to ~0.06 deg) Step 1.5's own
+                # accuracy is limited by real identifiability gaps (Pan offset is
+                # exactly degenerate with the not-yet-calibrated marker position;
+                # Tilt/camera-rotation is only weakly conditioned) -- residual
+                # error on the order of 0.5-1 deg is expected even after widening
+                # the sweep and tightening the position bound. Treat it like
+                # camera rotation (HEAD_ANCHOR_BOUND_DEG, soft weight below) rather
+                # than like the Step-1-grade arm joints: a loose safety rail, not
+                # a hard lock, so Step 2's own data can still refine it.
+                pan_val = head_jo.get("pan", 0.0) * D2R
+                tilt_val = head_jo.get("tilt", 0.0) * D2R
+                lower_parts.append(np.array([pan_val - HEAD_ANCHOR_BOUND_DEG_PAN * D2R, tilt_val - HEAD_ANCHOR_BOUND_DEG_TILT * D2R]))
+                upper_parts.append(np.array([pan_val + HEAD_ANCHOR_BOUND_DEG_PAN * D2R, tilt_val + HEAD_ANCHOR_BOUND_DEG_TILT * D2R]))
+            else:
+                head_limit_rad = 20.0 * D2R
+                lower_parts.append(np.array([-head_limit_rad, -head_limit_rad]))
+                upper_parts.append(np.array([head_limit_rad, head_limit_rad]))
 
         if not lower_parts:
             return np.zeros(0, dtype=np.float64), np.zeros(0, dtype=np.float64)
@@ -843,45 +943,100 @@ class QPCalibrationOptimizer:
         if getattr(self, 'apply_joint_offset_limits', False) and getattr(self, 'joint_offsets_to_apply', None) is not None:
             jo = self.joint_offsets_to_apply
             anchor_weight = 1e7  # Strong anchor penalty weight locking Step 1 joints to Step 1 calibrated values (< 0.02 deg)
-            if len(self.active_arms) == 1:
-                side = self.active_arms[0]
-                anchors = [
-                    (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
-                    (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
-                    (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
-                ]
-            else:
-                anchors = [
-                    (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
-                    (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
-                    (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
-                    (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
-                    (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
-                    (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
-                ]
+            # Guard by optimize_arm: when arms are frozen (e.g. Step 2's Pass 2,
+            # solving only head/camera against arms already fixed at a Pass 1
+            # result), H has no arm rows/columns at all -- q_arm_offset is still a
+            # full-length array (it's used as a fixed FK input), so checking
+            # `idx < len(q_arm_offset)` alone is not a valid bounds check against H
+            # and would index past the end of H's actual (arm-less) dimension.
+            if self.optimize_arm:
+                if len(self.active_arms) == 1:
+                    side = self.active_arms[0]
+                    anchors = [
+                        (3, -jo.get(side, {}).get("joint3", 0.0) * D2R),
+                        (5, -jo.get(side, {}).get("joint5", 0.0) * D2R),
+                        (6, -jo.get(side, {}).get("joint6", 0.0) * D2R),
+                    ]
+                else:
+                    anchors = [
+                        (3,  -jo.get("right", {}).get("joint3", 0.0) * D2R),
+                        (5,  -jo.get("right", {}).get("joint5", 0.0) * D2R),
+                        (6,  -jo.get("right", {}).get("joint6", 0.0) * D2R),
+                        (10, -jo.get("left", {}).get("joint3", 0.0) * D2R),
+                        (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
+                        (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
+                    ]
 
-            for idx, target_val in anchors:
-                if idx < len(q_arm_offset):
-                    cur_val = q_arm_offset[idx]
-                    H[idx, idx] += anchor_weight
-                    g[idx] += -anchor_weight * (cur_val - target_val)
+                for idx, target_val in anchors:
+                    if idx < len(q_arm_offset):
+                        cur_val = q_arm_offset[idx]
+                        H[idx, idx] += anchor_weight
+                        g[idx] += -anchor_weight * (cur_val - target_val)
+
+            # Head Pan/Tilt were jointly identified in Step 1.5 (raw-point
+            # least-squares against real FK), but with real residual identifiability
+            # limits (see HEAD_ANCHOR_WEIGHT/HEAD_ANCHOR_BOUND_DEG above) -- use a
+            # soft prior at the same scale as camera rotation's lambda_cam_rot, not
+            # the hard 1e7 lock used for Step-1-grade J3/J5/J6, so Step 2's own
+            # 64-pose data can still pull Head Pan/Tilt closer to the true value.
+            head_jo = jo.get("head")
+            if self.optimize_head and head_jo is not None and q_head_offset is not None:
+                arm_dim = len(self.arm_idx) if self.optimize_arm else 0
+                # Pan and Tilt get different anchor weights, not just different
+                # bounds -- see HEAD_ANCHOR_WEIGHT_PAN/TILT comment above for why.
+                head_anchors = [
+                    (0, head_jo.get("pan", 0.0) * D2R, HEAD_ANCHOR_WEIGHT_PAN),
+                    (1, head_jo.get("tilt", 0.0) * D2R, HEAD_ANCHOR_WEIGHT_TILT),
+                ]
+                for local_idx, target_val, head_anchor_weight in head_anchors:
+                    if local_idx < len(q_head_offset):
+                        global_idx = arm_dim + local_idx
+                        cur_val = q_head_offset[local_idx]
+                        H[global_idx, global_idx] += head_anchor_weight
+                        g[global_idx] += -head_anchor_weight * (cur_val - target_val)
 
         # Gentle Null-space damping to prevent parallel joint drift along flat unobservable valleys
-        # (J0 vs Head Tilt, J2 vs J4). 
-        # Damping weights (15.0 on J2/J4, 3.0 on J0) are tiny (< 0.03% of total data weight ~50000),
-        # allowing true joint offsets to be estimated with 100% freedom while preventing null-space drift.
+        # (J2 vs J4, both arms independently). Damping weight (15.0) is tiny (< 0.03% of total
+        # data weight ~50000), allowing true joint offsets to be estimated with 100% freedom
+        # while preventing null-space drift.
         if self.optimize_arm:
             if len(self.active_arms) == 1:
                 null_damped = [(0, 3.0), (2, 15.0), (4, 15.0)]
+                for idx, damp_w in null_damped:
+                    if idx < len(q_arm_offset):
+                        H[idx, idx] += damp_w
+                        g[idx] += -damp_w * q_arm_offset[idx]
             else:
                 null_damped = [
-                    (0, 3.0), (2, 15.0), (4, 15.0),    # Right arm J0, J2, J4
-                    (7, 3.0), (9, 15.0), (11, 15.0),   # Left arm J0, J2, J4
+                    (2, 15.0), (4, 15.0),    # Right arm J2, J4
+                    (9, 15.0), (11, 15.0),   # Left arm J2, J4
                 ]
-            for idx, damp_w in null_damped:
-                if idx < len(q_arm_offset):
-                    H[idx, idx] += damp_w
-                    g[idx] += -damp_w * q_arm_offset[idx]
+                for idx, damp_w in null_damped:
+                    if idx < len(q_arm_offset):
+                        H[idx, idx] += damp_w
+                        g[idx] += -damp_w * q_arm_offset[idx]
+
+                # J0's null-space valley (shared with Head Tilt / camera rotation) was
+                # empirically confirmed via eigendecomposition of the real assembled H
+                # matrix to be a COMMON-MODE direction: R.J0 and L.J0 drift together
+                # (same sign, near-equal magnitude), not independently. Penalizing each
+                # J0 toward zero independently (the old approach) would bias genuine,
+                # uncorrelated left/right shoulder offsets toward zero even when large
+                # and real. Penalizing only the common mode (R.J0 + L.J0) leaves the
+                # differential mode -- which carries the genuine independent per-arm
+                # signal -- completely free, while still damping the specific shared
+                # direction that can leak Head Tilt/camera rotation error into both
+                # shoulders at once.
+                j0_common_weight = J0_COMMON_WEIGHT_REF
+                r_idx, l_idx = 0, 7
+                if r_idx < len(q_arm_offset) and l_idx < len(q_arm_offset):
+                    common = q_arm_offset[r_idx] + q_arm_offset[l_idx]
+                    H[r_idx, r_idx] += j0_common_weight
+                    H[l_idx, l_idx] += j0_common_weight
+                    H[r_idx, l_idx] += j0_common_weight
+                    H[l_idx, r_idx] += j0_common_weight
+                    g[r_idx] += -j0_common_weight * common
+                    g[l_idx] += -j0_common_weight * common
 
 
 
@@ -986,8 +1141,13 @@ class QPCalibrationOptimizer:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
             
         xi_mount_cam = xi_mount_cam_init.copy() if xi_mount_cam_init is not None else np.zeros(6)
+        self.last_iteration = {"iterations": 0, "q_arm_offset": q_arm_offset.copy(), "q_head_offset": None if q_head_offset is None else q_head_offset.copy(), "xi_cam": xi_mount_cam.copy()}
 
+        self.iteration_count = 0
         for it in range(self.max_iter):
+            event = getattr(self, "stop_event", None)
+            if event is not None and event.is_set():
+                raise SequenceCancelled({"optimizer": self.last_iteration})
             dx, total_err = self.compute_step(
                 q_arm_list,
                 q_head_list,
@@ -1002,6 +1162,11 @@ class QPCalibrationOptimizer:
                 xi_mount_cam,
                 dx,
             )
+
+            self.iteration_count = it + 1
+            self.last_iteration = {"iterations": it + 1, "q_arm_offset": q_arm_offset.copy(), "q_head_offset": None if q_head_offset is None else q_head_offset.copy(), "xi_cam": xi_mount_cam.copy()}
+            if getattr(self, "stop_event", None) is not None and self.stop_event.is_set():
+                raise SequenceCancelled({"optimizer": self.last_iteration})
 
             # Split total_err into translation (m) and rotation (rad) components for better debugging
             print(f"[{it:02d}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
@@ -1443,8 +1608,13 @@ class CalibrationOptimizer:
             q_head_offset = q_head_offset_init.copy() if q_head_offset_init is not None else None
             
         xi_cam = xi_cam_init.copy() if xi_cam_init is not None else np.zeros(6)
+        self.last_iteration = {"iterations": 0, "q_arm_offset": q_arm_offset.copy(), "q_head_offset": None if q_head_offset is None else q_head_offset.copy(), "xi_cam": xi_cam.copy()}
 
+        self.iteration_count = 0
         for it in range(self.max_iter):
+            event = getattr(self, "stop_event", None)
+            if event is not None and event.is_set():
+                raise SequenceCancelled({"optimizer": self.last_iteration})
             dx, total_err = self.compute_step(
                 q_arm_list,
                 q_head_list,
@@ -1459,6 +1629,11 @@ class CalibrationOptimizer:
                 xi_cam,
                 dx,
             )
+
+            self.iteration_count = it + 1
+            self.last_iteration = {"iterations": it + 1, "q_arm_offset": q_arm_offset.copy(), "q_head_offset": None if q_head_offset is None else q_head_offset.copy(), "xi_cam": xi_cam.copy()}
+            if getattr(self, "stop_event", None) is not None and self.stop_event.is_set():
+                raise SequenceCancelled({"optimizer": self.last_iteration})
 
             print(f"[{it}] |dx|={np.linalg.norm(dx):.3e}, |err|={total_err:.3e}")
 

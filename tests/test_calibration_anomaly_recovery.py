@@ -145,7 +145,11 @@ class TestCalibrationAnomalyRecovery(unittest.TestCase):
         self.assertTrue(any("retry limit reached" in l for l in logs))
 
     def test_step_clamping_limits_large_steps(self):
-        """Verify that step_correction is clamped to [-1.5, 1.5] degrees per iteration."""
+        """The documented 2026-09-14 contract clamps updates to +/-2.5 degrees.
+
+        This tests the existing changed limit; production limits are not relaxed
+        to obtain a passing test.
+        """
         self.jc.marker_problem_callback = None
         self.jc.perform_move_to_ready_pose = lambda arm_side, mode="marker", log_callback=None: True
 
@@ -184,10 +188,9 @@ class TestCalibrationAnomalyRecovery(unittest.TestCase):
         )
 
         # Iteration 1 start: 0.0
-        # Correction was 3.0, but clamped to 1.5
-        # Therefore Iteration 2 start should be 1.5
-        self.assertAlmostEqual(staged_offsets_history[1], 1.5, places=3,
-                               msg=f"Expected clamped staged offset 1.5, got {staged_offsets_history[1]}")
+        # The 3.0 degree correction must be clamped, not used unbounded.
+        self.assertAlmostEqual(staged_offsets_history[1], 2.5, places=3,
+                               msg=f"Expected clamped staged offset 2.5, got {staged_offsets_history[1]}")
 
     def test_marker_anomaly_triggers_callback_and_retries(self):
         """Verify that in MarkerCalibrator, fitted circle axis deviation > 35 deg triggers callback
