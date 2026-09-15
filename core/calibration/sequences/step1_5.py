@@ -20,6 +20,10 @@ def run_step1_5(core, context, prepare=True, **options):
             context.check_cancelled()
             raise RuntimeError("Head/camera ready pose failed")
     context.check_cancelled()
+    # A fresh Step 1.5 re-identifies the head offsets from zero: never let a stale value (e.g. one
+    # loaded from setting.yaml) survive into Step 2 if this sweep fails or is cancelled.
+    core.joint_offsets_store["head"] = {"pan": 0.0, "tilt": 0.0}
+    calibrator.calibrated_results = None
     result = calibrator.perform_head_sweep(
         log_callback=core.log_msg, stop_event=context.stop_event, **options
     )

@@ -406,6 +406,7 @@ class QPCalibrationOptimizer:
         measurement_noise_update_rate=DEFAULT_NOISE_UPDATE_RATE,
         apply_joint_offset_limits=False,
         joint_offsets_to_apply=None,
+        lock_camera_head_axis_rotation=True,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -413,6 +414,11 @@ class QPCalibrationOptimizer:
         self.active_arms = active_arms
         self.apply_joint_offset_limits = apply_joint_offset_limits
         self.joint_offsets_to_apply = joint_offsets_to_apply
+        # Head-mounted camera: rotation about the camera x axis (= head tilt axis) and y axis
+        # (= head pan axis) points the camera exactly like the head joints. Convention (notion
+        # References 3.2): the head pan/tilt offsets absorb it, so xi_mount_cam[0:2] stay at the
+        # baseline (nominal) value and only the optical-axis (z) rotation is estimated.
+        self.lock_camera_head_axis_rotation = lock_camera_head_axis_rotation
 
         self.arm_idx = np.array(arm_idx, dtype=int)
         self.head_idx = np.array(head_idx, dtype=int) if head_idx is not None else None
@@ -854,6 +860,10 @@ class QPCalibrationOptimizer:
                     lb, ub, pos_slice, xi_mount_cam[3:], self.camera_pos_bound_m
                 )
                 any_bound = True
+            if self.lock_camera_head_axis_rotation and self.use_head_kinematics:
+                for k in (0, 1):
+                    lb[rot_slice.start + k] = ub[rot_slice.start + k] = -xi_mount_cam[k]
+                any_bound = True
 
         if not any_bound:
             return None, None
@@ -1068,7 +1078,12 @@ class QPCalibrationOptimizer:
         if dx is None:
             dx = np.linalg.solve(P + 1e-4 * np.eye(dim), -q)
 
-        return np.asarray(dx, dtype=np.float64).reshape(-1), total_err
+        dx = np.asarray(dx, dtype=np.float64).reshape(-1)
+        if self.optimize_camera and self.lock_camera_head_axis_rotation and self.use_head_kinematics:
+            # Also holds when the unconstrained fallback solve was used.
+            dx[dim - 6] = -xi_mount_cam[0]
+            dx[dim - 5] = -xi_mount_cam[1]
+        return dx, total_err
 
     def apply_update(self, q_arm_offset, q_head_offset, xi_mount_cam, dx):
         dq_arm, dq_head, dxi = self.unpack_params(dx)

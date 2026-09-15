@@ -15,7 +15,13 @@ import os, yaml
 #debugging flag : must be all false in production
 imshow_when_detect = False
 tcpip_send = False
-use_calib_int = False # Whether to use the finely calibrated intrinsics file (camera_intrinsics.yaml)
+# Which values from the calibrated intrinsics file (camera_intrinsics.yaml) override the factory ones:
+#   "off"             : factory fx, fy, cx, cy and distortion
+#   "principal_point" : calibrated cx, cy only (factory focal length and distortion kept)
+#   "full"            : calibrated fx, fy, cx, cy and distortion
+# The principal point sets where the optical axis is in the image, so it directly biases the head
+# tilt/pan pointing estimate (2026-09-15: factory cy 347.9 vs calibrated 350.6 px = 0.24 deg of tilt).
+calib_intrinsics_mode = "full"
 # see_depth_sensors_depth = False
 # see_stereo_depth = False
 
@@ -258,38 +264,17 @@ class Marker_Detection:
                 tvecs = pnp_res[2]
                 reproj_errs = pnp_res[3] if len(pnp_res) > 3 else None
 
+                # Pick the lower-reprojection-error solution independently per frame (same as
+                # cv2.solvePnP(SOLVEPNP_IPPE), used up to 2026-09-07). Choosing the solution
+                # closest to the previous frame (introduced 2026-09-13) locks onto a wrong
+                # mirrored solution for whole runs of frames near a fronto-parallel view, which
+                # the per-frame spike filter in CalibratorBase.filter_sweep_dataset cannot remove.
                 best_idx = 0
-                if num_sol == 1 or marker_id not in self.prev_pnp_rot:
-                    if num_sol > 1 and reproj_errs is not None and len(reproj_errs) > 1:
-                        best_idx = int(np.argmin(reproj_errs))
-                    else:
-                        best_idx = 0
-                    rvec = rvecs[best_idx]
-                    tvec = tvecs[best_idx]
-                    rot_matrix, _ = cv2.Rodrigues(rvec)
-                    self.prev_pnp_rot[marker_id] = rot_matrix
-                else:
-                    prev_R = self.prev_pnp_rot[marker_id]
-                    R_cands = []
-                    dists = []
-                    for k in range(num_sol):
-                        R_k, _ = cv2.Rodrigues(rvecs[k])
-                        R_cands.append(R_k)
-                        R_rel = R_k @ prev_R.T
-                        tr = np.trace(R_rel)
-                        cos_val = np.clip((tr - 1.0) / 2.0, -1.0, 1.0)
-                        dists.append(np.degrees(np.arccos(cos_val)))
-
-                    # If all solutions are very far (> 30°), the marker jumped or re-acquired; fall back to reprojection error
-                    if min(dists) > 30.0 and reproj_errs is not None and len(reproj_errs) > 1:
-                        best_idx = int(np.argmin(reproj_errs))
-                    else:
-                        best_idx = int(np.argmin(dists))
-
-                    rvec = rvecs[best_idx]
-                    tvec = tvecs[best_idx]
-                    rot_matrix = R_cands[best_idx]
-                    self.prev_pnp_rot[marker_id] = rot_matrix
+                if num_sol > 1 and reproj_errs is not None and len(reproj_errs) > 1:
+                    best_idx = int(np.argmin(np.asarray(reproj_errs).ravel()))
+                rvec = rvecs[best_idx]
+                tvec = tvecs[best_idx]
+                rot_matrix, _ = cv2.Rodrigues(rvec)
 
                 center_pos = tvec.flatten().tolist()
                 
@@ -403,7 +388,7 @@ class Marker_Transform:
                 self.marker_detection.set_baseline(self.camera.baseline)
                 
                 # [NEW] Apply calibrated camera intrinsics setting (camera_intrinsics.yaml)
-                if use_calib_int:
+                if calib_intrinsics_mode in ("principal_point", "full"):
                     from core.storage import CONFIG_PATHS
                     calib_file = CONFIG_PATHS.get("camera_intrinsics")
                     if not calib_file or not os.path.exists(calib_file):
@@ -436,14 +421,20 @@ class Marker_Transform:
                                 print(f"\n[INFO] Scaled intrinsics from {calib_w}x{calib_h} to {self.width}x{self.height} (Scale X:{scale_x:.2f}, Y:{scale_y:.2f})")
 
                             # Inject calibrated parameters to Marker_Detection
-                            # New interface [ppx, ppy, fx, fy]
-                            new_intrinsics = [mtx[0,2], mtx[1,2], mtx[0,0], mtx[1,1]]
+                            # Interface [ppx, ppy, fx, fy]
+                            factory = list(intrinsics)
+                            if calib_intrinsics_mode == "full":
+                                new_intrinsics = [mtx[0,2], mtx[1,2], mtx[0,0], mtx[1,1]]
+                                self.marker_detection.set_dist_coeffs(dist)
+                            else:
+                                new_intrinsics = [mtx[0,2], mtx[1,2], factory[2], factory[3]]
                             self.marker_detection.set_intrinsics_param(new_intrinsics)
-                            self.marker_detection.set_dist_coeffs(dist)
-                            
-                            print(f"[INFO] --- Loaded Calibrated Intrinsics from {calib_file} ---")
-                            print(f"       fx: {mtx[0,0]:.2f}, fy: {mtx[1,1]:.2f}, ppx: {mtx[0,2]:.2f}, ppy: {mtx[1,2]:.2f}")
-                            print(f"       dist: {dist}")
+
+                            print(f"[INFO] --- Calibrated intrinsics ({calib_intrinsics_mode}) from {calib_file} ---")
+                            print(f"       factory   : fx {factory[2]:.2f}, fy {factory[3]:.2f}, ppx {factory[0]:.2f}, ppy {factory[1]:.2f}")
+                            print(f"       in use    : fx {new_intrinsics[2]:.2f}, fy {new_intrinsics[3]:.2f}, ppx {new_intrinsics[0]:.2f}, ppy {new_intrinsics[1]:.2f}")
+                            if calib_intrinsics_mode == "full":
+                                print(f"       dist: {dist}")
                         except Exception as e:
                             print(f"\n[ERROR] Failed to load {calib_file}: {e}")
                     else:

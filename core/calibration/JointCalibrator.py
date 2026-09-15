@@ -10,6 +10,22 @@ import matplotlib.pyplot as plt
 # from scipy.optimize import least_squares, minimize_scalar
 # from scipy.spatial.transform import Rotation as R_scipy
 from .CalibratorBase import BaseCalibrator
+
+# Step 1 joint-sweep timing (2026-09-15 time reduction): one direction per sweep; all captured
+# frames are fitted (no downsampling) to offset the lower sample count of the shorter sweep.
+JOINT_SWEEP_DURATION_S = 8.0
+# wrist_yaw2 (J6) pairs marker orientation with encoder angles, so a faster one-direction sweep
+# biases it (real test 2026-09-15, right arm, 3 reps: 12 s mean -2.07 std 0.11 vs 8 s mean -2.71
+# std 0.32). Elbow was unaffected (12 s -1.982/0.024 vs 8 s -1.979/0.025).
+JOINT_SWEEP_DURATION_BY_MODE_S = {"wrist_yaw2": 12.0}
+MAX_FIT_POINTS = 1000
+# Per-sweep target-estimate scatter measured on the real robot (deg). Used as a floor on the
+# sample std so a mean of only 2 agreeing sweeps cannot pass on luck.
+# elbow: 0.025 deg measured with +-20 deg sweeps fitting all frames (2026-09-15); floor kept at 0.05.
+JOINT_ESTIMATE_NOISE_DEG = {"wrist_pitch": 0.03, "wrist_yaw2": 0.06, "elbow": 0.05}
+MIN_MEAN_SAMPLES_BY_MODE = {"wrist_pitch": 2, "wrist_yaw2": 2, "elbow": 2}
+
+
 class DebugLogger:
     def __init__(self, original_log_callback, file_path):
         self.original_log_callback = original_log_callback
@@ -51,7 +67,9 @@ class JointCalibrator(BaseCalibrator):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
-    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
+    def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
+        if sweep_duration is None:
+            sweep_duration = JOINT_SWEEP_DURATION_BY_MODE_S.get(mode, JOINT_SWEEP_DURATION_S)
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
 
@@ -92,11 +110,22 @@ class JointCalibrator(BaseCalibrator):
                 
             max_readjust_retries = 2
             readjust_retry_count = 0
-            max_iterations = 6
+            max_iterations = 8
+            # Mean-based convergence: estimates measured within NEAR_TARGET_DEG of the staged
+            # offset (past the large-step transient) are averaged; converge once the standard
+            # error of that mean is within tolerance.
+            MIN_MEAN_SAMPLES = MIN_MEAN_SAMPLES_BY_MODE.get(mode, 3)
+            ESTIMATE_NOISE_DEG = JOINT_ESTIMATE_NOISE_DEG.get(mode, 0.0)
+            NEAR_TARGET_DEG = 0.3
+            CONVERGENCE_TOL_DEG = 0.06
 
             while True:
                 staged_offset = current_offset_deg
                 staged_offsets_history = [staged_offset]
+                # Per-iteration (staged offset, measured absolute target) pairs for the
+                # noise-floor stability convergence check.
+                target_estimates = []
+                convergence_basis = None
                 final_res = None
                 first_res = None
                 converged = False
@@ -131,7 +160,9 @@ class JointCalibrator(BaseCalibrator):
                         arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                         current_offset_deg=offset, sweep_duration=sweep_duration,
                         use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save,
-                        first_starting_pose=first_starting_pose
+                        first_starting_pose=first_starting_pose,
+                        # the previous sweep of this sequence already saw the marker
+                        skip_visibility_check=(_sweep_count[0] > 1)
                     )
 
                 restart_sequence = False
@@ -310,6 +341,7 @@ class JointCalibrator(BaseCalibrator):
                     # Based on raw measurement residual (< 0.06°) to ensure genuine physical convergence
                     # rather than premature termination from small damped steps.
                     converged_criteria = (abs(raw_residual) < 0.06)
+                    target_estimates.append((staged_offset, staged_offset + raw_residual))
 
                     if log_callback:
                         tol_status = "OK (within 0.06°)" if converged_criteria else "retry (exceeds 0.06° tolerance)"
@@ -318,8 +350,39 @@ class JointCalibrator(BaseCalibrator):
                             f"residual={raw_residual:+.4f}° -> {tol_status}"
                         )
 
+                    # Mean-based convergence: a single sweep's estimate scatters by ~0.05° (J6)
+                    # to ~0.15° (J3), so a lone residual landing inside the tolerance is luck,
+                    # not precision. Average the target estimates measured near the staged
+                    # offset and converge when the standard error of that mean is within
+                    # tolerance.
+                    # A lone in-tolerance residual is not treated as convergence; only the mean is.
+                    converged_criteria = False
+                    near = [e for s, e in target_estimates if abs(e - s) <= NEAR_TARGET_DEG]
+                    if len(near) >= MIN_MEAN_SAMPLES:
+                        est_n = np.array(near)
+                        est_std = max(float(np.std(est_n, ddof=1)), ESTIMATE_NOISE_DEG)
+                        est_se = est_std / np.sqrt(len(est_n))
+                        mean_ok = est_se <= CONVERGENCE_TOL_DEG
+                        if log_callback:
+                            log_callback(
+                                f"  * Mean of {len(est_n)} near-target estimates: {float(np.mean(est_n)):.4f}° "
+                                f"(std={est_std:.4f}°, std err={est_se:.4f}°) -> "
+                                f"{'OK (within 0.06°)' if mean_ok else 'need more samples'}"
+                            )
+                        if mean_ok:
+                            converged = True
+                            convergence_basis = "mean_std_err"
+                            staged_offset = float(np.mean(est_n))
+                            if log_callback:
+                                log_callback(f"\n[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):")
+                                log_callback(f"  * Near-target estimates: {', '.join(f'{v:.4f}°' for v in est_n)}")
+                                log_callback(f"  * Std err {est_se:.4f}° <= {CONVERGENCE_TOL_DEG}°")
+                                log_callback(f"  * Recommended Absolute Offset (mean): {staged_offset:.4f}°")
+                            break
+
                     if converged_criteria:
                         converged = True
+                        convergence_basis = "residual"
                         if mode in ("wrist_roll_v13", "wrist_yaw2"):
                             # On convergence for absolute modes, record the exact target offset
                             staged_offset = direction_multiplier * raw_optimal_offset
@@ -337,7 +400,9 @@ class JointCalibrator(BaseCalibrator):
                     # measurement -- see MAX_STEP_CLAMP_DEG usage below and the anomaly
                     # check a few lines above) so a genuine overshoot/marker-lost event is
                     # still caught before being acted on.
-                    MAX_STEP_CLAMP_DEG = 2.5
+                    # 2026-09-15: 2.5 -> 5.0 deg so post-Home-Offset-Reset offsets (3-5 deg) are
+                    # reached in one step.
+                    MAX_STEP_CLAMP_DEG = 5.0
                     prev_error = angle_dev
                     prev_step_correction = step_correction_delta
                     staged_offset_before_step = staged_offset
@@ -390,6 +455,7 @@ class JointCalibrator(BaseCalibrator):
                 'recommended_joint_offset': staged_offset,
                 'optimal_offset': staged_offset,
                 'converged': converged,
+                'convergence_basis': convergence_basis,
                 'perp_dist_before': final_res.get('perp_dist_before', float('nan')) if final_res else float('nan'),
                 'perp_dist_after': final_res.get('perp_dist_after', float('nan')) if final_res else float('nan'),
                 'axial_offset_mm': final_res.get('axial_offset_mm', float('nan')) if final_res else float('nan'),
@@ -775,7 +841,9 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=12.0, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None, skip_visibility_check=False):
+        if sweep_duration is None:
+            sweep_duration = JOINT_SWEEP_DURATION_BY_MODE_S.get(mode, JOINT_SWEEP_DURATION_S)
         self.current_calib_mode = mode
         if getattr(self, 'stop_requested', False):
             return None
@@ -790,7 +858,9 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(f"   [Baseline Shift (Current Applied Offset): {current_offset_deg:.4f}°]")
             log_callback("="*50)
 
-        if not getattr(self.marker_st, 'sim', False):
+        if skip_visibility_check:
+            if status_callback: status_callback(True)
+        elif not getattr(self.marker_st, 'sim', False):
             # Pre-check marker visibility after settling delay
             time.sleep(1.0)
             initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
@@ -899,11 +969,11 @@ class JointCalibrator(BaseCalibrator):
                 arm_side, sweep_joint_B, dataset_B, initial_joint_pos, ee_name, dyn_model, None, "joint_B", log_callback
             )
         
-        # Keep up to 200 points for speed and accuracy
+        # Fit all captured frames (cap only as a runtime guard)
         raw_len_A = len(dataset_A)
         raw_len_B = len(dataset_B)
-        
-        max_pts = 200
+
+        max_pts = MAX_FIT_POINTS
         if len(dataset_A) > max_pts:
             indices_A = np.round(np.linspace(0, len(dataset_A) - 1, max_pts)).astype(int)
             dataset_A = [dataset_A[idx] for idx in indices_A]
@@ -1115,7 +1185,9 @@ class JointCalibrator(BaseCalibrator):
                         staged_j7_offset_deg = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
                     
                     j7_ready_pose_deg = j7_current_pos_deg - staged_j7_offset_deg
-                    damping_factor = 0.8
+                    # 2026-09-15: 0.8 -> 1.0. Real runs show raw gain ~1.0 and the outer loop
+                    # now averages repeated estimates, so under-stepping only cost iterations.
+                    damping_factor = 1.0
                     optimal_offset_deg = (raw_diff_deg * damping_factor) + j7_current_pos_deg
                     
                     if log_callback:

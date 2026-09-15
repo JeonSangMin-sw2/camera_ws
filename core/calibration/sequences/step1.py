@@ -96,9 +96,13 @@ def _execute_step1_sequence(
         res_5 = None
         res_6 = None
 
-        for pass_idx in range(1, 4):
+        # Pass 1 calibrates, pass 2 re-sweeps only what did not converge and verifies the
+        # bracket. A third pass had no extra logic: it re-swept already-converged joints and
+        # overwrote the pass1-vs-pass2 comparison plots.
+        MAX_PASSES = 2
+        for pass_idx in range(1, MAX_PASSES + 1):
             log("\n" + "=" * 50)
-            log(f"   STARTING PASS {pass_idx}/3 FOR {arm_side.upper()} ARM")
+            log(f"   STARTING PASS {pass_idx}/{MAX_PASSES} FOR {arm_side.upper()} ARM")
             log("=" * 50 + "\n")
             log(f"[INFO] Detected Robot Version: {version_num} (is_v1.3: {is_v13})")
 
@@ -660,8 +664,11 @@ def _execute_step1_sequence(
                     log(f"[PASS {pass_idx} EVALUATION] All parameters converged physically (Step changes < 0.10°).")
                     log(f"[PASS {pass_idx} EVALUATION] Calibration completed in Pass {pass_idx}!")
                     break
-                elif pass_idx < 3:
-                    log(f"[PASS {pass_idx} EVALUATION] Step changes exceed tolerance (J6: {j6_change:.3f}°, J5: {j5_change:.3f}°). Proceeding to Pass {pass_idx + 1} for verification refinement.")
+                else:
+                    log(f"[PASS {pass_idx} EVALUATION] [WARN] Pass-to-pass changes exceed tolerance "
+                        f"(J6: {j6_change:.3f}°, J5: {j5_change:.3f}°, J3: {j3_change:.3f}°, "
+                        f"bracket pos: {pos_change:.3f} mm, bracket rot: {rot_change:.3f}°; "
+                        f"limits 0.10° / 0.5 mm / 0.15°). Keeping Pass {pass_idx} values.")
 
             # Update prev values for next pass check
             prev_j6 = joint_offsets_store[arm_side]["joint6"]

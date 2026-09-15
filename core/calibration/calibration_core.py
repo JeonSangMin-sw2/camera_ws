@@ -368,9 +368,23 @@ class CalibrationCore:
                 solve.setdefault("optimize_head", has_head_samples)
                 solve.setdefault("optimize_camera", True)
                 solve.setdefault("result_path", self.default_result_path())
-                value = optimize_step2(self, q_arm_list=np.asarray([s["q_arm"] for s in samples]),
+                q_arm_array = np.asarray([s["q_arm"] for s in samples])
+                T_meas_array = np.asarray([s["marker"] for s in samples])
+                # Keep the raw samples next to the result (dataset_<timestamp>.npz) so any run can
+                # be re-optimized / compared offline; the GUI auto-save only covers manual collection.
+                if options.get("samples") is None:
+                    from core.calibration.data import save_npz_dataset
+                    result_file = Path(solve["result_path"])
+                    dataset_path = result_file.with_name(result_file.name.replace("result_", "dataset_", 1)).with_suffix(".npz")
+                    try:
+                        save_npz_dataset(dataset_path, q_arm=q_arm_array, T_meas=T_meas_array, q_head=q_head_list)
+                        self.log_msg(f"[Step2] Dataset saved: {dataset_path}")
+                        ctx.checkpoint("dataset_path", str(dataset_path))
+                    except Exception as error:
+                        self.log_msg(f"[Step2][WARN] Dataset save failed: {error}")
+                value = optimize_step2(self, q_arm_list=q_arm_array,
                                       q_head_list=q_head_list,
-                                      T_meas_list=np.asarray([s["marker"] for s in samples]), **solve)
+                                      T_meas_list=T_meas_array, **solve)
                 ctx.checkpoint("optimization", value)
                 ctx.check_cancelled()
                 ctx.complete("optimization", value)

@@ -11,17 +11,17 @@ camera:
   mount_to_cam_nominal: [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
   width: 1280
 joint_offset:
-  head:
-    pan: -2.8448
-    tilt: -2.0418
   left:
-    joint3: -0.6771699541438783
-    joint5: 2.9546961417827653
-    joint6: -4.138648710974869
+    joint3: 0.0
+    joint5: 0.0
+    joint6: 0.0
   right:
-    joint3: -0.43580481575361046
-    joint5: -5.373330721874338
-    joint6: -2.8218981363488767
+    joint3: 0.0
+    joint5: 0.0
+    joint6: 0.0
+  head:
+    pan: 0.0
+    tilt: 0.0
 marker:
   Tf_to_marker_left: [0.0, 0.0545, -0.05, 90.7, -0.5, 0.0]
   Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]

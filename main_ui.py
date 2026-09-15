@@ -528,6 +528,9 @@ class ApplyHomeOffsetDialog(QDialog):
                                 self.parent_app.joint_offsets[arm]["wrist_roll"] = 0.0
                                 self.parent_app.joint_offsets[arm]["wrist_yaw2"] = 0.0
                                 self.parent_app.joint_offsets[arm]["elbow"] = 0.0
+                        if self.include_head:
+                            # Head offsets are physically absorbed by the applied home offset too.
+                            self.parent_app.joint_offsets_store["head"] = {"pan": 0.0, "tilt": 0.0}
 
                         # Save zeroed offsets to setting.yaml and update GUI
                         self.parent_app.save_offsets_to_yaml()
@@ -1461,7 +1464,7 @@ class UnifiedCalibrationApp(QWidget):
 
         tilt_row = QHBoxLayout()
         tilt_row.addWidget(QLabel("Tilt Range (±deg):"))
-        self.step1_5_tilt_range = QLineEdit("20.0")
+        self.step1_5_tilt_range = QLineEdit("10.0")
         self.step1_5_tilt_range.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #444; border-radius: 4px; padding: 2px;")
         tilt_row.addWidget(self.step1_5_tilt_range)
         head_cam_sublayout.addLayout(tilt_row)
@@ -4375,8 +4378,13 @@ class UnifiedCalibrationApp(QWidget):
         }
         self.joint_offsets_store = {
             "left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
-            "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}
+            "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0},
+            # Without an explicit head entry, save_offsets_to_yaml kept a stale head offset from
+            # an earlier session (simulator values were found in setting.yaml on 2026-09-15).
+            "head": {"pan": 0.0, "tilt": 0.0},
         }
+        if hasattr(self, 'head_camera_calibrator') and self.head_camera_calibrator:
+            self.head_camera_calibrator.calibrated_results = None
 
         if hasattr(self, 'joint_calibrator') and self.joint_calibrator:
             self.joint_calibrator.joint_offsets = self.joint_offsets

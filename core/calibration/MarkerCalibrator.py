@@ -741,14 +741,29 @@ class MarkerCalibrator(BaseCalibrator):
             offset_val = offsets.get("wrist_roll" if self.is_v13() else "wrist_yaw2", 0.0)
             theta_6 -= np.radians(offset_val)
 
-        # 2. 정밀 회전축 벡터 산출 (Orientation 변화량 기반)
+        # 2. 정밀 회전축 벡터 산출
+        # v1.2: joint axis from the circle fit of the marker POSITION trajectory (axis_opt, camera
+        # frame) mapped into the marker frame by the mid-sweep marker orientation -- the method
+        # used through the 2026-09-10 real-robot runs and dropped in 1a30d1c (2026-09-13).
+        # Rotation-only axis extraction biased the right-arm bracket pitch by ~3 deg on the
+        # real robot (2026-09-15) versus ~0.3 deg from the position trajectory; it remains the
+        # fallback when no circle-fit axis is available (and the v1.3 path, validated with it).
+        def axis_in_marker_frame(marker_data, poses, ideal_axis):
+            n_cam = marker_data.get('axis_opt') if not self.is_v13() else None
+            if n_cam is None or len(poses) == 0:
+                return extract_axis_from_rotations(poses, ideal_axis)
+            R_ref = poses[len(poses) // 2][:3, :3]
+            n_marker = R_ref.T @ np.asarray(n_cam, dtype=float)
+            n_marker /= np.linalg.norm(n_marker)
+            return n_marker if np.dot(n_marker, ideal_axis) >= 0 else -n_marker
+
         poses_6 = marker_data_6.get('captured_poses', [])
         target_ideal_6 = x_ee_m_ideal if self.is_v13() else z_ee_m_ideal
-        n6_marker_actual = extract_axis_from_rotations(poses_6, target_ideal_6)
-        
+        n6_marker_actual = axis_in_marker_frame(marker_data_6, poses_6, target_ideal_6)
+
         poses_5 = marker_data_5.get('captured_poses', [])
         target_ideal_5 = self.rodrigues_rotation(y_ee_m_ideal, target_ideal_6, theta_6)
-        n5_marker_actual = extract_axis_from_rotations(poses_5, target_ideal_5)
+        n5_marker_actual = axis_in_marker_frame(marker_data_5, poses_5, target_ideal_5)
  
         # [BYPASS] Bypassed permanently to calculate using ONLY the marker and rotation axis trajectory.
         kinematic_success = False
@@ -779,7 +794,7 @@ class MarkerCalibrator(BaseCalibrator):
                 poses_4 = marker_data_4.get('captured_poses', [])
                 target_ideal_4_base = z_ee_m_ideal if self.is_v13() else x_ee_m_ideal
                 target_ideal_4 = self.rodrigues_rotation(target_ideal_4_base, target_ideal_6, theta_6_4)
-                n4_marker_actual = extract_axis_from_rotations(poses_4, target_ideal_4)
+                n4_marker_actual = axis_in_marker_frame(marker_data_4, poses_4, target_ideal_4)
 
                 if not self.is_v13():
                     z_col = n6_marker_actual

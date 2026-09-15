@@ -99,10 +99,34 @@ def optimize_step2(
         if res15 and not res15.get("skipped", False) and "calibrated_mount_to_cam" in res15:
             mount_cam_from_step1_5 = res15["calibrated_mount_to_cam"]
 
+    def with_nominal_head_axis_rotation(mount_to_cam):
+        """Reset the camera-mount rotation about the camera x (head tilt) and y (head pan) axes to
+        the CAD nominal. The optimizer keeps those components fixed at the baseline (the head joints
+        absorb pointing error), so a baseline carried over from an older result must not smuggle
+        them back in. Rotation about the optical (z) axis is kept."""
+        if not use_head_kinematics or mount_to_cam is None:
+            return mount_to_cam
+        nominal = self.marker_calibrator.camera_config.get("mount_to_cam_nominal")
+        if not nominal or len(nominal) < 6:
+            return mount_to_cam
+        T_nom = BaseCalibrator.make_transform(nominal)
+        T_cur = BaseCalibrator.make_transform(mount_to_cam)
+        rel = R_scipy.from_matrix(T_nom[:3, :3].T @ T_cur[:3, :3]).as_rotvec()
+        removed_deg = np.degrees(rel[:2]).copy()
+        if np.all(np.abs(removed_deg) < 1e-6):
+            return mount_to_cam
+        rel[:2] = 0.0
+        R_new = T_nom[:3, :3] @ R_scipy.from_rotvec(rel).as_matrix()
+        yaw, pitch, roll = R_scipy.from_matrix(R_new).as_euler("ZYX", degrees=True)
+        adjusted = [float(mount_to_cam[0]), float(mount_to_cam[1]), float(mount_to_cam[2]), float(roll), float(pitch), float(yaw)]
+        self.log_msg(f"[INFO] Camera mount rotation about the head tilt/pan axes reset to nominal "
+                     f"(removed x {removed_deg[0]:+.3f}°, y {removed_deg[1]:+.3f}°; head joints absorb it): {adjusted}")
+        return adjusted
+
     if len(active_arms) == 2 and q_arm_list.shape[1] >= 14:
         self.log_msg("\n[INFO] === UNIFIED DUAL-ARM JOINT-CAMERA CALIBRATION WORKFLOW (2-PASS) ===")
         cfg_both = get_both_arm_config(self.model, version=self.get_robot_version())
-        mount_cam_init = mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg_both["mount_to_cam_nom"])
+        mount_cam_init = with_nominal_head_axis_rotation(mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg_both["mount_to_cam_nom"]))
         if mount_cam_from_step1_5:
             self.log_msg(f"[INFO] Using Step 1.5 calibrated mount_to_cam as fixed baseline: {mount_cam_init}")
 
@@ -210,7 +234,7 @@ def optimize_step2(
         )
     else:
         self.log_msg("\n[INFO] === SINGLE-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
-        mount_cam_init = mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg["mount_to_cam_nom"])
+        mount_cam_init = with_nominal_head_axis_rotation(mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg["mount_to_cam_nom"]))
         if mount_cam_from_step1_5:
             self.log_msg(f"[INFO] Using Step 1.5 calibrated mount_to_cam as fixed baseline: {mount_cam_init}")
         opt_single = QPCalibrationOptimizer(
