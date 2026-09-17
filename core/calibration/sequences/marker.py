@@ -32,7 +32,7 @@ def run_marker(core, context, arm_side="right", use_head_tracking=False,
         context.checkpoint(f"axis_{axis}", result)
     result = c.compute_unified_bracket_calibration(
         sweeps[5], sweeps[6], arm_side, tolerance=tolerance,
-        marker_data_4=sweeps[4], calib_roll_deg=0.0, calib_pitch_deg=0.0,
+        marker_data_4=sweeps[4], calib_roll_deg=0.0, calib_pitch_deg=0.0, log_callback=core.log_msg,
     )
     context.checkpoint("marker_fit", result)
     context.check_cancelled()
@@ -44,5 +44,10 @@ def run_marker(core, context, arm_side="right", use_head_tracking=False,
         result["plot_path_combined"] = path
     context.check_cancelled()
     core.accept_marker_result(arm_side, result)
+    # Bracket-only runs calibrate one arm at a time; symmetrize once the second arm lands.
+    symmetry = core.apply_bracket_symmetry(core.log_msg)
+    if symmetry is not None:
+        result["bracket_symmetry"] = symmetry
+        context.checkpoint("bracket_symmetry", symmetry)
     context.complete("marker", result)
     return result

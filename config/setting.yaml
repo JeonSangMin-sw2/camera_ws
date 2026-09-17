@@ -2,7 +2,6 @@ camera:
   auto_exposure: true
   camera_mount_link: link_head_2
   device_name: D405
-  exposure: 10000
   fps: 30
   head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
   head_base_to_cam_nominal: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
@@ -23,10 +22,10 @@ joint_offset:
     pan: 0.0
     tilt: 0.0
 marker:
-  Tf_to_marker_left: [0.0, 0.0545, -0.05, 90.7, -0.5, 0.0]
+  Tf_to_marker_left: [0.00000, 0.05408, -0.04885, 90.00, -0.24, -0.00]
   Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
   Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
-  Tf_to_marker_right: [0.0, -0.0539, -0.046, 90.8, 0.6, 180.0]
+  Tf_to_marker_right: [0.00000, -0.05408, -0.04885, 90.00, -0.24, 180.00]
   Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
   Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
   plate:

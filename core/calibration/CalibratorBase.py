@@ -27,9 +27,9 @@ class BaseCalibrator(RobotOperations):
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
     }
     MARKER_CONFIGS = {
-        "axis_4": {"joint_i": 4, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
-        "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -30.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
-        "axis_6": {"joint_i": 6, "start_deg": -15.0, "end_deg": 15.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
+        "axis_4": {"joint_i": 4, "start_deg": -20.0, "end_deg": 20.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
+        "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -40.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
+        "axis_6": {"joint_i": 6, "start_deg": -22.5, "end_deg": 22.5, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
     }
     NOMINAL_BRACKET_TEMPLATES = {
         "1.3": {
@@ -800,6 +800,156 @@ class BaseCalibrator(RobotOperations):
         return res_dict
 
 
+
+    @staticmethod
+    def refine_bracket_axes_constrained(points_by_axis, axes_init, centers_init, radii_init, log_callback=None):
+        """Jointly refit the three bracket sweep circles under the physical wrist constraints.
+
+        At the bracket ready pose (J5 at 90 deg) the J4/J5/J6 rotation axes all pass through one
+        wrist point, and the J5 axis is perpendicular to both the J4 and the J6 axis (structural,
+        independent of the J5 value). The J4-J6 angle is left FREE because that angle carries the
+        J5 residual signal. Fitting each circle independently leaves that structure unused, so the
+        axes came out 1-8 mm apart and up to 3 deg off orthogonal on the real robot (2026-09-15)
+        even though the fit residual stayed at 0.08 mm -- and that slack leaks into the bracket
+        pose (and from there into Step 2's J0).
+
+        points_by_axis / axes_init / centers_init / radii_init: sequence ordered (J4, J6, J5),
+        points in mm in the camera frame. Returns a dict with refined 'axes', 'centers', 'radii',
+        the fit rms before/after and the per-axis direction change, or None if the fit fails.
+        """
+        from scipy.optimize import least_squares
+
+        pts = [np.asarray(P, dtype=float) for P in points_by_axis]
+        if any(len(P) < 10 for P in pts):
+            return None
+        n_init = [np.asarray(n, dtype=float) / np.linalg.norm(n) for n in axes_init]
+        c_init = [np.asarray(c, dtype=float) for c in centers_init]
+        r_init = np.asarray(radii_init, dtype=float)
+
+        def basis(n):
+            helper_vec = np.array([0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+            e1 = np.cross(n, helper_vec)
+            e1 /= np.linalg.norm(e1)
+            return e1, np.cross(n, e1)
+
+        def circle_residual(P, c, n, r):
+            v = P - c
+            axial = v @ n
+            radial = np.linalg.norm(v - np.outer(axial, n), axis=1)
+            return np.concatenate([radial - r, axial])
+
+        n5 = n_init[2]
+        e1, e2 = basis(n5)
+        p0 = np.mean(c_init, axis=0)
+        x0 = np.concatenate([
+            p0, [0.0, 0.0],
+            [np.arctan2(n_init[0] @ e2, n_init[0] @ e1), np.arctan2(n_init[1] @ e2, n_init[1] @ e1)],
+            [(c_init[i] - p0) @ n_init[i] for i in range(3)],
+            r_init,
+        ])
+
+        def unpack(x):
+            wrist = x[:3]
+            n5_ref = n5 + x[3] * e1 + x[4] * e2
+            n5_ref /= np.linalg.norm(n5_ref)
+            f1, f2 = basis(n5_ref)
+            n4_ref = np.cos(x[5]) * f1 + np.sin(x[5]) * f2
+            n6_ref = np.cos(x[6]) * f1 + np.sin(x[6]) * f2
+            axes = [n4_ref, n6_ref, n5_ref]
+            centers = [wrist + x[7 + i] * axes[i] for i in range(3)]
+            return axes, centers, x[10:13], wrist
+
+        def residual(x):
+            axes, centers, radii, _ = unpack(x)
+            return np.concatenate([circle_residual(pts[i], centers[i], axes[i], radii[i]) for i in range(3)])
+
+        rms_before = float(np.sqrt(np.mean(np.concatenate(
+            [circle_residual(pts[i], c_init[i], n_init[i], r_init[i]) for i in range(3)]) ** 2)))
+        try:
+            sol = least_squares(residual, x0, method="lm", xtol=1e-12, ftol=1e-12)
+        except Exception as error:
+            if log_callback:
+                log_callback(f"[WARN] Constrained bracket axis fit failed ({error}); keeping independent circle fits.")
+            return None
+        if not sol.success:
+            if log_callback:
+                log_callback("[WARN] Constrained bracket axis fit did not converge; keeping independent circle fits.")
+            return None
+
+        axes, centers, radii, wrist = unpack(sol.x)
+        axes = [a if np.dot(a, n_init[i]) >= 0 else -a for i, a in enumerate(axes)]
+        centers = [centers[i] if np.dot(axes[i], unpack(sol.x)[0][i]) >= 0 else centers[i] for i in range(3)]
+        rms_after = float(np.sqrt(np.mean(sol.fun ** 2)))
+        change_deg = [float(np.degrees(np.arccos(np.clip(abs(np.dot(axes[i], n_init[i])), -1.0, 1.0)))) for i in range(3)]
+        wrist_gap_before = [float(np.linalg.norm((np.eye(3) - np.outer(n_init[i], n_init[i])) @ (wrist - c_init[i]))) for i in range(3)]
+        result = {
+            "axes": axes, "centers": centers, "radii": [float(v) for v in radii], "wrist_point": wrist,
+            "rms_before_mm": rms_before, "rms_after_mm": rms_after,
+            "axis_change_deg": change_deg, "axis_gap_before_mm": wrist_gap_before,
+        }
+        if log_callback:
+            log_callback(
+                f"[INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: "
+                f"fit rms {rms_before:.3f} -> {rms_after:.3f} mm, axis change (J4/J6/J5) "
+                f"{change_deg[0]:.2f}/{change_deg[1]:.2f}/{change_deg[2]:.2f} deg, "
+                f"axis-to-wrist gap before {wrist_gap_before[0]:.2f}/{wrist_gap_before[1]:.2f}/{wrist_gap_before[2]:.2f} mm")
+        return result
+
+    # The two v1.2 flange frames are mounted 180 deg apart about z, so a bracket that is
+    # physically identical on both arms satisfies T_left = Rz(180) @ T_right. Checked exactly
+    # against NOMINAL_BRACKET_TEMPLATES; it only encodes that frame convention, not the URDF.
+    BRACKET_MIRROR_VEC = [0.0, 0.0, 0.0, 0.0, 0.0, 180.0]
+
+    @staticmethod
+    def mirror_bracket_vector(vec):
+        """Map a marker bracket [x, y, z, roll, pitch, yaw] to the other arm's convention."""
+        T_out = BaseCalibrator.make_transform(BaseCalibrator.BRACKET_MIRROR_VEC) @ BaseCalibrator.make_transform(list(vec))
+        rpy = R_scipy.from_matrix(T_out[:3, :3]).as_euler('ZYX', degrees=True)[::-1]
+        return [float(T_out[0, 3]), float(T_out[1, 3]), float(T_out[2, 3]),
+                float(rpy[0]), float(rpy[1]), float(rpy[2])]
+
+    @staticmethod
+    def bracket_asymmetry(right_vec, left_vec):
+        """How far the two fitted brackets are from being mirror images of each other."""
+        T_r = BaseCalibrator.make_transform(list(right_vec))
+        T_l_as_r = BaseCalibrator.make_transform(BaseCalibrator.mirror_bracket_vector(left_vec))
+        d_pos_mm = (T_l_as_r[:3, 3] - T_r[:3, 3]) * 1000.0
+        rotvec = R_scipy.from_matrix(T_r[:3, :3].T @ T_l_as_r[:3, :3]).as_rotvec(degrees=True)
+        return d_pos_mm, rotvec, float(np.linalg.norm(rotvec))
+
+    @staticmethod
+    def symmetrize_bracket_pair(right_vec, left_vec, log_callback=None):
+        """Replace both brackets with the mirror-symmetric average of the two fits.
+
+        The brackets are rigid parts fitted to nominally symmetric flanges, so the only real
+        left/right difference should be a small mounting skew. Averaging halves the random part
+        of each arm's estimate; it does NOT help if one arm is genuinely mounted differently,
+        which is why the measured asymmetry is logged before it is averaged away.
+        """
+        d_pos_mm, d_rot_vec, d_rot_deg = BaseCalibrator.bracket_asymmetry(right_vec, left_vec)
+        T_r = BaseCalibrator.make_transform(list(right_vec))
+        T_l_as_r = BaseCalibrator.make_transform(BaseCalibrator.mirror_bracket_vector(left_vec))
+        pos_avg = 0.5 * (T_r[:3, 3] + T_l_as_r[:3, 3])
+        rel = R_scipy.from_matrix(T_r[:3, :3].T @ T_l_as_r[:3, :3]).as_rotvec()
+        R_avg = T_r[:3, :3] @ R_scipy.from_rotvec(0.5 * rel).as_matrix()
+        rpy = R_scipy.from_matrix(R_avg).as_euler('ZYX', degrees=True)[::-1]
+        right_out = [float(pos_avg[0]), float(pos_avg[1]), float(pos_avg[2]),
+                     float(rpy[0]), float(rpy[1]), float(rpy[2])]
+        left_out = BaseCalibrator.mirror_bracket_vector(right_out)
+        if log_callback:
+            log_callback("[INFO] Bracket left/right symmetry enforced.")
+            log_callback(f"   measured asymmetry (left mirrored onto right): "
+                         f"dX {d_pos_mm[0]:+.2f}, dY {d_pos_mm[1]:+.2f}, dZ {d_pos_mm[2]:+.2f} mm | "
+                         f"rotation {d_rot_deg:.3f} deg "
+                         f"[{d_rot_vec[0]:+.3f} {d_rot_vec[1]:+.3f} {d_rot_vec[2]:+.3f}]")
+            for side, before, after in (("right", right_vec, right_out), ("left", left_vec, left_out)):
+                moved = np.linalg.norm((np.array(after[:3]) - np.array(before[:3]))) * 1000.0
+                log_callback(f"   {side:5s} before [{before[0]*1000:+7.2f} {before[1]*1000:+7.2f} {before[2]*1000:+7.2f}] mm "
+                             f"[{before[3]:+6.2f} {before[4]:+6.2f} {before[5]:+7.2f}] deg")
+                log_callback(f"   {side:5s} after  [{after[0]*1000:+7.2f} {after[1]*1000:+7.2f} {after[2]*1000:+7.2f}] mm "
+                             f"[{after[3]:+6.2f} {after[4]:+6.2f} {after[5]:+7.2f}] deg  (moved {moved:.2f} mm)")
+        return right_out, left_out, {"d_pos_mm": [float(v) for v in d_pos_mm],
+                                     "d_rot_deg": d_rot_deg}
 
     def perform_move_to_ready_pose(self, arm_side, mode="marker", log_callback=None):
         if not self.robot:

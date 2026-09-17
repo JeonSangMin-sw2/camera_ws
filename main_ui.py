@@ -4777,18 +4777,23 @@ class UnifiedCalibrationApp(QWidget):
 
     @idle_core_action
     def start_calibration_marker(self):
-        # 1. Prerequisite Check: Joint 6 (Wrist Roll / Wrist Yaw 2) must be calibrated first
+        # 1. Prerequisite: Joint 6 calibrated first. 2026-09-15: warn + confirm instead of blocking,
+        # so the bracket sweeps can be run on their own (e.g. to check bracket geometry).
         if not self.wrist_roll_calibrated.get(self.arm_side, False):
             msg_box = QMessageBox(self)
             msg_box.setIcon(QMessageBox.Warning)
-            msg_box.setWindowTitle("Prerequisite Check")
+            msg_box.setWindowTitle("Prerequisite Warning")
             msg_box.setText(
-                "Marker Bracket Calibration requires Joint 6 (Wrist Roll / Wrist Yaw 2) to be calibrated first.\n\n"
-                "Joint 6 has not been calibrated yet. Please go to the Joint Calibration tab, select Joint 6, and perform calibration."
+                "Joint 6 (Wrist Roll / Wrist Yaw 2) has not been calibrated in this session.\n\n"
+                "The bracket sweeps still run, but the bracket pose is computed against the current "
+                "Joint 6 value, so an uncalibrated Joint 6 shows up as bracket yaw/roll error.\n\n"
+                "Run the bracket calibration anyway?"
             )
-            msg_box.setStandardButtons(QMessageBox.Ok)
-            msg_box.exec()
-            return
+            msg_box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg_box.setDefaultButton(QMessageBox.No)
+            if msg_box.exec() != QMessageBox.Yes:
+                return
+            self.log_msg("[WARN] Marker bracket calibration started without a calibrated Joint 6 (user confirmed).")
 
         # 2. Prerequisite Check: Move to Ready Pose first
         if not self.ready_done_marker:

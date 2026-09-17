@@ -18,6 +18,8 @@ def _execute_step1_sequence(
     joint_finished_callback=None,
     save_debug: bool = False,
     context=None,
+    bracket_accept_callback=None,
+    symmetry_callback=None,
 ) -> None:
     """
     Executes the full automated multi-pass calibration sequence for dual arms.
@@ -216,8 +218,11 @@ def _execute_step1_sequence(
                 x_m, y_m, z_m = bracket_res['x_e'] / 1000.0, bracket_res['y_e'] / 1000.0, bracket_res['z_e'] / 1000.0
                 new_vals = [x_m, y_m, z_m, bracket_res['roll_e'], bracket_res['pitch_e'], bracket_res['yaw_e']]
                 key = f"Tf_to_marker_{arm_side}"
-                marker_calibrator.camera_config[key] = new_vals
-                joint_calibrator.camera_config[key] = new_vals
+                if bracket_accept_callback is not None:
+                    bracket_accept_callback(arm_side, new_vals)
+                else:
+                    marker_calibrator.camera_config[key] = new_vals
+                    joint_calibrator.camera_config[key] = new_vals
 
                 emit_bracket(bracket_res)
                 _wait(0.5)
@@ -509,7 +514,7 @@ def _execute_step1_sequence(
                 staged_pitch = joint_offsets_store[arm_side]["joint5"]
                 staged_yaw2 = joint_offsets_store[arm_side]["joint6"]
                 unified_res = marker_calibrator.compute_unified_bracket_calibration(
-                    res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_or_yaw_deg=staged_yaw2, calib_pitch_deg=staged_pitch
+                    res_5, res_6, arm_side, marker_data_4=res_4, calib_roll_or_yaw_deg=staged_yaw2, calib_pitch_deg=staged_pitch, log_callback=log
                 )
 
                 unified_res['res_5'] = res_5
@@ -527,8 +532,11 @@ def _execute_step1_sequence(
                 x_m, y_m, z_m = unified_res['x_e'] / 1000.0, unified_res['y_e'] / 1000.0, unified_res['z_e'] / 1000.0
                 new_vals = [x_m, y_m, z_m, unified_res['roll_e'], unified_res['pitch_e'], unified_res['yaw_e']]
                 key = f"Tf_to_marker_{arm_side}"
-                marker_calibrator.camera_config[key] = new_vals
-                joint_calibrator.camera_config[key] = new_vals
+                if bracket_accept_callback is not None:
+                    bracket_accept_callback(arm_side, new_vals)
+                else:
+                    marker_calibrator.camera_config[key] = new_vals
+                    joint_calibrator.camera_config[key] = new_vals
 
                 emit_bracket(unified_res)
                 _wait(0.5)
@@ -682,6 +690,12 @@ def _execute_step1_sequence(
             return
         _wait(1.0)
 
+    if symmetry_callback is not None:
+        try:
+            symmetry_callback()
+        except Exception as error:
+            log(f"[WARN] Bracket symmetry step failed: {error}")
+
     log("\n" + "=" * 50)
     log("   FULL AUTO SEQUENTIAL CALIBRATION COMPLETE!")
     log("=" * 50 + "\n")
@@ -744,7 +758,8 @@ def _execute_step1_sequence(
 def execute_step1_sequence(joint_calibrator, marker_calibrator, joint_offsets_store,
                            stop_event=None, log_callback=None, status_callback=None,
                            bracket_finished_callback=None, joint_finished_callback=None,
-                           save_debug=False, context=None):
+                           save_debug=False, context=None,
+                           bracket_accept_callback=None, symmetry_callback=None):
     from copy import deepcopy
     from .result import SequenceContext, SequenceCancelled
     context = context or SequenceContext("step1", stop_event)
@@ -754,6 +769,7 @@ def execute_step1_sequence(joint_calibrator, marker_calibrator, joint_offsets_st
             joint_calibrator, marker_calibrator, joint_offsets_store,
             context.stop_event, log_callback, status_callback,
             bracket_finished_callback, joint_finished_callback, save_debug, context,
+            bracket_accept_callback, symmetry_callback,
         )
         context.check_cancelled()
         context.complete("joint_offsets", joint_offsets_store)

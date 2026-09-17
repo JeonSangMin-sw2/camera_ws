@@ -16,6 +16,15 @@ from .observation import ObservationSource
 from .sequences.result import SequenceContext, SequenceCancelled, require_converged_joint
 
 
+DEFAULT_AUTO_EXPOSURE_US = 6000.0
+
+# The marker brackets are rigid parts bolted to nominally symmetric flanges, so their fitted
+# poses should differ only by a small mounting skew. Enforcing that halves the random part of
+# each arm's estimate. Kept as a flag because it hides a genuine per-arm difference if there
+# ever is one -- the measured asymmetry is always logged before it is averaged away.
+ENFORCE_BRACKET_SYMMETRY = True
+
+
 class CalibrationCore:
     def __init__(self, observer=None, robot=None, on_event=None, camera_factory=None):
         self.stop_event = Event()
@@ -35,6 +44,7 @@ class CalibrationCore:
         self.robot_version = "1.2"
         self.include_head_motion = True
         self.apply_joint_offset_flag = True
+        self.bracket_calibrated_sides = set()
         self.joint_offsets_store = {side: {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0} for side in ("right", "left")}
         self.last_home_reset_path = None
         self.last_result_path = None
@@ -124,6 +134,22 @@ class CalibrationCore:
         self.observer.bind_robot(self.robot, self.robot_version)
         for calibrator in self.calibrators:
             calibrator.marker_st = self.observer
+        # Camera exposure (2026-09-16): auto exposure is the default and config/setting.yaml no
+        # longer carries a fixed value. camera.auto_exposure (default true) still decides the mode,
+        # and a camera.exposure value is only honoured when auto exposure is off.
+        try:
+            from core.storage import ConfigStorage, CONFIG_PATHS
+            setting_path = CONFIG_PATHS.get("setting_yaml")
+            cam_cfg = (ConfigStorage.load(setting_path) or {}).get("camera", {}) if setting_path else {}
+            auto = bool(cam_cfg.get("auto_exposure", True))
+            if not auto and cam_cfg.get("exposure") is not None:
+                self.set_camera_exposure(float(cam_cfg["exposure"]), auto_exposure=False)
+                self.log_msg(f"[Camera] Manual exposure from setting.yaml: {float(cam_cfg['exposure']):.0f}us")
+            else:
+                self.set_camera_exposure(DEFAULT_AUTO_EXPOSURE_US, auto_exposure=True)
+                self.log_msg("[Camera] Auto exposure enabled")
+        except Exception as error:
+            self.log_msg(f"[Camera][WARN] Could not apply the camera exposure setting: {error}")
 
     def get_monitor_snapshot(self):
         if self.observer is None or self.observer.camera is None:
@@ -140,11 +166,55 @@ class CalibrationCore:
     def accept_marker_result(self, arm, result):
         values = [result["x_e"] / 1000, result["y_e"] / 1000, result["z_e"] / 1000,
                   result["roll_e"], result["pitch_e"], result["yaw_e"]]
-        for calibrator in self.calibrators:
-            calibrator.camera_config[f"Tf_to_marker_{arm}"] = values.copy()
+        self.set_marker_bracket(arm, values)
         if "opt_delta_5" in result:
             self.joint_offsets_store[arm]["joint5"] = float(result["opt_delta_5"])
             self.joint_offsets_store[arm]["joint6"] = float(result["opt_delta_6"])
+
+    def set_marker_bracket(self, arm, values):
+        for calibrator in self.calibrators:
+            calibrator.camera_config[f"Tf_to_marker_{arm}"] = list(values)
+        self.bracket_calibrated_sides.add(arm)
+
+    def get_marker_bracket(self, arm):
+        return self.marker_calibrator.camera_config.get(f"Tf_to_marker_{arm}")
+
+    def apply_bracket_symmetry(self, log=None, require_both_fresh=True):
+        """Replace both brackets with their mirror-symmetric average.
+
+        Returns the asymmetry measured beforehand, or None when it was not applied.
+        """
+        log = log or self.log_msg
+        if not ENFORCE_BRACKET_SYMMETRY:
+            return None
+        if require_both_fresh and not {"right", "left"} <= self.bracket_calibrated_sides:
+            return None
+        right_vec = self.get_marker_bracket("right")
+        left_vec = self.get_marker_bracket("left")
+        if right_vec is None or left_vec is None or len(right_vec) < 6 or len(left_vec) < 6:
+            log("[WARN] Bracket symmetry skipped: one arm has no calibrated bracket.")
+            return None
+        from .CalibratorBase import BaseCalibrator
+        try:
+            right_out, left_out, info = BaseCalibrator.symmetrize_bracket_pair(
+                right_vec, left_vec, log_callback=log)
+        except Exception as error:
+            log(f"[WARN] Bracket symmetry skipped: {error}")
+            return None
+        for calibrator in self.calibrators:
+            calibrator.camera_config["Tf_to_marker_right"] = list(right_out)
+            calibrator.camera_config["Tf_to_marker_left"] = list(left_out)
+        # Re-stage the symmetrized values in the UI. Without this the operator would be looking
+        # at (and saving) each arm's raw fit, which is not what the rest of the run used.
+        for side, values in (("right", right_out), ("left", left_out)):
+            self.emit("bracket", {"arm_side": side,
+                                  "x_e": values[0] * 1000.0, "y_e": values[1] * 1000.0,
+                                  "z_e": values[2] * 1000.0, "roll_e": values[3],
+                                  "pitch_e": values[4], "yaw_e": values[5],
+                                  "source": "symmetry"})
+        log("[INFO] The values above are staged in the UI -- click APPLY BRACKETS to write them "
+            "to setting.yaml, otherwise they are lost when the window closes.")
+        return info
 
     def update_marker_transforms(self, left, right):
         if self.is_busy:
@@ -324,6 +394,8 @@ class CalibrationCore:
                     status_callback=self.emit_detection,
                     bracket_finished_callback=lambda value: self.emit("bracket", value),
                     joint_finished_callback=lambda value: self.emit("joint", value),
+                    bracket_accept_callback=self.set_marker_bracket,
+                    symmetry_callback=self.apply_bracket_symmetry,
                     context=ctx, **options,
                 )
                 ctx.result = result
@@ -388,6 +460,14 @@ class CalibrationCore:
                 ctx.checkpoint("optimization", value)
                 ctx.check_cancelled()
                 ctx.complete("optimization", value)
+                if options.get("verify", True) and solve.get("active_arms") == ["right", "left"]:
+                    from .sequences.verify import run_post_step2_verification
+                    try:
+                        run_post_step2_verification(self, ctx, optimization=value)
+                    except SequenceCancelled:
+                        raise
+                    except Exception as error:
+                        self.log_msg(f"[WARN] Post-Step2 verification failed: {error}")
             elif name == "full":
                 from .sequences.full import run_full
                 run_full(self, ctx, **options)

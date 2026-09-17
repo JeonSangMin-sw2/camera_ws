@@ -340,7 +340,8 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         
     return plan
 
-def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None):
+def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None,
+                           pos_tolerance_m=0.005, ori_tolerance_rad=0.02):
     model = robot.model() if robot else None
     has_head = (include_head_motion) and (model is not None and hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2)
     
@@ -410,8 +411,8 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
         
         right_cmd = rby.CartesianCommandBuilder()
         right_cmd.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.5, 1.0, 0.3)
-        right_cmd.set_stop_position_tracking_error(0.005)
-        right_cmd.set_stop_orientation_tracking_error(0.02)
+        right_cmd.set_stop_position_tracking_error(pos_tolerance_m)
+        right_cmd.set_stop_orientation_tracking_error(ori_tolerance_rad)
         right_cmd.set_minimum_time(minimum_time)
         right_cmd.set_command_header(header_right)
         
@@ -428,8 +429,8 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
         
         left_cmd = rby.CartesianCommandBuilder()
         left_cmd.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.5, 1.0, 0.3)
-        left_cmd.set_stop_position_tracking_error(0.005)
-        left_cmd.set_stop_orientation_tracking_error(0.02)
+        left_cmd.set_stop_position_tracking_error(pos_tolerance_m)
+        left_cmd.set_stop_orientation_tracking_error(ori_tolerance_rad)
         left_cmd.set_minimum_time(minimum_time)
         left_cmd.set_command_header(header_left)
         
@@ -454,7 +455,8 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     if rv2.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
         raise RuntimeError("Failed to move to Step 2: Cartesian Checking Pose.")
 
-def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=0.5, q_right=None, q_left=None, elbow_angle_deg=None):
+def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min_time=1.2, hold_time=0.5, q_right=None, q_left=None, elbow_angle_deg=None,
+                           pos_tolerance_m=0.005, ori_tolerance_rad=0.02):
     body = rby.BodyComponentBasedCommandBuilder()
 
     header_right = None
@@ -476,8 +478,8 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
             right_cart.add_target("link_torso_5", "ee_right", T_right.astype(np.float32), 0.2, 0.5, 0.3)
             if elbow_angle_deg is not None:
                 right_cart.add_joint_position_target("right_arm_3", float(np.radians(elbow_angle_deg)))
-            right_cart.set_stop_position_tracking_error(0.005)
-            right_cart.set_stop_orientation_tracking_error(0.02)
+            right_cart.set_stop_position_tracking_error(pos_tolerance_m)
+            right_cart.set_stop_orientation_tracking_error(ori_tolerance_rad)
             right_cart.set_command_header(header_right)
             right_cart.set_minimum_time(min_time)
             body.set_right_arm_command(right_cart)
@@ -507,8 +509,8 @@ def make_dual_arm_head_cmd(T_right, T_left, active_arms, head_position=None, min
             left_cart.add_target("link_torso_5", "ee_left", T_left.astype(np.float32), 0.2, 0.5, 0.3)
             if elbow_angle_deg is not None:
                 left_cart.add_joint_position_target("left_arm_3", float(np.radians(elbow_angle_deg)))
-            left_cart.set_stop_position_tracking_error(0.005)
-            left_cart.set_stop_orientation_tracking_error(0.02)
+            left_cart.set_stop_position_tracking_error(pos_tolerance_m)
+            left_cart.set_stop_orientation_tracking_error(ori_tolerance_rad)
             left_cart.set_command_header(header_left)
             left_cart.set_minimum_time(min_time)
             body.set_left_arm_command(left_cart)
@@ -538,6 +540,8 @@ def send_auto_motion_cmd(
     q_left=None,
     head_position=None,
     elbow_angle_deg=None,
+    pos_tolerance_m=0.005,
+    ori_tolerance_rad=0.02,
 ):
     """
     Sends a unified motion command moving Arm and Head simultaneously in parallel.
@@ -553,6 +557,8 @@ def send_auto_motion_cmd(
         q_right=q_right,
         q_left=q_left,
         elbow_angle_deg=elbow_angle_deg,
+        pos_tolerance_m=pos_tolerance_m,
+        ori_tolerance_rad=ori_tolerance_rad,
     )
     check_motion_cancelled()
     rv = robot.send_command(cmd, config.priority).get()

@@ -309,6 +309,9 @@ def optimize_step2(
         "head_joint_offset_deg": np.rad2deg(q_head_offset).tolist() if q_head_offset is not None else None,
         "xi_cam": np.array(xi_cam).tolist(),
         "measurement_noise": optimizer.noise_estimator.as_dict(),
+        # The brackets this solve actually used. They live in memory until the operator clicks
+        # APPLY BRACKETS, so recording them here keeps the result reproducible on its own.
+        "ee_to_marker_used": {side: [float(v) for v in ee_to_marker_nom[side]] for side in active_arms},
     }
     if mount_to_cam_new is not None:
         result_dict["mount_to_cam_new"] = mount_to_cam_new

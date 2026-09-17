@@ -677,9 +677,40 @@ class MarkerCalibrator(BaseCalibrator):
         combined['converged'] = True
         return combined
 
-    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
+    def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False, log_callback=None):
         if calib_roll_or_yaw_deg is not None:
             calib_roll_deg = calib_roll_or_yaw_deg
+
+        # 2026-09-15: refit the three sweep circles together under the physical wrist constraints
+        # (all axes through one wrist point, J5 axis perpendicular to J4 and J6) before the bracket
+        # pose is derived. Independent circle fits left the axes 1-8 mm apart and up to 3 deg off
+        # orthogonal on the real robot while the fit residual stayed at 0.08 mm, and that slack went
+        # straight into the bracket pose (and from there into Step 2's J0).
+        bracket_axis_refit = None
+        if marker_data_4 is not None and not self.is_v13():
+            try:
+                sweeps = [marker_data_4, marker_data_6, marker_data_5]
+                pts = [np.array([np.asarray(T)[:3, 3] * 1000.0 for T in d.get('captured_poses', [])]) for d in sweeps]
+                if all(len(P) >= 10 for P in pts) and all(d.get('axis_opt') is not None for d in sweeps):
+                    bracket_axis_refit = self.refine_bracket_axes_constrained(
+                        pts,
+                        [d['axis_opt'] for d in sweeps],
+                        [d.get('c_opt', np.mean(P, axis=0)) for d, P in zip(sweeps, pts)],
+                        [d.get('radius', 0.0) for d in sweeps],
+                        log_callback=log_callback,
+                    )
+                    if bracket_axis_refit is not None:
+                        for d, axis, centre, radius in zip(sweeps, bracket_axis_refit['axes'],
+                                                           bracket_axis_refit['centers'],
+                                                           bracket_axis_refit['radii']):
+                            d['axis_opt_independent'] = d['axis_opt']
+                            d['axis_opt'] = axis
+                            d['axis'] = axis
+                            d['c_opt'] = centre
+                            d['radius'] = radius
+            except Exception as error:
+                if log_callback:
+                    log_callback(f"[WARN] Constrained bracket axis refit skipped: {error}")
 
         L_5_ee = self.get_link_length(arm_side)
 
@@ -1015,7 +1046,7 @@ class MarkerCalibrator(BaseCalibrator):
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
         
-        return {
+        bracket_result = {
             'converged': True,
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
@@ -1031,6 +1062,9 @@ class MarkerCalibrator(BaseCalibrator):
             'n5_marker_actual': n5_marker_actual,
             'y_ee_m_ideal': y_ee_m_ideal
         }
+        if bracket_axis_refit is not None:
+            bracket_result['bracket_axis_refit'] = bracket_axis_refit
+        return bracket_result
 
     def generate_marker_plot(self, res_5, res_6, res_4, unified_res, arm_side, is_v13, save_path):
         """
