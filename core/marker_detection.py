@@ -10,7 +10,8 @@ import math
 import time
 import threading
 import sys
-import os, yaml
+import os
+import re, yaml
 
 #debugging flag : must be all false in production
 imshow_when_detect = False
@@ -486,13 +487,7 @@ class Marker_Transform:
             yaml_device_name = camera_config.get("device_name")
             connected_device_name = getattr(self.camera, 'device_name', None)
             
-            self.camera_model = None
-            if connected_device_name:
-                known_models = ["D405", "D435I", "D435", "D455", "D415"]
-                for model in known_models:
-                    if model.lower() in connected_device_name.lower():
-                        self.camera_model = model
-                        break
+            self.camera_model = parse_camera_model(connected_device_name)
             
             self.temp_supported = False
             info_file = CONFIG_PATHS.get("camera_info")
@@ -509,12 +504,7 @@ class Marker_Transform:
                     print(f"[WARNING] Failed to read camera_info.yaml: {e}")
 
             target_model = self.camera_model or yaml_device_name
-            matched_info_key = None
-            if target_model and info_data:
-                for k in info_data:
-                    if k.lower() == target_model.lower():
-                        matched_info_key = k
-                        break
+            matched_info_key = lookup_camera_info_key(info_data, target_model)
 
             if matched_info_key:
                 self.temp_supported = info_data[matched_info_key].get("temp_supported", False)
@@ -538,29 +528,35 @@ class Marker_Transform:
 
                 dev_diff = (self.camera_model is not None and current_dev != self.camera_model)
                 pos_diff = is_diff(current_head_base, info_head_base) or is_diff(current_mount, info_mount) or (current_mount_link != info_mount_link)
+                missing = current_head_base is None or current_mount is None or current_mount_link is None
 
-                if dev_diff or pos_diff:
+                # camera_info.yaml holds each camera model's CAD nominal. Load it only when the camera
+                # model actually changed or setting.yaml has no extrinsics yet. A value that merely
+                # differs from the nominal is a calibrated (Step 2 Apply) or hand-edited one and must
+                # survive a restart -- overwriting it on every launch silently threw both away.
+                if not (dev_diff or missing) and pos_diff:
+                    print(f"[INFO] setting.yaml camera extrinsics differ from the '{matched_info_key}' nominal in "
+                          f"camera_info.yaml; keeping setting.yaml (calibrated or edited values).")
+
+                if dev_diff or missing:
                     if dev_diff:
-                        print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Updating...")
-                    if pos_diff:
-                        print(f"[INFO] Camera extrinsics for '{matched_info_key}' in camera_info.yaml differ from setting.yaml. Syncing values...")
+                        print(f"[INFO] Connected camera '{connected_device_name}' (matched as '{self.camera_model}') differs from setting.yaml '{yaml_device_name}'. Loading its nominal extrinsics...")
+                    if missing:
+                        print(f"[INFO] setting.yaml has no camera extrinsics yet. Loading the '{matched_info_key}' nominal from camera_info.yaml...")
 
                     camera_config["device_name"] = self.camera_model or matched_info_key
+                    changes = {("camera", "device_name"): camera_config["device_name"]}
                     if info_head_base is not None:
                         camera_config["head_base_to_cam"] = info_head_base
+                        changes[("camera", "head_base_to_cam")] = list(info_head_base)
                     if info_mount is not None:
                         camera_config["mount_to_cam"] = info_mount
+                        changes[("camera", "mount_to_cam")] = list(info_mount)
                     if info_mount_link is not None:
                         camera_config["camera_mount_link"] = info_mount_link
+                        changes[("camera", "camera_mount_link")] = info_mount_link
                     config_data["camera"] = camera_config
-
-                    class PrettyDumper(yaml.SafeDumper):
-                        pass
-                    PrettyDumper.add_representer(
-                        list,
-                        lambda dumper, data: dumper.represent_sequence('tag:yaml.org,2002:seq', data, flow_style=True)
-                    )
-                    FileStorage.write_text(setting_config_path, yaml.dump(config_data, Dumper=PrettyDumper, default_flow_style=False, sort_keys=False))
+                    ConfigStorage.update_values(setting_config_path, changes)
                     print(f"[INFO] Updated setting.yaml extrinsics for {matched_info_key} from camera_info.yaml (head_base_to_cam: {camera_config.get('head_base_to_cam')}, mount_to_cam: {camera_config.get('mount_to_cam')})")
             else:
                 if not os.path.exists(info_file):
@@ -592,7 +588,8 @@ class Marker_Transform:
                 try:
                     calib_data = ConfigStorage.load(calib_file)
                     self.calib_device_name = calib_data.get("device_name", "")
-                    if self.calib_device_name and self.camera_model and self.calib_device_name.lower() != self.camera_model.lower():
+                    if (self.calib_device_name and self.camera_model
+                            and camera_model_family(self.calib_device_name) != camera_model_family(self.camera_model)):
                         self.intrinsics_mismatch = True
                         print(f"[WARNING] Camera intrinsics model mismatch detected (Connected: {self.camera_model}, Calibrated: {self.calib_device_name})")
                 except Exception as e:
@@ -796,6 +793,45 @@ from dataclasses import dataclass
 import hashlib
 import json
 from pathlib import Path
+
+
+def camera_model_family(name):
+    """'Intel RealSense D435i' -> 'D435'. Variants of one model (D435i has an IMU, D435f an IR
+    filter) share the housing and optics, so they share the mount-to-camera extrinsics; only the
+    number identifies the body. D405 and D455 are different housings and stay separate."""
+    if not name:
+        return None
+    match = re.search(r"[Dd](\d{3})", str(name))
+    return f"D{match.group(1)}" if match else None
+
+
+def parse_camera_model(device_name):
+    """Full model as reported, e.g. 'D435I' for an 'Intel RealSense D435i'."""
+    if not device_name:
+        return None
+    match = re.search(r"[Dd](\d{3})([A-Za-z]*)", str(device_name))
+    if not match:
+        return None
+    return f"D{match.group(1)}{match.group(2).upper()}"
+
+
+def lookup_camera_info_key(info_data, target_model):
+    """Exact entry for this model if camera_info.yaml has one, otherwise the model family.
+
+    Letting the family answer means a D435f (or any future variant) works without its own entry,
+    and a variant only needs an entry when its numbers genuinely differ.
+    """
+    if not target_model or not info_data:
+        return None
+    for key in info_data:
+        if key.lower() == str(target_model).lower():
+            return key
+    family = camera_model_family(target_model)
+    if family:
+        for key in info_data:
+            if key.lower() == family.lower():
+                return key
+    return None
 
 
 def load_truth_config():

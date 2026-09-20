@@ -58,11 +58,12 @@ def _head_offsets_rad(optimization):
     return np.radians(np.asarray(values, dtype=float))
 
 
-def _evaluate(core, cfg, head_idx, q_arm, q_head, markers, mount_to_cam, apply_offsets, optimization):
+def _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, apply_offsets, optimization):
     """Model-vs-camera residuals and the true left/right symmetry at the captured pose."""
     model = core.model
     dyn = core.robot.get_dynamics()
-    T_mount_cam = BaseCalibrator.make_transform(mount_to_cam)
+    camera_link, camera_vec = camera
+    T_mount_cam = BaseCalibrator.make_transform(camera_vec)
 
     q_full = np.zeros(len(model.robot_joint_names))
     q_full[cfg["arm_idx"]] = q_arm
@@ -80,7 +81,7 @@ def _evaluate(core, cfg, head_idx, q_arm, q_head, markers, mount_to_cam, apply_o
                 if i < len(head_off):
                     q_full[idx] += head_off[i]
 
-    T_t5_cam = _fk(dyn, model, q_full, "link_head_2") @ T_mount_cam
+    T_t5_cam = _fk(dyn, model, q_full, camera_link) @ T_mount_cam
 
     per_arm = {}
     T_ee = {}
@@ -154,13 +155,23 @@ def run_post_step2_verification(core, context, optimization=None, minimum_time=5
         log("[WARN] Verification skipped: both markers were not visible at the ready pose.")
         return None
 
-    mount_to_cam = (optimization or {}).get("mount_to_cam_new")
-    if mount_to_cam is None:
-        mount_to_cam = core.marker_calibrator.camera_config.get(
-            "mount_to_cam", cfg.get("mount_to_cam_nom"))
+    # Without a head the camera sits on the fixed head base, not on the pan/tilt link, and it is
+    # described by head_base_to_cam. Step 2 already branches this way; reading the head-mounted
+    # transform here would have reported numbers computed from the wrong frame.
+    if core.include_head_motion and head_idx is not None:
+        camera = ("link_head_2", (optimization or {}).get("mount_to_cam_new")
+                  or core.marker_calibrator.camera_config.get("mount_to_cam", cfg.get("mount_to_cam_nom")))
+    else:
+        camera = ("link_head_0", (optimization or {}).get("head_base_to_cam_new")
+                  or core.marker_calibrator.camera_config.get("head_base_to_cam",
+                                                              cfg.get("head_base_to_cam_nom")))
+    if camera[1] is None:
+        log("[WARN] Verification skipped: no camera transform available.")
+        return None
+    log(f" camera frame: {camera[0]} + {[round(float(v), 5) for v in camera[1]]}")
 
-    calibrated = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, mount_to_cam, True, optimization)
-    baseline = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, mount_to_cam, False, optimization)
+    calibrated = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, True, optimization)
+    baseline = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, False, optimization)
 
     log(" model vs camera (marker pose the model predicts vs the one measured):")
     for side in ("right", "left"):
@@ -181,7 +192,7 @@ def run_post_step2_verification(core, context, optimization=None, minimum_time=5
     joint_asym = _joint_mirror_asymmetry(optimization, q_arm, log)
 
     corrected = _move_to_offset_corrected_pose(core, context, cfg, head_idx, q_arm, q_head,
-                                               mount_to_cam, optimization, minimum_time, log)
+                                               camera, optimization, minimum_time, log)
     log("=" * 58)
     log("")
 
@@ -215,7 +226,7 @@ def _link_separations(core, cfg, head_idx, q_arm, q_head):
 
 
 def _move_to_offset_corrected_pose(core, context, cfg, head_idx, q_arm, q_head,
-                                   mount_to_cam, optimization, minimum_time, log):
+                                   camera, optimization, minimum_time, log):
     """Command the ready pose again, this time corrected by the offsets Step 2 just produced.
 
     The Cartesian move lands where the *encoders* read symmetric; subtracting the offsets from
@@ -267,7 +278,7 @@ def _move_to_offset_corrected_pose(core, context, cfg, head_idx, q_arm, q_head,
         log("[WARN] Markers not visible at the offset-corrected pose.")
         return None
 
-    value = _evaluate(core, cfg, head_idx, q_arm2, q_head2, markers2, mount_to_cam, True, optimization)
+    value = _evaluate(core, cfg, head_idx, q_arm2, q_head2, markers2, camera, True, optimization)
     fk_sym, meas = value["symmetry"], value["measured_symmetry"]
     log(" at the offset-corrected pose (this is what the robot physically looks like now):")
     log(f"   flanges, from the model : x {fk_sym['dx_mm']:+6.2f}, y {fk_sym['dy_mm']:+6.2f}, "

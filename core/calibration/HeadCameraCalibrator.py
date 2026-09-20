@@ -797,21 +797,20 @@ class HeadCameraCalibrator(BaseCalibrator):
 
                 if "camera" not in cfg:
                     cfg["camera"] = {}
-                cfg["camera"]["mount_to_cam"] = calib_mount_to_cam
-                if "mount_to_cam_nominal" not in cfg["camera"]:
-                    cfg["camera"]["mount_to_cam_nominal"] = list(self.camera_config.get("mount_to_cam_nominal", self.camera_config.get("mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])))
-                if "head_base_to_cam_nominal" not in cfg["camera"]:
-                    cfg["camera"]["head_base_to_cam_nominal"] = list(self.camera_config.get("head_base_to_cam_nominal", self.camera_config.get("head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])))
-
-                # Store head joint offsets in joint_offset section
-                if "joint_offset" not in cfg:
-                    cfg["joint_offset"] = {}
-                if "head" not in cfg["joint_offset"]:
-                    cfg["joint_offset"]["head"] = {}
-                cfg["joint_offset"]["head"]["pan"] = head_offsets.get("pan", 0.0)
-                cfg["joint_offset"]["head"]["tilt"] = head_offsets.get("tilt", 0.0)
-
-                FileStorage.write_text(setting_path, yaml.dump(cfg, default_flow_style=None))
+                changes = {("camera", "mount_to_cam"): list(calib_mount_to_cam)}
+                if "mount_to_cam_nominal" not in cfg.get("camera", {}):
+                    changes[("camera", "mount_to_cam_nominal")] = list(self.camera_config.get(
+                        "mount_to_cam_nominal", self.camera_config.get(
+                            "mount_to_cam", [0.047, 0.009, 0.057, -90.0, 0.0, -90.0])))
+                if "head_base_to_cam_nominal" not in cfg.get("camera", {}):
+                    changes[("camera", "head_base_to_cam_nominal")] = list(self.camera_config.get(
+                        "head_base_to_cam_nominal", self.camera_config.get(
+                            "head_base_to_cam", [0.098, 0.009, 0.012, -90.0, 0.0, -90.0])))
+                changes[("joint_offset", "head", "pan")] = head_offsets.get("pan", 0.0)
+                changes[("joint_offset", "head", "tilt")] = head_offsets.get("tilt", 0.0)
+                # Was a whole-file yaml.dump with sort_keys defaulting to True, which reordered
+                # every key in setting.yaml on each Step 1.5 apply.
+                ConfigStorage.update_values(setting_path, changes)
 
                 if log_callback:
                     log_callback(f"[SUCCESS] Updated setting.yaml with calibrated mount_to_cam: {calib_mount_to_cam}")

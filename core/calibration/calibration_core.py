@@ -23,6 +23,11 @@ DEFAULT_AUTO_EXPOSURE_US = 6000.0
 # each arm's estimate. Kept as a flag because it hides a genuine per-arm difference if there
 # ever is one -- the measured asymmetry is always logged before it is averaged away.
 ENFORCE_BRACKET_SYMMETRY = True
+# Averaging only makes sense while the two fits disagree by about as much as the fit noise.
+# A larger gap means a real mounting difference or a bad sweep, and forcing symmetry there
+# would hide it, so the pair is left alone and reported instead.
+BRACKET_SYMMETRY_MAX_POS_MM = 2.0
+BRACKET_SYMMETRY_MAX_ROT_DEG = 1.5
 
 
 class CalibrationCore:
@@ -195,9 +200,24 @@ class CalibrationCore:
             log("[WARN] Bracket symmetry skipped: one arm has no calibrated bracket.")
             return None
         from .CalibratorBase import BaseCalibrator
+        version = self.get_robot_version()
         try:
+            d_pos_mm, d_rot_vec, d_rot_deg = BaseCalibrator.bracket_asymmetry(
+                right_vec, left_vec, version)
+            worst_pos = float(max(abs(v) for v in d_pos_mm))
+            if worst_pos > BRACKET_SYMMETRY_MAX_POS_MM or d_rot_deg > BRACKET_SYMMETRY_MAX_ROT_DEG:
+                log(f"[WARN] Bracket symmetry NOT enforced: the two arms disagree by "
+                    f"{worst_pos:.2f} mm / {d_rot_deg:.2f} deg, past the "
+                    f"{BRACKET_SYMMETRY_MAX_POS_MM:.1f} mm / {BRACKET_SYMMETRY_MAX_ROT_DEG:.1f} deg limit.")
+                log(f"   measured asymmetry: dX {d_pos_mm[0]:+.2f}, dY {d_pos_mm[1]:+.2f}, "
+                    f"dZ {d_pos_mm[2]:+.2f} mm | rotation {d_rot_deg:.3f} deg")
+                log("   That is larger than the fit noise, so it is treated as a real mounting "
+                    "difference or a bad sweep. Each arm keeps its own fit; check the brackets.")
+                return {"enforced": False, "d_pos_mm": [float(v) for v in d_pos_mm],
+                        "d_rot_deg": d_rot_deg}
             right_out, left_out, info = BaseCalibrator.symmetrize_bracket_pair(
-                right_vec, left_vec, log_callback=log)
+                right_vec, left_vec, log_callback=log, version=version)
+            info["enforced"] = True
         except Exception as error:
             log(f"[WARN] Bracket symmetry skipped: {error}")
             return None

@@ -895,30 +895,42 @@ class BaseCalibrator(RobotOperations):
                 f"axis-to-wrist gap before {wrist_gap_before[0]:.2f}/{wrist_gap_before[1]:.2f}/{wrist_gap_before[2]:.2f} mm")
         return result
 
-    # The two v1.2 flange frames are mounted 180 deg apart about z, so a bracket that is
-    # physically identical on both arms satisfies T_left = Rz(180) @ T_right. Checked exactly
-    # against NOMINAL_BRACKET_TEMPLATES; it only encodes that frame convention, not the URDF.
-    BRACKET_MIRROR_VEC = [0.0, 0.0, 0.0, 0.0, 0.0, 180.0]
+    # How a bracket on one arm maps onto the other arm's convention. This is NOT a fixed
+    # rotation: v1.2 mounts the two flange frames 180 deg apart about z, while v1.3 mounts
+    # both brackets identically, so the map is Rz(180) for v1.2 and the identity for v1.3.
+    # Deriving it from NOMINAL_BRACKET_TEMPLATES keeps both versions correct and encodes only
+    # the frame convention, not the URDF. Hard-coding Rz(180) reported two identical v1.3
+    # brackets as 134 mm apart and collapsed their position to the origin.
+    @staticmethod
+    def bracket_mirror_transform(version="1.2"):
+        key = "1.3" if str(version).replace("v", "").strip() == "1.3" else "1.2"
+        nominal = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES[key]
+        T = BaseCalibrator.make_transform(nominal["left"]) @ np.linalg.inv(
+            BaseCalibrator.make_transform(nominal["right"]))
+        if not np.allclose(T @ T, np.eye(4), atol=1e-9):
+            raise ValueError(f"Bracket mirror map for v{key} is not its own inverse; "
+                             "the nominal templates are not a mirrored pair.")
+        return T
 
     @staticmethod
-    def mirror_bracket_vector(vec):
+    def mirror_bracket_vector(vec, version="1.2"):
         """Map a marker bracket [x, y, z, roll, pitch, yaw] to the other arm's convention."""
-        T_out = BaseCalibrator.make_transform(BaseCalibrator.BRACKET_MIRROR_VEC) @ BaseCalibrator.make_transform(list(vec))
+        T_out = BaseCalibrator.bracket_mirror_transform(version) @ BaseCalibrator.make_transform(list(vec))
         rpy = R_scipy.from_matrix(T_out[:3, :3]).as_euler('ZYX', degrees=True)[::-1]
         return [float(T_out[0, 3]), float(T_out[1, 3]), float(T_out[2, 3]),
                 float(rpy[0]), float(rpy[1]), float(rpy[2])]
 
     @staticmethod
-    def bracket_asymmetry(right_vec, left_vec):
+    def bracket_asymmetry(right_vec, left_vec, version="1.2"):
         """How far the two fitted brackets are from being mirror images of each other."""
         T_r = BaseCalibrator.make_transform(list(right_vec))
-        T_l_as_r = BaseCalibrator.make_transform(BaseCalibrator.mirror_bracket_vector(left_vec))
+        T_l_as_r = BaseCalibrator.make_transform(BaseCalibrator.mirror_bracket_vector(left_vec, version))
         d_pos_mm = (T_l_as_r[:3, 3] - T_r[:3, 3]) * 1000.0
         rotvec = R_scipy.from_matrix(T_r[:3, :3].T @ T_l_as_r[:3, :3]).as_rotvec(degrees=True)
         return d_pos_mm, rotvec, float(np.linalg.norm(rotvec))
 
     @staticmethod
-    def symmetrize_bracket_pair(right_vec, left_vec, log_callback=None):
+    def symmetrize_bracket_pair(right_vec, left_vec, log_callback=None, version="1.2"):
         """Replace both brackets with the mirror-symmetric average of the two fits.
 
         The brackets are rigid parts fitted to nominally symmetric flanges, so the only real
@@ -926,16 +938,16 @@ class BaseCalibrator(RobotOperations):
         of each arm's estimate; it does NOT help if one arm is genuinely mounted differently,
         which is why the measured asymmetry is logged before it is averaged away.
         """
-        d_pos_mm, d_rot_vec, d_rot_deg = BaseCalibrator.bracket_asymmetry(right_vec, left_vec)
+        d_pos_mm, d_rot_vec, d_rot_deg = BaseCalibrator.bracket_asymmetry(right_vec, left_vec, version)
         T_r = BaseCalibrator.make_transform(list(right_vec))
-        T_l_as_r = BaseCalibrator.make_transform(BaseCalibrator.mirror_bracket_vector(left_vec))
+        T_l_as_r = BaseCalibrator.make_transform(BaseCalibrator.mirror_bracket_vector(left_vec, version))
         pos_avg = 0.5 * (T_r[:3, 3] + T_l_as_r[:3, 3])
         rel = R_scipy.from_matrix(T_r[:3, :3].T @ T_l_as_r[:3, :3]).as_rotvec()
         R_avg = T_r[:3, :3] @ R_scipy.from_rotvec(0.5 * rel).as_matrix()
         rpy = R_scipy.from_matrix(R_avg).as_euler('ZYX', degrees=True)[::-1]
         right_out = [float(pos_avg[0]), float(pos_avg[1]), float(pos_avg[2]),
                      float(rpy[0]), float(rpy[1]), float(rpy[2])]
-        left_out = BaseCalibrator.mirror_bracket_vector(right_out)
+        left_out = BaseCalibrator.mirror_bracket_vector(right_out, version)
         if log_callback:
             log_callback("[INFO] Bracket left/right symmetry enforced.")
             log_callback(f"   measured asymmetry (left mirrored onto right): "

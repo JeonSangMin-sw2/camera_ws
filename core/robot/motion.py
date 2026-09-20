@@ -5,6 +5,9 @@ from dataclasses import dataclass
 
 D2R = np.pi / 180.0
 
+# Forward reach of the Step 2 ready pose when there is no head (see move_to_auto_ready_pose).
+HEADLESS_X_REACH_M = 0.34
+
 @dataclass
 class AutoCollectionConfig:
     angle_step_deg: float = 5.0
@@ -341,11 +344,14 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     return plan
 
 def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None,
-                           pos_tolerance_m=0.005, ori_tolerance_rad=0.02):
+                           pos_tolerance_m=0.005, ori_tolerance_rad=0.02, skip_joint_pose=False):
     model = robot.model() if robot else None
     has_head = (include_head_motion) and (model is not None and hasattr(model, 'head_idx') and len(getattr(model, 'head_idx', [])) >= 2)
-    
+
     # Step 1: Joint Ready Pose (go_to_ready_pose 기준)
+    # It exists to put the arms in a known configuration before the Cartesian IK runs. A caller
+    # that knows the arms are already standing at this same ready pose -- Step 2 right after
+    # Step 1.5, which used this very function -- can skip it instead of travelling back and forth.
     q_torso = np.array([0, 30, -60, 30, 0, 0], dtype=np.float64) * D2R
     
     if "right" in active_arms:
@@ -360,7 +366,6 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
         
     q_ready = np.concatenate([q_torso, q_right, q_left])
     
-    print("Step 1: Moving to Joint Ready Pose...")
     comp1 = rby.ComponentBasedCommandBuilder().set_body_command(
         rby.JointPositionCommandBuilder()
         .set_position(q_ready)
@@ -372,11 +377,15 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
             .set_position(np.zeros(2, dtype=np.float64))
             .set_minimum_time(minimum_time)
         )
-    cmd1 = rby.RobotCommandBuilder().set_command(comp1)
-    check_motion_cancelled()
-    rv1 = robot.send_command(cmd1, priority).get()
-    if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
-        raise RuntimeError("Failed to move to Step 1: Joint Ready Pose.")
+    if skip_joint_pose:
+        print("Step 1: Joint Ready Pose skipped (arms are already there).")
+    else:
+        print("Step 1: Moving to Joint Ready Pose...")
+        cmd1 = rby.RobotCommandBuilder().set_command(comp1)
+        check_motion_cancelled()
+        rv1 = robot.send_command(cmd1, priority).get()
+        if rv1.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError("Failed to move to Step 1: Joint Ready Pose.")
 
     # Determine whether v1.3 behavior is requested (UI setting takes precedence over hardware model)
     is_v13 = False
@@ -390,11 +399,17 @@ def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, i
     # Step 2: Cartesian Checking Pose (Lower Z to 0.15m for lowered fixed chest camera vs 0.27m for head)
     z_height = 0.15 if not has_head else 0.27
     y_val = 0.11 if is_v13 else 0.13
-    
-    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [0.3, -y_val, z_height])
+    # The fixed chest camera sits ~130 mm lower than the head one, so at the same reach it sees the
+    # markers from 157 mm at a 35 deg incidence -- close and steeply angled, which is where the
+    # headless runs lost their measurement precision (0.38 mm vs 0.22 mm noise). Reaching further
+    # forward restores the head configuration's geometry (191 mm at 28 deg, vs 203 mm at 25 deg);
+    # raising z instead makes the incidence angle worse, not better.
+    x_reach = HEADLESS_X_REACH_M if not has_head else 0.3
+
+    T_right = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(90*D2R), [x_reach, -y_val, z_height])
     T_right[:3, :3] = T_right[:3, :3] @ rot_z(180*D2R)
     
-    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [0.3, y_val, z_height])
+    T_left = make_T(rot_z(0*D2R) @ rot_y(-90*D2R) @ rot_x(-90*D2R), [x_reach, y_val, z_height])
     T_left[:3, :3] = T_left[:3, :3] @ rot_z(180*D2R)
 
     # v1.3 (Model M) branch: Rotate +90 deg around base frame Pitch (Y) axis

@@ -5,6 +5,7 @@ import os
 import shutil
 import tempfile
 import sys
+import time
 from pathlib import Path
 from threading import RLock
 from contextlib import contextmanager
@@ -39,7 +40,19 @@ class FileStorage:
                     yield stream
                     stream.flush()
                     os.fsync(stream.fileno())
-                os.replace(temporary, path)
+                # Windows refuses to replace a file another program holds open (preview pane,
+                # an editor, antivirus, the indexer). Those locks are usually brief, so retry
+                # before giving up -- a silent failure here looked like the file "rolling back".
+                for attempt in range(6):
+                    try:
+                        os.replace(temporary, path)
+                        break
+                    except PermissionError:
+                        if attempt == 5:
+                            raise PermissionError(
+                                f"Could not save {path}: another program is holding the file open. "
+                                "Close it (including an Explorer preview pane) and try again.")
+                        time.sleep(0.15)
             finally:
                 if os.path.exists(temporary):
                     os.unlink(temporary)
@@ -80,6 +93,66 @@ class ConfigStorage:
             update(data)
             ConfigStorage.save(path, data)
         return data
+
+    @staticmethod
+    def update_values(path, changes):
+        """Set nested keys in a YAML config, keeping everything else as it was.
+
+        `changes` maps a key path to a value: {("camera", "mount_to_cam"): [...]}.
+
+        Parsing the file into a dict and writing it back is safer than patching lines: the
+        result is always valid YAML, values keep full precision (the line patcher rounded
+        positions to 5 and angles to 2 decimals), and it works for any key shape or depth.
+        setting.yaml carries no comments, so nothing is lost by not preserving them.
+        """
+        path = Path(path)
+        with FileStorage.lock:
+            text = FileStorage.read_text(path, encoding="utf-8") if path.exists() else ""
+            data = yaml.safe_load(text) or {}
+            if not isinstance(data, dict):
+                raise ValueError(f"{path} is not a YAML mapping; refusing to overwrite it")
+            duplicates = ConfigStorage._duplicate_keys(text)
+            for keys, value in changes.items():
+                keys = (keys,) if isinstance(keys, str) else tuple(keys)
+                node = data
+                for key in keys[:-1]:
+                    child = node.get(key)
+                    if not isinstance(child, dict):
+                        child = {}
+                        node[key] = child
+                    node = child
+                node[keys[-1]] = value
+            FileStorage.write_text(path, ConfigStorage.dump(data))
+        return duplicates
+
+    @staticmethod
+    def _duplicate_keys(text):
+        """Keys written twice at the same indent; a round-trip keeps only the last one."""
+        seen, repeated = {}, []
+        for raw in text.splitlines():
+            stripped = raw.strip()
+            if not stripped or stripped.startswith("#") or ":" not in stripped or stripped.startswith("-"):
+                continue
+            indent = len(raw) - len(raw.lstrip())
+            key = stripped.split(":", 1)[0].strip()
+            for known_indent in [i for i in seen if i > indent]:
+                seen.pop(known_indent, None)
+            bucket = seen.setdefault(indent, set())
+            if key in bucket:
+                repeated.append(key)
+            bucket.add(key)
+        return repeated
+
+    @staticmethod
+    def dump(data):
+        """YAML text that matches how these config files already look: insertion order kept,
+        short lists on one line."""
+        class _Dumper(yaml.SafeDumper):
+            pass
+        _Dumper.add_representer(list, lambda d, v: d.represent_sequence(
+            "tag:yaml.org,2002:seq", v, flow_style=True))
+        return yaml.dump(data, Dumper=_Dumper, default_flow_style=False,
+                         sort_keys=False, allow_unicode=True, width=4096)
 
     @staticmethod
     def update_camera_key_in_lines(lines_list, key_str, new_vals_list):

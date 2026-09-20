@@ -20,6 +20,13 @@ else:
     app_dir = current_dir
 
 
+# Seed config/ next to the executable before anything reads it. core.language loads
+# ui_dropdowns.yaml and dark_theme.qss at import time, so on the very first run in a new folder
+# they were read before this copy happened -- the window came up unthemed that one time.
+from core.storage import StoragePaths as _StoragePaths
+_StoragePaths.initialize_defaults()
+
+
 def get_asset_path(relative_path: str) -> str:
     """PyInstaller 번들 실행 및 로컬 파이썬 실행 환경에서 이미지/설정 등의 절대 경로를 반환합니다."""
     return StoragePaths.asset(relative_path)
@@ -822,6 +829,7 @@ class UnifiedCalibrationApp(QWidget):
         self.core_bridge.result.connect(self._on_core_result)
         self.core_bridge.bracket.connect(self.handle_full_auto_bracket_finished)
         self.core_bridge.joint.connect(self.handle_full_auto_joint_finished)
+        self.core_bridge.progress.connect(self._on_core_progress)
         self.last_sequence_result = None
         self.robot = self.core.robot
         self.arm_side = arm_side
@@ -1138,72 +1146,25 @@ class UnifiedCalibrationApp(QWidget):
         self.joint_calibrator.marker_problem_callback = self.prompt_marker_problem_teaching
 
     def save_offsets_to_yaml(self):
+        """Persist the staged joint offsets. Parsed-and-rewritten rather than line-patched so
+        the values keep full precision and the rest of the file is left untouched."""
         config_path = CONFIG_PATHS["setting_yaml"]
-        FileStorage.ensure_dir(os.path.dirname(config_path), exist_ok=True)
-
         try:
-            lines = []
-            if os.path.exists(config_path):
-                with FileStorage.open(config_path, "r") as f:
-                    lines = f.readlines()
-
-            jo_idx = -1
-            for i, line in enumerate(lines):
-                if line.strip().startswith("joint_offset:"):
-                    jo_idx = i
-                    break
-
-            if jo_idx == -1:
-                # If joint_offset doesn't exist, we append it to the end of the file
-                if lines and not lines[-1].endswith("\n"):
-                    lines.append("\n")
-                lines.append("joint_offset:\n")
-                lines.append("  left:\n")
-                lines.append(f"    joint3: {self.joint_offsets_store['left']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n")
-                lines.append(f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n")
-                lines.append("  right:\n")
-                lines.append(f"    joint3: {self.joint_offsets_store['right']['joint3']}\n")
-                lines.append(f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n")
-                lines.append(f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n")
-                if "head" in self.joint_offsets_store:
-                    lines.append("  head:\n")
-                    lines.append(f"    pan: {self.joint_offsets_store['head'].get('pan', 0.0)}\n")
-                    lines.append(f"    tilt: {self.joint_offsets_store['head'].get('tilt', 0.0)}\n")
-            else:
-                # joint_offset 블록이 끝나는 지점(들여쓰기가 없는 다음 라인 또는 파일 끝)을 찾습니다.
-                block_end = len(lines)
-                for i in range(jo_idx + 1, len(lines)):
-                    line = lines[i]
-                    stripped = line.strip()
-                    if not stripped:
-                        continue
-                    if not line.startswith(" ") and not line.startswith("\t"):
-                        block_end = i
-                        break
-
-                new_jo_lines = [
-                    "joint_offset:\n",
-                    "  left:\n",
-                    f"    joint3: {self.joint_offsets_store['left']['joint3']}\n",
-                    f"    joint5: {self.joint_offsets_store['left'].get('joint5', 0.0)}\n",
-                    f"    joint6: {self.joint_offsets_store['left'].get('joint6', 0.0)}\n",
-                    "  right:\n",
-                    f"    joint3: {self.joint_offsets_store['right']['joint3']}\n",
-                    f"    joint5: {self.joint_offsets_store['right'].get('joint5', 0.0)}\n",
-                    f"    joint6: {self.joint_offsets_store['right'].get('joint6', 0.0)}\n"
-                ]
-                if "head" in self.joint_offsets_store:
-                    new_jo_lines.append("  head:\n")
-                    new_jo_lines.append(f"    pan: {self.joint_offsets_store['head'].get('pan', 0.0)}\n")
-                    new_jo_lines.append(f"    tilt: {self.joint_offsets_store['head'].get('tilt', 0.0)}\n")
-                lines = lines[:jo_idx] + new_jo_lines + lines[block_end:]
-
-            with FileStorage.open(config_path, "w") as f:
-                f.writelines(lines)
-            self.log_msg(f"[SUCCESS] Saved offsets permanently to setting.yaml!")
+            store = self.joint_offsets_store
+            changes = {}
+            for arm in ("left", "right"):
+                for joint in ("joint3", "joint5", "joint6"):
+                    changes[("joint_offset", arm, joint)] = float(store[arm].get(joint, 0.0))
+            if "head" in store:
+                for axis in ("pan", "tilt"):
+                    changes[("joint_offset", "head", axis)] = float(store["head"].get(axis, 0.0))
+            duplicates = ConfigStorage.update_values(config_path, changes)
+            if duplicates:
+                self.log_msg(f"[WARN] setting.yaml had duplicate keys {sorted(set(duplicates))}; "
+                    "only the last of each was kept.")
+            self.log_msg("[SUCCESS] Saved offsets permanently to setting.yaml!")
         except Exception as e:
-            self.log_msg(f"[ERROR] Failed to save setting.yaml: {e}")
+            self.log_msg(f"[ERROR] Failed to save offsets to setting.yaml: {e}")
 
     def on_cell_double_clicked(self, row, col):
         arm = "right" if row == 0 else "left"
@@ -3382,6 +3343,19 @@ class UnifiedCalibrationApp(QWidget):
         except Exception as e:
             self.log_msg(f"[Auto-Save Error] {e}")
 
+    def _on_core_progress(self, value):
+        """Live counters while a core sequence collects samples (Qt-queued, GUI thread)."""
+        if not isinstance(value, dict) or value.get("stage") != "collect":
+            return
+        total = value.get("pose_total") or 0
+        if hasattr(self, 'step2_head_status_label'):
+            label = f"Auto Motion: {value.get('pose_index', 0)}/{total}"
+            if not self.include_head_motion:
+                label += " (headless)"
+            self.step2_head_status_label.setText(label)
+        if hasattr(self, 'step2_sample_count_label'):
+            self.step2_sample_count_label.setText(f"Shared Samples: {value.get('samples', 0)}")
+
     def update_sample_counts(self):
         if QThread.currentThread() != QApplication.instance().thread():
             self.update_ui_signal_safe.emit("sample_counts")
@@ -3991,16 +3965,13 @@ class UnifiedCalibrationApp(QWidget):
                     QMessageBox.critical(self, "Invalid Inputs", "Please enter valid numeric values for all bracket design fields.")
                 return
 
-            lines = []
-            if os.path.exists(config_path):
-                with FileStorage.open(config_path, "r") as f:
-                    lines = f.readlines()
-
-            ConfigStorage.update_marker_key_in_lines(lines, "Tf_to_marker_left", [l_x, l_y, l_z, l_roll, l_pitch, l_yaw])
-            ConfigStorage.update_marker_key_in_lines(lines, "Tf_to_marker_right", [r_x, r_y, r_z, r_roll, r_pitch, r_yaw])
-
-            with FileStorage.open(config_path, "w") as f:
-                f.writelines(lines)
+            duplicates = ConfigStorage.update_values(config_path, {
+                ("marker", "Tf_to_marker_left"): [l_x, l_y, l_z, l_roll, l_pitch, l_yaw],
+                ("marker", "Tf_to_marker_right"): [r_x, r_y, r_z, r_roll, r_pitch, r_yaw],
+            })
+            if duplicates:
+                self.log_msg(f"[WARN] setting.yaml had duplicate keys {sorted(set(duplicates))}; "
+                    "only the last of each was kept.")
 
             self.log_msg(f"[SUCCESS] Saved Tf_to_marker values for both arms to setting.yaml")
             if not silent:
@@ -4065,7 +4036,10 @@ class UnifiedCalibrationApp(QWidget):
 
         self.btn_connect.setEnabled(enabled)
         self.model_input.setEnabled(enabled)
-        self.workflow_tabs.setEnabled(enabled)
+        # The tab bar stays navigable while a sequence runs: every action button inside
+        # these tabs is already disabled individually above, and idle_core_action rejects
+        # a second start anyway. Disabling the whole widget only trapped the operator on
+        # whichever tab started the run.
         self.arm_sel.setEnabled(enabled)
         self.joint_mode_sel.setEnabled(enabled)
         if hasattr(self, 'marker_axis_sel'):
@@ -5424,8 +5398,6 @@ class UnifiedCalibrationApp(QWidget):
         event.accept()
 
 def main():
-    from core.storage import StoragePaths
-    StoragePaths.initialize_defaults()
     parser = argparse.ArgumentParser(description="Unified Robot Calibration Suite GUI")
     parser.add_argument("--ui", action="store_true", help="Start only UI for debugging/simulation")
     args = parser.parse_args()

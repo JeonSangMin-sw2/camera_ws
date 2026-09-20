@@ -2,7 +2,8 @@ from core.robot.motion import build_incremental_motion_plan, execute_auto_motion
 from ..data import capture_one_sample, get_both_arm_config, get_head_config
 
 
-def run_collection(core, context, prepare=False, plan=None, start_index=0, max_samples=None):
+def run_collection(core, context, prepare=False, plan=None, start_index=0, max_samples=None,
+                   skip_joint_pose=False):
     context.check_cancelled()
     if core.robot is None:
         raise RuntimeError("Robot is not connected")
@@ -10,7 +11,7 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
         raise ValueError("start_index must be nonnegative and max_samples must be positive")
     if prepare:
         move_to_auto_ready_pose(core.robot, ["right", "left"], include_head_motion=core.include_head_motion,
-                                robot_version=core.get_robot_version())
+                                robot_version=core.get_robot_version(), skip_joint_pose=skip_joint_pose)
         context.check_cancelled()
         verify_and_align_head_at_ready_pose(
             core.robot, core.observer, core.model, ["right", "left"], 10,
@@ -44,6 +45,11 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
         else:
             failures += 1
         context.checkpoint("next_motion_index", index + 1)
+        # Tell the UI after every pose. Without this the sample counter sat at 0 for the whole
+        # run and only jumped to 64 at the end, so there was no way to watch it progress.
+        core.emit("progress", {"stage": "collect", "pose_index": index + 1,
+                               "pose_total": len(plan), "samples": len(samples),
+                               "failures": failures})
         context.check_cancelled()
         if failures >= 3:
             raise RuntimeError("Marker not detected at three consecutive poses")

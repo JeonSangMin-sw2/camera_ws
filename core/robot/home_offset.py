@@ -859,21 +859,18 @@ class HomeOffsetController:
                 
                 if mount_to_cam_new or head_base_to_cam_new:
                     config_path = CONFIG_PATHS["setting_yaml"]
-                    if os.path.exists(config_path):
-                        with FileStorage.open(config_path, "r") as f:
-                            lines = f.readlines()
-                        
-                        if include_head:
-                            if mount_to_cam_new:
-                                self.log_msg(f"[APPLY] Saving optimized mount_to_cam to setting.yaml: {mount_to_cam_new}")
-                                ConfigStorage.update_camera_key_in_lines(lines, "mount_to_cam", mount_to_cam_new)
-                        else:
-                            if head_base_to_cam_new:
-                                self.log_msg(f"[APPLY] Saving optimized head_base_to_cam to setting.yaml: {head_base_to_cam_new}")
-                                ConfigStorage.update_camera_key_in_lines(lines, "head_base_to_cam", head_base_to_cam_new)
-                            
-                        with FileStorage.open(config_path, "w") as f:
-                            f.writelines(lines)
+                    changes = {}
+                    if include_head and mount_to_cam_new:
+                        self.log_msg(f"[APPLY] Saving optimized mount_to_cam to setting.yaml: {mount_to_cam_new}")
+                        changes[("camera", "mount_to_cam")] = list(mount_to_cam_new)
+                    elif not include_head and head_base_to_cam_new:
+                        self.log_msg(f"[APPLY] Saving optimized head_base_to_cam to setting.yaml: {head_base_to_cam_new}")
+                        changes[("camera", "head_base_to_cam")] = list(head_base_to_cam_new)
+                    if changes:
+                        duplicates = ConfigStorage.update_values(config_path, changes)
+                        if duplicates:
+                            self.log_msg(f"[WARN] setting.yaml had duplicate keys {sorted(set(duplicates))}; "
+                                         "only the last of each was kept.")
             except Exception as e:
                 self.log_msg(f"[ERROR] Failed to save optimized camera pose to setting.yaml: {e}")
 
