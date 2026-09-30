@@ -1,0 +1,50 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_PITCH
+============================================================
+
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+[SWEEP COMMAND] right J4: 74.9991° -> 104.9991°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP QUALITY] wrist_pitch: relative correction=-0.25556 deg; circles RMS=0.1213/0.1259 mm
+  * Angle Error (Deviation)     : 0.2556°
+  * Circle Size Error (r_A-r_B) : 1.3602 mm
+  * Center Distance Error       : 1.6657 mm
+  * Max Fitting Error Metric    : 1.6657 mm
+  * Updated Absolute Offset     : -0.2556°
+
+[ITERATION 2/6] Sweeping physically with staged offset -0.2556°...
+[SWEEP COMMAND] right J4: 74.9991° -> 104.9991°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991   -0.2556    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991   -0.2556    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2556° -> -0.2556°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991   -0.2556    0.    ]; command already includes staged correction (apply_offsets=False)
+[MEASUREMENT REJECTED] Parallel-joint circles do not coincide: center=0.562 mm, radius difference=0.539 mm. Keeping staged offset -0.2556°; no correction from this measurement.
+[SWEEP QUALITY] {'circle_A': 0.00012075335962671669, 'circle_B': 0.000125017076487218, 'circle_C': 0.00010032875656198349, 'fit': 'observed_adjacent_axes_free_centers', 'relative_correction_deg': -0.04714898421528586, 'center_distance_mm': 0.5616557319551163, 'radius_difference_mm': 0.538654525990836, 'frames': [904, 908, 911], 'arc_deg': [28.98573013330084, 28.72975084682034, 13.741392537430766]}
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_PITCH
+============================================================
+
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+[SWEEP COMMAND] right J4: 74.9989° -> 104.9989°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP QUALITY] wrist_pitch: relative correction=-0.26231 deg; circles RMS=0.1197/0.1209 mm
+  * Angle Error (Deviation)     : 0.2623°
+  * Circle Size Error (r_A-r_B) : 0.4688 mm
+  * Center Distance Error       : 1.1052 mm
+  * Max Fitting Error Metric    : 1.1052 mm
+  * Updated Absolute Offset     : -0.2623°
+
+[ITERATION 2/6] Sweeping physically with staged offset -0.2623°...
+[SWEEP COMMAND] right J4: 74.9989° -> 104.9989°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989   -0.2623    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989   -0.2623    0.    ]; command already includes staged correction (apply_offsets=False)
+[ERROR] Iteration 2 sweep failed. Aborting calibration.

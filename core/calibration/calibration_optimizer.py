@@ -184,6 +184,7 @@ class ResidualNoiseEstimator:
             "measurement_noise_rot_std_deg": float(np.rad2deg(self.rot_std_rad)),
             "measurement_noise_pos_std_m": float(self.pos_std_m),
             "measurement_noise_pos_std_mm": float(self.pos_std_m * 1e3),
+            "measurement_noise_min_rot_std_deg": float(np.rad2deg(self.min_rot_std_rad)),
             "measurement_noise_max_rot_std_rad": float(self.max_rot_std_rad),
             "measurement_noise_max_rot_std_deg": float(np.rad2deg(self.max_rot_std_rad)),
             "measurement_noise_max_pos_std_m": float(self.max_pos_std_m),
@@ -407,6 +408,7 @@ class QPCalibrationOptimizer:
         apply_joint_offset_limits=False,
         joint_offsets_to_apply=None,
         lock_camera_head_axis_rotation=True,
+        min_rot_noise_std_rad=None,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -437,12 +439,19 @@ class QPCalibrationOptimizer:
         self.eps = eps
         self.lambda_cam_pos = lambda_cam_pos
         self.lambda_cam_rot = lambda_cam_rot
+        # min_rot_noise_std_rad: floor on the estimated orientation noise (step2.min_rot_noise_deg).
+        # The data weight is 1/sigma; without a floor a joint that absorbs an orientation bias
+        # lowers sigma_rot and so raises its own pull (2026-09-29, D405: J4 by up to 1.6 deg).
+        noise_kwargs = {}
+        if min_rot_noise_std_rad is not None:
+            noise_kwargs["min_rot_std_rad"] = float(min_rot_noise_std_rad)
         self.noise_estimator = ResidualNoiseEstimator(
             enabled=estimate_measurement_noise,
             update_rate=measurement_noise_update_rate,
+            **noise_kwargs,
         )
         self.q_nominal = robot.get_state().position.copy()
-        
+
         if self.use_head_kinematics:
             self.base_link = self.camera_link
             self.T_mount_to_cam_nom = make_transform(self.mount_to_cam_nom) if self.mount_to_cam_nom else np.eye(4)

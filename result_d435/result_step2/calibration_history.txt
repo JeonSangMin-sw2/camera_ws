@@ -1,0 +1,176 @@
+
+--- Calibration Iteration: 2026-09-10 10:05:25 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260910_100523.json
+Right Arm Joint Offset (deg): [-5.420872854279481, 2.718269023580296, -0.5060693911148756, 2.197770506725822, -1.5219056006257006, 0.3168441637673263, 0.2770437676509787]
+Left Arm Joint Offset (deg): [2.5763964159359034, -0.6519944854515498, -0.5084468629341111, 2.322526371775693, 1.2558200131354305, 0.39910652985102896, 0.005573513133142572]
+Head Joint Offset (deg): [2.964747767356269, 1.5577758569288567]
+Camera xi: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.00782033005092177, "measurement_noise_rot_std_deg": 0.4480719063171456, "measurement_noise_pos_std_m": 0.00026731469312810715, "measurement_noise_pos_std_mm": 0.26731469312810713, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-10 13:09:14 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260910_130859.json
+Right Arm Joint Offset (deg): [-6.902850607092856, 1.0208076098941603, -0.07774556013317672, 2.2562178316624744, 0.47180716219786295, 0.3027317166214593, 0.24657621930325516]
+Left Arm Joint Offset (deg): [1.6033325514094625, -0.3937642910201895, -0.34559600453739503, 2.2102179247357476, -0.04229116051285839, 0.31714275600116154, -0.13552148875517142]
+Head Joint Offset (deg): [-0.6208809851503769, 2.774336902151097]
+Camera xi: [0.05235991995490809, -0.048090181380136474, 0.01337228675434897, 0.0074898815035947365, 0.003277894577454282, -0.0006236867837210035]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.03490658503986273, "measurement_noise_rot_std_deg": 1.9999999999986329, "measurement_noise_pos_std_m": 0.0003753579544336894, "measurement_noise_pos_std_mm": 0.3753579544336894, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-10 13:17:30 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260910_131645.json
+Right Arm Joint Offset (deg): [-6.848589394890945, 1.7270425464278396, -0.037005188790697086, 2.205358953030885, -1.1938120280432791, 0.27034868948996466, 0.2539154475244915]
+Left Arm Joint Offset (deg): [2.6893146986972027, -1.073520475040734, 0.3069476884676632, 2.2249136956492004, 0.8693106274725757, 0.3281391390911867, -0.13437510749803935]
+Head Joint Offset (deg): [0.44847880146976954, 0.9012628412193117]
+Camera xi: [9.366052477216239e-05, -0.002375770920430084, 0.0012896055352349665, 0.0029793846109392647, 0.00014973260836349619, -0.00031074141137033245]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.034906585039886584, "measurement_noise_rot_std_deg": 1.9999999999999996, "measurement_noise_pos_std_m": 0.00013691370257230877, "measurement_noise_pos_std_mm": 0.13691370257230878, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-10 16:05:45 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260910_160530.json
+Right Arm Joint Offset (deg): [-5.213582702341263, 2.9842978990271303, -2.043720636900978, 2.259563602112584, -0.8688883094146885, 0.39814044035107304, 0.11462759159355712]
+Left Arm Joint Offset (deg): [3.308475913270786, -1.970091875222033, 0.5490485027462951, 2.017058227094811, -0.43729452198085517, 0.33425122064204155, 0.2797208343408094]
+Head Joint Offset (deg): [-0.1663917433777335, 1.7897207620870044]
+Camera xi: [0.05235987341069079, 0.0068668019224009625, -0.03707291284830211, 0.004074059374720846, 0.0019197104970827621, -2.183691648788614e-05]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0024125039589279105, "measurement_noise_rot_std_deg": 0.13822629490517177, "measurement_noise_pos_std_m": 0.0004013524008412439, "measurement_noise_pos_std_mm": 0.4013524008412439, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-10 18:53:02 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260910_185247.json
+Right Arm Joint Offset (deg): [-6.875994225564099, 1.5281940147929038, 0.023516181239965427, 2.191832864670708, -1.8328600357291176, 0.24479148525579658, 0.04714372679285069]
+Left Arm Joint Offset (deg): [2.416086667901236, -0.7240136947689136, -0.3755225468071029, 2.034395109807244, 1.2089228904591163, 0.26590897529866037, -0.0938074706870466]
+Head Joint Offset (deg): [-0.08646009138205353, 1.999831505991921]
+Camera xi: [0.052359879389303865, -8.619059781733066e-05, -0.01565262056884308, 0.0031482168826948197, -0.002140766329686446, -0.004143532310236422]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.001423933827654245, "measurement_noise_rot_std_deg": 0.08158539863049698, "measurement_noise_pos_std_m": 0.00021101865168156206, "measurement_noise_pos_std_mm": 0.21101865168156206, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-15 09:47:33 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260915_094701_504885.json
+Right Arm Joint Offset (deg): [4.670136159680395, 14.999997992407355, -12.412886783292047, 2.2477600909456905, 5.727803278187588, 0.3569923901666167, 0.1602274030712971]
+Left Arm Joint Offset (deg): [-0.12059657507248077, -0.8791305753991062, -3.635050655531654, 2.7790211670615816, -0.5414789682852783, 0.3288846399759314, 0.2751474373116316]
+Head Joint Offset (deg): [1.7441988066506084, 0.09635493381760525]
+Camera xi: [0.0005753011878685905, 0.000151926508413217, -0.004859446920064868, 0.01844989570777748, 0.008992149702825119, 0.008903299312416806]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.019012333343917685, "measurement_noise_rot_std_deg": 1.0893264593023309, "measurement_noise_pos_std_m": 0.0009999980926513673, "measurement_noise_pos_std_mm": 0.9999980926513673, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-15 12:15:48 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260915_121524_770729.json
+Right Arm Joint Offset (deg): [-6.544375862074121, 1.5042372114595588, -0.02643870576658529, 2.2377582442161517, -1.1334660703776702, 0.25724751074633534, 0.18920887610438103]
+Left Arm Joint Offset (deg): [3.0591741501136167, -1.1976290152739826, 0.5036001072981496, 1.9931859633275413, 0.8816114961981459, 0.3089983645028397, 0.05219092244392364]
+Head Joint Offset (deg): [-0.5542606258720163, 0.29924432620206914]
+Camera xi: [-0.0015404364596849145, 0.00211951035885846, 0.001267123678252224, 0.00025025165107651854, 0.0011507951636108382, -0.001228219526659061]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.028471127878575822, "measurement_noise_rot_std_deg": 1.6312754654196515, "measurement_noise_pos_std_m": 7.600246114403594e-05, "measurement_noise_pos_std_mm": 0.07600246114403594, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-15 17:14:30 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260915_171420_609830.json
+Right Arm Joint Offset (deg): [2.1395051994375747, 2.0075479325005827, 0.5514938593321482, 2.2256272867907243, -5.0216108554215895, 3.6496253542743253, 4.728004417132485]
+Left Arm Joint Offset (deg): [0.6922179599481827, -0.05040541315246055, 0.10724353403780935, 1.9575520400728075, -0.30462378291117514, 0.007469379253598843, 0.327752069427365]
+Head Joint Offset (deg): [0.9022402385895384, 1.434621184825008]
+Camera xi: [0.0, 0.0, 0.0017137560911362172, 0.0005312016064746226, -0.002363031620200617, 0.0029636497612117417]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0024712237649861454, "measurement_noise_rot_std_deg": 0.14159069196613536, "measurement_noise_pos_std_m": 0.00017037833283874718, "measurement_noise_pos_std_mm": 0.17037833283874718, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-15 18:09:05 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260915_180850_058101.json
+Right Arm Joint Offset (deg): [2.5265768466714027, 1.7547658492752323, 0.3780668536739619, 2.0526970441443, -5.136090444913668, 3.6959083737444294, 4.85412084709397]
+Left Arm Joint Offset (deg): [0.5472878933966925, -0.19976833028571706, -0.08143250930038767, 1.9440228491994782, -0.30576500962319536, 0.0054033379490561785, 0.27790259671430345]
+Head Joint Offset (deg): [1.1100024025655189, 1.437771465151894]
+Camera xi: [0.0, 0.0, 0.0036541701927777477, 0.0026502550189363917, -0.00177865919393859, 0.002969048504834636]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0024317463423933054, "measurement_noise_rot_std_deg": 0.13932880226551123, "measurement_noise_pos_std_m": 0.00017779441235804728, "measurement_noise_pos_std_mm": 0.17779441235804727, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-15 18:57:44 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260915_185733_650311.json
+Right Arm Joint Offset (deg): [0.06224689219567309, 4.04205191472856, -0.09729453050197535, 2.378765940077121, 0.8155710504036549, 0.10975565062597827, -0.2356573517760565]
+Left Arm Joint Offset (deg): [0.4697389696779244, -3.7371654913032626, 0.19144768602639023, 2.2189135924583896, -0.6878524232320522, 0.3141151399623308, 0.018460135259524935]
+Head Joint Offset (deg): [-0.7105049246375001, -0.0320199006105724]
+Camera xi: [0.0, 0.0, -0.00024573378403293844, -0.0008543801651836566, -0.0001048241086069051, 0.00517245946727448]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.003510904795711721, "measurement_noise_rot_std_deg": 0.20116002706652208, "measurement_noise_pos_std_m": 0.00031607413680058655, "measurement_noise_pos_std_mm": 0.31607413680058655, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-16 10:58:19 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260916_105805_480640.json
+Right Arm Joint Offset (deg): [0.5226539602641282, 3.945062729147033, 0.24151018459469895, 1.8642304222690589, 0.06683085957333844, 0.08151861951516698, -0.10659449639354232]
+Left Arm Joint Offset (deg): [1.0008578047944565, -4.075169318514986, -0.08793504938596719, 2.040091615717963, 0.3040754216034774, 0.3115369110956612, -0.13250572671642485]
+Head Joint Offset (deg): [-0.2502578244863211, 0.014318241516012594]
+Camera xi: [0.0, 0.0, 0.0007155740108453224, 0.0009385801414101036, -0.0025361879356127505, 0.0014733369893394188]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.002089990488020343, "measurement_noise_rot_std_deg": 0.11974763418605289, "measurement_noise_pos_std_m": 0.00015415900415868125, "measurement_noise_pos_std_mm": 0.15415900415868125, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-17 09:56:38 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260917_095628_264650.json
+Right Arm Joint Offset (deg): [0.520335398414286, 3.9617864272039256, 0.05565728975918658, 1.9439543415741245, 0.016951597897089485, -0.014436925331794831, -0.17649324018406298]
+Left Arm Joint Offset (deg): [0.8682749758075946, -3.9805002611738893, -0.09275897871052963, 2.031790420737803, 0.5129845081644251, 0.3938661398493641, -0.1625993111599242]
+Head Joint Offset (deg): [-0.14699531672784558, -0.010478830047990257]
+Camera xi: [0.0, 0.0, 0.00094300945326506, 0.0010916501308145456, -0.0033571149993872917, 0.0012842121150691177]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.002127171060497044, "measurement_noise_rot_std_deg": 0.12187792406884815, "measurement_noise_pos_std_m": 0.00015824230051025747, "measurement_noise_pos_std_mm": 0.15824230051025748, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-18 12:34:26 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260918_123413_118942.json
+Right Arm Joint Offset (deg): [0.9528820166542, 3.0687404664774585, 0.202959835966573, 2.289552858916173, 2.3940416943850904, -0.9451773677288704, 0.21172503286323663]
+Left Arm Joint Offset (deg): [-0.16064416312297106, -1.8512646091919804, -1.2155263191356305, 2.53955926705833, -0.08687176134444369, 0.3617372651265205, 1.652302190814139]
+Head Joint Offset (deg): [-0.024276891054418683, -1.1859966040698544]
+Camera xi: [0.0, 0.0, -0.00019661153220567384, -0.0003832599063888604, 0.0008320874572313924, 0.00048266998511955377]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.002468132742626559, "measurement_noise_rot_std_deg": 0.14141358943055046, "measurement_noise_pos_std_m": 0.00021955228586007517, "measurement_noise_pos_std_mm": 0.21955228586007516, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-18 15:03:18 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260918_150309_941906.json
+Right Arm Joint Offset (deg): [0.28599231762224026, 3.20810675251884, 0.22641742314468194, 2.3254621569868896, -1.010072857292747, 3.175236511063692, -0.679944670291953]
+Left Arm Joint Offset (deg): [-0.36738766162849, -2.7925869427133683, 8.995217986396959, 2.575654968279858, 2.484093271507166, 1.1931754280853804, -0.16596053541938763]
+Head Joint Offset (deg): None
+Camera xi: [-0.0003100363341337069, 0.0008677522928044452, -0.0006029856198152535, -0.0003764065902040909, -0.012588822493586196, -0.006114039090922585]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.002680991952174994, "measurement_noise_rot_std_deg": 0.1536095237681666, "measurement_noise_pos_std_m": 0.0003768030449963582, "measurement_noise_pos_std_mm": 0.3768030449963582, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-20 21:15:02 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260920_211450_328364.json
+Right Arm Joint Offset (deg): [0.5162776786887506, 2.495405815478941, 1.126795664068528, 0.516504793624028, -1.572558727793124, 5.401616513741815, 2.7975314310253356]
+Left Arm Joint Offset (deg): [-0.3725082025911456, -1.6188997423337355, -1.0795924165003399, 0.6770341577634866, 1.01230108087212, -3.019489966754994, 4.102503025232055]
+Head Joint Offset (deg): None
+Camera xi: [-0.00036020667743292525, 0.000163956747232116, 0.0015718650926641444, 0.0002428096643081595, -0.0006951045348027968, 0.00015639604269338593]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.00017663229361603635, "measurement_noise_rot_std_deg": 0.010120284949914437, "measurement_noise_pos_std_m": 9.805010263058472e-05, "measurement_noise_pos_std_mm": 0.09805010263058472, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-20 21:36:29 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260920_213549_895738.json
+Right Arm Joint Offset (deg): [0.5115461956910337, 2.5317299366745845, 1.1251288367195473, 0.5580627588937939, -1.55278440586635, 5.413032697985065, 2.8150018291691326]
+Left Arm Joint Offset (deg): [-0.4159407108752019, -1.5731753211095596, -1.0911462112747639, 0.6477265357261257, 1.056743504624638, -3.0069826275412255, 4.102535562017641]
+Head Joint Offset (deg): [0.4030961622756462, -1.1967670059912376]
+Camera xi: [0.0, 0.0, 0.002680955296017001, 0.00024452927791711635, -0.0007671119900342254, 0.00017972709103105725]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.00017560777872932862, "measurement_noise_rot_std_deg": 0.01006158457085776, "measurement_noise_pos_std_m": 0.00010850288598888579, "measurement_noise_pos_std_mm": 0.10850288598888579, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-21 10:15:26 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260921_101512_363431.json
+Right Arm Joint Offset (deg): [-2.4794648621547988, 2.009887258449593, 0.09197437792479388, 2.257089525019845, 0.09819726707453905, 0.17468867370303315, -1.0339703119091395]
+Left Arm Joint Offset (deg): [0.8609367435272753, 0.38720795035816885, 1.42894464661377, 2.1760928848697336, -0.20266704217690804, 0.6683973689350708, 0.987919973207322]
+Head Joint Offset (deg): [0.9707307870946714, -0.9802940146469008]
+Camera xi: [0.0, 0.0, -0.001628787082717376, -0.00024750974203497543, 0.0004921135979302475, 0.000857098657605395]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.005174535267900103, "measurement_noise_rot_std_deg": 0.2964790317922727, "measurement_noise_pos_std_m": 0.0004709413363110719, "measurement_noise_pos_std_mm": 0.4709413363110719, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-21 11:00:22 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260921_110010_881989.json
+Right Arm Joint Offset (deg): [-0.14298505834232486, 2.0940214852429873, -0.35232159111737443, 2.326792510751207, 0.9764382401675364, 0.19389140395476984, -0.6100962204154003]
+Left Arm Joint Offset (deg): [1.334228311075044, -1.5382113303812364, 0.35599913801325406, 2.2056789909893, -0.41872213686529086, 0.7015327750877318, 0.4675175213744453]
+Head Joint Offset (deg): [-0.48583221836496093, -0.11205760462470452]
+Camera xi: [0.0, 0.0, -0.0013420182734056344, 0.0012509900290424323, 0.000549333030614623, 0.0038755177319418073]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0038176670294422384, "measurement_noise_rot_std_deg": 0.21873620837328644, "measurement_noise_pos_std_m": 0.00019456045458964038, "measurement_noise_pos_std_mm": 0.19456045458964039, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-21 14:17:38 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260921_141727_976646.json
+Right Arm Joint Offset (deg): [-0.06749829939459612, 1.9254718568724452, -0.2873355740080693, 2.33494718927211, 0.43295060692367865, 0.1961767316749945, -0.08904194025451802]
+Left Arm Joint Offset (deg): [1.262254163587053, -1.8190181473481724, 0.6167676882095579, 2.2212165210563493, -1.4057217718207649, 0.6874413729396583, 1.3591825860370468]
+Head Joint Offset (deg): [-0.4111929856848013, -0.14531446810577306]
+Camera xi: [0.0, 0.0, 0.0010449845634668338, 0.0022904348242251114, 0.00039247027962968216, 0.0038582047902495204]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0036337418127400595, "measurement_noise_rot_std_deg": 0.20819806971022253, "measurement_noise_pos_std_m": 0.00017468789725449903, "measurement_noise_pos_std_mm": 0.17468789725449904, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-21 20:31:27 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260921_203112_265369.json
+Right Arm Joint Offset (deg): [1.5325447476291143, 3.5774033908777962, -0.01988245521751052, 2.5817921883001316, -0.15111668470042894, 1.6519881700094723, 0.9548382800031086]
+Left Arm Joint Offset (deg): [1.633611463773866, -3.2424196502128324, -0.08418382070927702, 2.0195923992238747, -1.344826308111662, 0.8229262240218813, 0.5214163156638435]
+Head Joint Offset (deg): [-0.06675270099565873, 0.043162733770084186]
+Camera xi: [0.0, 0.0, 0.0011787075441917227, 0.003817697216066517, 0.003050692991940138, 0.00499327485644043]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0038461103520309303, "measurement_noise_rot_std_deg": 0.22036589071294763, "measurement_noise_pos_std_m": 0.00020236901889177723, "measurement_noise_pos_std_mm": 0.20236901889177725, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-21 21:35:48 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260921_213531_620893.json
+Right Arm Joint Offset (deg): [1.2533766155967343, 3.8368241328542365, 0.13178776811653026, 2.5285565035012323, -0.2992684997844875, 1.6537971439589192, 0.9516423689143791]
+Left Arm Joint Offset (deg): [1.8057180783652576, -2.857850510303054, 0.10474701421498997, 2.0043875556556987, -1.2680245763213407, 0.8117693936601034, 0.5233294563278552]
+Head Joint Offset (deg): [0.3321445794421794, -0.018565608988108367]
+Camera xi: [0.0, 0.0, 0.0007122871717666387, 0.003143966980699519, 0.002958229808457159, 0.005970071562753946]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.003790652507266173, "measurement_noise_rot_std_deg": 0.21718839026703532, "measurement_noise_pos_std_m": 0.00022051126569327706, "measurement_noise_pos_std_mm": 0.22051126569327706, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}
+
+--- Calibration Iteration: 2026-09-21 22:49:25 ---
+Result Path: C:\Users\User\Desktop\camera_ws\result\result_step2\result_20260921_224915_778663.json
+Right Arm Joint Offset (deg): [0.6329307276123137, 3.433867844921594, 0.26497143092085557, 2.4949118389387963, -0.9679877437575385, 1.5760026817481039, 0.879388887378006]
+Left Arm Joint Offset (deg): [1.353810001149413, -2.4866757075019157, -0.018707449012594763, 2.016520007183583, -0.35339818123115996, 0.7627695729367822, 0.379927069532342]
+Head Joint Offset (deg): [-0.2108038950225338, 0.056535804496907954]
+Camera xi: [0.0, 0.0, -0.0006428077658438529, 0.00012268359862280901, -0.0013699947356460068, 0.002881373190840221]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.0033060186379447994, "measurement_noise_rot_std_deg": 0.18942091494582597, "measurement_noise_pos_std_m": 0.00018851823965455514, "measurement_noise_pos_std_mm": 0.18851823965455514, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}

@@ -19,6 +19,14 @@ np.set_printoptions(suppress=True, precision=6)
 SETTING_PATH = Path(CONFIG_PATHS["setting_yaml"])
 DEFAULT_LAMBDA_CAM_POS = 1.0
 DEFAULT_LAMBDA_CAM_ROT = 1.0
+# Used only when setting.yaml predates the step2.min_marker_x_gap_m key (an installed copy
+# is never overwritten by a newer bundle); the caller logs that the default was used.
+DEFAULT_MIN_MARKER_X_GAP_M = 0.11
+# Same fallback rule for exposure_check.max_marker_jitter_rms_mm (wizard exposure slide).
+DEFAULT_MAX_MARKER_JITTER_MM = 0.2
+# Same fallback rule for step2.min_rot_noise_deg: the floor on Step 2's estimated marker-orientation
+# noise (2026-09-29). Without it the orientation weight grew as J4 absorbed an orientation bias.
+DEFAULT_STEP2_MIN_ROT_NOISE_DEG = 0.3
 
 ARM_SIDES = ("right", "left")
 D2R = np.pi / 180.0
@@ -131,6 +139,149 @@ def load_camera_nominals(version="1.2"):
         "ee_to_marker_left": ee_to_marker_left,
         "ee_to_marker_right": ee_to_marker_right,
     }
+
+
+class MarkersTooCloseError(RuntimeError):
+    """The two arm markers start too close together along the camera x axis for Step 2 motion.
+
+    `partial` is merged into the sequence result so the UI can show the measured gap."""
+    def __init__(self, gap_m, min_gap_m):
+        super().__init__(f"Markers too close: camera x gap {gap_m * 100:.1f} cm is below "
+                         f"{min_gap_m * 100:.1f} cm. Widen the arms before Step 2 motion.")
+        self.gap_m, self.min_gap_m = float(gap_m), float(min_gap_m)
+        self.partial = {"marker_x_gap": {"gap_m": self.gap_m, "min_gap_m": self.min_gap_m,
+                                         "blocked": True}}
+
+
+def load_min_marker_x_gap_m(path=SETTING_PATH):
+    """Minimum camera-x gap between the markers before Step 2 motion, and whether the value
+    came from setting.yaml (False = DEFAULT_MIN_MARKER_X_GAP_M, the key is missing)."""
+    config = ConfigStorage.load(path) if os.path.exists(path) else {}
+    value = (config.get("step2") or {}).get("min_marker_x_gap_m")
+    if value is None:
+        return DEFAULT_MIN_MARKER_X_GAP_M, False
+    value = float(value)
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f"step2.min_marker_x_gap_m in {path} must be a positive distance in meters, got {value}")
+    return value, True
+
+
+READY_POSES_PATH = Path(CONFIG_PATHS["ready_poses_yaml"])
+
+
+def load_step2_wrist_diversity(robot_version, setting_path=SETTING_PATH, ready_poses_path=READY_POSES_PATH):
+    """Extra Step 2 poses that turn the wrists (J4/J5/J6) well beyond the base plan, for head robots.
+
+    2026-09-30: the base plan moves each joint only a few degrees, so some J2/J4/J6 offset
+    combinations are nearly invisible to Step 2 yet move the hands 1-2 mm per degree at the check
+    pose. The fixed list in ready_poses.yaml (<version>.step2_wrist_diversity) was chosen offline:
+    J0-J3 stay at the Step 2 baseline, both markers stay in view on three recorded baselines.
+    Returns (steps, enabled): steps is a list of {"right": [dJ4, dJ5, dJ6], "left": [...],
+    "head": [dpan, dtilt]} in degrees, empty when switched off (setting.yaml
+    step2.wrist_diversity_poses) or when the version has no list.
+    """
+    setting = ConfigStorage.load(setting_path) if os.path.exists(setting_path) else {}
+    enabled = bool((setting.get("step2") or {}).get("wrist_diversity_poses", False))
+    if not enabled:
+        return [], False
+    poses = ConfigStorage.load(ready_poses_path) if os.path.exists(ready_poses_path) else {}
+    ver = str(robot_version).lstrip("v")
+    entries = (poses.get(f"v{ver}") or poses.get(ver) or {}).get("step2_wrist_diversity") or []
+    steps = []
+    for i, entry in enumerate(entries):
+        try:
+            step = {key: [float(v) for v in entry[key]] for key in ("right", "left", "head")}
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"{ready_poses_path} v{ver}.step2_wrist_diversity[{i}] must have right/left "
+                             f"[dJ4, dJ5, dJ6] and head [dpan, dtilt] in degrees: {error}") from error
+        if len(step["right"]) != 3 or len(step["left"]) != 3 or len(step["head"]) != 2 \
+                or not np.all(np.isfinite(step["right"] + step["left"] + step["head"])):
+            raise ValueError(f"{ready_poses_path} v{ver}.step2_wrist_diversity[{i}] must have right/left "
+                             f"[dJ4, dJ5, dJ6] and head [dpan, dtilt] in degrees, got {entry}")
+        steps.append(step)
+    return steps, True
+
+
+def marker_x_gap_m(T_right, T_left):
+    """Distance between the two marker origins along the camera x axis (image horizontal).
+
+    Both transforms are camera -> marker, as the detector and the simulator return them."""
+    p_right = np.asarray(T_right, dtype=np.float64).reshape(4, 4)[:3, 3]
+    p_left = np.asarray(T_left, dtype=np.float64).reshape(4, 4)[:3, 3]
+    if not (np.all(np.isfinite(p_right)) and np.all(np.isfinite(p_left))):
+        raise ValueError("Marker positions must be finite to measure their gap")
+    return float(abs(p_right[0] - p_left[0]))
+
+
+def marker_position_jitter_mm(points):
+    """Spread of repeated marker positions of a marker that is not moving, in millimetres.
+
+    points: (N, 3) camera-frame positions in metres. Returns {"rms_mm", "max_mm"}: the RMS and
+    the largest distance from the mean position, or None with fewer than two points."""
+    pts = np.asarray(points, dtype=np.float64).reshape(-1, 3)
+    if len(pts) < 2:
+        return None
+    dist = np.linalg.norm(pts - pts.mean(axis=0), axis=1)
+    return {"rms_mm": float(np.sqrt(np.mean(dist ** 2)) * 1000.0), "max_mm": float(dist.max() * 1000.0)}
+
+
+def load_max_marker_jitter_mm(path=SETTING_PATH):
+    """Largest RMS marker jitter (mm) the exposure check accepts, and whether the value came
+    from setting.yaml (False = DEFAULT_MAX_MARKER_JITTER_MM, the key is missing)."""
+    config = ConfigStorage.load(path) if os.path.exists(path) else {}
+    value = (config.get("exposure_check") or {}).get("max_marker_jitter_rms_mm")
+    if value is None:
+        return DEFAULT_MAX_MARKER_JITTER_MM, False
+    value = float(value)
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f"exposure_check.max_marker_jitter_rms_mm in {path} must be a positive distance in mm, got {value}")
+    return value, True
+
+
+def load_step2_min_rot_noise_deg(path=SETTING_PATH):
+    """Floor (deg) on the marker-orientation noise Step 2 estimates from its residuals, and whether
+    it came from setting.yaml (False = DEFAULT_STEP2_MIN_ROT_NOISE_DEG, the key is missing).
+
+    Step 2 weights each residual by 1/sigma. On 2026-09-29 (D405) the orientation residual fell to
+    0.114 deg because J4 bent to absorb a marker-orientation bias, which raised the orientation
+    weight further and pulled J4 by up to 1.6 deg and both J0 by 1.5-1.8 deg. The floor keeps the
+    orientation weight at the level the camera's orientation measurement actually supports
+    (0.2-0.36 deg drift with image position, design 5.2)."""
+    config = ConfigStorage.load(path) if os.path.exists(path) else {}
+    value = (config.get("step2") or {}).get("min_rot_noise_deg")
+    if value is None:
+        return DEFAULT_STEP2_MIN_ROT_NOISE_DEG, False
+    value = float(value)
+    if not np.isfinite(value) or value <= 0:
+        raise ValueError(f"step2.min_rot_noise_deg in {path} must be a positive angle in degrees, got {value}")
+    return value, True
+
+
+def marker_monitor_summary(history, max_jitter_mm=None):
+    """Recognition and jitter per marker from recent samples.
+
+    history: {side: [position (3,) in metres, or None when not detected, ...]} oldest first.
+    Returns {side: {"visible", "rate", "samples", "jitter", "stable"}}: visible = detected in
+    the latest sample, rate = fraction of samples detected, jitter = marker_position_jitter_mm
+    of the detected positions (None with fewer than two), stable = visible with an RMS jitter
+    at or below max_jitter_mm (None when no limit is given)."""
+    summary = {}
+    for side, samples in history.items():
+        samples = list(samples)
+        detected = [p for p in samples if p is not None]
+        visible = bool(samples) and samples[-1] is not None
+        jitter = marker_position_jitter_mm(detected) if len(detected) >= 2 else None
+        stable = None
+        if max_jitter_mm is not None:
+            stable = bool(visible and jitter is not None and jitter["rms_mm"] <= max_jitter_mm)
+        summary[side] = {
+            "visible": visible,
+            "rate": len(detected) / len(samples) if samples else 0.0,
+            "samples": len(samples),
+            "jitter": jitter,
+            "stable": stable,
+        }
+    return summary
 
 
 def get_arm_config(model, arm, version="1.2"):

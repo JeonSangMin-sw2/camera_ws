@@ -1,0 +1,81 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: WRIST_YAW2
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_left_joint_B_axis_5.txt
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-9.56°, optimal_offset=0.46°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 87.4752 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.3721 mm
+  * Estimated Circle Center Distance       : 60.6853 mm
+  * Calculated Offset Correction           : 0.457676 deg
+==================================================
+  * Angle Error (from 90.0°)         : 2.5248° (Raw: 87.4752°)
+  * Circle Radii (r_A / r_B)         : 54.3 mm / 174.7 mm
+  * Center Distance                  : 60.6853 mm
+[ITERATION 1/8] offset=0.0000°, residual=+0.4577° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : 0.4577°
+
+[ITERATION 2/8] Sweeping physically with staged offset 0.4577°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.4577°]
+==================================================
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-10.16°, optimal_offset=0.31°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 86.5383 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.4670 mm
+  * Estimated Circle Center Distance       : 63.4325 mm
+  * Calculated Offset Correction           : 0.308926 deg
+==================================================
+  * Angle Error (from 90.0°)         : 3.4617° (Raw: 86.5383°)
+  * Circle Radii (r_A / r_B)         : 54.3 mm / 174.8 mm
+  * Center Distance                  : 63.4325 mm
+[ITERATION 2/8] offset=0.4577°, residual=-0.1488° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : 0.3387°
+
+[ITERATION 3/8] Sweeping physically with staged offset 0.3387°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.3387°]
+==================================================
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-10.14°, optimal_offset=0.21°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 86.6914 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.5666 mm
+  * Estimated Circle Center Distance       : 62.9933 mm
+  * Calculated Offset Correction           : 0.208370 deg
+==================================================
+  * Angle Error (from 90.0°)         : 3.3086° (Raw: 86.6914°)
+  * Circle Radii (r_A / r_B)         : 54.3 mm / 174.9 mm
+  * Center Distance                  : 62.9933 mm
+[ITERATION 3/8] offset=0.3387°, residual=-0.1303° -> retry (exceeds 0.06° tolerance)
+  * Mean of 2 near-target estimates: 0.2586° (std=0.0711°, std err=0.0503°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: 0.3089°, 0.2084°
+  * Std err 0.0503° <= 0.06°
+  * Recommended Absolute Offset (mean): 0.2586°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\SAMSUNG\Desktop\RB-Y1 카메라 2\result\result_img\circle_fit_left_wrist_yaw2_joint_calib.png

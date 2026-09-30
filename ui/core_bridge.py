@@ -21,6 +21,8 @@ class CoreBridge(QObject):
     result = Signal(object)
     bracket = Signal(dict)
     joint = Signal(dict)
+    marker_gap = Signal(object)
+    marker_monitor = Signal(object)
 
     def __init__(self, core, parent=None):
         super().__init__(parent)
@@ -123,12 +125,14 @@ class Step2CalculateWorker(SequenceWorker):
     finished_signal = Signal(bool, str)
 
     def __init__(self, core, active_arms, optimize_head, optimize_camera, q_arm_list, q_head_list,
-                 T_meas_list, result_path, lambda_cam_pos, lambda_cam_rot):
+                 T_meas_list, result_path, lambda_cam_pos, lambda_cam_rot, data_home_epoch=None):
+        # data_home_epoch: CalibrationCore.home_epoch the samples were collected at, or None for
+        # an npz dataset (then the result is analysis only and cannot be applied).
         from copy import deepcopy
         options = dict(active_arms=active_arms, optimize_head=optimize_head, optimize_camera=optimize_camera,
                        q_arm_list=q_arm_list, q_head_list=q_head_list, T_meas_list=T_meas_list,
                        result_path=result_path, lambda_cam_pos=lambda_cam_pos, lambda_cam_rot=lambda_cam_rot)
-        super().__init__(core, "optimize", {"kwargs": deepcopy(options)})
+        super().__init__(core, "optimize", {"kwargs": deepcopy(options), "data_home_epoch": data_home_epoch})
 
     def run(self):
         super().run()

@@ -24,6 +24,9 @@ def run_step1_5(core, context, prepare=True, **options):
     # loaded from setting.yaml) survive into Step 2 if this sweep fails or is cancelled.
     core.joint_offsets_store["head"] = {"pan": 0.0, "tilt": 0.0}
     calibrator.calibrated_results = None
+    # The sweep is told when the robot is already at the ready pose so a marker missing at the
+    # start is prompted for there, without driving to the same pose a second time.
+    options.setdefault("at_ready_pose", bool(core.include_head_motion and prepare))
     result = calibrator.perform_head_sweep(
         log_callback=core.log_msg, stop_event=context.stop_event, **options
     )

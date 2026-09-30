@@ -1,0 +1,85 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_YAW2
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [281]
+[DEBUG] Saved Axis 6 debug points to sweep_points_right_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_right_joint_B_axis_5.txt
+[INFO] wrist_yaw2: J7 nominal ready pose=-9.98°, raw_diff=13.26°, optimal_offset=3.27°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 88.6351 deg
+  * Circle Size Error (abs: r_A - r_B)     : 119.9660 mm
+  * Estimated Circle Center Distance       : 48.6914 mm
+  * Calculated Offset Correction           : 3.273133 deg
+==================================================
+  * Angle Error (from 90.0°)         : 1.3649° (Raw: 88.6351°)
+  * Circle Radii (r_A / r_B)         : 54.1 mm / 174.0 mm
+  * Center Distance                  : 48.6914 mm
+[ITERATION 1/8] offset=0.0000°, residual=+3.2731° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : 3.2731°
+
+[ITERATION 2/8] Sweeping physically with staged offset 3.2731°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 3.2731°]
+==================================================
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [251, 252]
+[INFO] wrist_yaw2: J7 nominal ready pose=-9.99°, raw_diff=10.12°, optimal_offset=3.40°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 89.1935 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.2702 mm
+  * Estimated Circle Center Distance       : 50.9528 mm
+  * Calculated Offset Correction           : 3.399821 deg
+==================================================
+  * Angle Error (from 90.0°)         : 0.8065° (Raw: 89.1935°)
+  * Circle Radii (r_A / r_B)         : 54.1 mm / 174.4 mm
+  * Center Distance                  : 50.9528 mm
+[ITERATION 2/8] offset=3.2731°, residual=+0.1267° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : 3.3998°
+
+[ITERATION 3/8] Sweeping physically with staged offset 3.3998°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 3.3998°]
+==================================================
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [251]
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [58, 62]
+[INFO] wrist_yaw2: J7 nominal ready pose=-9.99°, raw_diff=9.92°, optimal_offset=3.33°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 88.9415 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.2017 mm
+  * Estimated Circle Center Distance       : 50.2292 mm
+  * Calculated Offset Correction           : 3.332321 deg
+==================================================
+  * Angle Error (from 90.0°)         : 1.0585° (Raw: 88.9415°)
+  * Circle Radii (r_A / r_B)         : 54.1 mm / 174.3 mm
+  * Center Distance                  : 50.2292 mm
+[ITERATION 3/8] offset=3.3998°, residual=-0.0675° -> retry (exceeds 0.06° tolerance)
+  * Mean of 2 near-target estimates: 3.3661° (std=0.0600°, std err=0.0424°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: 3.3998°, 3.3323°
+  * Std err 0.0424° <= 0.06°
+  * Recommended Absolute Offset (mean): 3.3661°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\SAMSUNG\Desktop\RB-Y1 카메라 2\result\result_img\circle_fit_right_wrist_yaw2_joint_calib.png

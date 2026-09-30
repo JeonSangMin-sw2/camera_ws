@@ -145,7 +145,9 @@ class HeadCameraCalibrator(BaseCalibrator):
         stop_event=None,
         save_debug=True,
         allow_readjust=True,
-        sweep_duration_s=15.0
+        sweep_duration_s=15.0,
+        max_readjust=1,
+        at_ready_pose=False
     ):
         """
         Executes continuous Tilt and Pan sweeps with stationary arm markers:
@@ -153,6 +155,20 @@ class HeadCameraCalibrator(BaseCalibrator):
         2. Sweep Pan  -range -> +range -> -range while Tilt=0, sampling the marker continuously.
         3. Solve camera mount rotation (y/z) and Head Pan & Tilt joint zero offsets.
         num_steps only sets the coverage bins used to detect where the marker was out of view.
+
+        With arm_side "auto"/"both" both arm markers are required. A single marker leaves the
+        head-pan <-> marker-position degeneracy open, and on 2026-09-21 the one-marker (left only)
+        runs pushed about 1.5 deg into the J0 common mode of both arms. When either marker is not
+        visible at the head centre or drops out of a sweep, the robot returns to the ready pose and
+        the operator readjusts (max_readjust times, one by default). After that a sweep that still
+        misses range bins or loses a marker part way continues with the points it has, but the
+        step fails rather than solve with one marker (not visible at the centre, or fewer than
+        MIN_HEAD_SWEEP_POINTS over both sweeps).
+
+        at_ready_pose: the caller has just put the robot at the posture to sweep from (the ready
+        pose, or the posture the operator taught) and nothing has moved since. A readjustment
+        requested before the first head motion then prompts straight away instead of driving to
+        the ready pose a second time (or away from a posture the operator just taught).
         """
         for label, value, limit in (("Pan", pan_range_deg, self.MAX_HEAD_SWEEP_RANGE_DEG), ("Tilt", tilt_range_deg, self.MAX_HEAD_TILT_RANGE_DEG)):
             if value > limit and log_callback:
@@ -238,18 +254,58 @@ class HeadCameraCalibrator(BaseCalibrator):
         if log_callback:
             log_callback(f"[INFO] Stationary markers detected at center: {', '.join(found_sides) if found_sides else 'None'}")
 
-        if arm_side in ["right", "left"]:
-            active_side = arm_side
-        else:
-            active_side = "right" if obs_r_0 is not None else ("left" if obs_l_0 is not None else "right")
+        require_both = arm_side not in ("right", "left")
+        required_sides = ["right", "left"] if require_both else [arm_side]
+        # Every prompt uses one, accepted or cancelled: a cancelled prompt in the tilt sweep must not
+        # come back in the pan sweep.
+        budget = {"left": max(int(max_readjust), 0) if allow_readjust else 0}
+        # Cleared by the first head motion: from then on a readjustment returns to the ready pose.
+        posture = {"at_ready_pose": bool(at_ready_pose)}
 
-        if log_callback:
-            log_callback(f"[INFO] Active marker for Head sweep: {active_side}")
+        def restart_after_readjust():
+            # The arms moved: every sweep taken before the readjustment is inconsistent now.
+            return self.perform_head_sweep(arm_side, pan_range_deg, tilt_range_deg, num_steps, step_delay,
+                                           log_callback, status_callback, stop_event, save_debug,
+                                           allow_readjust=budget["left"] > 0, sweep_duration_s=sweep_duration_s,
+                                           max_readjust=budget["left"], at_ready_pose=True)
 
-        # Every marker visible at the head centre is tracked: two stationary markers break the
-        # head-pan <-> marker-position degeneracy of a single marker and decouple tilt from the
-        # camera position.
-        tracked_sides = [s for s, obs in (("right", obs_r_0), ("left", obs_l_0)) if obs is not None] or [active_side]
+        def request_readjustment(reason, side):
+            """Back to the ready pose and ask the operator to readjust. True = re-run the sweeps."""
+            if budget["left"] <= 0:
+                return False
+            callback = getattr(self, "marker_problem_callback", None)
+            if log_callback:
+                log_callback(f"[WARN] {reason}. Readjustment needed ({budget['left']} attempt(s) left).")
+            budget["left"] -= 1
+            if posture["at_ready_pose"]:
+                if log_callback: log_callback("[INFO] Nothing has moved since the ready pose; asking for readjustment directly.")
+            else:
+                self.movej(self.robot, head=[0.0, 0.0], minimum_time=2.0, apply_offsets=False)
+                if not self.perform_move_to_ready_pose(arm_side="both", log_callback=log_callback, stop_event=stop_event):
+                    if log_callback: log_callback("[WARN] Ready pose move failed.")
+                    return False
+                posture["at_ready_pose"] = True
+            if callback is None:
+                if log_callback: log_callback("[WARN] No readjustment prompt available.")
+                return False
+            if not callback(side, mode="head_camera"):
+                if log_callback: log_callback("[WARN] Readjustment cancelled.")
+                return False
+            if log_callback: log_callback("[INFO] Posture readjusted. Restarting head Tilt and Pan sweeps...")
+            return True
+
+        not_visible = [s for s in required_sides if s not in found_sides]
+        if not_visible:
+            reason = f"{' and '.join(not_visible).capitalize()} marker not visible at the head centre"
+            if request_readjustment(reason, not_visible[0]):
+                return restart_after_readjust()
+            raise RuntimeError(f"{reason}. Head-camera calibration needs "
+                               f"{'both arm markers' if require_both else 'the ' + arm_side + ' marker'} "
+                               f"in view; readjust the arms so they are visible and run Step 1.5 again.")
+
+        # Both stationary markers are tracked: two markers break the head-pan <-> marker-position
+        # degeneracy of a single marker and decouple tilt from the camera position.
+        tracked_sides = list(required_sides)
         if log_callback:
             log_callback(f"[INFO] Markers used for Head sweep: {', '.join(tracked_sides)}")
 
@@ -281,6 +337,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             camera-vs-encoder latency instead of relying on the out-and-back cancellation alone.
             Returns a phase dict or None on stop.
             """
+            posture["at_ready_pose"] = False
             if not self.movej(self.robot, head=head_cmd(joint_pos, -range_deg), minimum_time=2.0, apply_offsets=False):
                 if log_callback: log_callback(f"  [WARN] Head move to {name} start ({-range_deg:.1f}°) failed.")
             time.sleep(step_delay)
@@ -335,19 +392,24 @@ class HeadCameraCalibrator(BaseCalibrator):
                 if not motion["ok"] and log_callback:
                     log_callback(f"  [WARN] Head {name} sweep motion toward {target_deg:+.1f}° did not finish cleanly.")
 
-            # Coverage: split the range into num_steps bins; a bin with no detection = marker out of view there.
+            # Coverage per marker: split the range into num_steps bins; a bin with no detection of
+            # that marker = it was out of view there.
             edges = np.linspace(-range_deg, range_deg, num_steps + 1)
-            angles = np.asarray([s["deg"] for s in samples], dtype=float)
-            counts, _ = np.histogram(angles, bins=edges) if len(angles) else (np.zeros(num_steps), edges)
-            missing = int(np.sum(counts == 0))
-            if missing and log_callback:
-                empty = [f"{edges[i]:+.1f}~{edges[i+1]:+.1f}°" for i in range(num_steps) if counts[i] == 0]
-                log_callback(f"  [WARN] {name} sweep: marker not detected in {missing}/{num_steps} range bins ({', '.join(empty)}).")
+            missing_by_side, count_by_side = {}, {}
+            for side in tracked_sides:
+                angles = np.asarray([s["deg"] for s in samples if s["side"] == side], dtype=float)
+                counts, _ = np.histogram(angles, bins=edges) if len(angles) else (np.zeros(num_steps), edges)
+                missing_by_side[side] = int(np.sum(counts == 0))
+                count_by_side[side] = len(angles)
+                if missing_by_side[side] and log_callback:
+                    empty = [f"{edges[i]:+.1f}~{edges[i+1]:+.1f}°" for i in range(num_steps) if counts[i] == 0]
+                    log_callback(f"  [WARN] {name} sweep: {side} marker not detected in {missing_by_side[side]}/{num_steps} range bins ({', '.join(empty)}).")
             if log_callback:
-                per_side = ", ".join(f"{side} {sum(1 for s in samples if s['side'] == side)}" for side in tracked_sides)
+                per_side = ", ".join(f"{side} {count_by_side[side]}" for side in tracked_sides)
                 log_callback(f"  [INFO] {name} sweep collected {len(samples)} marker samples ({per_side}).")
             return {"joint": joint_pos, "name": name, "enc_t": np.asarray(enc_t), "enc_deg": np.asarray(enc_deg),
-                    "samples": samples, "missing": missing}
+                    "samples": samples, "missing": max(missing_by_side.values(), default=num_steps),
+                    "missing_by_side": missing_by_side, "count_by_side": count_by_side}
 
         def downsample(phase):
             kept = []
@@ -359,26 +421,40 @@ class HeadCameraCalibrator(BaseCalibrator):
                 kept.extend(side_samples)
             return dict(phase, samples=kept)
 
-        def request_readjustment(name, missing):
-            """2+ missed steps: back to the ready pose and ask the user to readjust once. True = re-run sweeps."""
-            if not allow_readjust:
-                if log_callback: log_callback(f"[WARN] {name} sweep still missed {missing} range bin(s) after readjustment; continuing with the collected points.")
+        def phase_needs_restart(phase):
+            """True = readjusted, re-run the sweeps. After the readjustment budget (one by default)
+            the sweep continues with the points it has; see require_both_markers for the limit."""
+            name, counts, missing = phase["name"], phase["count_by_side"], phase["missing_by_side"]
+            lost = [s for s in tracked_sides if counts.get(s, 0) < self.MIN_HEAD_SWEEP_POINTS]
+            gappy = [s for s in tracked_sides if missing.get(s, num_steps) >= 2]
+            if not lost and not gappy:
                 return False
-            callback = getattr(self, "marker_problem_callback", None)
+            if lost:
+                detail = ", ".join(f"{s} {counts.get(s, 0)} pts" for s in lost)
+                reason = f"{' and '.join(lost).capitalize()} marker lost during the {name} sweep ({detail})"
+            else:
+                detail = ", ".join(f"{s} {missing[s]}/{num_steps}" for s in gappy)
+                reason = f"{name} sweep missed range bins (marker out of view: {detail})"
+            if request_readjustment(reason, (lost or gappy)[0]):
+                return True
+            # With both markers ~390 px wide at ~185 mm (80 mm plate, D435), each one leaves the
+            # frame at the far end of a +-10 deg sweep: on 2026-09-22 every marker lost 1-3 of 11
+            # bins there, the other marker still covering them, and the extra prompts could not
+            # fix that geometry. After one readjustment the collected points are used.
             if log_callback:
-                log_callback(f"[WARN] {name} sweep missed {missing}/{num_steps} range bins (marker out of view). Returning to ready pose for readjustment...")
-            self.movej(self.robot, head=[0.0, 0.0], minimum_time=2.0, apply_offsets=False)
-            if not self.perform_move_to_ready_pose(arm_side="both", log_callback=log_callback, stop_event=stop_event):
-                if log_callback: log_callback("[WARN] Ready pose move failed; continuing with the collected points.")
-                return False
-            if callback is None:
-                if log_callback: log_callback("[WARN] No readjustment prompt available; continuing with the collected points.")
-                return False
-            if not callback(active_side, mode="head_camera"):
-                if log_callback: log_callback("[WARN] Readjustment cancelled; continuing with the collected points.")
-                return False
-            if log_callback: log_callback("[INFO] Posture readjusted. Restarting head Tilt and Pan sweeps...")
-            return True
+                log_callback(f"[WARN] {reason}; no readjustment left, continuing with the collected points.")
+            return False
+
+        def require_both_markers(phases):
+            """Solve only while every tracked marker has points: a one-marker solve put ~1.5 deg into
+            both arms' J0 on 2026-09-21."""
+            totals = {s: sum(ph["count_by_side"].get(s, 0) for ph in phases) for s in tracked_sides}
+            missing_markers = [s for s, n in totals.items() if n < self.MIN_HEAD_SWEEP_POINTS]
+            if missing_markers:
+                detail = ", ".join(f"{s} {totals[s]} pts" for s in missing_markers)
+                raise RuntimeError(f"{' and '.join(missing_markers).capitalize()} marker lost during the head "
+                                   f"sweeps ({detail}). Head-camera calibration needs both arm markers; "
+                                   f"readjust the arms and run Step 1.5 again.")
 
         # ----------------------------------------------------
         # Phase A: Head Tilt Sweep (Pan = 0, Tilt: -range to +range)
@@ -388,13 +464,8 @@ class HeadCameraCalibrator(BaseCalibrator):
         if tilt_phase is None:
             return None
         self.partial_data = {"tilt_phase": tilt_phase}
-        if tilt_phase["missing"] >= 2 and request_readjustment("Tilt", tilt_phase["missing"]):
-            return self.perform_head_sweep(arm_side, pan_range_deg, tilt_range_deg, num_steps, step_delay,
-                                           log_callback, status_callback, stop_event, save_debug, allow_readjust=False,
-                                           sweep_duration_s=sweep_duration_s)
-
-        if len(tilt_phase["samples"]) < self.MIN_HEAD_SWEEP_POINTS:
-            raise RuntimeError(f"Insufficient marker points collected during Tilt sweep ({len(tilt_phase['samples'])} points). Calibration cannot proceed.")
+        if phase_needs_restart(tilt_phase):
+            return restart_after_readjust()
 
         # Return head to zero center before Pan sweep
         if log_callback: log_callback("\n[INFO] Returning head to center before Pan sweep...")
@@ -409,17 +480,13 @@ class HeadCameraCalibrator(BaseCalibrator):
         if pan_phase is None:
             return None
         self.partial_data["pan_phase"] = pan_phase
-        if pan_phase["missing"] >= 2 and request_readjustment("Pan", pan_phase["missing"]):
+        if phase_needs_restart(pan_phase):
             # The arms moved: tilt data from before the readjustment is no longer consistent.
-            return self.perform_head_sweep(arm_side, pan_range_deg, tilt_range_deg, num_steps, step_delay,
-                                           log_callback, status_callback, stop_event, save_debug, allow_readjust=False,
-                                           sweep_duration_s=sweep_duration_s)
-
-        if len(pan_phase["samples"]) < self.MIN_HEAD_SWEEP_POINTS:
-            raise RuntimeError(f"Insufficient marker points collected during Pan sweep ({len(pan_phase['samples'])} points). Calibration cannot proceed.")
+            return restart_after_readjust()
 
         # Return head to zero center
         self.movej(self.robot, head=[0.0, 0.0], minimum_time=2.0, apply_offsets=False)
+        require_both_markers([tilt_phase, pan_phase])
 
         # ----------------------------------------------------
         # Phase C: Mathematical Solution for Decoupled Head-Camera Calib

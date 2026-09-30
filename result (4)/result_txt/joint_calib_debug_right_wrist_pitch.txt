@@ -1,0 +1,87 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_PITCH
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [195]
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [187]
+[DEBUG] Saved Axis 4 debug points to sweep_points_right_joint_A_axis_4.txt
+[DEBUG] Saved Axis 6 debug points to sweep_points_right_joint_B_axis_6.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.2659 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.0699 mm
+  * Estimated Circle Center Distance       : 1.4605 mm
+  * Calculated Offset Correction           : -0.458184 deg
+==================================================
+  * Angle Error (Deviation)          : 0.2659°
+  * Circle Size Error (r_A-r_B)      : 0.0699 mm
+  * Center Distance Error            : 1.4605 mm
+  * Max Fitting Error Metric         : 1.4605 mm
+[ITERATION 1/8] offset=0.0000°, residual=-0.4582° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -0.4582°
+
+[ITERATION 2/8] Sweeping physically with staged offset -0.4582°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -0.4582°]
+==================================================
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [193]
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [193]
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.1123 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.0440 mm
+  * Estimated Circle Center Distance       : 0.0509 mm
+  * Calculated Offset Correction           : 0.000056 deg
+==================================================
+  * Angle Error (Deviation)          : 0.1123°
+  * Circle Size Error (r_A-r_B)      : 0.0440 mm
+  * Center Distance Error            : 0.0509 mm
+  * Max Fitting Error Metric         : 0.0509 mm
+[ITERATION 2/8] offset=-0.4582°, residual=+0.0001° -> OK (within 0.06°)
+  * Updated Absolute Offset     : -0.4581°
+
+[ITERATION 3/8] Sweeping physically with staged offset -0.4581°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -0.4581°]
+==================================================
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [193]
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [193]
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.1056 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.1088 mm
+  * Estimated Circle Center Distance       : 0.1022 mm
+  * Calculated Offset Correction           : -0.004126 deg
+==================================================
+  * Angle Error (Deviation)          : 0.1056°
+  * Circle Size Error (r_A-r_B)      : 0.1088 mm
+  * Center Distance Error            : 0.1022 mm
+  * Max Fitting Error Metric         : 0.1088 mm
+[ITERATION 3/8] offset=-0.4581°, residual=-0.0041° -> OK (within 0.06°)
+  * Mean of 2 near-target estimates: -0.4602° (std=0.0300°, std err=0.0212°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: -0.4581°, -0.4623°
+  * Std err 0.0212° <= 0.06°
+  * Recommended Absolute Offset (mean): -0.4602°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\SAMSUNG\Desktop\RB-Y1 카메라 2\result\result_img\circle_fit_right_wrist_pitch_joint_calib.png

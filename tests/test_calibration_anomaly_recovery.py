@@ -3,11 +3,15 @@
 Tests the interaction between JointCalibrator/MarkerCalibrator and the user teaching callback
 without requiring any physical robot hardware, GUI, or camera.
 """
+import tempfile
 import unittest
+from unittest.mock import patch
+
 import numpy as np
 
 from core.calibration.JointCalibrator import JointCalibrator
 from core.calibration.MarkerCalibrator import MarkerCalibrator
+from core.storage import CONFIG_PATHS
 
 
 class DummyRobotModel:
@@ -41,6 +45,16 @@ class DummyMarkerST:
 
 class TestCalibrationAnomalyRecovery(unittest.TestCase):
     def setUp(self):
+        # perform_joint_calibration deletes sweep_points_* for the mode it is about to run and
+        # writes joint_calib_debug_*. Left pointing at the real result/ it destroys the captures
+        # from an actual calibration run -- the hazard Trap 21 in the project notes records.
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        patcher = patch.dict(CONFIG_PATHS, txt_dir=folder.name,
+                             result_dir=folder.name, plot_dir=folder.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
         self.jc = JointCalibrator(marker_st=DummyMarkerST(), robot=DummyRobot())
         self.jc.joint_offsets = {"right": {"elbow": 0.0, "wrist_pitch": 0.0, "wrist_yaw2": 0.0, "wrist_roll": 0.0}}
 
@@ -252,6 +266,24 @@ class TestCalibrationAnomalyRecovery(unittest.TestCase):
         self.assertEqual(sweep_count[0], 2, "Sweep should have run twice (1 bad + 1 good retry)")
         self.assertTrue(any("Runtime measurement anomaly detected for Marker Axis 4" in l for l in logs))
         self.assertTrue(any("Restarting Marker Axis 4 sweep" in l for l in logs))
+
+    def test_v12_j6_bracket_sweep_spans_30_deg_at_the_old_speed(self):
+        """v1.2 axis-6 sweep: +-30 deg over 13.5 s (was +-22.5 over 10 s); v1.3 and the other axes keep theirs."""
+        seen = []
+
+        def capture(arm_side, joint_i, cur_initial_pos, start_deg, end_deg, sweep_duration, **kwargs):
+            seen.append((joint_i, start_deg, end_deg, sweep_duration))
+            return None     # ends the sweep; no readjustment callback is set
+
+        self.mc.perform_single_joint_sweep = capture
+        for version in ("1.2", "1.3"):
+            self.mc.robot_version = version
+            for axis in (4, 6, 5):
+                self.mc.perform_calibration_sweep("right", axis, log_callback=lambda *_: None)
+        self.assertEqual(seen, [
+            (4, -20.0, 20.0, 10.0), (6, -30.0, 30.0, 13.5), (5, 0.0, -40.0, 10.0),
+            (4, -20.0, 20.0, 10.0), (6, -22.5, 22.5, 10.0), (5, 0.0, -40.0, 10.0),
+        ])
 
     def test_wrist_yaw2_orthogonal_normal_convergence(self):
         """Verify that in wrist_yaw2 (which has perpendicular axes at ~90 deg and center_dist ~56 mm),

@@ -29,7 +29,12 @@ class BaseCalibrator(RobotOperations):
     MARKER_CONFIGS = {
         "axis_4": {"joint_i": 4, "start_deg": -20.0, "end_deg": 20.0, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [0.0, 0.0, 1.0]},
         "axis_5": {"joint_i": 5, "start_deg": 0.0, "end_deg": -40.0, "n_nom_v12": [0.0, 1.0, 0.0], "n_nom_v13": [0.0, 1.0, 0.0]},
-        "axis_6": {"joint_i": 6, "start_deg": -22.5, "end_deg": 22.5, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0]},
+        # v1.2 J6 sweep widened to +-30 deg (2026-09-22). The 45 deg arc of the 54 mm circle left the
+        # J6 circle centre/axis poorly defined (41 mm chord). The J6 axis is ~85 deg from the camera
+        # axis, so the plate tilts as it sweeps: up to 46 deg off the view ray at +-30 vs 63 at +-45.
+        # The duration keeps the angular speed of the +-22.5 deg / 10 s sweep. v1.3 is unchanged.
+        "axis_6": {"joint_i": 6, "start_deg": -22.5, "end_deg": 22.5, "n_nom_v12": [0.0, 0.0, 1.0], "n_nom_v13": [1.0, 0.0, 0.0],
+                   "start_deg_v12": -30.0, "end_deg_v12": 30.0, "sweep_duration_s_v12": 13.5},
     }
     NOMINAL_BRACKET_TEMPLATES = {
         "1.3": {
@@ -1377,9 +1382,12 @@ class BaseCalibrator(RobotOperations):
             except Exception as e:
                 if log_callback: log_callback(f"[WARN] Failed to return to ready pose: {e}")
             if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
-                resolved = self.marker_problem_callback(arm_side)
+                # Pass the mode: the teaching dialog stores the taught posture under it, and the
+                # re-sweep below looks it up by the same key. Without it the posture was stored
+                # under None and the re-sweep ran from the old posture as if nothing was taught.
+                sweep_mode = kwargs.get('mode', "marker" if "Marker" in label else "joint")
+                resolved = self.marker_problem_callback(arm_side, mode=sweep_mode)
                 if resolved:
-                    sweep_mode = kwargs.get('mode', "marker" if "Marker" in label else "joint")
                     norm_mode = "wrist_pitch" if sweep_mode == "wrist_pitch_v13" else ("wrist_roll" if sweep_mode == "wrist_roll_v13" else sweep_mode)
                     if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
                         arm_dict = self.user_taught_ready_poses.get(arm_side)

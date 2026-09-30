@@ -75,10 +75,12 @@ from core.storage import ResultStorage, ConfigStorage
 from core.calibration.calibration_core import CalibrationCore
 from ui.core_bridge import CoreBridge, SequenceWorker, FullAutoWorker, HeadCamSweepWorker, JointCalibrationWorker, MarkerCalibrationWorker, Step2AutoMotionWorker, Step2CalculateWorker
 from core.storage import FileStorage
+from core.storage import camera_intrinsics_path
 from core.calibration import BaseCalibrator, IntrinsicsCalibrator
 from core.robot.home_offset import load_offset_from_json
 
-from core.calibration.data import get_arm_config, get_both_arm_config, get_head_config, load_npz_dataset, save_npz_dataset, validate_dataset
+from core.calibration.data import (get_arm_config, get_both_arm_config, get_head_config, load_npz_dataset,
+                                   load_step2_wrist_diversity, save_npz_dataset, validate_dataset)
 from core.robot.motion import AutoCollectionConfig, build_incremental_motion_plan, reset_motion_state
 
 
@@ -107,6 +109,20 @@ def show_info_dialog(parent: QWidget, title: str, message: str):
 def show_error_dialog(parent: QWidget, title: str, message: str):
     """Standardized critical/error popup dialog."""
     QMessageBox.critical(parent, title, message)
+
+
+def enforce_nominal_taught_joints(taught_pose, norm_mode, nom_pose):
+    """Put back the joint a re-taught joint-stage posture must keep at its ready-pose value.
+
+    The marker (bracket) posture is deliberately left alone: a taught pose is replayed as raw
+    encoder values (apply_offsets=False), so writing the nominal J5 into it would drop the J5
+    calibration offset and put J5 physically off by that offset.
+    """
+    if norm_mode == "elbow":
+        taught_pose[3] = nom_pose[3]
+    elif norm_mode in ("wrist_pitch", "wrist_roll", "wrist_yaw2"):
+        taught_pose[5] = nom_pose[5]
+    return taught_pose
 
 
 # --- Custom UI Widgets ---
@@ -323,6 +339,106 @@ class MarkerRecognitionProblemDialog(QDialog):
         btn_layout.addWidget(btn_cancel, stretch=1)
         main_layout.addLayout(btn_layout)
 
+class MarkerSpacingDialog(QDialog):
+    """Step 2 init pose: the operator widens the arms while the live marker gap is shown.
+
+    Red while the gap is below the minimum (or a marker is out of view), green once it is wide
+    enough; Done is enabled only while green. The gap itself is measured by the core and passed
+    in through update_gap()."""
+    GAP_OK_STYLE = "font-size: 30px; font-weight: bold; color: #66bb6a; padding: 8px;"
+    GAP_BAD_STYLE = "font-size: 30px; font-weight: bold; color: #ef5350; padding: 8px;"
+    CLOSE_CHECK_MS = 200
+
+    def __init__(self, parent, min_gap_m, session, stop_event=None):
+        super().__init__(parent)
+        self.min_gap_m = float(min_gap_m)
+        self.session = session
+        self.stop_event = stop_event
+        self.last_gap_m = None
+        self.setWindowTitle(tr("dialogs.markers_too_close.monitor_title"))
+        self.resize(900, 720)
+        self.setStyleSheet(DARK_STYLESHEET)
+
+        layout = QVBoxLayout(self)
+        layout.setSpacing(12)
+
+        lbl_title = QLabel(tr("dialogs.markers_too_close.monitor_header"))
+        lbl_title.setObjectName("dialog_title_warn")
+        lbl_title.setWordWrap(True)
+        lbl_title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(lbl_title)
+
+        lbl_desc = QLabel(tr("dialogs.markers_too_close.monitor_desc", min_gap=f"{self.min_gap_m * 100:.1f}"))
+        lbl_desc.setObjectName("dialog_desc")
+        lbl_desc.setWordWrap(True)
+        layout.addWidget(lbl_desc)
+
+        self.lbl_gap = QLabel()
+        self.lbl_gap.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.lbl_gap)
+
+        feed_box = QGroupBox(tr("dialogs.marker_problem.feed_box_title"))
+        feed_box.setObjectName("dialog_green_box")
+        feed_layout = QVBoxLayout(feed_box)
+        self.lbl_live_feed = QLabel(tr("dialogs.marker_problem.feed_loading"))
+        self.lbl_live_feed.setObjectName("live_feed_display")
+        self.lbl_live_feed.setAlignment(Qt.AlignCenter)
+        self.lbl_live_feed.setMinimumSize(560, 360)
+        feed_layout.addWidget(self.lbl_live_feed)
+        layout.addWidget(feed_box, stretch=1)
+
+        btn_layout = QHBoxLayout()
+        btn_layout.setSpacing(15)
+        self.btn_done = QPushButton(tr("dialogs.markers_too_close.btn_done"))
+        self.btn_done.setObjectName("btn_success_lg")
+        self.btn_done.setMinimumHeight(52)
+        self.btn_done.clicked.connect(self.accept)
+        btn_cancel = QPushButton(tr("dialogs.markers_too_close.btn_cancel"))
+        btn_cancel.setObjectName("btn_danger_lg")
+        btn_cancel.setMinimumHeight(52)
+        btn_cancel.clicked.connect(self.reject)
+        btn_layout.addWidget(self.btn_done, stretch=2)
+        btn_layout.addWidget(btn_cancel, stretch=1)
+        layout.addLayout(btn_layout)
+
+        # The core stops monitoring on Stop or an error: close instead of waiting for the operator.
+        self.close_timer = QTimer(self)
+        self.close_timer.timeout.connect(self._close_if_abandoned)
+        self.close_timer.start(self.CLOSE_CHECK_MS)
+
+    @staticmethod
+    def format_gap_cm(gap_m):
+        # Rounded down: a 10.99 cm gap must not read "11.0 cm" while it is still shown red.
+        return f"{np.floor(gap_m * 1000.0) / 10.0:.1f}"
+
+    def update_gap(self, info):
+        gap = info.get("gap_m") if isinstance(info, dict) else None
+        min_gap = f"{self.min_gap_m * 100:.1f}"
+        if gap is None:
+            self.last_gap_m = None
+            self.lbl_gap.setText(tr("dialogs.markers_too_close.gap_hidden", min_gap=min_gap))
+            wide_enough = False
+        else:
+            self.last_gap_m = float(gap)
+            self.lbl_gap.setText(tr("dialogs.markers_too_close.gap_value", gap=self.format_gap_cm(gap), min_gap=min_gap))
+            wide_enough = gap >= self.min_gap_m
+        self.lbl_gap.setStyleSheet(self.GAP_OK_STYLE if wide_enough else self.GAP_BAD_STYLE)
+        self.btn_done.setEnabled(wide_enough)
+
+    def accept(self):
+        # Only a gap measured at or above the minimum may be confirmed.
+        if self.last_gap_m is None or self.last_gap_m < self.min_gap_m:
+            return
+        super().accept()
+
+    def _close_if_abandoned(self):
+        if self.session.get("closed") or (self.stop_event is not None and self.stop_event.is_set()):
+            self.reject()
+
+    def done(self, result):
+        self.close_timer.stop()
+        super().done(result)
+
 class ApplyHomeOffsetDialog(QDialog):
     def __init__(self, parent, result_path, baseline_path, arm, include_head, compare_summary=None):
         super().__init__(parent)
@@ -373,10 +489,20 @@ class ApplyHomeOffsetDialog(QDialog):
 
         self.btn_baseline.setChecked(True)
 
-        if result_path is None or not os.path.exists(result_path):
-            self.btn_opt.setEnabled(False)
+        # The optimized result can always be previewed (zero / check pose) for comparison; it may be
+        # applied only once, and only when it was solved from samples collected at the current robot
+        # zero in this run (CalibrationCore.home_epoch).
+        self.opt_exists = bool(result_path is not None and os.path.exists(result_path))
+        self.opt_allowed = self.opt_exists and parent.core.result_apply_allowed(result_path)
+        self.btn_opt.setEnabled(self.opt_exists)
 
         layout.addLayout(state_layout)
+
+        self.lbl_opt_locked = QLabel(tr("dialogs.apply_home_offset.opt_locked"))
+        self.lbl_opt_locked.setWordWrap(True)
+        self.lbl_opt_locked.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 13px;")
+        self.lbl_opt_locked.setVisible(not self.opt_allowed)
+        layout.addWidget(self.lbl_opt_locked)
 
         # Movement Buttons
         move_layout = QHBoxLayout()
@@ -396,8 +522,7 @@ class ApplyHomeOffsetDialog(QDialog):
         self.btn_apply.setObjectName("btn_apply_offset")
         self.btn_apply.clicked.connect(self.on_apply_selected)
 
-        if result_path is None or not os.path.exists(result_path):
-            self.btn_apply.setEnabled(False)
+        self.btn_apply.setEnabled(self.apply_possible())
 
         btn_layout.addWidget(self.btn_apply)
 
@@ -475,6 +600,8 @@ class ApplyHomeOffsetDialog(QDialog):
         state, path = self.get_current_target()
         if not path or not os.path.exists(path):
             show_warning_dialog(self, tr("common.status_warning", default="Warning"), f"No {state} JSON found.")
+            return
+        if self.optimized_blocked(state):
             return
 
         self.set_buttons_enabled(False)
@@ -578,12 +705,27 @@ class ApplyHomeOffsetDialog(QDialog):
         self.worker_move.finished_signal.connect(on_move_finished)
         self.worker_move.start()
 
+    def apply_possible(self):
+        """Rollback to the baseline is always possible; the optimized result only while allowed."""
+        baseline_ok = self.baseline_path is not None and os.path.exists(self.baseline_path)
+        return baseline_ok or self.opt_allowed
+
+    def optimized_blocked(self, state):
+        """Refuse an optimized application that the core would refuse, with the reason."""
+        if state != "optimized" or self.parent_app.core.result_apply_allowed(self.result_path):
+            return False
+        show_warning_dialog(self, tr("dialogs.apply_home_offset.opt_locked_title"),
+                            tr("dialogs.apply_home_offset.opt_locked"))
+        return True
+
     def set_buttons_enabled(self, enabled):
+        # An apply that failed part way may still have moved the robot zero: re-read the core.
+        self.opt_allowed = self.opt_exists and self.parent_app.core.result_apply_allowed(self.result_path)
+        self.lbl_opt_locked.setVisible(not self.opt_allowed)
         self.btn_move_zero.setEnabled(enabled)
         self.btn_move_check.setEnabled(enabled)
-        self.btn_apply.setEnabled(enabled)
-        if self.result_path is not None and os.path.exists(self.result_path):
-            self.btn_opt.setEnabled(enabled)
+        self.btn_apply.setEnabled(enabled and self.apply_possible())
+        self.btn_opt.setEnabled(enabled and self.opt_exists)
         self.btn_baseline.setEnabled(enabled)
 
 class CheckCalibrationStateDialog(QDialog):
@@ -765,6 +907,7 @@ class UnifiedCalibrationApp(QWidget):
     log_signal_safe = Signal(str)
     update_ui_signal_safe = Signal(str)
     marker_problem_signal = Signal(str, object, object)
+    marker_spacing_signal = Signal(float, float, object)
 
     @property
     def is_ko_ui(self) -> bool:
@@ -786,6 +929,7 @@ class UnifiedCalibrationApp(QWidget):
         self.core.last_home_reset_path = getattr(self, "last_home_reset_path", None)
         self.core.auto_config = self.auto_config
         self.core.prompt_teaching = self.prompt_marker_problem_teaching
+        self.core.prompt_marker_spacing = self.prompt_marker_spacing
         for calibrator in self.core.calibrators:
             calibrator.include_head_motion = self.include_head_motion
             calibrator.marker_problem_callback = self.prompt_marker_problem_teaching
@@ -800,6 +944,7 @@ class UnifiedCalibrationApp(QWidget):
             samples = step.completed.get("samples", step.partial.get("samples", []))
             for sample in samples:
                 self.shared_arm_q_list.append(sample["q_arm"])
+                self.shared_sample_epochs.append(sample.get("home_epoch"))
                 if sample["q_head"] is not None:
                     self.shared_head_q_list.append(sample["q_head"])
                 self.shared_T_list.append(sample["marker"])
@@ -816,12 +961,57 @@ class UnifiedCalibrationApp(QWidget):
                     if child is not None:
                         display_step(child)
         display_step(result)
+        step1 = result if result.name == "step1" else result.completed.get("step1")
+        if step1 is not None and step1.success:
+            # The core has written Step 1 to setting.yaml; show what was saved.
+            self.update_applied_offset_label()
+            self.load_bracket_design_values()
+
+    def prompt_marker_spacing(self, gap_m, min_gap_m):
+        """Core callback (worker thread): open the widen-the-arms dialog and return at once.
+
+        The core keeps measuring the gap and sends it through CoreBridge.marker_gap; the session
+        is completed by the dialog (done/accepted/gap_m) or closed by the core (closed)."""
+        session = {"done": threading.Event(), "accepted": False, "gap_m": None, "closed": False}
+        self.marker_spacing_signal.emit(float(gap_m), float(min_gap_m), session)
+        return session
+
+    def _on_marker_spacing_requested(self, gap_m, min_gap_m, session):
+        try:
+            self.show_message_box(
+                tr("dialogs.markers_too_close.title"),
+                tr("dialogs.markers_too_close.notice_msg", gap=MarkerSpacingDialog.format_gap_cm(gap_m),
+                   min_gap=f"{min_gap_m * 100:.1f}"),
+                QMessageBox.Warning)
+            dlg = MarkerSpacingDialog(self, min_gap_m, session, stop_event=self.core.stop_event)
+            dlg.update_gap({"gap_m": gap_m, "min_gap_m": min_gap_m})
+            self.marker_spacing_dlg = dlg
+            self.on_left_tab_changed(self.left_tabs.currentIndex())
+            accepted = dlg.exec() == QDialog.Accepted
+            session["gap_m"] = dlg.last_gap_m
+            session["accepted"] = accepted
+        finally:
+            self.marker_spacing_dlg = None
+            self.on_left_tab_changed(self.left_tabs.currentIndex())
+            session["done"].set()
+
+    def _on_marker_gap(self, info):
+        dlg = getattr(self, "marker_spacing_dlg", None)
+        if dlg is not None:
+            dlg.update_gap(info)
+
+    def _on_marker_monitor(self, info):
+        wizard = getattr(self, "wizard_widget", None)
+        if wizard is not None:
+            wizard.update_marker_monitor(info)
 
     def __init__(self, core=None, robot=None, arm_side="right", ui_only=False):
         super().__init__()
         self.log_signal_safe.connect(self._log_msg_slot)
         self.update_ui_signal_safe.connect(self._update_ui_slot)
         self.marker_problem_signal.connect(self._on_marker_problem_requested)
+        self.marker_spacing_signal.connect(self._on_marker_spacing_requested)
+        self.marker_spacing_dlg = None
 
         self.core = core if isinstance(core, CalibrationCore) else CalibrationCore(observer=core, robot=robot)
         self.core_bridge = CoreBridge(self.core, self)
@@ -830,6 +1020,8 @@ class UnifiedCalibrationApp(QWidget):
         self.core_bridge.bracket.connect(self.handle_full_auto_bracket_finished)
         self.core_bridge.joint.connect(self.handle_full_auto_joint_finished)
         self.core_bridge.progress.connect(self._on_core_progress)
+        self.core_bridge.marker_gap.connect(self._on_marker_gap)
+        self.core_bridge.marker_monitor.connect(self._on_marker_monitor)
         self.last_sequence_result = None
         self.robot = self.core.robot
         self.arm_side = arm_side
@@ -875,6 +1067,8 @@ class UnifiedCalibrationApp(QWidget):
         self.shared_arm_q_list = []
         self.shared_head_q_list = []
         self.shared_T_list = []
+        # Robot zero (CalibrationCore.home_epoch) each shared sample was collected at.
+        self.shared_sample_epochs = []
         self.head_move_count = 0
 
         self.auto_config = AutoCollectionConfig()
@@ -953,17 +1147,47 @@ class UnifiedCalibrationApp(QWidget):
 
         self.active_worker = None
 
-        if self.core.observer and getattr(self.core.observer, 'intrinsics_mismatch', False):
-            calib_device = getattr(self.core.observer, 'calib_device_name', '')
-            connected_model = getattr(self.core.observer, 'camera_model', '')
+        self.warn_camera_config_gaps()
+
+        self.init_camera_exposure_state()
+
+    def warn_camera_config_gaps(self):
+        """Report anything the connected camera model has no stored data for.
+
+        The observer resolves the bracket extrinsics and the intrinsics from the model it detected
+        and records what it could not find. Neither gap stops the app: it runs on the camera's
+        factory intrinsics and the extrinsics already in setting.yaml, both of which give a wrong
+        calibration, so say so plainly instead of failing silently.
+        """
+        observer = self.core.observer
+        if not observer:
+            return
+        connected_model = getattr(observer, 'camera_model', '') or "?"
+
+        if getattr(observer, 'extrinsics_missing', False):
+            QMessageBox.critical(
+                self,
+                tr("dialogs.camera_extrinsics_missing.title"),
+                tr("dialogs.camera_extrinsics_missing.text").format(connected_model=connected_model) + "\n\n" +
+                tr("dialogs.camera_extrinsics_missing.informative_text").format(connected_model=connected_model)
+            )
+
+        if getattr(observer, 'intrinsics_missing', False):
+            QMessageBox.critical(
+                self,
+                tr("dialogs.camera_intrinsics_missing.title"),
+                tr("dialogs.camera_intrinsics_missing.text").format(
+                    connected_model=connected_model, store=connected_model.lower()) + "\n\n" +
+                tr("dialogs.camera_intrinsics_missing.informative_text")
+            )
+        elif getattr(observer, 'intrinsics_mismatch', False):
+            calib_device = getattr(observer, 'calib_device_name', '')
             QMessageBox.warning(
                 self,
                 tr("dialogs.camera_intrinsics_warning.title"),
                 tr("dialogs.camera_intrinsics_warning.text").format(connected_model=connected_model, calib_device=calib_device) + "\n\n" +
                 tr("dialogs.camera_intrinsics_warning.informative_text")
             )
-
-        self.init_camera_exposure_state()
 
     def init_camera_exposure_state(self):
         # Load exposure config from setting.yaml with fallback to defaults
@@ -990,7 +1214,10 @@ class UnifiedCalibrationApp(QWidget):
 
         if self.core.observer is not None and hasattr(self.core.observer, 'set_camera_exposure'):
             self.core.set_camera_exposure(exp_val, auto_exposure=auto_mode)
-            self.log_msg(f"[Camera] Initialized camera exposure: auto={auto_mode}, exposure={exp_val}μs")
+            self.log_msg(f"[Camera] Initialized camera exposure: auto={auto_mode}, exposure={exp_val}")
+
+        # Reconnecting can bring up a different model, whose exposure option has its own range.
+        self.sync_exposure_limits_from_camera()
 
     def set_camera_auto_mode(self):
         self.applied_camera_auto_exposure = True
@@ -1019,9 +1246,87 @@ class UnifiedCalibrationApp(QWidget):
             if hasattr(self, 'spin_exposure'):
                 self.spin_exposure.setFocus()
 
+    def sync_exposure_limits_from_camera(self):
+        """Bound the exposure controls by what the connected camera's colour sensor accepts.
+
+        The range is per model and cannot be assumed: a D435's RGB camera bottoms out well below
+        the 100 these controls used to allow, so short exposures could not be set on it at all.
+        Falls back to the widened built-in bounds when no camera can be asked.
+        """
+        observer = self.core.observer
+        limits = None
+        if observer is not None and hasattr(observer, 'get_camera_exposure_range'):
+            try:
+                limits = observer.get_camera_exposure_range()
+            except Exception as error:
+                self.log_msg(f"[Camera][WARN] Could not read the exposure range: {error}")
+        if not limits:
+            return
+        low, high, step, _default = (int(limits[0]), int(limits[1]), int(limits[2]), limits[3])
+        step = max(1, step)
+        unit_us = 1.0
+        if hasattr(observer, 'get_camera_exposure_unit_us'):
+            try:
+                unit_us = float(observer.get_camera_exposure_unit_us() or 1.0)
+            except Exception:
+                unit_us = 1.0
+        self.exposure_unit_us = unit_us
+        wizard = getattr(self, 'wizard_widget', None)
+        widgets = [getattr(self, 'spin_exposure', None), getattr(self, 'slider_exposure', None),
+                   getattr(wizard, 'spin_wiz_exp', None), getattr(wizard, 'slider_wiz_exp', None)]
+        for widget in widgets:
+            if widget is None:
+                continue
+            widget.blockSignals(True)
+            widget.setRange(low, high)
+            widget.setSingleStep(max(step, min(500, max(1, (high - low) // 200))))
+            widget.blockSignals(False)
+        range_text = (f"Range {low}–{high}  (1 = {unit_us:g} µs → "
+                      f"{self.exposure_ms(low):.1f}–{self.exposure_ms(high):.0f} ms)")
+        for label in (getattr(self, 'lbl_exposure_range', None), getattr(wizard, 'lbl_wiz_exp_range', None)):
+            if label is not None:
+                label.setText(range_text)
+        self.log_msg(f"[Camera] Exposure range for this camera: {low}..{high} (step {step}, "
+                     f"1 unit = {unit_us:g} us, i.e. {self.exposure_ms(low):.1f}..{self.exposure_ms(high):.0f} ms)")
+        # Start the controls from what the camera is actually set to: a setpoint remembered in
+        # another camera's units (the 6000 default was microseconds) is 600 ms on a D435.
+        if hasattr(observer, 'get_camera_exposure'):
+            try:
+                _auto, cam_value = observer.get_camera_exposure()
+                if cam_value is not None and low <= int(cam_value) <= high and hasattr(self, 'spin_exposure'):
+                    self.on_exposure_value_changed(int(cam_value))
+                    if wizard is not None and hasattr(wizard, 'spin_wiz_exp'):
+                        for widget in (wizard.spin_wiz_exp, wizard.slider_wiz_exp):
+                            widget.blockSignals(True)
+                            widget.setValue(int(cam_value))
+                            widget.blockSignals(False)
+            except Exception:
+                pass
+        current = self.spin_exposure.value() if hasattr(self, 'spin_exposure') else low
+        if not low <= current <= high:
+            self.log_msg(f"[Camera] Stored exposure {current} is outside that range; using {min(max(current, low), high)}.")
+            self.on_exposure_value_changed(min(max(current, low), high))
+        self.refresh_measured_exposure()
+
+    def exposure_ms(self, value):
+        """A setpoint in the camera's own exposure units, in milliseconds."""
+        return float(value) * float(getattr(self, 'exposure_unit_us', 1.0) or 1.0) / 1000.0
+
+    def refresh_measured_exposure(self):
+        """Show the exposure the camera actually reports in its frame metadata, in ms.
+
+        This is the one figure that means the same thing on every model -- unlike the setpoint,
+        whose unit belongs to the sensor.
+        """
+        if not hasattr(self, 'lbl_exposure_ms'):
+            return
+        try:
+            measured = self.core.get_monitor_snapshot().get("exposure")
+        except Exception:
+            measured = None
+        self.lbl_exposure_ms.setText(f"≈ {float(measured) / 1000.0:.1f} ms" if measured else "")
+
     def on_exposure_value_changed(self, value):
-        if hasattr(self, 'lbl_exposure_ms'):
-            self.lbl_exposure_ms.setText(f"{value / 1000.0:.1f} ms")
         if hasattr(self, 'slider_exposure') and self.slider_exposure.value() != value:
             self.slider_exposure.blockSignals(True)
             self.slider_exposure.setValue(value)
@@ -1045,7 +1350,8 @@ class UnifiedCalibrationApp(QWidget):
         if auto_mode:
             self.log_msg("[Camera] Applied AUTO exposure setting.")
         else:
-            self.log_msg(f"[Camera] Applied manual exposure: {exp_val} μs ({exp_val/1000.0:.1f} ms)")
+            self.log_msg(f"[Camera] Applied manual exposure: {exp_val}")
+        self.refresh_measured_exposure()
 
     def cancel_camera_exposure(self):
         # Restore previous applied/saved state
@@ -1066,17 +1372,15 @@ class UnifiedCalibrationApp(QWidget):
             self.slider_exposure.setValue(self.saved_camera_exposure_value)
             self.slider_exposure.setEnabled(not self.saved_camera_auto_exposure)
             self.slider_exposure.blockSignals(False)
-        if hasattr(self, 'lbl_exposure_ms'):
-            self.lbl_exposure_ms.setText(f"{self.saved_camera_exposure_value / 1000.0:.1f} ms")
-
         if self.core.observer is not None and hasattr(self.core.observer, 'set_camera_exposure'):
             self.core.set_camera_exposure(self.saved_camera_exposure_value, auto_exposure=self.saved_camera_auto_exposure)
+        self.refresh_measured_exposure()
         self.log_msg("[Camera] Exposure changes cancelled. Restored previous setting.")
 
     def save_camera_exposure(self):
         self.saved_camera_auto_exposure = self.applied_camera_auto_exposure
         self.saved_camera_exposure_value = self.applied_camera_exposure_value
-        self.log_msg(f"[SUCCESS] Confirmed and saved exposure for calibration: auto={self.saved_camera_auto_exposure}, exposure={self.saved_camera_exposure_value}μs")
+        self.log_msg(f"[SUCCESS] Confirmed and saved exposure for calibration: auto={self.saved_camera_auto_exposure}, exposure={self.saved_camera_exposure_value}")
 
     def reconnect_camera(self, show_dialog=True):
         self.log_msg("[INFO] Reconnecting RealSense camera...")
@@ -1898,28 +2202,39 @@ class UnifiedCalibrationApp(QWidget):
         exp_layout.addWidget(self.chk_auto_exposure)
 
         exp_val_row = QHBoxLayout()
-        exp_val_row.addWidget(QLabel("Exposure (μs):"))
+        # No unit in the label: the exposure option's unit is the colour sensor's own and is not
+        # the same across models (a D405 takes microseconds, a D435's RGB camera does not), so the
+        # number here only means something next to the range the camera itself reports. The
+        # measured time in ms comes from frame metadata instead, which is comparable.
+        exp_val_row.addWidget(QLabel("Exposure:"))
         self.spin_exposure = QSpinBox()
-        self.spin_exposure.setRange(100, 100000)
+        # Widened from (100, 100000): the old floor of 100 was above what a D435's RGB camera
+        # needs, so short exposures were unreachable on it. sync_exposure_limits_from_camera()
+        # narrows this to what the connected camera actually accepts.
+        self.spin_exposure.setRange(1, 200000)
         self.spin_exposure.setSingleStep(500)
         self.spin_exposure.setValue(init_exp)
         self.spin_exposure.setEnabled(not init_auto)
         self.spin_exposure.valueChanged.connect(self.on_exposure_value_changed)
         exp_val_row.addWidget(self.spin_exposure)
 
-        self.lbl_exposure_ms = QLabel(f"{init_exp / 1000.0:.1f} ms")
-        self.lbl_exposure_ms.setStyleSheet("color: #ffd700; font-weight: bold; min-width: 50px;")
+        self.lbl_exposure_ms = QLabel("")
+        self.lbl_exposure_ms.setStyleSheet("color: #ffd700; font-weight: bold; min-width: 90px;")
         exp_val_row.addWidget(self.lbl_exposure_ms)
         exp_layout.addLayout(exp_val_row)
 
         self.slider_exposure = QSlider(Qt.Horizontal)
-        self.slider_exposure.setRange(100, 100000)
+        self.slider_exposure.setRange(1, 200000)
         self.slider_exposure.setSingleStep(500)
         self.slider_exposure.setPageStep(5000)
         self.slider_exposure.setValue(init_exp)
         self.slider_exposure.setEnabled(not init_auto)
         self.slider_exposure.valueChanged.connect(self.on_exposure_value_changed)
         exp_layout.addWidget(self.slider_exposure)
+
+        self.lbl_exposure_range = QLabel("")
+        self.lbl_exposure_range.setStyleSheet("color: #9e9e9e; font-size: 11px;")
+        exp_layout.addWidget(self.lbl_exposure_range)
 
         # Action Buttons: APPLY and CANCEL
         btn_row1 = QHBoxLayout()
@@ -2407,7 +2722,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px;")
                 self.wizard_widget.lbl_step2_status.setText(tr("wizard.status_robot_connected"))
                 self.wizard_widget.lbl_step2_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
-                self.wizard_widget.mark_step_completed(5, True, "Connected")
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ROBOT_CONNECT,True, "Connected")
         else:
             self.btn_connect.setText("CONNECT")
             self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
@@ -2417,7 +2732,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
                 self.wizard_widget.lbl_step2_status.setText(tr("wizard.status_disconnected"))
                 self.wizard_widget.lbl_step2_status.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
-                self.wizard_widget.mark_step_completed(5, False, "Disconnected")
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ROBOT_CONNECT,False, "Disconnected")
 
     def sync_connection_settings(self, source='main'):
         if not hasattr(self, 'wizard_widget') or not self.wizard_widget:
@@ -2504,12 +2819,7 @@ class UnifiedCalibrationApp(QWidget):
                     if hasattr(self, 'marker_calibrator') and self.marker_calibrator:
                         try:
                             nom_pose = self.marker_calibrator.get_ready_pose(version_key, type_key, ready_mode, arm_side)
-                            if norm_mode == "elbow":
-                                taught_pose[3] = nom_pose[3]
-                            elif norm_mode == "wrist_pitch":
-                                taught_pose[5] = nom_pose[5]
-                            elif norm_mode in ("wrist_roll", "wrist_yaw2"):
-                                taught_pose[5] = nom_pose[5]
+                            enforce_nominal_taught_joints(taught_pose, norm_mode, nom_pose)
                         except Exception as e:
                             self.log_msg(f"[WARN] Could not enforce nominal target angle on taught pose: {e}")
 
@@ -2697,11 +3007,14 @@ class UnifiedCalibrationApp(QWidget):
                 self.update_joint_modes()
                 self.load_offsets_from_yaml()
                 self.update_applied_offset_label()
-                self.load_bracket_design_values()
 
                 # Bind robot and version to marker detector (handles both real and sim)
                 if self.core.observer is not None:
                     self.core.bind_robot(self.robot, detected_version)
+
+                # After the bind, not before: binding is what re-points the marker brackets in
+                # setting.yaml at the version this robot actually is, and this reads that file.
+                self.load_bracket_design_values()
 
                 if self.ui_only:
                     self.step2_mode_sel.setCurrentText("sim")
@@ -2837,7 +3150,8 @@ class UnifiedCalibrationApp(QWidget):
     def is_any_camera_dialog_visible(self):
         feed_vis = (hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible())
         prob_vis = (hasattr(self, 'marker_problem_dlg') and self.marker_problem_dlg is not None)
-        return feed_vis or prob_vis
+        spacing_vis = getattr(self, 'marker_spacing_dlg', None) is not None
+        return feed_vis or prob_vis or spacing_vis
 
     def _on_step1_subtab_changed(self, index):
         """Handle sub-tab switching within Step 1 (Main=0, Camera=1)."""
@@ -2863,7 +3177,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.wizard_widget.isHidden():
             return False
         cur_idx = self.wizard_widget.stacked_widget.currentIndex()
-        return cur_idx in [0, 2, 4]
+        return cur_idx in self.wizard_widget.VIDEO_SLIDES
 
     def on_left_tab_changed(self, index):
         # 방어적 코드: 타이머 객체가 아직 미생성된 상태이면 처리를 생략
@@ -3081,7 +3395,8 @@ class UnifiedCalibrationApp(QWidget):
 
                     active_arms = ["right", "left"]
                     temp_plan = build_incremental_motion_plan(
-                        self.robot, self.dyn_model, self.auto_config, active_arms
+                        self.robot, self.dyn_model, self.auto_config, active_arms,
+                        include_head_motion=self.include_head_motion, wrist_diversity=self.step2_wrist_diversity()
                     )
                     cnt = len(temp_plan)
 
@@ -3248,7 +3563,8 @@ class UnifiedCalibrationApp(QWidget):
             active_arms = ["right", "left"]
             try:
                 self.auto_motion_plan = build_incremental_motion_plan(
-                    self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion
+                    self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion,
+                    wrist_diversity=self.step2_wrist_diversity()
                 )
             except Exception as e:
                 self.log_msg(f"[ERROR] Failed to build motion plan: {e}")
@@ -3444,9 +3760,9 @@ class UnifiedCalibrationApp(QWidget):
             if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
                 self.wizard_widget.set_wizard_busy(False)
                 if success:
-                    self.wizard_widget.mark_step_completed(6, True, "Moved to Zero Position")
+                    self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ZERO_POSE,True, "Moved to Zero Position")
                 else:
-                    self.wizard_widget.mark_step_completed(6, False, error_msg)
+                    self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ZERO_POSE,False, error_msg)
 
             if success:
                 self.log_msg("[Wizard 3-1] Robot moved to zero pose successfully.")
@@ -3616,11 +3932,22 @@ class UnifiedCalibrationApp(QWidget):
                 ee_to_marker_nom = cfg["ee_to_marker_nom"]
 
             head_cfg = get_head_config(self.model)
+            # Robot zero the samples were collected at; None (npz, mixed or unknown) makes the
+            # result analysis only: it cannot be applied as home offset (CalibrationCore.home_epoch).
+            data_home_epoch = None
 
             if mode in ["live", "sim"]:
                 if len(self.shared_arm_q_list) == 0:
                     QMessageBox.warning(self, "Warning", "No recorded samples in memory.")
                     return
+                epochs = set(self.shared_sample_epochs)
+                if len(epochs) == 1 and len(self.shared_sample_epochs) == len(self.shared_arm_q_list):
+                    data_home_epoch = epochs.pop()
+                if data_home_epoch != self.core.home_epoch:
+                    data_home_epoch = None
+                    self.log_msg("[Step2][WARN] The samples in memory were not all collected at the current robot zero "
+                                 "(a home offset was reset or applied since). The result will be analysis only; "
+                                 "clear the samples and collect again to get an applicable result.")
 
                 self.log_msg(f"[Step2] Using live recorded dataset ({len(self.shared_arm_q_list)} samples in memory).")
                 q_arm_list = np.array(self.shared_arm_q_list)
@@ -3686,7 +4013,8 @@ class UnifiedCalibrationApp(QWidget):
                 T_meas_list,
                 result_path,
                 lambda_cam_pos,
-                lambda_cam_rot
+                lambda_cam_rot,
+                data_home_epoch=data_home_epoch,
             )
             self.calc_worker.log_signal.connect(self.log_msg)
 
@@ -3726,6 +4054,7 @@ class UnifiedCalibrationApp(QWidget):
         self.shared_arm_q_list.clear()
         self.shared_head_q_list.clear()
         self.shared_T_list.clear()
+        self.shared_sample_epochs.clear()
         self.head_move_count = 0
         self.auto_base_head_q = None
         self.auto_ready_done = False
@@ -3899,32 +4228,32 @@ class UnifiedCalibrationApp(QWidget):
             if os.path.exists(config_path):
                 with FileStorage.open(config_path, "r") as f:
                     data = yaml.safe_load(f)
-                    is_v13 = self.get_robot_version() == "1.3"
                     marker_data = data.get("marker", {})
+                    # Tf_to_marker_<side> is shown as it stands. Which robot version's bracket it
+                    # is belongs to the observer, which re-points it at the connected robot's
+                    # version on bind and writes that to setting.yaml before this runs. Guessing
+                    # here off `abs(x) > 0.05` used to overwrite a v1.3 bracket with the v1.2
+                    # nominal whenever the robot was not connected yet and the version still
+                    # read as the "1.2" default.
                     # Load Left Arm values
                     val_left = marker_data.get("Tf_to_marker_left", None)
                     if val_left and len(val_left) == 6:
-                        if is_v13 and abs(val_left[0]) < 0.05:
-                            val_left = marker_data.get("Tf_to_marker_left_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["left"])
-                        elif not is_v13 and abs(val_left[0]) > 0.05:
-                            val_left = marker_data.get("Tf_to_marker_left_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["left"])
                         self.txt_bracket_l_x.setText(f"{val_left[0]:.4f}")
                         self.txt_bracket_l_y.setText(f"{val_left[1]:.4f}")
                         self.txt_bracket_l_z.setText(f"{val_left[2]:.4f}")
                         self.txt_bracket_l_roll.setText(f"{val_left[3]:.2f}")
                         self.txt_bracket_l_pitch.setText(f"{val_left[4]:.2f}")
                         self.txt_bracket_l_yaw.setText(f"{val_left[5]:.2f}")
-                        # Sync back to memory configs
-                        self.marker_calibrator.markers_config["Tf_to_marker_left"] = val_left
-                        self.joint_calibrator.markers_config["Tf_to_marker_left"] = val_left
+                        # Sync back to memory configs. camera_config carries its own merged copy
+                        # and is what the Step 1 / Step 2 sequences read, so it has to follow too
+                        # or a bracket that just changed with the robot version stays stale there.
+                        for calibrator in (self.marker_calibrator, self.joint_calibrator):
+                            calibrator.markers_config["Tf_to_marker_left"] = val_left
+                            calibrator.camera_config["Tf_to_marker_left"] = val_left
 
                     # Load Right Arm values
                     val_right = marker_data.get("Tf_to_marker_right", None)
                     if val_right and len(val_right) == 6:
-                        if is_v13 and abs(val_right[0]) < 0.05:
-                            val_right = marker_data.get("Tf_to_marker_right_v13", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.3"]["right"])
-                        elif not is_v13 and abs(val_right[0]) > 0.05:
-                            val_right = marker_data.get("Tf_to_marker_right_v12", self.joint_calibrator.NOMINAL_BRACKET_TEMPLATES["1.2"]["right"])
                         self.txt_bracket_r_x.setText(f"{val_right[0]:.4f}")
                         self.txt_bracket_r_y.setText(f"{val_right[1]:.4f}")
                         self.txt_bracket_r_z.setText(f"{val_right[2]:.4f}")
@@ -3932,8 +4261,9 @@ class UnifiedCalibrationApp(QWidget):
                         self.txt_bracket_r_pitch.setText(f"{val_right[4]:.2f}")
                         self.txt_bracket_r_yaw.setText(f"{val_right[5]:.2f}")
                         # Sync back to memory configs
-                        self.marker_calibrator.markers_config["Tf_to_marker_right"] = val_right
-                        self.joint_calibrator.markers_config["Tf_to_marker_right"] = val_right
+                        for calibrator in (self.marker_calibrator, self.joint_calibrator):
+                            calibrator.markers_config["Tf_to_marker_right"] = val_right
+                            calibrator.camera_config["Tf_to_marker_right"] = val_right
 
                     self.log_msg(f"[INFO] Loaded Tf_to_marker values for both arms and synced to calibrator memory")
                     return
@@ -4065,6 +4395,15 @@ class UnifiedCalibrationApp(QWidget):
     def get_robot_version(self) -> str:
         return str(getattr(self, "robot_version", "1.2"))
 
+    def step2_wrist_diversity(self):
+        """Extra Step 2 wrist poses (head robots only, setting.yaml step2.wrist_diversity_poses)."""
+        if not self.include_head_motion:
+            return []
+        steps, enabled = load_step2_wrist_diversity(self.get_robot_version())
+        if enabled:
+            self.log_msg(f"[INFO] Step 2 wrist-diversity poses: {len(steps)} (v{self.get_robot_version()}).")
+        return steps
+
     @idle_core_action
     def move_to_ready_full_auto(self):
         if not self.ui_only and not self.robot:
@@ -4191,11 +4530,11 @@ class UnifiedCalibrationApp(QWidget):
 
             # Image
             img_label = QLabel()
-            pixmap = QPixmap(get_asset_path("img/home_offset_position.png"))
+            pixmap = QPixmap(get_asset_path("img/offset_reset_pose_direction.png"))
             if not pixmap.isNull():
-                img_label.setPixmap(pixmap.scaled(600, 400, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+                img_label.setPixmap(pixmap.scaled(820, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation))
             else:
-                img_label.setText("[img/home_offset_position.png not found]")
+                img_label.setText("[img/offset_reset_pose_direction.png not found]")
             img_label.setAlignment(Qt.AlignCenter)
             layout.addWidget(img_label)
 
@@ -4279,9 +4618,9 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
             self.wizard_widget.set_wizard_busy(False)
             if success:
-                self.wizard_widget.mark_step_completed(7, True, "Home Offset Reset complete")
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_HOME_OFFSET,True, "Home Offset Reset complete")
             else:
-                self.wizard_widget.mark_step_completed(7, False, error_msg)
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_HOME_OFFSET,False, error_msg)
 
 
     def clear_old_plots(self):
@@ -5099,14 +5438,15 @@ class UnifiedCalibrationApp(QWidget):
         # Camera 서브탭(Step1 > Camera)이 활성화되어 있거나, Camera Feed 대화상자 또는 마커 미인식 대화상자, 위자드 비디오 슬라이드가 열려있을 때 업데이트
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
         prob_dlg_visible = hasattr(self, 'marker_problem_dlg') and self.marker_problem_dlg is not None
+        spacing_dlg = getattr(self, 'marker_spacing_dlg', None)
         camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
         wizard_active = hasattr(self, 'wizard_widget') and self.wizard_widget is not None and not self.wizard_widget.isHidden()
         wizard_slide_idx = self.wizard_widget.stacked_widget.currentIndex() if wizard_active else -1
-        wizard_slide_mount = wizard_active and (wizard_slide_idx == 0)
-        wizard_slide_exp = wizard_active and (wizard_slide_idx == 2)
-        wizard_slide_calib = wizard_active and (wizard_slide_idx == 4)
+        wizard_slide_mount = wizard_active and (wizard_slide_idx == self.wizard_widget.SLIDE_CAMERA_MOUNT)
+        wizard_slide_exp = wizard_active and (wizard_slide_idx == self.wizard_widget.SLIDE_EXPOSURE)
+        wizard_slide_calib = wizard_active and (wizard_slide_idx == self.wizard_widget.SLIDE_INTRINSICS_CALIB)
 
-        if not camera_tab_active and not dialog_visible and not wizard_slide_mount and not wizard_slide_exp and not wizard_slide_calib and not prob_dlg_visible:
+        if not camera_tab_active and not dialog_visible and not wizard_slide_mount and not wizard_slide_exp and not wizard_slide_calib and not prob_dlg_visible and spacing_dlg is None:
             return
 
         if not self.ui_only and self.core.observer is not None:
@@ -5117,12 +5457,19 @@ class UnifiedCalibrationApp(QWidget):
             is_auto = hasattr(self, 'chk_auto_exposure') and self.chk_auto_exposure.isChecked()
             if is_auto:
                 act_exp = snapshot["exposure"] or 0.0
-                act_exp_int = int(act_exp)
-                if hasattr(self, 'spin_exposure'):
+                act_exp_int = int(round(act_exp / float(getattr(self, 'exposure_unit_us', 1.0) or 1.0)))
+                # snapshot["exposure"] is the measured time in microseconds, while the controls
+                # hold a setpoint in the sensor's own units. They coincide on a D405 and do not
+                # on a D435, so only mirror the reading into the controls when it is a value they
+                # could actually be set to -- otherwise it would be silently clamped and then
+                # carried over as the manual setpoint on the next switch out of auto.
+                in_range = (hasattr(self, 'spin_exposure')
+                            and self.spin_exposure.minimum() <= act_exp_int <= self.spin_exposure.maximum())
+                if in_range and hasattr(self, 'spin_exposure'):
                     self.spin_exposure.blockSignals(True)
                     self.spin_exposure.setValue(act_exp_int)
                     self.spin_exposure.blockSignals(False)
-                if hasattr(self, 'slider_exposure'):
+                if in_range and hasattr(self, 'slider_exposure'):
                     self.slider_exposure.blockSignals(True)
                     self.slider_exposure.setValue(act_exp_int)
                     self.slider_exposure.blockSignals(False)
@@ -5201,10 +5548,14 @@ class UnifiedCalibrationApp(QWidget):
             w_lbl = max(20, self.marker_problem_dlg.lbl_live_feed.width())
             h_lbl = max(20, self.marker_problem_dlg.lbl_live_feed.height())
             self.marker_problem_dlg.lbl_live_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
+        if spacing_dlg is not None:
+            w_lbl = max(20, spacing_dlg.lbl_live_feed.width())
+            h_lbl = max(20, spacing_dlg.lbl_live_feed.height())
+            spacing_dlg.lbl_live_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
         camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
-        wizard_slide4_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == 4)
+        wizard_slide4_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == self.wizard_widget.SLIDE_INTRINSICS_CALIB)
         if event.key() == Qt.Key_C and (camera_tab_active or wizard_slide4_active):
             self.capture_intrinsics_frame()
         super().keyPressEvent(event)
@@ -5318,7 +5669,31 @@ class UnifiedCalibrationApp(QWidget):
             FileStorage.write_text(self.output_yaml, yaml.dump(data))
             self.log_msg(f"[SUCCESS] Intrinsic parameters saved to: {self.output_yaml}")
 
-            # Sync with the local marker detector instances
+            # Also keep a copy in this model's own store, so swapping cameras and coming back
+            # picks the calibration up again instead of asking for it a second time.
+            if camera_model:
+                store = camera_intrinsics_path(camera_model)
+                FileStorage.write_text(store, yaml.dump(data))
+                self.log_msg(f"[SUCCESS] Also saved as the '{camera_model}' intrinsics: {store}")
+                observer = self.core.observer
+                if observer is not None:
+                    observer.active_intrinsics_path = self.output_yaml
+                    observer.calib_device_name = camera_model
+                    observer.intrinsics_missing = False
+                    observer.intrinsics_mismatch = False
+
+            # Load what was just saved into the running detector. It used to take effect only on
+            # the next start, so calibrating, saving and carrying straight on in the same session
+            # ran every sweep on the old intrinsics while the file already held the new ones.
+            try:
+                if self.core.apply_camera_intrinsics(self.output_yaml):
+                    self.log_msg("[SUCCESS] New intrinsics are now in use by the camera (no restart needed).")
+                else:
+                    self.log_msg("[WARNING] Intrinsics saved, but not applied to a running camera "
+                                 "(no camera connected). They load on the next camera connection.")
+            except Exception as e:
+                self.log_msg(f"[WARNING] Intrinsics saved, but could not be applied now ({e}). "
+                             f"Reconnect the camera or restart before calibrating.")
 
             # Show save success message box
             self.show_message_box(
@@ -5417,6 +5792,7 @@ def main():
     robot = None
     core = CalibrationCore()
 
+    camera_error = None
     if not args.ui:
         print("[INFO] Initializing Camera Marker Transform System...")
         try:
@@ -5424,12 +5800,19 @@ def main():
         except Exception as e:
             print(f"[ERROR] Failed to load camera marker system: {e}")
             print("[INFO] Fallback to UI-only mode.")
+            camera_error = str(e)
             args.ui = True
     else:
         print("[INFO] Starting in simulation (UI-only) mode.")
 
     gui = UnifiedCalibrationApp(core, robot, "right", ui_only=args.ui)
     gui.show()
+    if camera_error:
+        # Used to go to the console only, so the window opened in UI-only mode with no word of
+        # why -- including when the fix is simply a USB 3 cable.
+        QMessageBox.critical(gui, "Camera Connection Failed",
+                             f"Could not connect to RealSense camera:\n{camera_error}\n\n"
+                             "Starting in UI-only mode.")
 
     try:
         sys.exit(app.exec())

@@ -327,6 +327,21 @@ CONFIG_PATHS = {key: str(StoragePaths.root / path) for key, path in {
 }.items()}
 
 
+def camera_intrinsics_path(family=None):
+    """Path of the working intrinsics file, or of one model family's saved calibration.
+
+    `camera_intrinsics.yaml` is what the detector reads; `camera_intrinsics_<family>.yaml`
+    (e.g. `camera_intrinsics_d435.yaml`) is where each camera model's calibration is kept, so
+    swapping cameras back and forth does not destroy either one. The family is always the bare
+    body number, so a D435i and a D435f share the single `_d435` file.
+    """
+    working = CONFIG_PATHS["camera_intrinsics"]
+    if not family:
+        return working
+    root, ext = os.path.splitext(working)
+    return f"{root}_{str(family).lower()}{ext}"
+
+
 class ArtifactStorage:
     @staticmethod
     def read_image(path, *args):

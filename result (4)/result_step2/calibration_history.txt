@@ -1,0 +1,8 @@
+
+--- Calibration Iteration: 2026-09-21 16:31:38 ---
+Result Path: C:\Users\SAMSUNG\Desktop\RB-Y1 Ä«¸Þ¶ó 2\result\result_step2\result_20260921_163128_512533.json
+Right Arm Joint Offset (deg): [4.765111057935185, 3.6381060586883653, -0.9705394202913877, 1.9881770327130954, 2.036379173286355, 0.49300235497806283, -1.7121344720398057]
+Left Arm Joint Offset (deg): [3.438285915031763, -5.702194128976907, -1.7294824796872346, 2.5497460605166293, -1.2251347840108404, 0.40987958741071273, -0.9119204031805611]
+Head Joint Offset (deg): [-0.9128195253919217, 0.5600975879922577]
+Camera xi: [0.0, 0.0, -0.0008383327332624886, 0.007005202264148021, 0.007022496733806885, 0.008092979439918567]
+Measurement Noise: {"measurement_noise_enabled": true, "measurement_noise_rot_std_rad": 0.008421540395583207, "measurement_noise_rot_std_deg": 0.4825187216658515, "measurement_noise_pos_std_m": 0.0005507018798362528, "measurement_noise_pos_std_mm": 0.5507018798362528, "measurement_noise_max_rot_std_rad": 0.03490658503988659, "measurement_noise_max_rot_std_deg": 2.0, "measurement_noise_max_pos_std_m": 0.001, "measurement_noise_max_pos_std_mm": 1.0}

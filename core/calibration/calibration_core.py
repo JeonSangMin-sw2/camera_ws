@@ -13,6 +13,7 @@ from .JointCalibrator import JointCalibrator
 from .HeadCameraCalibrator import HeadCameraCalibrator
 from .IntrinsicsCalibrator import IntrinsicsCalibrator
 from .observation import ObservationSource
+from .sequences.marker_monitor import MarkerMonitor
 from .sequences.result import SequenceContext, SequenceCancelled, require_converged_joint
 
 
@@ -53,13 +54,24 @@ class CalibrationCore:
         self.joint_offsets_store = {side: {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0} for side in ("right", "left")}
         self.last_home_reset_path = None
         self.last_result_path = None
+        # Home offsets are relative to the robot's zero, which Home Offset Reset and Apply move.
+        # home_epoch counts those moves; samples carry the epoch they were collected in. Only a
+        # Step 2 result solved from this session's samples of the current epoch may be applied,
+        # once: applying it (or any other zero move) clears applicable_result_path. A result from
+        # an npz dataset, older samples, or a previous run of the program is analysis only.
+        self.home_epoch = 0
+        self.applicable_result_path = None
         self.auto_config = AutoCollectionConfig()
         self.prompt_teaching = None
+        # prompt_marker_spacing(gap_m, min_gap_m) -> {"done": Event, "accepted": bool, "gap_m": float}:
+        # opens the widen-the-arms dialog without blocking; see sequences.collection.ensure_marker_spacing.
+        self.prompt_marker_spacing = None
         self.observer = ObservationSource(observer, self.stop_event) if observer is not None else None
         self.marker_calibrator = MarkerCalibrator(self.observer, robot)
         self.joint_calibrator = JointCalibrator(self.observer, robot)
         self.head_camera_calibrator = HeadCameraCalibrator(self.observer, robot)
         self.intrinsics_calibrator = IntrinsicsCalibrator()
+        self._marker_monitor = MarkerMonitor(self)
 
     @property
     def calibrators(self):
@@ -126,6 +138,7 @@ class CalibrationCore:
             raise RuntimeError("Calibration core is closed")
         if self._run_lock.locked():
             raise RuntimeError("Cannot reconnect camera during a calibration sequence")
+        self.stop_marker_monitor()
         if self.observer is not None:
             self.observer.close()
             self.observer = None
@@ -168,6 +181,78 @@ class CalibrationCore:
             return False
         return self.observer.set_camera_exposure(value, auto_exposure=auto_exposure)
 
+    def result_apply_allowed(self, path):
+        """True when `path` is the Step 2 result that may still be applied (see home_epoch)."""
+        if path is None or self.applicable_result_path is None:
+            return False
+        try:
+            return Path(path).resolve() == Path(self.applicable_result_path).resolve()
+        except (OSError, TypeError, ValueError):
+            return False
+
+    def _mark_result_applicable(self, data_home_epoch):
+        """After a successful Step 2 solve: the new result may be applied only if every sample
+        was collected at the current zero (data_home_epoch == home_epoch)."""
+        if data_home_epoch is not None and data_home_epoch == self.home_epoch and self.last_result_path:
+            self.applicable_result_path = str(self.last_result_path)
+            self.log_msg(f"[Step2] Result can be applied as home offset: {self.applicable_result_path}")
+        else:
+            self.log_msg("[Step2] Result is for analysis only (samples not collected at the current robot zero "
+                         "in this session); applying it as home offset is disabled.")
+
+    def _robot_zero_changed(self, reason):
+        self.home_epoch += 1
+        if self.applicable_result_path is not None:
+            self.log_msg(f"[INFO] Robot zero changed ({reason}); the Step 2 result can no longer be applied.")
+        self.applicable_result_path = None
+
+    @staticmethod
+    def _is_home_reset_baseline(json_path):
+        from core.storage import ResultStorage
+        try:
+            data = ResultStorage.load(json_path)
+        except Exception:
+            return False
+        # save_home_reset_baseline_json writes the type under "metadata" (build_home_reset_baseline_data).
+        return "home_reset_baseline" in (data.get("type"), (data.get("metadata") or {}).get("type"))
+
+    def _warn_preview_only(self, json_path):
+        """Preview motions (zero / check pose) are always allowed so any result can be compared with
+        the baseline; only the application is locked. Say when the pose is not what applying gives."""
+        if json_path is None or self._is_home_reset_baseline(json_path) or self.result_apply_allowed(json_path):
+            return
+        self.log_msg("[WARN] Preview only: this Step 2 result cannot be applied (not solved at the current robot "
+                     "zero in this session, or already applied). If it was already applied, this pose adds its "
+                     "offsets a second time.")
+
+    def _require_applicable_result(self, json_path):
+        """Applying a Step 2 result (not the reset baseline) as home offset needs it applicable."""
+        if json_path is None or self._is_home_reset_baseline(json_path):
+            return
+        if not self.result_apply_allowed(json_path):
+            raise RuntimeError(
+                "This Step 2 result cannot be applied: it was not solved from samples collected at the "
+                "current robot zero in this session, or it has already been applied. Run the calibration "
+                "again (only rollback to the baseline is possible).")
+
+    @property
+    def marker_monitor_running(self):
+        return self._marker_monitor.running
+
+    def start_marker_monitor(self):
+        """Live recognition/jitter of both markers, sent as "marker_monitor" events (exposure check).
+        Only while no sequence runs; any sequence start stops it."""
+        if self._closed or self.observer is None:
+            raise RuntimeError("Camera/marker source must be connected to monitor the markers")
+        if self._run_lock.locked():
+            raise RuntimeError("Cannot monitor the markers during a calibration sequence")
+        # A Stop pressed earlier leaves stop_event set, which would cancel every observation.
+        self.stop_event.clear()
+        self._marker_monitor.start()
+
+    def stop_marker_monitor(self):
+        self._marker_monitor.stop()
+
     def accept_marker_result(self, arm, result):
         values = [result["x_e"] / 1000, result["y_e"] / 1000, result["z_e"] / 1000,
                   result["roll_e"], result["pitch_e"], result["yaw_e"]]
@@ -180,6 +265,30 @@ class CalibrationCore:
         for calibrator in self.calibrators:
             calibrator.camera_config[f"Tf_to_marker_{arm}"] = list(values)
         self.bracket_calibrated_sides.add(arm)
+
+    def persist_step1_results(self):
+        """Write a finished Step 1 (arm J3/J5/J6 offsets and the marker brackets) to setting.yaml.
+
+        Step 1 is measured against the robot's current home offsets, so its values stay valid
+        until a home offset is applied (which zeroes joint_offset again). Keeping them only in
+        memory meant that closing the program after Step 1 left Step 1.5 / Step 2 re-runs with
+        zero offsets and nominal brackets. The head offsets belong to Step 1.5 and are left alone.
+        """
+        from core.storage import CONFIG_PATHS, ConfigStorage
+        changes = {}
+        for arm in ("left", "right"):
+            for joint in ("joint3", "joint5", "joint6"):
+                changes[("joint_offset", arm, joint)] = float(self.joint_offsets_store.get(arm, {}).get(joint, 0.0))
+            bracket = self.get_marker_bracket(arm)
+            if arm in self.bracket_calibrated_sides and bracket is not None and len(bracket) == 6:
+                changes[("marker", f"Tf_to_marker_{arm}")] = [float(v) for v in bracket]
+        try:
+            ConfigStorage.update_values(CONFIG_PATHS["setting_yaml"], changes)
+        except Exception as error:
+            self.log_msg(f"[WARN] Could not save the Step 1 results to setting.yaml: {error}")
+            return False
+        self.log_msg("[INFO] Step 1 results (arm J3/J5/J6 offsets, marker brackets) saved to setting.yaml.")
+        return True
 
     def get_marker_bracket(self, arm):
         return self.marker_calibrator.camera_config.get(f"Tf_to_marker_{arm}")
@@ -236,6 +345,19 @@ class CalibrationCore:
             "to setting.yaml, otherwise they are lost when the window closes.")
         return info
 
+    def apply_camera_intrinsics(self, calib_file):
+        """Switch the running detector to `calib_file`'s intrinsics, e.g. right after a save.
+
+        Held under the observer lock so a detection in flight never mixes old and new values.
+        Returns True when the file was applied, False with no camera (UI-only) or a bad file.
+        """
+        if self.is_busy:
+            raise RuntimeError("Cannot change camera intrinsics during a sequence")
+        if self.observer is None:
+            return False
+        with self.observer.lock:
+            return bool(self.observer.engine.apply_calibrated_intrinsics(calib_file))
+
     def update_marker_transforms(self, left, right):
         if self.is_busy:
             raise RuntimeError("Cannot change marker transforms during a sequence")
@@ -252,6 +374,12 @@ class CalibrationCore:
         if self._closed:
             self._run_lock.release()
             raise RuntimeError("Calibration core is closed")
+        try:
+            # The monitor shares the observer and its detector state; never run it beside a sequence.
+            self.stop_marker_monitor()
+        except Exception:
+            self._run_lock.release()
+            raise
         self._prepared = True
         self.stop_event.clear()
         for calibrator in self.calibrators:
@@ -330,13 +458,23 @@ class CalibrationCore:
                         include_head=options.get("include_head", True))
                     self.last_home_reset_path = str(baseline)
                     ctx.checkpoint("baseline", data)
-                    value = reset_current_pose_home_offsets(self.robot, self.model, log_cb=self.log_msg, **options)
+                    try:
+                        value = reset_current_pose_home_offsets(self.robot, self.model, log_cb=self.log_msg, **options)
+                    finally:
+                        # Joints may have been reset even when the call fails part way.
+                        self._robot_zero_changed("Home Offset Reset")
                 elif task == "move_zero":
+                    self._warn_preview_only(options.get("json_path"))
                     value = controller.move_home_offset_candidate_path(**options)
                 elif task == "move_check":
+                    self._warn_preview_only(options.get("json_path"))
                     value = controller.move_to_check_position_candidate_path(**options)
                 elif task == "apply":
-                    value = controller.apply_current_pose_home_offset(**options)
+                    self._require_applicable_result(options.get("json_path"))
+                    try:
+                        value = controller.apply_current_pose_home_offset(**options)
+                    finally:
+                        self._robot_zero_changed("Home Offset Apply")
                 else:
                     raise ValueError(f"Unknown Home Offset action: {task}")
                 ctx.checkpoint("home", value)
@@ -369,6 +507,10 @@ class CalibrationCore:
                     include_head_motion=self.include_head_motion,
                     prompt_teaching_cb=self.prompt_teaching, log_cb=self.log_msg,
                     on_head_aligned_cb=lambda q: ctx.checkpoint("head_pose", q))
+                ctx.check_cancelled()
+                if self.observer is not None:
+                    from .sequences.collection import ensure_marker_spacing
+                    ensure_marker_spacing(self, ctx)
                 ctx.check_cancelled()
                 ctx.complete("ready", True)
             elif name == "ready":
@@ -419,6 +561,8 @@ class CalibrationCore:
                     context=ctx, **options,
                 )
                 ctx.result = result
+                if result.success:
+                    self.persist_step1_results()
             elif name == "marker":
                 from .sequences.marker import run_marker
                 run_marker(self, ctx, **options)
@@ -435,19 +579,27 @@ class CalibrationCore:
                 run_collection(self, ctx, **options)
             elif name == "optimize":
                 from .sequences.step2 import optimize_step2
+                # data_home_epoch: the zero the samples were collected at (None = npz dataset or
+                # unknown -> the result is analysis only).
+                data_home_epoch = options.get("data_home_epoch")
+                self.applicable_result_path = None
                 result = optimize_step2(self, *options.get("args", ()), **options.get("kwargs", {}))
                 ctx.checkpoint("optimization", result)
                 ctx.check_cancelled()
+                self._mark_result_applicable(data_home_epoch)
                 ctx.complete("optimization", result)
             elif name == "step2":
                 from .sequences.collection import run_collection
                 from .sequences.step2 import optimize_step2
                 samples = options.get("samples")
+                self.applicable_result_path = None
                 if samples is None:
                     collection_options = dict(options.get("collection", {}))
                     collection_options.setdefault("prepare", True)
                     samples = run_collection(self, ctx, **collection_options)
                 ctx.check_cancelled()
+                sample_epochs = {s.get("home_epoch") for s in samples or []}
+                data_home_epoch = sample_epochs.pop() if len(sample_epochs) == 1 else None
                 solve = dict(options.get("optimization", {}))
                 if not samples:
                     raise RuntimeError("No samples supplied for Step 2")
@@ -479,6 +631,7 @@ class CalibrationCore:
                                       T_meas_list=T_meas_array, **solve)
                 ctx.checkpoint("optimization", value)
                 ctx.check_cancelled()
+                self._mark_result_applicable(data_home_epoch)
                 ctx.complete("optimization", value)
                 if options.get("verify", True) and solve.get("active_arms") == ["right", "left"]:
                     from .sequences.verify import run_post_step2_verification
@@ -532,6 +685,7 @@ class CalibrationCore:
         if self._closed:
             return
         self.cancel()
+        self.stop_marker_monitor()
         with self._state_lock:
             if self._prepared and not self._executing:
                 self._prepared = False

@@ -16,7 +16,7 @@ from core.calibration import CalibrationCore
 from core.calibration.sequences.step1 import execute_step1_sequence
 from core.calibration.HeadCameraCalibrator import HeadCameraCalibrator
 from core.calibration.CalibratorBase import BaseCalibrator
-from core.storage import ConfigStorage, DatasetStorage
+from core.storage import CONFIG_PATHS, ConfigStorage, DatasetStorage
 from ui.core_bridge import SequenceWorker, MoveToReadyWorker
 
 
@@ -109,6 +109,17 @@ class TestFailureBoundaries(unittest.TestCase):
 
 
 class TestHeadQualityGate(unittest.TestCase):
+    def setUp(self):
+        # _compute_head_camera_solution writes head_camera_result_latest.json and appends to
+        # head_camera_result_history.txt. Left pointing at the real result/ it overwrites the
+        # data from an actual calibration run -- the hazard Trap 21 in the project notes records.
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        patcher = patch.dict(CONFIG_PATHS, txt_dir=folder.name,
+                             result_dir=folder.name, plot_dir=folder.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def test_failed_solver_cannot_be_accepted_or_applied(self):
         solver = HeadCameraCalibrator()
         solver.robot = SimpleNamespace(model=lambda: SimpleNamespace(head_idx=[0, 1]),
@@ -194,6 +205,45 @@ class TestUiFailurePropagation(unittest.TestCase):
         window.core.run('step1', prepared=True)
         window.close()
 
+    def test_wizard_zero_pose_preview_moves_to_zero_and_rearms_the_check_path(self):
+        """The apply slide's zero-pose buttons run the Step 2 dialog's 'move_zero' preview. Coming
+        back from the zero pose, the next check-pose move must pass the joint ready pose again."""
+        from main_ui import UnifiedCalibrationApp
+        window = UnifiedCalibrationApp(ui_only=True)
+        wiz = next(getattr(window, n) for n in dir(window)
+                   if type(getattr(window, n, None)).__name__ == "CalibrationWizardWidget")
+        started = []
+
+        class FakeWorker:
+            def __init__(self, app, task_type, **options):
+                self.task_type, self.options = task_type, options
+                self.log_signal = MagicMock()
+                self.finished_signal = SimpleNamespace(connect=lambda cb: setattr(self, "cb", cb))
+
+            def start(self):
+                started.append((self.task_type, self.options))
+                self.cb(True, "", {"arm": "both"})
+
+        with tempfile.TemporaryDirectory() as folder:
+            result, baseline = Path(folder, "result.json"), Path(folder, "baseline.json")
+            result.write_text("{}"), baseline.write_text("{}")
+            with patch("ui.core_bridge.Step2ApplyHomeOffsetWorker", FakeWorker), \
+                    patch.object(wiz, "get_apply_paths", return_value=(str(result), str(baseline))), \
+                    patch("ui.wizard_widget.QMessageBox"):
+                # Optimized previews need a result solved at the current robot zero in this run.
+                window.core.applicable_result_path = str(result)
+                wiz.refresh_apply_gate()
+                wiz.btn_new_offset_preview.click()
+                self.assertTrue(wiz.check_pose_init_done)
+                wiz.btn_rollback_zero.click()
+                self.assertFalse(wiz.check_pose_init_done)
+                wiz.btn_new_offset_zero.click()
+        self.assertEqual([task for task, _ in started], ["move_check", "move_zero", "move_zero"])
+        self.assertEqual(started[1][1]["json_path"], str(baseline))
+        self.assertEqual(started[2][1]["json_path"], str(result))
+        self.assertNotIn("skip_init_pose", started[1][1])
+        window.close()
+
     def test_worker_lifetime_is_retained_until_qt_thread_finishes(self):
         core = CalibrationCore()
         worker = SequenceWorker(core, 'unknown')
@@ -226,9 +276,15 @@ with patch.object(QApplication, 'exec', side_effect=timed_exec), patch('rby1_sdk
 print('ENTRYPOINT_OK')
 '''
         with tempfile.TemporaryDirectory() as folder:
+            # PYTHONUTF8: a piped child encodes its stdout with the system codepage, so on a
+            # Korean Windows the degree signs in the startup log went out as CP949, text=True
+            # decoded them as UTF-8, the reader thread died and process.stdout came back None --
+            # which blew up on the assertion message below before the assertion was even reached.
+            # errors keeps that failure mode from hiding a real one if a child ever bypasses it.
             process = subprocess.run([sys.executable, '-c', source, root], cwd=folder,
-                                     env=dict(os.environ, QT_QPA_PLATFORM='offscreen'),
-                                     capture_output=True, text=True, timeout=20)
+                                     env=dict(os.environ, QT_QPA_PLATFORM='offscreen', PYTHONUTF8='1'),
+                                     capture_output=True, text=True, encoding='utf-8',
+                                     errors='replace', timeout=20)
         self.assertEqual(process.returncode, 0, process.stdout + process.stderr)
         self.assertIn('ENTRYPOINT_OK', process.stdout)
 

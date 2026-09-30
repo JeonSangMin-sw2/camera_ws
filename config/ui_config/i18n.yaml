@@ -45,8 +45,8 @@ common:
     en: "Home Offset Reset Confirmation"
     ko: "Home Offset Reset 확인"
   home_offset_reset_msg:
-    en: "⚠️ [WARNING] Home Offset Reset Notice\n\nResetting Home Offsets will redefine the current physical robot joint positions as the new 0° (Home Position).\n\nProcedure:\n1. Use Direct Teaching or manual positioning to precisely align both arms to the Home Pose.\n2. If resetting head offsets as well, align the head straight forward to the center.\n3. Click [Confirm (OK)] to begin the reset process.\n\n※ During reset, Control Manager will be paused, 48V power will be cycled, and robot connection will restart."
-    ko: "⚠️ [경고] Home Offset Reset 알림\n\nHome Offset Reset을 진행하면 현재 로봇 관절의 물리적 위치가 새로운 0도(Home Position)로 재설정됩니다.\n\n진행 순서:\n1. Direct Teaching 등을 사용하여 양 팔을 홈 자세(Home Pose) 위치에 정확히 맞춥니다.\n2. 헤드 오프셋도 초기화하려면 헤드를 정면 중앙으로 정렬합니다.\n3. [확인 (OK)]을 누르면 리셋 프로세스가 시작됩니다.\n\n※ 리셋 도중 Control Manager가 일시 중지되고 48V 전원이 재인가되며 로봇 연결이 재시작됩니다."
+    en: "⚠️ [WARNING] Home Offset Reset Notice\n\nResetting Home Offsets will redefine the current physical robot joint positions as the new 0° (Home Position).\n\nProcedure:\n1. Use Direct Teaching or manual positioning to precisely align both arms to the Home Pose.\n   (Do not turn Shoulder Roll so far inwards that the arm physically touches the body.)\n2. If resetting head offsets as well, align the head straight forward to the center.\n3. Click [Confirm (OK)] to begin the reset process.\n\n※ During reset, Control Manager will be paused, 48V power will be cycled, and robot connection will restart."
+    ko: "⚠️ [경고] Home Offset Reset 알림\n\nHome Offset Reset을 진행하면 현재 로봇 관절의 물리적 위치가 새로운 0도(Home Position)로 재설정됩니다.\n\n진행 순서:\n1. Direct Teaching 등을 사용하여 양 팔을 홈 자세(Home Pose) 위치에 정확히 맞춥니다.\n   (어깨 롤은 팔이 몸체에 물리적으로 닿을 만큼 안쪽으로 넣지 마세요.)\n2. 헤드 오프셋도 초기화하려면 헤드를 정면 중앙으로 정렬합니다.\n3. [확인 (OK)]을 누르면 리셋 프로세스가 시작됩니다.\n\n※ 리셋 도중 Control Manager가 일시 중지되고 48V 전원이 재인가되며 로봇 연결이 재시작됩니다."
 
 main_tabs:
   tab_overview:
@@ -106,40 +106,128 @@ wizard:
   slides:
     slide_0:
       title:
-        en: "1-1. Camera Mounting Check"
-        ko: "1-1. 카메라 마운팅 확인"
+        en: "1-1. Camera Bracket Assembly & Mounting"
+        ko: "1-1. 카메라 브라켓 조립 및 마운팅"
       box_title:
         en: "Camera Mounting Guidelines"
         ko: "카메라 마운팅 지침 사항"
+      cap_head:
+        en: "Robot with a head: fix the camera to the bracket, then bolt the bracket onto the head."
+        ko: "헤드가 있는 로봇: 카메라를 브라켓에 고정한 뒤, 브라켓을 헤드 위에 볼트로 조립합니다."
+      cap_nohead:
+        en: "Robot without a head: fix the camera to the bracket, then bolt the bracket onto the body top plate."
+        ko: "헤드가 없는 로봇: 카메라를 브라켓에 고정한 뒤, 브라켓을 몸체 상판에 볼트로 조립합니다."
       inst1:
-        en: "1. Ensure the depth camera is mounted securely without wobbling."
-        ko: "1. 뎁스 카메라인 피크가 흔들림 없이 가슴 마운트에 견고하게 고정되었는지 확인하세요."
+        en: "1. Assemble the camera bracket that matches the robot (above) and make sure the camera is mounted securely without wobbling."
+        ko: "1. 로봇 구성에 맞는 카메라 브라켓을 위 사진처럼 조립하고, 카메라가 흔들림 없이 견고하게 고정되었는지 확인하세요."
       inst2:
         en: "2. Check that the camera USB cable connection is stable."
         ko: "2. 카메라 USB 케이블 연결이 안정적인지 확인하세요."
+      cam_box_title:
+        en: "Connected Camera"
+        ko: "인식된 카메라"
+      cam_device:
+        en: "Camera: {name}  (S/N {serial})  → {model} settings"
+        ko: "카메라: {name}  (S/N {serial})  → {model} 설정 사용"
+      cam_stream:
+        en: "Resolution: {width}×{height} @ {fps} fps  (measured {measured})"
+        ko: "해상도: {width}×{height} @ {fps} fps  (실측 {measured})"
+      cam_intrinsics:
+        en: "Intrinsics: {file}"
+        ko: "내부 파라미터: {file}"
+      cam_not_connected:
+        en: "No camera connected. Check the USB 3 cable and reconnect the camera."
+        ko: "카메라가 연결되지 않았습니다. USB 3 케이블을 확인하고 다시 연결하세요."
+      cam_measuring:
+        en: "measuring..."
+        ko: "측정 중..."
+      cam_unknown:
+        en: "unknown"
+        ko: "확인 불가"
+      cam_warn_resolution:
+        en: "Warning: the stream is not 1280×720. Replace the cable with a USB 3 cable."
+        ko: "경고: 1280×720이 아닙니다. USB 3 케이블로 교체하세요."
+      cam_warn_fps:
+        en: "Warning: frames arrive slower than the set rate. Lower the exposure or improve the lighting."
+        ko: "경고: 설정보다 프레임이 느리게 들어옵니다. 노출을 낮추거나 조명을 밝게 하세요."
+      cam_warn_intrinsics:
+        en: "Warning: no intrinsics file is in use. Calibrate and save the intrinsics first."
+        ko: "경고: 사용 중인 내부 파라미터 파일이 없습니다. 내부 파라미터 보정 후 저장하세요."
     slide_1:
       title:
-        en: "1-2. Marker Attachment Check"
-        ko: "1-2. 마커 부착 확인"
+        en: "1-2. Gripper Removal"
+        ko: "1-2. 그리퍼 분리"
       box_title:
-        en: "Marker Attachment Guidelines"
-        ko: "마커 부착 지침 사항"
+        en: "Gripper Removal"
+        ko: "그리퍼 분리 안내"
       inst1:
-        en: "1. Remove grippers on both arms if mounted (refer to <a href=\"https://rainbowco-my.sharepoint.com/:p:/g/personal/support_rainbow-robotics_com/IQBQNoNxvENnSIt29V1aNsCCAYICOBKbsLJnAnvFFuTkA80?e=AEW1KM\" style=\"color: #00e5ff;\">Disassembly Guide</a>)."
-        ko: "1. 양쪽 로봇 팔에 장착된 그리퍼를 제거하십시오 (<a href=\"https://rainbowco-my.sharepoint.com/:p:/g/personal/support_rainbow-robotics_com/IQBQNoNxvENnSIt29V1aNsCCAYICOBKbsLJnAnvFFuTkA80?e=AEW1KM\" style=\"color: #00e5ff;\">그리퍼 해체 가이드</a>)."
+        en: "Remove grippers on both arms if mounted (refer to <a href=\"https://rainbowco-my.sharepoint.com/:p:/g/personal/support_rainbow-robotics_com/IQBQNoNxvENnSIt29V1aNsCCAYICOBKbsLJnAnvFFuTkA80?e=AEW1KM\" style=\"color: #00e5ff;\">Disassembly Guide</a>). The marker brackets are attached in the next step."
+        ko: "양쪽 로봇 팔에 장착된 그리퍼를 제거하십시오 (<a href=\"https://rainbowco-my.sharepoint.com/:p:/g/personal/support_rainbow-robotics_com/IQBQNoNxvENnSIt29V1aNsCCAYICOBKbsLJnAnvFFuTkA80?e=AEW1KM\" style=\"color: #00e5ff;\">그리퍼 해체 가이드</a>). 마커 브라켓은 다음 단계에서 부착합니다."
+    slide_marker_bracket:
+      title:
+        en: "1-3. Marker Bracket Attachment"
+        ko: "1-3. 마커 브라켓 부착"
+      box_title:
+        en: "Marker Bracket Guidelines"
+        ko: "마커 브라켓 부착 지침 사항"
+      cap_assemble:
+        en: "Bolt the bracket onto the arm end flange where the gripper was."
+        ko: "그리퍼를 떼어낸 팔 말단 플랜지에 브라켓을 볼트로 고정합니다."
+      cap_overview:
+        en: "Right marker on the right arm, Left marker on the left arm (robot's own left/right)."
+        ko: "Right 마커는 오른팔, Left 마커는 왼팔에 붙입니다 (로봇 기준 좌우)."
+      inst1:
+        en: "1. Attach marker brackets to both arm end-effectors (gripper and bolt specifications are identical)."
+        ko: "1. 양쪽 로봇 팔 말단에 마커 브라켓을 부착하십시오(그리퍼와 볼트 규격이 동일합니다)."
       inst2:
-        en: "2. Attach marker brackets to both arm end-effectors (gripper and bolt specifications are identical)."
-        ko: "2. 양쪽 로봇 팔 말단에 마커 브라켓을 부착하십시오(그리퍼와 볼트 규격이 동일합니다)."
+        en: "2. Check the Right/Left label on each marker and attach it to the matching arm as in the right photo."
+        ko: "2. 각 마커의 Right/Left 표시를 확인하고, 오른쪽 사진처럼 맞는 팔에 부착하세요."
       inst3:
         en: "3. Ensure markers are flat and clear of dust or distortion."
         ko: "3. 마커 표면이 구겨지거나 오염되지 않도록 유지하세요."
     slide_exposure:
       title:
-        en: "1-3. Camera Exposure & Brightness Setup"
-        ko: "1-3. 카메라 노출 및 밝기 설정"
+        en: "3-3. Camera Exposure & Marker Recognition"
+        ko: "3-3. 카메라 노출 및 마커 인식 확인"
       inst:
-        en: "Adjust camera exposure to ensure markers are clearly visible without glare. Check 'Confirmed & Applied' when finished."
-        ko: "주변 조명에 맞춰 마커가 빛 반사나 번짐 없이 뚜렷하게 보이도록 카메라 노출을 조절하세요. 조절 후 '적용 완료했습니다'를 체크하십시오."
+        en: "Press the teaching button and move both arms so that the two markers are in the camera view. Adjust the exposure until both markers are recognized without glare and hold still, then check 'Confirmed & Applied'."
+        ko: "티칭 버튼을 누르고 두 마커가 카메라 화면에 들어오도록 양팔을 옮기세요. 두 마커가 빛 반사 없이 인식되고 값이 튀지 않을 때까지 노출을 조절한 뒤 '적용 완료했습니다'를 체크하십시오."
+      monitor_title:
+        en: "Marker Recognition Monitor"
+        ko: "마커 인식 모니터"
+      monitor_right:
+        en: "Right marker"
+        ko: "오른쪽 마커"
+      monitor_left:
+        en: "Left marker"
+        ko: "왼쪽 마커"
+      monitor_idle:
+        en: "{marker}: not monitoring"
+        ko: "{marker}: 모니터링 안 함"
+      monitor_stable:
+        en: "{marker}: stable ✓  |  detection {rate}%  |  jitter {jitter}"
+        ko: "{marker}: 안정 ✓  |  인식률 {rate}%  |  흔들림 {jitter}"
+      monitor_unstable:
+        en: "{marker}: jumping (RMS above {limit} mm)  |  detection {rate}%  |  jitter {jitter}"
+        ko: "{marker}: 흔들림 큼 (RMS {limit} mm 초과)  |  인식률 {rate}%  |  흔들림 {jitter}"
+      monitor_hidden:
+        en: "{marker}: NOT recognized  |  detection {rate}%  |  jitter {jitter}"
+        ko: "{marker}: 인식 안 됨  |  인식률 {rate}%  |  흔들림 {jitter}"
+      monitor_all_ok:
+        en: "✅ Both markers recognized with RMS jitter ≤ {limit} mm: exposure OK"
+        ko: "✅ 두 마커 모두 인식, 흔들림 RMS {limit} mm 이하: 노출 설정 성공"
+      monitor_not_ok:
+        en: "Not yet: both markers must be recognized with RMS jitter ≤ {limit} mm (arms held still)"
+        ko: "아직 아님: 팔을 멈춘 상태에서 두 마커 모두 인식되고 흔들림 RMS {limit} mm 이하여야 합니다"
+      monitor_jitter:
+        en: "RMS {rms} mm / max {max} mm"
+        ko: "RMS {rms} mm / 최대 {max} mm"
+      monitor_note:
+        en: "Detection rate and jitter cover the last {window} raw (unfiltered) detections per marker. Read the jitter with the arms held still: it shows how much the marker position jumps between frames."
+        ko: "인식률과 흔들림은 마커별 최근 {window}회의 필터 없는 원시 검출값입니다. 흔들림은 팔을 멈춘 상태에서 보세요. 프레임마다 마커 위치가 얼마나 튀는지를 나타냅니다."
+      monitor_restart:
+        en: "Restart monitor"
+        ko: "모니터 다시 시작"
       auto_exposure:
         en: "Auto Exposure Mode"
         ko: "자동 노출 모드"
@@ -278,6 +366,9 @@ wizard:
       inst1:
         en: "1. Rotate Shoulder Roll inwards towards the body."
         ko: "1. 어깨 롤(Shoulder Roll) 관절을 몸 안쪽 방향으로 회전시킵니다."
+      shoulder_warn:
+        en: "⚠ Do not turn it so far that the arm physically touches the body."
+        ko: "⚠ 팔이 몸체에 물리적으로 닿을 만큼 안쪽으로 넣지 마세요."
       inst2:
         en: "2. Push Elbow fully backwards until physically contacted / stopped."
         ko: "2. 팔꿈치(Elbow) 관절을 스토퍼에 닿을 때까지 완전히 뒤로 밀어 붙입니다."
@@ -311,23 +402,29 @@ wizard:
         en: "1. Comparison: Review and compare offsets before and after calibration using 'Baseline' and 'Optimized'."
         ko: "1. 비교: 'Baseline' 및 'Optimized'를 선택하여 보정 전후 오프셋을 비교해 볼 수 있습니다."
       inst2:
-        en: "2. Zero Pose Check: Click 'Move to Zero' to position joint angles to zero and verify if offsets are calibrated properly."
-        ko: "2. 제로 포즈 검사: 'Move to Zero'를 눌러 관절을 이동시켜 조인트가 제대로 보정되었는지 확인하세요."
+        en: "2. Zero Pose Check: Use 'Rollback Zero Pose' / 'New Offset Zero Pose' to move the joints to zero with the original or the calibrated offsets and compare them."
+        ko: "2. 제로 포즈 검사: '원본 제로 자세' / '보정 제로 자세'를 눌러 기존 영점과 보정된 영점으로 각각 이동해 비교하세요."
       inst3:
-        en: "3. Symmetry Check: Click 'Move to Check' to verify if both robot arms are symmetrical."
-        ko: "3. 대칭성 검사: 'Move to Check'를 눌러 두 팔이 대칭을 이루는지 확인하세요."
+        en: "3. Symmetry Check: Use 'Rollback Check Pose' / 'New Offset Check Pose' to verify if both robot arms are symmetrical."
+        ko: "3. 대칭성 검사: '원본 체크 자세' / '보정 체크 자세'를 눌러 두 팔이 대칭을 이루는지 확인하세요."
       inst4:
         en: "4. Apply / Rollback: Select 'Baseline' to rollback to original values, or select 'Optimized' to apply calibrated values, then click 'Apply Selected Offset'."
         ko: "4. 적용/롤백: 적용을 원하는 값(Baseline 또는 Optimized)을 선택한 뒤 '선택한 오프셋 적용' 버튼을 클릭하세요."
       btn_apply:
         en: "Apply Home Offset"
         ko: "홈 오프셋 적용"
+      btn_rollback_zero:
+        en: "Rollback Zero Pose"
+        ko: "원본 제로 자세"
+      btn_new_offset_zero:
+        en: "New Offset Zero Pose"
+        ko: "보정 제로 자세"
       btn_rollback_preview:
-        en: "Rollback Preview"
-        ko: "롤백 자세 확인"
+        en: "Rollback Check Pose"
+        ko: "원본 체크 자세"
       btn_new_offset_preview:
-        en: "New Offset Preview"
-        ko: "보정 자세 확인"
+        en: "New Offset Check Pose"
+        ko: "보정 체크 자세"
       btn_rollback_joint:
         en: "Rollback Joint"
         ko: "기존 영점 복구 (Rollback)"
@@ -351,6 +448,12 @@ wizard:
     preview_complete_msg:
       en: "Moved to {state} check position."
       ko: "{state} 체크 자세로 이동 완료되었습니다."
+    arrived_zero:
+      en: "Status: Arrived at {state} zero pose."
+      ko: "상태: {state} 영점 도착 완료."
+    preview_zero_msg:
+      en: "Moved to {state} zero pose."
+      ko: "{state} 영점으로 이동 완료되었습니다."
     preview_error_status:
       en: "Status: Preview Error"
       ko: "상태: 이동 에러"
@@ -464,6 +567,28 @@ dialogs:
       en: "Please recalibrate the camera intrinsics (camera_intrinsics.yaml) for the connected model."
       ko: "내부 파라미터(camera_intrinsics.yaml)를 현재 카메라에 맞게 보정해 주세요."
 
+  camera_intrinsics_missing:
+    title:
+      en: "Camera Intrinsics Not Found"
+      ko: "카메라 내부 파라미터 없음"
+    text:
+      en: "No saved intrinsics calibration for the connected camera ({connected_model}); config/camera_intrinsics_{store}.yaml does not exist."
+      ko: "연결된 카메라({connected_model})의 내부 파라미터 보정 파일이 없습니다. (config/camera_intrinsics_{store}.yaml 없음)"
+    informative_text:
+      en: "The camera's factory intrinsics are being used for now, so marker poses will be less accurate. Run Step 1 (Camera Intrinsics Calibration) and save the result; it is stored per camera model, so this is asked only once for each camera."
+      ko: "지금은 카메라의 공장 출하 내부 파라미터로 동작하므로 마커 자세 정확도가 떨어집니다. Step 1(카메라 내부 파라미터 보정)을 실행하고 결과를 저장해 주세요. 기종별로 저장되므로 카메라마다 한 번만 하면 됩니다."
+
+  camera_extrinsics_missing:
+    title:
+      en: "Camera Bracket Data Not Found"
+      ko: "카메라 브라켓 정보 없음"
+    text:
+      en: "config/camera_info.yaml has no entry for the connected camera ({connected_model})."
+      ko: "config/camera_info.yaml에 연결된 카메라({connected_model}) 항목이 없습니다."
+    informative_text:
+      en: "setting.yaml was left as it is, so the bracket transform belongs to a different camera and the calibration result will be wrong. Measure head_base_to_cam and mount_to_cam for this model and add a '{connected_model}' entry to camera_info.yaml."
+      ko: "setting.yaml을 그대로 두었기 때문에 브라켓 변환이 다른 카메라 기준이며 보정 결과가 틀어집니다. 이 기종의 head_base_to_cam과 mount_to_cam을 측정해 camera_info.yaml에 '{connected_model}' 항목으로 추가해 주세요."
+
   zero_pose_check:
     title:
       en: "Zero Pose Check"
@@ -523,10 +648,59 @@ dialogs:
       en: "<b>1. Press Teaching Button:</b> Press the direct teaching button on the robot arm/head.<br><br><b>2. Align Marker:</b> Watching the live camera feed on the right, position the marker in the center of the camera view.<br><br><b>3. Resume Calibration:</b> Click [Teaching Done] below once aligned.<br><span style='color: #ffca28; font-size: 13px;'>* Resumes calibration by aligning only the target calibration joint to 0° from adjusted posture.</span>"
       ko: "<b>1. 티칭 버튼 누르기:</b> 로봇 팔/헤드의 직접 교시 버튼(Teaching Button)을 누르세요.<br><br><b>2. 마커 방향 조정:</b> 우측 실시간 카메라 화면을 보면서 마커가 화각 중앙에 정면으로 오도록 이동시키세요.<br><br><b>3. 캘리브레이션 재개:</b> 정렬을 마치면 아래 [티칭 완료] 버튼을 누르세요.<br><span style='color: #ffca28; font-size: 13px;'>* 조정한 현재 위치에서 보정 대상 관절만 0°로 정렬 후 스위프를 계속 진행합니다.</span>"
 
+  markers_too_close:
+    title:
+      en: "Markers Too Close"
+      ko: "마커 간격 부족"
+    notice_msg:
+      en: |
+        The two markers are too close together.
+
+        Measured gap (camera horizontal axis): {gap} cm
+        Required minimum: {min_gap} cm
+
+        The arms may collide while they move to collect Step 2 data.
+        Press OK to open the spacing monitor, then widen the distance between the two markers with direct teaching.
+      ko: |
+        두 마커의 간격이 너무 가깝습니다.
+
+        측정 간격 (카메라 가로축): {gap} cm
+        최소 기준: {min_gap} cm
+
+        Step 2 데이터 수집 중 팔이 움직이면서 충돌할 수 있습니다.
+        확인을 누르면 간격 모니터 창이 열립니다. 직접 교시로 두 마커 사이를 벌려 주세요.
+    monitor_title:
+      en: "Marker Spacing Monitor"
+      ko: "마커 간격 모니터"
+    monitor_header:
+      en: "⚠️ Widen the arms: markers are too close"
+      ko: "⚠️ 팔 간격 벌리기: 마커가 너무 가깝습니다"
+    monitor_desc:
+      en: "Press the teaching button and move the arms apart, keeping both markers in view of the camera. The gap turns green at {min_gap} cm or more; then press [Spacing Done]. Step 2 continues from this posture without checking the spacing again."
+      ko: "티칭 버튼을 누르고 두 마커가 카메라에 보이도록 유지하면서 팔 사이를 벌리세요. 간격이 {min_gap} cm 이상이 되면 초록색으로 바뀌고, 그때 [간격 조정 완료]를 누르세요. 이후 Step 2는 이 자세에서 간격을 다시 확인하지 않고 진행합니다."
+    gap_value:
+      en: "Marker gap: {gap} cm  (minimum {min_gap} cm)"
+      ko: "마커 간격: {gap} cm  (기준 {min_gap} cm 이상)"
+    gap_hidden:
+      en: "Marker not visible: keep both markers in view  (minimum {min_gap} cm)"
+      ko: "마커가 보이지 않음: 두 마커가 모두 보이게 하세요  (기준 {min_gap} cm 이상)"
+    btn_done:
+      en: "✅ Spacing Done (Continue Step 2)"
+      ko: "✅ 간격 조정 완료 (Step 2 계속)"
+    btn_cancel:
+      en: "❌ Cancel Step 2"
+      ko: "❌ Step 2 취소"
+
   apply_home_offset:
     title:
       en: "Apply Home Offset"
       ko: "홈 오프셋 적용"
+    opt_locked_title:
+      en: "Optimized Result Locked"
+      ko: "최적화 결과 적용 잠김"
+    opt_locked:
+      en: "The optimized result can be previewed (zero / check pose) but not applied: it was not calculated in this run from data collected at the current robot zero (a saved npz dataset, a previous run, or data from before a home offset reset/apply), or it has already been applied. Applying it again would add the offsets twice (an already applied result also shows them twice in the preview). Run the calibration (data collection + Calculate) again to apply. Rollback to the baseline is available."
+      ko: "최적화 결과는 미리보기(영점·확인 자세)만 가능하고 적용할 수 없습니다. 이번 실행에서 현재 로봇 영점 기준으로 수집한 데이터로 계산한 결과가 아니거나(저장된 npz 데이터셋, 이전 실행, 홈 오프셋 리셋·적용 전에 모은 데이터), 이미 적용된 결과입니다. 다시 적용하면 보정값이 중복으로 더해집니다(이미 적용된 결과는 미리보기 자세에도 중복으로 더해집니다). 적용하려면 보정(데이터 수집 + Calculate)을 다시 실행하세요. 기준값(Baseline) 롤백은 가능합니다."
     guide_msg:
       en: |
         Compare the original baseline zero and the optimized zero before applying.

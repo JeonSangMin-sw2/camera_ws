@@ -1,0 +1,81 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: ELBOW
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[DEBUG] Saved Axis 2 debug points to sweep_points_left_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 2.1080 deg
+  * Circle Size Error (abs: r_A - r_B)     : 2.0902 mm
+  * Estimated Circle Center Distance       : 6.8090 mm
+  * Calculated Offset Correction           : -1.788284 deg
+==================================================
+  * Angle Error (Deviation)          : 2.1080°
+  * Circle Size Error (r_A-r_B)      : 2.0902 mm
+  * Center Distance Error            : 6.8090 mm
+  * Max Fitting Error Metric         : 6.8090 mm
+[ITERATION 1/8] offset=0.0000°, residual=-1.7883° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -1.7883°
+
+[ITERATION 2/8] Sweeping physically with staged offset -1.7883°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.7883°]
+==================================================
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.5776 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.4623 mm
+  * Estimated Circle Center Distance       : 0.6952 mm
+  * Calculated Offset Correction           : -0.237981 deg
+==================================================
+  * Angle Error (Deviation)          : 0.5776°
+  * Circle Size Error (r_A-r_B)      : 0.4623 mm
+  * Center Distance Error            : 0.6952 mm
+  * Max Fitting Error Metric         : 0.6952 mm
+[ITERATION 2/8] offset=-1.7883°, residual=-0.2380° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -2.0263°
+
+[ITERATION 3/8] Sweeping physically with staged offset -2.0263°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -2.0263°]
+==================================================
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.2629 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.2890 mm
+  * Estimated Circle Center Distance       : 0.4279 mm
+  * Calculated Offset Correction           : 0.008938 deg
+==================================================
+  * Angle Error (Deviation)          : 0.2629°
+  * Circle Size Error (r_A-r_B)      : 0.2890 mm
+  * Center Distance Error            : 0.4279 mm
+  * Max Fitting Error Metric         : 0.4279 mm
+[ITERATION 3/8] offset=-2.0263°, residual=+0.0089° -> OK (within 0.06°)
+  * Mean of 2 near-target estimates: -2.0218° (std=0.0500°, std err=0.0354°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: -2.0263°, -2.0173°
+  * Std err 0.0354° <= 0.06°
+  * Recommended Absolute Offset (mean): -2.0218°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_left_elbow_joint_calib.png

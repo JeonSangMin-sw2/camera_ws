@@ -81,8 +81,15 @@ To run the latest PySide6 (>=6.5.0) GUI environment on Linux without errors, you
 2. **OpenCV-PySide6 Qt Conflict Bypass (Auto-applied in code)**
    - When the `opencv-contrib-python` package is loaded, it sets the Qt plugin path (`QT_QPA_PLATFORM_PLUGIN_PATH`) internally. This causes a version mismatch crash (Aborted) when launching the PySide6 GUI.
    - The `os.environ.pop("QT_QPA_PLATFORM_PLUGIN_PATH", None)` logic is applied at the top of the `main_ui.py` code to prevent this collision programmatically.
-3. **Custom / Unlisted RealSense Models (`config/camera_info.yaml`)**
-   - If using an Intel RealSense camera model not pre-configured (e.g., other than D405, D435), you must manually enter the coordinate values and mount transforms for the color camera lens in [`config/camera_info.yaml`](file:///home/rainbow/camera_ws/config/camera_info.yaml).
+3. **Swapping the camera / unlisted RealSense models**
+   - The app reads the connected camera's model on startup and configures itself from it. Variants of one body share a single entry: a D435, D435i and D435f are all handled as **D435**.
+   - Bracket extrinsics come from that model's entry in [`config/camera_info.yaml`](config/camera_info.yaml), and the intrinsics from `config/camera_intrinsics_<model>.yaml` (e.g. `camera_intrinsics_d435.yaml`), which is copied into the working `config/camera_intrinsics.yaml`. The outgoing camera's calibration is archived to its own file first, so swapping back and forth loses nothing.
+   - `setting.yaml`'s `mount_to_cam` / `head_base_to_cam` are only reset when the model actually changes; a Step 1.5 / Step 2 result for the *same* model survives a restart. The `*_nominal` keys always track `camera_info.yaml`, because Step 1.5 and Step 2 use them as the CAD baseline.
+   - For a model that has no entry yet, the app starts with an error dialog and changes nothing: measure `head_base_to_cam` and `mount_to_cam` for its colour lens, add them to `config/camera_info.yaml`, then run the Step 1 intrinsics calibration and save it. Do **not** add a placeholder entry of zeros — it would be applied as if it had been measured.
+4. **Moving a setup between a v1.2 and a v1.3 robot**
+   - The marker bracket is mounted at a different place and angle on the two versions (~99 mm and 90° apart), and `setting.yaml` carries both CAD nominals as `Tf_to_marker_<side>_v12` and `_v13`.
+   - On connecting to a robot, the live `Tf_to_marker_<side>` is checked against both: if it belongs to the other version it is replaced by this version's nominal and saved. A Step 1 fit only moves a bracket by a fraction of a millimetre, so a calibration is never mistaken for a version change and survives a reconnect.
+   - The version is only read from a **connected** robot. Disconnecting leaves the brackets alone, so run Step 1 again after switching robots.
 
 ### 4. Running the Calibration UI
 Run the following command in the terminal to launch the main UI:

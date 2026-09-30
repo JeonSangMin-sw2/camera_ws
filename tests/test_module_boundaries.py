@@ -10,7 +10,31 @@ def imported_modules(path):
     return {n.module or "" for n in ast.walk(ast.parse(path.read_text())) if isinstance(n, ast.ImportFrom)}
 
 
+def all_imported_modules(path):
+    """Like imported_modules, but also counts plain `import x` statements."""
+    modules = set()
+    for n in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if isinstance(n, ast.ImportFrom):
+            modules.add(n.module or "")
+        elif isinstance(n, ast.Import):
+            modules.update(alias.name for alias in n.names)
+    return modules
+
+
 class TestModuleBoundaries(unittest.TestCase):
+    def test_compute_modules_are_pure(self):
+        # compute layer: data in, result out -- no SDK, camera, or UI (common harness 2.3)
+        for name in ("calibration_optimizer.py", "observation.py", "data.py", "observability.py"):
+            path = ROOT / "core/calibration" / name
+            forbidden = ("rby1_sdk", "core.robot", "pyrealsense2", "cv2", "ui", "PySide6", "main_ui")
+            self.assertFalse(any(m.startswith(forbidden) for m in all_imported_modules(path)), path)
+
+    def test_comm_modules_do_not_control_robot(self):
+        # comm layer acquires and parses data; robot control stays in core/robot
+        for name in ("camera_processing.py", "marker_detection.py"):
+            path = ROOT / "core" / name
+            self.assertFalse(any(m.startswith(("rby1_sdk", "core.robot")) for m in all_imported_modules(path)), path)
+
     def test_language_is_the_only_i18n_entrypoint(self):
         self.assertIn("core.language", imported_modules(ROOT / "main_ui.py"))
         self.assertFalse((ROOT / "core/i18n.py").exists())

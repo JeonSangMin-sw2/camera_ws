@@ -1,0 +1,40 @@
+17:18:11 [TEST] Connecting robot 192.168.1.40:50051 ...
+17:18:12 [INFO] Power (48v) is already ON.
+17:18:12 [INFO] Required servos (^(?!.*wheel).*$) are already ON.
+17:18:12 [INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
+17:18:13 [INFO] Enabling control manager with unlimited_mode_enabled=True...
+17:18:14 [TEST] Connecting camera ...
+17:18:26 [TEST] Exposure auto=False value=6000.0
+17:18:26 
+[TEST] ===== right elbow: staged offset +0.0000 deg, ranges A=+-20.0 B=+-20.0 =====
+17:18:26 [INFO] Moving right arm to elbow Ready Pose...
+17:18:26 [INFO] Moving inactive arm to zero pose first...
+17:18:29 [INFO] Moving active arm, torso, and head to ready pose...
+17:18:34 [INFO] Ready Pose Reached.
+17:19:07 [TEST] elbow rep1 12s: estimate=-1.9252 deg | J3 frames=356 span=40.0 f/deg=8.9 maxgap=0.66deg jitter=0.240mm t=14.5s | J5 frames=359 span=40.0 f/deg=9.0 maxgap=0.47deg jitter=0.220mm t=14.5s
+17:19:32 [TEST] elbow rep1 8s: estimate=-1.9988 deg | J3 frames=251 span=40.0 f/deg=6.3 maxgap=0.32deg jitter=0.246mm t=10.5s | J5 frames=250 span=40.0 f/deg=6.2 maxgap=0.36deg jitter=0.220mm t=10.5s
+17:20:03 [TEST] elbow rep2 12s: estimate=-1.7779 deg | J3 frames=372 span=40.0 f/deg=9.3 maxgap=0.14deg jitter=0.262mm t=14.5s | J5 frames=372 span=40.0 f/deg=9.3 maxgap=0.14deg jitter=0.241mm t=14.5s
+17:20:26 [TEST] elbow rep2 8s: estimate=-1.8188 deg | J3 frames=252 span=40.0 f/deg=6.3 maxgap=0.22deg jitter=0.325mm t=10.5s | J5 frames=252 span=40.0 f/deg=6.3 maxgap=0.21deg jitter=0.308mm t=10.5s
+17:20:57 [TEST] elbow rep3 12s: estimate=-1.5475 deg | J3 frames=373 span=40.0 f/deg=9.3 maxgap=0.14deg jitter=0.365mm t=14.5s | J5 frames=372 span=40.0 f/deg=9.3 maxgap=0.16deg jitter=0.390mm t=14.5s
+17:21:00 [TEST] STOP file detected -> cancelling motion
+17:21:00 [TEST] ERROR: Stopped by user
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Temp\claude\C--Users-User-Desktop-camera-ws\273e55cf-ef27-495b-a308-2f868a49ac2a\scratchpad\sweep_speed_test.py", line 124, in <module>
+    res = jc.perform_calibration_sweep_continuous(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\camera_ws\core\calibration\JointCalibrator.py", line 913, in perform_calibration_sweep_continuous
+    dataset_A = self.perform_single_joint_sweep(
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\AppData\Local\Temp\claude\C--Users-User-Desktop-camera-ws\273e55cf-ef27-495b-a308-2f868a49ac2a\scratchpad\sweep_speed_test.py", line 91, in recording_single
+    ds = orig_single(arm_side, sweep_joint, q_center, start_deg, end_deg, sweep_duration, **kw)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\camera_ws\core\calibration\CalibratorBase.py", line 1185, in perform_single_joint_sweep
+    res = self.marker_st.get_marker_transform(sampling_time=0, side=arm_side, use_filter=False, q_encoder=q_full_captured)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\camera_ws\core\calibration\observation.py", line 61, in get_marker_transform
+    self.check_cancelled()
+  File "C:\Users\User\Desktop\camera_ws\core\calibration\observation.py", line 57, in check_cancelled
+    raise SequenceCancelled()
+core.calibration.sequences.result.SequenceCancelled: Stopped by user
+
+17:21:02 [TEST] Core closed (robot disconnected, camera stream off)

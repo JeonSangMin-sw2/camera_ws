@@ -105,6 +105,37 @@ class MarkerCalibrator(BaseCalibrator):
             time.sleep(0.5)
         return True
 
+    def adopt_taught_marker_pose(self, arm_side, log_callback=None):
+        """Take the posture the operator just taught as the marker sweep posture, with J5 back at
+        its ready-pose value (nominal + the J5 calibration offset, as movej applies it).
+
+        The bracket orientation is solved as if J5 sits at 90 deg. Hand-adjusting the arm to bring
+        the marker back into view moves J5 as well, and the taught pose is replayed as raw encoder
+        values: on 2026-09-21 a right-arm re-teach left J5 2.7 deg off, the measured J4-J6 axes came
+        out 86.8 deg apart, the bracket roll read 90.4 deg and Step 2 moved both J0 offsets ~0.5 deg.
+        The other joints stay where the operator put them. Returns the stored pose (radians).
+        """
+        model = self.robot.model()
+        arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+        pose = list(np.array(self.robot.get_state().position)[arm_idx])
+        try:
+            version_key = "v1.3" if self.is_v13() else "v1.2"
+            nominal = self.get_ready_pose(version_key, "marker", None, arm_side)
+            offsets = getattr(self, "joint_offsets", None) or {}
+            arm_offsets = offsets.get(arm_side, offsets) if isinstance(offsets, dict) else {}
+            target = float(nominal[5]) + np.radians(float(arm_offsets.get("wrist_pitch", 0.0)))
+            if log_callback and abs(pose[5] - target) > np.radians(0.05):
+                log_callback(f"[INFO] Re-taught {arm_side} marker posture: J5 {np.degrees(pose[5]):.2f} -> "
+                             f"{np.degrees(target):.2f} deg (ready-pose value incl. calibration offset).")
+            pose[5] = target
+        except Exception as error:
+            if log_callback:
+                log_callback(f"[WARN] Could not restore J5 on the taught marker posture: {error}")
+        if not isinstance(getattr(self, "user_taught_ready_poses", None), dict):
+            self.user_taught_ready_poses = {}
+        self.user_taught_ready_poses.setdefault(arm_side, {})["marker"] = list(pose)
+        return pose
+
     def perform_calibration_sweep(self, arm_side, axis_mode, log_callback=None, status_callback=None, use_head_tracking=True, save_debug=False, initial_joint_pos=None, pass_idx=1, sweep_duration=10.0):
         try:
             if getattr(self, 'stop_requested', False):
@@ -139,8 +170,13 @@ class MarkerCalibrator(BaseCalibrator):
                         if readjust_retry_count < max_readjust_retries and hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
                             readjust_retry_count += 1
                             if log_callback: log_callback(f"[INFO] Prompting user for manual teaching due to marker visibility error (Attempt {readjust_retry_count}/{max_readjust_retries})...")
+                            # Back to the ready pose before asking, as every other re-teach path
+                            # does: the arm may still be where the previous sweep ended, and the
+                            # operator should adjust from the posture the sweep will start from.
+                            self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
                             resolved = self.marker_problem_callback(arm_side, mode="marker")
                             if resolved:
+                                self.adopt_taught_marker_pose(arm_side, log_callback)
                                 self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
                                 initial_check = self.marker_st.get_marker_transform(sampling_time=2.0, side=arm_side)
                                 if initial_check:
@@ -184,8 +220,10 @@ class MarkerCalibrator(BaseCalibrator):
                 if mcfg is None:
                     raise ValueError(f"Unknown marker sweep axis mode: {axis_mode}")
                 
-                start_deg = mcfg["start_deg"]
-                end_deg = mcfg["end_deg"]
+                ver = "v13" if self.is_v13() else "v12"
+                start_deg = mcfg.get(f"start_deg_{ver}", mcfg["start_deg"])
+                end_deg = mcfg.get(f"end_deg_{ver}", mcfg["end_deg"])
+                axis_duration = mcfg.get(f"sweep_duration_s_{ver}", sweep_duration)
                 joint_i = mcfg["joint_i"]
 
                 head_idx = list(model.head_idx[:2]) if len(model.head_idx) >= 2 else None
@@ -197,7 +235,7 @@ class MarkerCalibrator(BaseCalibrator):
                     q_head_start = q_head_0
 
                 dataset = self.perform_single_joint_sweep(
-                    arm_side, joint_i, cur_initial_pos, start_deg, end_deg, sweep_duration,
+                    arm_side, joint_i, cur_initial_pos, start_deg, end_deg, axis_duration,
                     q_head=q_head_start, label=f"Marker Axis {axis_mode}", log_callback=log_callback, mode="marker"
                 )
                 if dataset is None:
@@ -209,14 +247,9 @@ class MarkerCalibrator(BaseCalibrator):
                         self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
                         resolved = self.marker_problem_callback(arm_side, mode="marker")
                         if resolved:
-                            state = self.robot.get_state()
-                            new_pose = list(np.array(state.position)[arm_idx])
+                            new_pose = self.adopt_taught_marker_pose(arm_side, log_callback)
                             cur_initial_pos = list(new_pose)
                             initial_joint_pos = list(new_pose)
-                            if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
-                                if arm_side not in self.user_taught_ready_poses:
-                                    self.user_taught_ready_poses[arm_side] = {}
-                                self.user_taught_ready_poses[arm_side]["marker"] = list(new_pose)
                             if log_callback:
                                 log_callback(f"[INFO] Posture readjusted and preserved. Restarting Marker Axis {axis_mode} sweep...")
                             time.sleep(1.0)
@@ -247,14 +280,9 @@ class MarkerCalibrator(BaseCalibrator):
                         self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
                         resolved = self.marker_problem_callback(arm_side, mode="marker")
                         if resolved:
-                            state = self.robot.get_state()
-                            new_pose = list(np.array(state.position)[arm_idx])
+                            new_pose = self.adopt_taught_marker_pose(arm_side, log_callback)
                             cur_initial_pos = list(new_pose)
                             initial_joint_pos = list(new_pose)
-                            if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
-                                if arm_side not in self.user_taught_ready_poses:
-                                    self.user_taught_ready_poses[arm_side] = {}
-                                self.user_taught_ready_poses[arm_side]["marker"] = list(new_pose)
                             if log_callback:
                                 log_callback(f"[INFO] Posture readjusted and preserved. Restarting Marker Axis {axis_mode} sweep...")
                             time.sleep(1.0)
@@ -335,14 +363,9 @@ class MarkerCalibrator(BaseCalibrator):
                         self.perform_move_to_ready_pose(arm_side, mode="marker", log_callback=log_callback)
                         resolved = self.marker_problem_callback(arm_side, mode="marker")
                         if resolved:
-                            state = self.robot.get_state()
-                            new_pose = list(np.array(state.position)[arm_idx])
+                            new_pose = self.adopt_taught_marker_pose(arm_side, log_callback)
                             cur_initial_pos = list(new_pose)
                             initial_joint_pos = list(new_pose)
-                            if hasattr(self, 'user_taught_ready_poses') and isinstance(self.user_taught_ready_poses, dict):
-                                if arm_side not in self.user_taught_ready_poses:
-                                    self.user_taught_ready_poses[arm_side] = {}
-                                self.user_taught_ready_poses[arm_side]["marker"] = list(new_pose)
                             if log_callback:
                                 log_callback(f"[INFO] Posture readjusted and preserved. Restarting Marker Axis {axis_mode} sweep...")
                             time.sleep(1.0)
@@ -677,6 +700,108 @@ class MarkerCalibrator(BaseCalibrator):
         combined['converged'] = True
         return combined
 
+    @staticmethod
+    def axis_in_marker_frame_robust(n_cam, poses, ideal_axis, outlier_floor_deg=1.0):
+        """A joint axis measured in the camera frame, expressed in the marker frame.
+
+        The marker sits beyond the swept joint, so the axis is fixed in the marker frame and every
+        frame of the sweep gives an estimate R_k^T n. This used to take the middle frame alone,
+        which made the result as noisy as one frame's marker orientation: on 2026-09-22 (D405)
+        picking a different frame moved the right J6 estimate by 0.68 deg std (-1.8..+1.4 deg),
+        the ~1 deg scatter that kept J6 from converging, and the same mapping feeds the bracket
+        orientation. Frames further than max(outlier_floor_deg, 3x the median deviation) from the
+        median direction (IPPE near-flips) are dropped before averaging.
+        """
+        n_cam = np.asarray(n_cam, dtype=float)
+        n_cam = n_cam / np.linalg.norm(n_cam)
+        ideal_axis = np.asarray(ideal_axis, dtype=float)
+        ns = np.array([np.asarray(T, dtype=float)[:3, :3].T @ n_cam for T in poses])
+        ns *= np.where(ns @ ideal_axis >= 0, 1.0, -1.0)[:, None]
+        med = np.median(ns, axis=0)
+        med /= np.linalg.norm(med)
+        dev = np.degrees(np.arccos(np.clip(ns @ med, -1.0, 1.0)))
+        keep = dev <= max(outlier_floor_deg, 3.0 * float(np.median(dev)))
+        n_marker = ns[keep].mean(axis=0) if np.any(keep) else med
+        return n_marker / np.linalg.norm(n_marker)
+
+    def bracket_y_locked(self):
+        """v1.2: hold the bracket y at the design value (setting.yaml marker.lock_bracket_y, default
+        on). Both brackets measure 54 mm; the J6 sweep radius cannot resolve that."""
+        if self.is_v13():
+            return False
+        markers = getattr(self, "markers_config", None) or {}
+        return bool(markers.get("lock_bracket_y", True))
+
+    def bracket_roll_locked(self):
+        """v1.2: hold the bracket roll at the design value (setting.yaml marker.lock_bracket_roll,
+        default on). The bracket joint seats at its design angle on the flange."""
+        if self.is_v13():
+            return False
+        markers = getattr(self, "markers_config", None) or {}
+        return bool(markers.get("lock_bracket_roll", True))
+
+    def bracket_offset_tolerance_mm(self):
+        """How far x/z may sit from the design values (assembly and marker placement, ~1-2 mm)."""
+        markers = getattr(self, "markers_config", None) or {}
+        return float(markers.get("bracket_offset_tolerance_mm", 2.0))
+
+    # Frames further than max(floor, factor x median) from a sweep's encoder-angle circle are left
+    # out of the constrained axis refit. Clean frames sit within ~0.7 mm on the real sweeps.
+    REFIT_OUTLIER_FLOOR_MM = 1.0
+    REFIT_OUTLIER_MEDIAN_FACTOR = 5.0
+
+    def drop_refit_outliers(self, points, marker_data, axis_num, arm_side, log_callback=None):
+        """Sweep points without the frames that sit off the sweep's encoder-angle circle.
+
+        The encoder-angle fit (fit_circle_3d_and_6dof_misalignment) is robust, but the constrained
+        refit is a plain least-squares fit, so one false detection bends all three axes. On
+        2026-09-22 (left arm, pass 2) the marker left the view at the end of the J5 sweep and the
+        last frame landed 26 mm off the circle: the refit moved the bracket pitch 0.09 -> 0.33 deg
+        and the roll fit 90.2 -> 88.5 deg. Returns the points to use (all of them when the circle is
+        unknown).
+        """
+        c, n, r = marker_data.get('c_opt'), marker_data.get('axis_opt'), marker_data.get('radius_encoder')
+        if c is None or n is None or r is None or len(points) == 0:
+            return points
+        n = np.asarray(n, dtype=float) / np.linalg.norm(n)
+        v = points - np.asarray(c, dtype=float)
+        axial = v @ n
+        radial = np.linalg.norm(v - np.outer(axial, n), axis=1)
+        dist = np.hypot(radial - r, axial)
+        limit = max(self.REFIT_OUTLIER_FLOOR_MM, self.REFIT_OUTLIER_MEDIAN_FACTOR * float(np.median(dist)))
+        keep = dist <= limit
+        if not np.all(keep) and log_callback:
+            dropped = np.where(~keep)[0]
+            log_callback(f"[INFO] {arm_side} bracket axis refit: left out {len(dropped)} of {len(points)} frame(s) of "
+                         f"the axis {axis_num} sweep more than {limit:.1f} mm off its circle "
+                         f"(frame {', '.join(str(i) for i in dropped[:5])}; up to {dist.max():.1f} mm).")
+        return points[keep]
+
+    J5_OFF_NOMINAL_WARN_DEG = 1.0
+    # How far the bracket y solved from the sweep radii may sit from the design value before a
+    # WARN (v1.2). Both brackets measure 54 mm; the encoder-angle radii put it within 0.5 mm.
+    BRACKET_Y_WARN_MM = 1.0
+
+    def warn_if_j5_off_nominal(self, marker_data_4, marker_data_6, arm_side, log_callback=None):
+        """Warn when the measured J4 and J6 sweep axes are not perpendicular.
+
+        With J5 at 90 deg they should be; the bracket roll absorbs whatever they are off. On
+        2026-09-21 a re-taught right-arm posture (J5 moved 2.7 deg by hand) measured 86.8 deg,
+        and the bracket roll (90.4 deg) moved Step 2's J0 by ~0.5 deg.
+        Returns the deviation in degrees (or None).
+        """
+        n4, n6 = marker_data_4.get('axis_opt'), marker_data_6.get('axis_opt')
+        if n4 is None or n6 is None:
+            return None
+        n4 = np.asarray(n4, dtype=float) / np.linalg.norm(n4)
+        n6 = np.asarray(n6, dtype=float) / np.linalg.norm(n6)
+        deviation = 90.0 - float(np.degrees(np.arccos(min(1.0, abs(float(n4 @ n6))))))
+        if abs(deviation) > self.J5_OFF_NOMINAL_WARN_DEG and log_callback:
+            log_callback(f"[WARN] {arm_side} bracket sweeps: measured J4-J6 axis angle is {90.0 - deviation:.2f} deg "
+                         f"({abs(deviation):.1f} deg from perpendicular). The bracket roll absorbs this and Step 2 "
+                         f"then shifts J0; check the sweep plots and re-run the bracket sweeps from the ready pose.")
+        return deviation
+
     def compute_unified_bracket_calibration(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False, log_callback=None):
         if calib_roll_or_yaw_deg is not None:
             calib_roll_deg = calib_roll_or_yaw_deg
@@ -686,11 +811,24 @@ class MarkerCalibrator(BaseCalibrator):
         # pose is derived. Independent circle fits left the axes 1-8 mm apart and up to 3 deg off
         # orthogonal on the real robot while the fit residual stayed at 0.08 mm, and that slack went
         # straight into the bracket pose (and from there into Step 2's J0).
+        # The bracket translation is solved from the encoder-angle circle fits each sweep arrives
+        # with (fit_circle_3d_and_6dof_misalignment: the circle is walked by the measured joint
+        # angle, so chord = 2 r sin(dtheta/2) pins the radius). The refit below replaces 'radius'
+        # with a position-only radius, which a short arc cannot resolve: on the 2026-09-22 13:30
+        # sweeps it put the J6 radius at 50.8 mm (right) and 57.3 mm (left), while the encoder fits
+        # gave 54.0 / 54.2 against the 54 mm both brackets measure.
+        for d in (marker_data_4, marker_data_5, marker_data_6):
+            if d is not None and 'radius_encoder' not in d:
+                d['radius_encoder'] = d.get('radius', 0.0)
+
         bracket_axis_refit = None
         if marker_data_4 is not None and not self.is_v13():
+            self.warn_if_j5_off_nominal(marker_data_4, marker_data_6, arm_side, log_callback)
             try:
                 sweeps = [marker_data_4, marker_data_6, marker_data_5]
                 pts = [np.array([np.asarray(T)[:3, 3] * 1000.0 for T in d.get('captured_poses', [])]) for d in sweeps]
+                pts = [self.drop_refit_outliers(P, d, axis_num, arm_side, log_callback)
+                       for P, d, axis_num in zip(pts, sweeps, (4, 6, 5))]
                 if all(len(P) >= 10 for P in pts) and all(d.get('axis_opt') is not None for d in sweeps):
                     bracket_axis_refit = self.refine_bracket_axes_constrained(
                         pts,
@@ -783,10 +921,7 @@ class MarkerCalibrator(BaseCalibrator):
             n_cam = marker_data.get('axis_opt') if not self.is_v13() else None
             if n_cam is None or len(poses) == 0:
                 return extract_axis_from_rotations(poses, ideal_axis)
-            R_ref = poses[len(poses) // 2][:3, :3]
-            n_marker = R_ref.T @ np.asarray(n_cam, dtype=float)
-            n_marker /= np.linalg.norm(n_marker)
-            return n_marker if np.dot(n_marker, ideal_axis) >= 0 else -n_marker
+            return self.axis_in_marker_frame_robust(n_cam, poses, ideal_axis)
 
         poses_6 = marker_data_6.get('captured_poses', [])
         target_ideal_6 = x_ee_m_ideal if self.is_v13() else z_ee_m_ideal
@@ -916,6 +1051,15 @@ class MarkerCalibrator(BaseCalibrator):
             yaw_e = nominal_vec[5]
             if arm_side == "right" and yaw_e < 0:
                 yaw_e += 360.0
+            if self.bracket_roll_locked():
+                # The bracket seats on the flange at its design roll; the fitted roll rides on the
+                # J5-J6 orthogonality estimate and moved up to 1.5 deg between passes. On
+                # 2026-09-21 a 90.43 deg roll put ~0.5 deg into both J0 offsets in Step 2, and the
+                # same data with roll 90 brought J0 back to the baseline.
+                if log_callback:
+                    log_callback(f"[INFO] {arm_side} bracket roll held at the design value {nominal_vec[3]:.1f}° "
+                                 f"(sweep fit gave {roll_e:.2f}°); pitch still fitted ({pitch_e:.2f}°).")
+                roll_e = float(nominal_vec[3])
         else:
             # v1.3: In ZYX Euler angle representation with Yaw = -90 deg:
             # - pitch_e rotates around Flange X_ee (co-axial with Joint 6 Roll).
@@ -926,9 +1070,9 @@ class MarkerCalibrator(BaseCalibrator):
                 yaw_e += 360.0
 
         # 5. 평행이동 오프셋 계산 (Least-Squares Solver allowing small attachment errors)
-        radius_6 = marker_data_6.get('radius', 0.0)
-        radius_5 = marker_data_5.get('radius', 0.0)
-        radius_4 = marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0
+        radius_6 = marker_data_6.get('radius_encoder', 0.0)
+        radius_5 = marker_data_5.get('radius_encoder', 0.0)
+        radius_4 = marker_data_4.get('radius_encoder', 0.0) if marker_data_4 is not None else 0.0
         
         x_nom = nominal_vec[0] * 1000.0
         y_nom = nominal_vec[1] * 1000.0
@@ -997,6 +1141,37 @@ class MarkerCalibrator(BaseCalibrator):
             upper_bounds = [x_nom + 40.0, y_nom + 40.0, 10.0]
             opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
             x_e, y_e, z_e = opt_res.x
+            fit_y, fit_z = y_e, z_e
+            if abs(fit_y - y_nom) > self.BRACKET_Y_WARN_MM and log_callback:
+                log_callback(f"[WARN] {arm_side} bracket: the sweep radii put y at {fit_y:.2f} mm, "
+                             f"{abs(fit_y - y_nom):.2f} mm from the design {y_nom:.1f} mm (both brackets "
+                             f"measure 54 mm). Check the sweep plots and the marker/bracket mounting.")
+            if self.bracket_y_locked():
+                # y is essentially the J6 sweep radius. Up to 2026-09-22 that radius came from a
+                # position-only fit, and the short arc (45 deg of a ~54 mm circle, 4 mm sagitta)
+                # turned 0.1 mm of fit error into ~1.3 mm of radius: the fitted y wandered 50-54 mm.
+                # The encoder-angle radii now used put y within 0.5 mm of 54 on both arms, so the
+                # lock is a guard; the free y is still logged and a WARN fires above past 1 mm.
+                # x/z are refitted with y held (the J4/J5 radii mix y and z), within the assembly
+                # tolerance the brackets are known to hold.
+                tol = self.bracket_offset_tolerance_mm()
+
+                def residuals_fixed_y(params):
+                    return residuals_trans([params[0], y_nom, params[1]])[:-3] + [
+                        1e-7 * (params[0] - x_nom), 1e-7 * (params[1] - z_nom)]
+
+                fixed = least_squares(residuals_fixed_y, [x_nom, z_nom],
+                                      bounds=([x_nom - tol, z_nom - tol], [x_nom + tol, z_nom + tol]), loss='huber')
+                x_e, z_e = fixed.x
+                y_e = y_nom
+                at_bound = abs(abs(z_e - z_nom) - tol) < 1e-3 or abs(abs(x_e - x_nom) - tol) < 1e-3
+                if log_callback:
+                    log_callback(f"[INFO] {arm_side} bracket y held at the design value {y_nom:.1f} mm "
+                                 f"(sweep fit alone gave y {fit_y:.1f}, z {fit_z:.1f}); refitted z {z_e:.2f} mm, x {x_e:.2f} mm "
+                                 f"(allowed ±{tol:.1f} mm around {z_nom:.1f} / {x_nom:.1f}).")
+                    if at_bound:
+                        log_callback(f"[WARN] {arm_side} bracket x/z reached the ±{tol:.1f} mm assembly limit; "
+                                     f"check the bracket mounting or the sweep plots.")
 
         print(f"DEBUG SOLVER v1.2: arm_side={arm_side}", flush=True)
         print(f"  L_5_ee = {L_5_ee:.4f}", flush=True)
@@ -1050,8 +1225,7 @@ class MarkerCalibrator(BaseCalibrator):
             'converged': True,
             'x_e': x_e, 'y_e': y_e, 'z_e': z_e,
             'roll_e': roll_e, 'pitch_e': pitch_e, 'yaw_e': yaw_e,
-            'L_5_ee': L_5_ee, 'radius_6': radius_6, 'radius_5': radius_5,
-            'radius_4': marker_data_4.get('radius', 0.0) if marker_data_4 is not None else 0.0,
+            'L_5_ee': L_5_ee, 'radius_6': radius_6, 'radius_5': radius_5, 'radius_4': radius_4,
             'ortho_err': ortho_err,
             'rmse_6': marker_data_6.get('rmse', 0.0),
             'rmse_5': marker_data_5.get('rmse', 0.0),
@@ -1074,18 +1248,47 @@ class MarkerCalibrator(BaseCalibrator):
         matplotlib.use('Agg')
         import matplotlib.pyplot as plt
 
+        def refit_view(res):
+            """Points and circle in the plane of the jointly refit circle, or None if no refit.
+
+            The refit replaces axis_opt / c_opt / radius, but pts_2d, uc_opt and vc_opt still
+            belong to the independent fit. Drawing the new radius around the old 2D centre put the
+            circle millimetres away from points it actually fits to ~0.2 mm (2026-09-21 plots).
+            """
+            if 'axis_opt_independent' not in res or res.get('c_opt') is None or not res.get('captured_poses'):
+                return None
+            P = np.array([np.asarray(T)[:3, 3] * 1000.0 for T in res['captured_poses']])
+            n = np.asarray(res['axis_opt'], dtype=float)
+            n = n / np.linalg.norm(n)
+            helper = np.array([0.0, 0.0, 1.0]) if abs(n[2]) < 0.9 else np.array([1.0, 0.0, 0.0])
+            ex = np.cross(n, helper)
+            ex /= np.linalg.norm(ex)
+            ey = np.cross(n, ex)
+            d = P - np.asarray(res['c_opt'], dtype=float)
+            h = d @ n
+            pts = np.c_[d @ ex, d @ ey]
+            err = np.sqrt(h ** 2 + (np.linalg.norm(pts, axis=1) - res['radius']) ** 2)
+            return pts, 0.0, 0.0, float(np.sqrt(np.mean(err ** 2)))
+
         def plot_single_axis(ax, res, axis_num, color):
             if res is None or 'pts_2d' not in res:
                 ax.set_title(f"Axis {axis_num} Sweep: No Data")
                 ax.axis('off')
                 return
-            ax.scatter(res['pts_2d'][:, 0], res['pts_2d'][:, 1], c=color, s=15, alpha=0.6, label='Captured Points')
-            circle = plt.Circle((res['uc_opt'], res['vc_opt']), res['radius'], color='r', fill=False, label='Fitted Circle')
+            view = refit_view(res)
+            if view is not None:
+                pts_2d, uc, vc, rmse = view
+                label = 'Constrained Fit'
+            else:
+                pts_2d, uc, vc, rmse = res['pts_2d'], res['uc_opt'], res['vc_opt'], res['rmse']
+                label = 'Fitted Circle'
+            ax.scatter(pts_2d[:, 0], pts_2d[:, 1], c=color, s=15, alpha=0.6, label='Captured Points')
+            circle = plt.Circle((uc, vc), res['radius'], color='r', fill=False, label=label)
             ax.add_patch(circle)
-            ax.plot(res['uc_opt'], res['vc_opt'], 'rx', label='Center')
-            
-            x_min, x_max = res['pts_2d'][:, 0].min(), res['pts_2d'][:, 0].max()
-            y_min, y_max = res['pts_2d'][:, 1].min(), res['pts_2d'][:, 1].max()
+            ax.plot(uc, vc, 'rx', label='Center')
+
+            x_min, x_max = pts_2d[:, 0].min(), pts_2d[:, 0].max()
+            y_min, y_max = pts_2d[:, 1].min(), pts_2d[:, 1].max()
             span = max(x_max - x_min, y_max - y_min)
             margin = max(1.0, span * 0.5)
             cx = (x_max + x_min) / 2
@@ -1094,7 +1297,10 @@ class MarkerCalibrator(BaseCalibrator):
             ax.set_ylim(cy - span/2 - margin, cy + span/2 + margin)
             ax.set_aspect('equal')
             ax.grid(True)
-            ax.set_title(f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {res['rmse']:.3f}mm)", fontsize=11, fontweight='bold')
+            title = f"Axis {axis_num} Sweep (Radius: {res['radius']:.2f}mm, RMSE: {rmse:.3f}mm)"
+            if view is not None and res.get('radius_encoder') is not None:
+                title += f"\nencoder-angle fit (bracket uses): r {res['radius_encoder']:.2f}mm, RMSE {res['rmse']:.3f}mm"
+            ax.set_title(title, fontsize=11, fontweight='bold')
             ax.legend(loc='upper right', fontsize=9)
 
         # Plot results

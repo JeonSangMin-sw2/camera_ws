@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, create_autospec
 import numpy as np
 from core.calibration import CalibrationCore, SequenceResult
+import core.calibration.data  # noqa: F401  binds its SETTING_PATH before setUp redirects setting_yaml
 from core.robot.robot_core import motion_cancellation, check_motion_cancelled, RobotOperationCancelled
 
 
@@ -15,6 +16,44 @@ class TestCoreExecution(unittest.TestCase):
         self.core = CalibrationCore()
         self.core.robot = MagicMock()
         self.core.observer = SimpleNamespace(sim=True, last_frame={})
+        # A successful Step 1 now writes setting.yaml: point it at a throwaway copy.
+        from core.storage import CONFIG_PATHS
+        import shutil
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.setting_yaml = str(Path(folder.name) / "setting.yaml")
+        shutil.copy(CONFIG_PATHS["setting_yaml"], self.setting_yaml)
+        patcher = patch.dict(CONFIG_PATHS, setting_yaml=self.setting_yaml)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_successful_step1_is_saved_to_setting_yaml(self):
+        from core.storage import ConfigStorage
+        bracket = [0.001, -0.0541, 0.0102, 1.5, -0.5, 179.0]
+        def step1(*args, **kwargs):
+            self.core.joint_offsets_store["right"].update(joint3=0.25, joint5=-1.5, joint6=0.75)
+            self.core.joint_offsets_store["left"].update(joint3=-0.1, joint5=0.5, joint6=-2.0)
+            self.core.set_marker_bracket("right", bracket)
+            return SequenceResult("step1").finish("completed")
+        before = ConfigStorage.load(self.setting_yaml)
+        with patch("core.calibration.sequences.step1.execute_step1_sequence", side_effect=step1):
+            self.assertTrue(self.core.run("step1").success)
+        saved = ConfigStorage.load(self.setting_yaml)
+        self.assertEqual(saved["joint_offset"]["right"], {"joint3": 0.25, "joint5": -1.5, "joint6": 0.75})
+        self.assertEqual(saved["joint_offset"]["left"], {"joint3": -0.1, "joint5": 0.5, "joint6": -2.0})
+        self.assertEqual(saved["marker"]["Tf_to_marker_right"], bracket)
+        # Not calibrated in this run, and Step 1.5 owns the head: both left as they were.
+        self.assertEqual(saved["marker"]["Tf_to_marker_left"], before["marker"]["Tf_to_marker_left"])
+        self.assertEqual(saved["joint_offset"].get("head"), before["joint_offset"].get("head"))
+
+    def test_failed_step1_leaves_setting_yaml_alone(self):
+        before = Path(self.setting_yaml).read_bytes()
+        def step1(*args, **kwargs):
+            self.core.joint_offsets_store["right"]["joint6"] = 9.0
+            return SequenceResult("step1").finish("failed", "bad fit")
+        with patch("core.calibration.sequences.step1.execute_step1_sequence", side_effect=step1):
+            self.assertFalse(self.core.run("step1").success)
+        self.assertEqual(Path(self.setting_yaml).read_bytes(), before)
 
     def test_unknown_sequence_failure_releases_lock(self):
         result = self.core.run("unknown")

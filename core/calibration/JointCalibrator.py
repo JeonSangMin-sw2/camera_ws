@@ -18,6 +18,43 @@ JOINT_SWEEP_DURATION_S = 8.0
 # biases it (real test 2026-09-15, right arm, 3 reps: 12 s mean -2.07 std 0.11 vs 8 s mean -2.71
 # std 0.32). Elbow was unaffected (12 s -1.982/0.024 vs 8 s -1.979/0.025).
 JOINT_SWEEP_DURATION_BY_MODE_S = {"wrist_yaw2": 12.0}
+# How the v1.2 J6 (wrist_yaw2) offset is estimated.
+#   "position"   : marker positions only -- the angle, about the J6 axis, between the J5 axis and
+#                  the marker's radial offset, compared with the same angle from the URDF.
+#   "orientation": the J5 axis mapped into the marker frame through the measured marker
+#                  orientation (the method up to 2026-09-22).
+# 2026-09-22: a stationary marker seen at different image positions (Step 2 head-only poses) kept
+# its position to 0.2 mm but its measured orientation drifted 0.2-0.36 deg with the image x
+# position (corr ~0.96). Fed into the orientation method in a synthetic sweep, 0.25 deg per 100 px
+# moved the right J6 estimate by 0.6 deg (the size of the bias seen on the robot); the position
+# method does not use the orientation. Its gauge is the bracket's lateral x (1 mm ~ 1 deg), which
+# is the same bracket model Step 2 uses, whereas the orientation method's gauge is the bracket yaw.
+# Kept on "orientation": on the real 11:22 left-arm sweep, taken with J6 verified by eye, the
+# orientation method read -0.82 deg and the position method +1.17 deg -- they miss in opposite
+# directions, i.e. the bracket mounting (yaw vs lateral x, the J6 gauge) dominates either way.
+WRIST_YAW2_METHOD = "orientation"
+# Both methods are always computed and reported (2026-09-29); a larger disagreement is logged as a
+# warning. They miss for different reasons (marker-orientation bias vs bracket lateral mounting).
+WRIST_YAW2_METHOD_DISAGREE_WARN_DEG = 0.5
+
+
+def choose_wrist_yaw2_offset(orientation_deg, position_deg, method):
+    """The J6 offset to use and the position-minus-orientation disagreement (None when the position
+    estimate is unavailable). "position" falls back to the orientation estimate without it."""
+    disagreement = None if position_deg is None else float(position_deg) - float(orientation_deg)
+    if method == "position" and position_deg is not None:
+        return float(position_deg), disagreement
+    return float(orientation_deg), disagreement
+# Which sweeps the v1.2 J6 (wrist_yaw2) offset is computed from in Step 1.
+#   "bracket_sweeps": the marker-bracket J6 (+-30 deg) and J5 (90 -> 50 deg) sweeps Step 1 runs
+#                     at the marker pose just before (wrist_yaw2_from_bracket_sweeps).
+#   "joint_sweeps"  : a dedicated, iterated J6/J5 sweep pair at the wrist_yaw2 joint pose
+#                     (perform_joint_calibration; the method up to 2026-09-22).
+# Both go through the same compute_calibration_results. On 2026-09-22, at the J6 zero the user had
+# checked by eye, the bracket sweeps read -0.07 deg (right) / +0.30 deg (left) while the dedicated
+# sweeps kept reading about -0.9 deg on both arms. The bracket sweeps also save the J6 sweep pairs
+# (2+ iterations x 2 sweeps x 12 s per arm and pass).
+WRIST_YAW2_SOURCE = "bracket_sweeps"
 MAX_FIT_POINTS = 1000
 # Per-sweep target-estimate scatter measured on the real robot (deg). Used as a floor on the
 # sample std so a mean of only 2 agreeing sweeps cannot pass on luck.
@@ -448,7 +485,7 @@ class JointCalibrator(BaseCalibrator):
             if getattr(self, 'stop_requested', False):
                 if log_callback: log_callback("[INFO] Joint calibration aborted before final report.")
                 return None
-        
+
             # Build clean final output dict — UI only needs these fields
             final_output = {
                 'mode': mode,
@@ -490,6 +527,82 @@ class JointCalibrator(BaseCalibrator):
             return final_output
         finally:
             self.current_calib_mode = None
+            logger.save()
+
+    def wrist_yaw2_from_bracket_sweeps(self, arm_side, res_6, res_5, log_callback=None, pass_idx=1):
+        """v1.2 J6 (wrist_yaw2) offset from the marker-bracket J6 and J5 sweeps (WRIST_YAW2_SOURCE).
+
+        The bracket's axis-6 and axis-5 sweeps are the J6/J5 sweep pair compute_calibration_results
+        needs, taken at the marker pose: the J5 axis's angle about the J6 axis, against the design
+        bracket, is the J6 offset. That estimate is absolute (it does not depend on the staged J6
+        offset), so one pair gives the answer and nothing moves the robot. res_6 / res_5 are
+        MarkerCalibrator.perform_calibration_sweep results (captured_q_full, captured_poses).
+        Returns a dict shaped like perform_joint_calibration's result, or None without enough data.
+        """
+        mode = "wrist_yaw2"
+        from core.storage import CONFIG_PATHS
+        result_txt_dir = CONFIG_PATHS["txt_dir"]
+        FileStorage.ensure_dir(result_txt_dir, exist_ok=True)
+        debug_file_path = os.path.join(result_txt_dir, f"joint_calib_debug_{arm_side}_{mode}.txt")
+        if pass_idx == 1 and os.path.exists(debug_file_path):
+            try: FileStorage.remove(debug_file_path)
+            except Exception: pass
+        logger = DebugLogger(log_callback, debug_file_path)
+        log = logger.log
+        try:
+            if not self.robot:
+                raise RuntimeError("Robot instance is not initialized or connected.")
+            model = self.robot.model()
+            arm_idx = model.left_arm_idx if arm_side == "left" else model.right_arm_idx
+            dataset_A = list(zip(res_6.get('captured_q_full', []), res_6.get('captured_poses', [])))
+            dataset_B = list(zip(res_5.get('captured_q_full', []), res_5.get('captured_poses', [])))
+            if len(dataset_A) < 20 or len(dataset_B) < 20:
+                log(f"[ERROR] {arm_side} J6 from the bracket sweeps: too few frames "
+                    f"(J6 sweep {len(dataset_A)}, J5 sweep {len(dataset_B)}; need 20 each).")
+                return None
+            if len(dataset_A) > MAX_FIT_POINTS:
+                dataset_A = [dataset_A[i] for i in np.round(np.linspace(0, len(dataset_A) - 1, MAX_FIT_POINTS)).astype(int)]
+            if len(dataset_B) > MAX_FIT_POINTS:
+                dataset_B = [dataset_B[i] for i in np.round(np.linspace(0, len(dataset_B) - 1, MAX_FIT_POINTS)).astype(int)]
+            initial_joint_pos = list(np.asarray(dataset_A[0][0])[arm_idx])
+
+            res = self.compute_calibration_results(arm_side, mode, dataset_A, dataset_B, initial_joint_pos,
+                                                   log_callback=log)
+            offset = float(res['optimal_offset'])
+            converged = not res.get('estimate_failed', False)
+            if not converged:
+                log(f"[ERROR] {arm_side} J6 could not be computed from the bracket sweeps (see the warning above).")
+            off_min, off_max = self.JOINT_CONFIGS[mode].get('offset_range', (-10.0, 10.0))
+            if not off_min <= offset <= off_max:
+                log(f"  [SAFETY WARNING] J6 offset {offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
+                offset = float(np.clip(offset, off_min, off_max))
+            both = ""
+            if res.get('wrist_yaw2_orientation_deg') is not None:
+                pos = res.get('wrist_yaw2_position_deg')
+                both = (f"; orientation {res['wrist_yaw2_orientation_deg']:+.4f}°, position "
+                        f"{'n/a' if pos is None else f'{pos:+.4f}°'}, method {WRIST_YAW2_METHOD}")
+            log(f"[INFO] {arm_side} J6 (wrist_yaw2) from the bracket sweeps: {offset:+.4f}° "
+                f"(J6 sweep {len(dataset_A)} frames, r {res['r_A']:.1f} mm; J5 sweep {len(dataset_B)} frames, "
+                f"r {res['r_B']:.1f} mm{both})")
+            return {
+                'mode': mode,
+                'recommended_joint_offset': offset,
+                'optimal_offset': offset,
+                'converged': converged,
+                'convergence_basis': 'bracket_sweeps',
+                'wrist_yaw2_method': WRIST_YAW2_METHOD,
+                'wrist_yaw2_orientation_deg': res.get('wrist_yaw2_orientation_deg'),
+                'wrist_yaw2_position_deg': res.get('wrist_yaw2_position_deg'),
+                'perp_dist_before': float('nan'),
+                'perp_dist_after': float('nan'),
+                'axial_offset_mm': float('nan'),
+                'lateral_offset_mm': float('nan'),
+                'r_A': res['r_A'],
+                'r_B': res['r_B'],
+                'first_res': res,
+                'final_res': res,
+            }
+        finally:
             logger.save()
 
 
@@ -868,6 +981,9 @@ class JointCalibrator(BaseCalibrator):
                 if log_callback: log_callback("[ERROR] Marker is not visible.")
                 if hasattr(self, 'marker_problem_callback') and self.marker_problem_callback:
                     if log_callback: log_callback("[INFO] Prompting user for manual teaching due to marker visibility error...")
+                    # Back to the ready pose before asking: the arm may still be where the
+                    # previous sweep ended, not where this sweep starts from.
+                    self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
                     resolved = self.marker_problem_callback(arm_side, mode=mode)
                     if resolved:
                         self.perform_move_to_ready_pose(arm_side, mode=mode, log_callback=log_callback)
@@ -999,6 +1115,73 @@ class JointCalibrator(BaseCalibrator):
             sweep_joint_B=sweep_joint_B
         )
 
+    def wrist_yaw2_offset_from_positions(self, arm_side, dataset_A, n6, n5, c6, arm_idx, dyn_model,
+                                         log_callback=None, edge_deg=(0.5, 1.0, 2.0), min_frames=8):
+        """v1.2 J6 offset from marker positions only (see WRIST_YAW2_METHOD).
+
+        During the J6 sweep the marker circles the J6 axis (n6, through c6); the J5 axis n5 is
+        fixed. For a frame, the angle about n6 from the J5 axis to the marker's radial offset is
+        compared with the same angle from the URDF at that frame's encoder angles and the current
+        bracket; the difference is how far J6 physically sits from its encoder reading. Only frames
+        near the two ends of the sweep are used, where the joint is slow, so the camera latency
+        (~65 ms) does not skew the encoder pairing: in a synthetic smooth-profile sweep with 65 ms
+        of latency the bias was +0.08 deg using the last 2 deg of each end and +0.02 deg using
+        0.5 deg. The window widens (edge_deg) until min_frames frames are in it.
+        n6/n5 must already point like the URDF axes.
+        Returns the offset in degrees (same convention as the other methods), or None.
+        """
+        if not dataset_A or n6 is None or n5 is None or c6 is None:
+            return None
+        n6 = np.asarray(n6, dtype=float) / np.linalg.norm(n6)
+        n5 = np.asarray(n5, dtype=float) / np.linalg.norm(n5)
+
+        def angle_about(axis, ref, vec):
+            vec = vec - np.dot(vec, axis) * axis
+            ref = ref - np.dot(ref, axis) * axis
+            if np.linalg.norm(vec) < 1e-9 or np.linalg.norm(ref) < 1e-9:
+                return None
+            vec, ref = vec / np.linalg.norm(vec), ref / np.linalg.norm(ref)
+            return float(np.arctan2(np.dot(axis, np.cross(ref, vec)), np.dot(ref, vec)))
+
+        j6 = np.array([q[arm_idx[6]] for q, _ in dataset_A], dtype=float)
+        near_ends = np.ones(len(dataset_A), dtype=bool)
+        for edge in edge_deg:
+            window = (j6 <= j6.min() + np.radians(edge)) | (j6 >= j6.max() - np.radians(edge))
+            if window.sum() >= min_frames:
+                near_ends = window
+                break
+
+        tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}")
+        if tf_vec is None:
+            tf_vec = self.camera_config.get(f"Tf_to_marker_{arm_side}_v12")
+        if tf_vec is None:
+            return None
+        T_ee_m = self.make_transform(tf_vec)
+        diffs = []
+        for (q_full, pose), use in zip(dataset_A, near_ends):
+            if not use:
+                continue
+            psi_meas = angle_about(n6, n5, np.asarray(pose)[:3, 3] * 1000.0 - c6)
+            T5 = self.compute_fk(self.robot, dyn_model, q_full, f"link_{arm_side}_arm_5")
+            T4 = self.compute_fk(self.robot, dyn_model, q_full, f"link_{arm_side}_arm_4")
+            T6 = self.compute_fk(self.robot, dyn_model, q_full, f"link_{arm_side}_arm_6")
+            T_ee = self.compute_fk(self.robot, dyn_model, q_full, f"ee_{arm_side}")
+            a6 = T5[:3, :3] @ np.array([0.0, 0.0, 1.0])
+            a5 = T4[:3, :3] @ np.array([0.0, 1.0, 0.0])
+            p_marker = (T_ee @ T_ee_m)[:3, 3] * 1000.0
+            psi_nom = angle_about(a6 / np.linalg.norm(a6), a5, p_marker - T6[:3, 3] * 1000.0)
+            if psi_meas is None or psi_nom is None:
+                continue
+            diffs.append((psi_meas - psi_nom + np.pi) % (2 * np.pi) - np.pi)
+        if len(diffs) < 3:
+            return None
+        diffs = np.degrees(np.array(diffs))
+        offset = -float(np.median(diffs))
+        if log_callback:
+            log_callback(f"  * Position-based J6: {len(diffs)} frames near the sweep ends, "
+                         f"spread {np.std(diffs):.3f}° -> offset {offset:+.4f}°")
+        return offset
+
     def compute_calibration_results(self, arm_side, mode, dataset_A, dataset_B, initial_joint_pos, current_offset_deg=0.0, use_angle_based_fitting=None, save_debug=False, log_callback=None, cand_joint=None, sweep_joint_A=None, sweep_joint_B=None):
         if use_angle_based_fitting is None:
             use_angle_based_fitting = getattr(self, 'use_angle_based_fitting', True)
@@ -1128,6 +1311,8 @@ class JointCalibrator(BaseCalibrator):
         n_B = n_B if np.dot(n_B, a_B_cam_nom) > 0 else -n_B
 
         # Project nominal and actual axes onto the plane perpendicular to the candidate joint axis
+        estimate_failed = False
+        wrist_yaw2_orientation_deg = wrist_yaw2_position_deg = None
         if mode in ("wrist_roll_v13", "wrist_yaw2"):
             try:
                 from core.calibration.MarkerCalibrator import MarkerCalibrator
@@ -1198,6 +1383,29 @@ class JointCalibrator(BaseCalibrator):
                     log_callback(f"[WARN] MarkerCalibrator fallback failed: {e}\n{traceback.format_exc()}. Using 0.0.")
                 optimal_offset_deg = 0.0
                 diff_angle = 0.0
+                estimate_failed = True
+            if mode == "wrist_yaw2" and not estimate_failed:
+                # Both J6 estimates are always computed and reported; WRIST_YAW2_METHOD picks the one
+                # used (2026-09-29: on the D405 the orientation method missed the baseline by
+                # +0.43 / -0.85 deg while the position method stayed within 0.1-0.2 deg).
+                wrist_yaw2_orientation_deg = float(optimal_offset_deg)
+                wrist_yaw2_position_deg = self.wrist_yaw2_offset_from_positions(
+                    arm_side, dataset_A, n_A, n_B, c_A_c, arm_idx, dyn_model, log_callback=log_callback)
+                optimal_offset_deg, j6_disagreement = choose_wrist_yaw2_offset(
+                    wrist_yaw2_orientation_deg, wrist_yaw2_position_deg, WRIST_YAW2_METHOD)
+                if log_callback:
+                    if wrist_yaw2_position_deg is None:
+                        log_callback(f"[WARN] wrist_yaw2: position-based J6 could not be computed; "
+                                     f"using the orientation method ({wrist_yaw2_orientation_deg:+.3f}°).")
+                    else:
+                        log_callback(f"[INFO] wrist_yaw2 J6 estimates: orientation {wrist_yaw2_orientation_deg:+.3f}°, "
+                                     f"position {wrist_yaw2_position_deg:+.3f}° (difference {j6_disagreement:+.3f}°); "
+                                     f"using the {WRIST_YAW2_METHOD} method.")
+                        if abs(j6_disagreement) > WRIST_YAW2_METHOD_DISAGREE_WARN_DEG:
+                            log_callback(f"[WARN] wrist_yaw2: the two J6 estimates differ by {abs(j6_disagreement):.2f}° "
+                                         f"(> {WRIST_YAW2_METHOD_DISAGREE_WARN_DEG}°). The orientation method follows the "
+                                         f"marker-orientation measurement, the position method the bracket's lateral "
+                                         f"mounting; check both before trusting J6.")
         else:
             # wrist_pitch_v13 (J5) falls through to here too, same as v1.2's wrist_pitch and
             # elbow -- only the JOINT_CONFIGS axis assignment (cand_joint/sweep_joint_A/B) and
@@ -1324,6 +1532,11 @@ class JointCalibrator(BaseCalibrator):
             'optimal_offset': optimal_offset_deg,
             'recommended_joint_offset': optimal_offset_deg,
             'converged': False,
+            # True when the J6 estimate fell back to 0.0 (the value is not a measurement).
+            'estimate_failed': estimate_failed,
+            # v1.2 J6 only: both estimates, whichever WRIST_YAW2_METHOD used (None elsewhere).
+            'wrist_yaw2_orientation_deg': wrist_yaw2_orientation_deg,
+            'wrist_yaw2_position_deg': wrist_yaw2_position_deg,
             '_dataset_A': dataset_A,
             '_dataset_B': dataset_B,
             '_initial_joint_pos': initial_joint_pos,

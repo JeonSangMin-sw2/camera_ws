@@ -1,0 +1,19 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_YAW2
+============================================================
+
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+  * Angle Error (from 90.0°)         : 0.9141° (Raw: 89.0859°)
+  * Circle Radii (r_A / r_B)         : 50.0 mm / 173.0 mm
+  * Center Distance                  : 56.6907 mm
+[ITERATION 1/6] offset=0.0000°, residual=-0.0400° -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Residual Error: -0.0400° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: -0.0400°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_right_wrist_yaw2_joint_calib.png

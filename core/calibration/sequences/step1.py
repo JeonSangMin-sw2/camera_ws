@@ -4,7 +4,67 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
 
 from core.storage import CONFIG_PATHS
+from core.calibration.JointCalibrator import WRIST_YAW2_SOURCE
 from .result import require_converged_joint
+
+
+def _taught_marker_pose(marker_calibrator, arm_side):
+    """The marker posture the operator taught for this arm during this run, if any."""
+    taught = getattr(marker_calibrator, "user_taught_ready_poses", None)
+    if isinstance(taught, dict):
+        arm = taught.get(arm_side, {})
+        if isinstance(arm, dict) and arm.get("marker") is not None:
+            return list(arm["marker"])
+    return None
+
+
+def run_bracket_sweeps(marker_calibrator, arm_side, first_starting_pose, *, log, emit_status,
+                       save_debug, pass_idx, is_stopped, labels=None, max_rounds=3):
+    """Run the axis 4, 6 and 5 marker sweeps so that all three share one arm posture.
+
+    The bracket is solved from the three circles together, on the assumption that they were
+    swept from the same posture (the wrist axes then meet at one point). When the marker leaves
+    the view part way through, the operator re-teaches the posture and only the sweep in progress
+    and the ones after it used the new posture: on 2026-09-21 axis 4 stayed at the old posture,
+    its axis ended up 29 mm from the other two, and the constrained refit bent the circles until
+    the right bracket read y = -40.5 mm instead of about -54. Any sweep done at a posture that
+    differs from the final one is therefore run again at the final one.
+
+    Returns {4: res, 6: res, 5: res}, or None when a stop was requested.
+    """
+    labels = labels or {}
+    order = (4, 6, 5)
+    results, pose_used = {}, {}
+    for _ in range(max_rounds):
+        for axis in order:
+            if axis in results:
+                continue
+            start = _taught_marker_pose(marker_calibrator, arm_side) or first_starting_pose
+            log(f"[FULL AUTO] Sweeping Axis {axis}{labels.get(axis, '')}...")
+            res = marker_calibrator.perform_calibration_sweep(
+                arm_side, axis, log_callback=log, status_callback=emit_status,
+                save_debug=save_debug, initial_joint_pos=start, pass_idx=pass_idx
+            )
+            if not res:
+                raise RuntimeError(f"Axis {axis} marker sweep failed on {arm_side} arm")
+            res['axis_mode'] = axis
+            res['axis'] = res['axis_opt']
+            results[axis] = res
+            # A re-teach inside the sweep restarts that sweep at the taught posture.
+            pose_used[axis] = _taught_marker_pose(marker_calibrator, arm_side) or start
+            if is_stopped():
+                return None
+        final = np.asarray(pose_used[order[-1]], dtype=float)
+        stale = [axis for axis in order
+                 if not np.allclose(np.asarray(pose_used[axis], dtype=float), final, atol=np.radians(0.1))]
+        if not stale:
+            return results
+        log(f"[FULL AUTO] The marker posture was re-taught during the bracket sweeps. Re-running "
+            f"Axis {', '.join(str(a) for a in stale)} at the new posture so all three sweeps share it.")
+        for axis in stale:
+            del results[axis]
+    raise RuntimeError(f"The marker posture kept changing during the bracket sweeps on the "
+                       f"{arm_side} arm; the three sweeps never shared one posture.")
 
 
 def _execute_step1_sequence(
@@ -152,51 +212,13 @@ def _execute_step1_sequence(
                     if isinstance(arm_taught, dict) and "marker" in arm_taught and arm_taught["marker"] is not None:
                         first_starting_pose = list(arm_taught["marker"])
 
-                log(f"[FULL AUTO] Sweeping Axis 4 (Wrist Yaw)...")
-                res_4 = marker_calibrator.perform_calibration_sweep(
-                    arm_side, 4, log_callback=log, status_callback=emit_status,
-                    save_debug=save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
+                sweeps = run_bracket_sweeps(
+                    marker_calibrator, arm_side, first_starting_pose, log=log, emit_status=emit_status,
+                    save_debug=save_debug, pass_idx=pass_idx, is_stopped=is_stopped, labels={4: ' (Wrist Yaw)', 6: ' (Wrist Roll)', 5: ' (Wrist Pitch)'}
                 )
-                if not res_4:
-                    raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
-                res_4['axis_mode'] = 4
-                res_4['axis'] = res_4['axis_opt']
-                if is_stopped():
+                if sweeps is None:
                     return
-
-                if hasattr(marker_calibrator, 'user_taught_ready_poses') and isinstance(marker_calibrator.user_taught_ready_poses, dict):
-                    arm_taught = marker_calibrator.user_taught_ready_poses.get(arm_side, {})
-                    if isinstance(arm_taught, dict) and "marker" in arm_taught and arm_taught["marker"] is not None:
-                        first_starting_pose = list(arm_taught["marker"])
-
-                log(f"[FULL AUTO] Sweeping Axis 6 (Wrist Roll)...")
-                res_6 = marker_calibrator.perform_calibration_sweep(
-                    arm_side, 6, log_callback=log, status_callback=emit_status,
-                    save_debug=save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                )
-                if not res_6:
-                    raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
-                res_6['axis_mode'] = 6
-                res_6['axis'] = res_6['axis_opt']
-                if is_stopped():
-                    return
-
-                if hasattr(marker_calibrator, 'user_taught_ready_poses') and isinstance(marker_calibrator.user_taught_ready_poses, dict):
-                    arm_taught = marker_calibrator.user_taught_ready_poses.get(arm_side, {})
-                    if isinstance(arm_taught, dict) and "marker" in arm_taught and arm_taught["marker"] is not None:
-                        first_starting_pose = list(arm_taught["marker"])
-
-                log(f"[FULL AUTO] Sweeping Axis 5 (Wrist Pitch)...")
-                res_5 = marker_calibrator.perform_calibration_sweep(
-                    arm_side, 5, log_callback=log, status_callback=emit_status,
-                    save_debug=save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                )
-                if not res_5:
-                    raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
-                res_5['axis_mode'] = 5
-                res_5['axis'] = res_5['axis_opt']
-                if is_stopped():
-                    return
+                res_4, res_6, res_5 = sweeps[4], sweeps[6], sweeps[5]
 
                 # 2. Compute Marker Bracket FIRST from the 3-axis sweeps (concurrent-axis
                 # wrist geometry; does not require J5/J6 offsets as input).
@@ -463,51 +485,13 @@ def _execute_step1_sequence(
                     if isinstance(arm_taught, dict) and "marker" in arm_taught and arm_taught["marker"] is not None:
                         first_starting_pose = list(arm_taught["marker"])
 
-                log(f"[FULL AUTO] Sweeping Axis 4...")
-                res_4 = marker_calibrator.perform_calibration_sweep(
-                    arm_side, 4, log_callback=log, status_callback=emit_status,
-                    save_debug=save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
+                sweeps = run_bracket_sweeps(
+                    marker_calibrator, arm_side, first_starting_pose, log=log, emit_status=emit_status,
+                    save_debug=save_debug, pass_idx=pass_idx, is_stopped=is_stopped, labels=None
                 )
-                if not res_4:
-                    raise RuntimeError(f"Axis 4 marker sweep failed on {arm_side} arm")
-                res_4['axis_mode'] = 4
-                res_4['axis'] = res_4['axis_opt']
-                if is_stopped():
+                if sweeps is None:
                     return
-
-                if hasattr(marker_calibrator, 'user_taught_ready_poses') and isinstance(marker_calibrator.user_taught_ready_poses, dict):
-                    arm_taught = marker_calibrator.user_taught_ready_poses.get(arm_side, {})
-                    if isinstance(arm_taught, dict) and "marker" in arm_taught and arm_taught["marker"] is not None:
-                        first_starting_pose = list(arm_taught["marker"])
-
-                log(f"[FULL AUTO] Sweeping Axis 6...")
-                res_6 = marker_calibrator.perform_calibration_sweep(
-                    arm_side, 6, log_callback=log, status_callback=emit_status,
-                    save_debug=save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                )
-                if not res_6:
-                    raise RuntimeError(f"Axis 6 marker sweep failed on {arm_side} arm")
-                res_6['axis_mode'] = 6
-                res_6['axis'] = res_6['axis_opt']
-                if is_stopped():
-                    return
-
-                if hasattr(marker_calibrator, 'user_taught_ready_poses') and isinstance(marker_calibrator.user_taught_ready_poses, dict):
-                    arm_taught = marker_calibrator.user_taught_ready_poses.get(arm_side, {})
-                    if isinstance(arm_taught, dict) and "marker" in arm_taught and arm_taught["marker"] is not None:
-                        first_starting_pose = list(arm_taught["marker"])
-
-                log(f"[FULL AUTO] Sweeping Axis 5...")
-                res_5 = marker_calibrator.perform_calibration_sweep(
-                    arm_side, 5, log_callback=log, status_callback=emit_status,
-                    save_debug=save_debug, initial_joint_pos=first_starting_pose, pass_idx=pass_idx
-                )
-                if not res_5:
-                    raise RuntimeError(f"Axis 5 marker sweep failed on {arm_side} arm")
-                res_5['axis_mode'] = 5
-                res_5['axis'] = res_5['axis_opt']
-                if is_stopped():
-                    return
+                res_4, res_6, res_5 = sweeps[4], sweeps[6], sweeps[5]
 
                 # 3. Compute Marker Bracket (1-time lock)
                 log("\n[FULL AUTO] Computing unified marker bracket calibration for v1.2...")
@@ -545,7 +529,39 @@ def _execute_step1_sequence(
 
                 # 4. Calibrate J6 (Wrist Yaw 2) & Iteration 2 Verification
                 pass1_res_yaw2 = pass1_joint_results.get("wrist_yaw2")
-                if pass_idx == 2 and pass1_res_yaw2 and pass1_res_yaw2.get("converged", False):
+                if WRIST_YAW2_SOURCE == "bracket_sweeps":
+                    # From the axis-6 / axis-5 bracket sweeps just taken (see WRIST_YAW2_SOURCE):
+                    # no robot motion, so it is recomputed every pass and the pass evaluation
+                    # below compares the two passes' values.
+                    log(f"\n[FULL AUTO] Computing J6 (Wrist Yaw 2) from the bracket J6/J5 sweeps...")
+                    joint_res_roll = joint_calibrator.wrist_yaw2_from_bracket_sweeps(
+                        arm_side, res_6, res_5, log_callback=log, pass_idx=pass_idx
+                    )
+                    require_converged_joint(joint_res_roll, context, f"{arm_side}_wrist_yaw2")
+                    if pass_idx == 1:
+                        pass1_joint_results["wrist_yaw2"] = joint_res_roll
+
+                    opt_roll = joint_res_roll["recommended_joint_offset"]
+                    log(f"[FULL AUTO] Staging J6 offset: {opt_roll:.4f}°")
+                    joint_offsets_store[arm_side]["joint6"] = opt_roll
+                    joint_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+                    marker_calibrator.joint_offsets[arm_side]["wrist_yaw2"] = opt_roll
+
+                    plot_path = joint_calibrator.save_calibration_comparison_plot(
+                        arm_side, "wrist_yaw2", pass1_res_yaw2 if pass1_res_yaw2 else joint_res_roll, joint_res_roll,
+                        log_callback=log, force_overwrite=True
+                    )
+                    if plot_path:
+                        joint_res_roll['plot_path_combined'] = plot_path
+
+                    joint_res_roll['arm_side'] = arm_side
+                    joint_res_roll['mode'] = "wrist_yaw2"
+                    joint_res_roll['pass_idx'] = pass_idx
+                    emit_joint(joint_res_roll)
+                    _wait(0.5)
+                    if is_stopped():
+                        return
+                elif pass_idx == 2 and pass1_res_yaw2 and pass1_res_yaw2.get("converged", False):
                     log(f"[FULL AUTO 2/3] J6 (Wrist Yaw 2) converged in Pass 1 ({pass1_res_yaw2['recommended_joint_offset']:.4f}°). Skipping Pass 2 sweep.")
                     opt_roll = pass1_res_yaw2["recommended_joint_offset"]
                     joint_offsets_store[arm_side]["joint6"] = opt_roll
@@ -556,6 +572,19 @@ def _execute_step1_sequence(
                     marker_calibrator.current_calib_mode = None
                     joint_calibrator.current_calib_mode = "wrist_yaw2"
                     log(f"\n[FULL AUTO] Calibrating J6 (Wrist Yaw 2) under locked bracket...")
+                    # Return to the ready pose first, as every other stage does. This one did not,
+                    # and perform_joint_calibration centres both of its sweeps on wherever the arm
+                    # happens to be, resetting only J6. The axis-5 marker sweep immediately before
+                    # ends 40 deg away (MARKER_CONFIGS axis_5 runs 0 -> -40 deg), so the J5 arc was
+                    # swept 40 deg low and walked the marker off the bottom of the frame: on
+                    # 2026-09-21 it captured 22 of 30 deg on the right arm and 26 on the left, and
+                    # a J5 arc cut short that unevenly biases the circle centre the J6 offset is
+                    # solved from.
+                    if not joint_calibrator.perform_move_to_ready_pose(arm_side, "wrist_yaw2", log_callback=log):
+                        raise RuntimeError(f"Failed to move to ready pose for wrist_yaw2 on {arm_side} arm")
+                    if is_stopped():
+                        return
+
                     joint_res_roll = joint_calibrator.perform_joint_calibration(
                         arm_side, "wrist_yaw2",
                         log_callback=log,

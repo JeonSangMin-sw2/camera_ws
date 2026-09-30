@@ -1,0 +1,86 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: ELBOW
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [98, 110]
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [96, 107]
+[DEBUG] Saved Axis 2 debug points to sweep_points_right_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_right_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 2.3068 deg
+  * Circle Size Error (abs: r_A - r_B)     : 2.8662 mm
+  * Estimated Circle Center Distance       : 8.3281 mm
+  * Calculated Offset Correction           : -2.099134 deg
+==================================================
+  * Angle Error (Deviation)          : 2.3068°
+  * Circle Size Error (r_A-r_B)      : 2.8662 mm
+  * Center Distance Error            : 8.3281 mm
+  * Max Fitting Error Metric         : 8.3281 mm
+[ITERATION 1/8] offset=0.0000°, residual=-2.0991° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -2.0991°
+
+[ITERATION 2/8] Sweeping physically with staged offset -2.0991°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -2.0991°]
+==================================================
+[FILTER] Filtered 5 IPPE flip spike frame(s) at indices: [85, 90, 91, 92, 96]
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [90]
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.5743 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.2349 mm
+  * Estimated Circle Center Distance       : 0.4726 mm
+  * Calculated Offset Correction           : -0.194988 deg
+==================================================
+  * Angle Error (Deviation)          : 0.5743°
+  * Circle Size Error (r_A-r_B)      : 0.2349 mm
+  * Center Distance Error            : 0.4726 mm
+  * Max Fitting Error Metric         : 0.4726 mm
+[ITERATION 2/8] offset=-2.0991°, residual=-0.1950° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -2.2941°
+
+[ITERATION 3/8] Sweeping physically with staged offset -2.2941°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -2.2941°]
+==================================================
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [72]
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.2042 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.0429 mm
+  * Estimated Circle Center Distance       : 0.3704 mm
+  * Calculated Offset Correction           : 0.062514 deg
+==================================================
+  * Angle Error (Deviation)          : 0.2042°
+  * Circle Size Error (r_A-r_B)      : 0.0429 mm
+  * Center Distance Error            : 0.3704 mm
+  * Max Fitting Error Metric         : 0.3704 mm
+[ITERATION 3/8] offset=-2.2941°, residual=+0.0625° -> retry (exceeds 0.06° tolerance)
+  * Mean of 2 near-target estimates: -2.2629° (std=0.0500°, std err=0.0354°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: -2.2941°, -2.2316°
+  * Std err 0.0354° <= 0.06°
+  * Recommended Absolute Offset (mean): -2.2629°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_right_elbow_joint_calib.png

@@ -95,6 +95,33 @@ class LanguageManager(QObject):
                 print(f"[LanguageManager] Failed to load translations from {config_path}: {e}")
         else:
             print(f"[LanguageManager] Translation file not found: {config_path}")
+        self._fill_from_bundle(config_path)
+
+    def _fill_from_bundle(self, config_path):
+        """A frozen build only copies config files that are missing next to the exe, so an
+        i18n.yaml left there by an older build lacks every key added since and the UI would show
+        raw key names. Keys the external file does not have are taken from the bundled copy."""
+        import sys
+        if not getattr(sys, "frozen", False) or not hasattr(sys, "_MEIPASS"):
+            return
+        bundled = os.path.join(sys._MEIPASS, "config", "ui_config", "i18n.yaml")
+        if not os.path.exists(bundled) or (config_path and os.path.abspath(bundled) == os.path.abspath(config_path)):
+            return
+        try:
+            base = ConfigStorage.load(bundled) or {}
+        except Exception:
+            return
+
+        def fill(target, source):
+            for key, value in source.items():
+                if key not in target:
+                    target[key] = value
+                elif isinstance(target[key], dict) and isinstance(value, dict):
+                    fill(target[key], value)
+
+        if not isinstance(self.translations, dict):
+            self.translations = {}
+        fill(self.translations, base)
 
     def set_language(self, lang):
         lang = lang.lower()

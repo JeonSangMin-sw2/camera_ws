@@ -414,8 +414,17 @@ def main():
         auto_config = AutoCollectionConfig()
         auto_config.max_loops = 1
         reset_motion_state()
-        motion_plan = build_incremental_motion_plan(robot, dyn_model, auto_config, active_arms, include_head_motion=True)
-        log(f"[STEP2] Motion plan has {len(motion_plan)} poses.")
+        # WRIST_DIVERSITY=1: add the ready_poses.yaml step2_wrist_diversity list regardless of the
+        # setting.yaml switch, to check those poses in the simulator before enabling them on the robot.
+        wrist_diversity = []
+        if os.environ.get("WRIST_DIVERSITY") == "1":
+            import yaml
+            ready_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "config", "ready_poses.yaml")
+            ready = yaml.safe_load(open(ready_path, encoding="utf-8"))
+            wrist_diversity = ready.get(f"v{ROBOT_VERSION}", {}).get("step2_wrist_diversity") or []
+        motion_plan = build_incremental_motion_plan(robot, dyn_model, auto_config, active_arms, include_head_motion=True,
+                                                    wrist_diversity=wrist_diversity)
+        log(f"[STEP2] Motion plan has {len(motion_plan)} poses ({len(wrist_diversity)} wrist-diversity).")
 
         cfg_both = get_both_arm_config(model, version=ROBOT_VERSION)
         arm_idx = cfg_both["arm_idx"]
@@ -425,13 +434,16 @@ def main():
         q_arm_list, q_head_list, T_list = [], [], []
         consecutive_failures = 0
         for i, step in enumerate(motion_plan):
-            execute_auto_motion_step(
+            moved = execute_auto_motion_step(
                 robot=robot,
                 config=auto_config,
                 motion_plan_step=step,
                 active_arms=active_arms,
                 include_head_motion=True,
             )
+            if moved is None and step.get("optional"):
+                log(f"[STEP2] Pose {i+1}/{len(motion_plan)} skipped (joint limit): {step.get('desc')}")
+                continue
             q_arm, q_head, T_meas = capture_robot_sample(
                 robot=robot,
                 arm_idx=arm_idx,
@@ -440,6 +452,9 @@ def main():
                 side="all",
                 sampling_time=0,
             )
+            if q_arm is None and step.get("optional"):
+                log(f"[STEP2] Pose {i+1}/{len(motion_plan)} skipped (marker not in view): {step.get('desc')}")
+                continue
             if q_arm is None:
                 consecutive_failures += 1
                 log(f"[STEP2][WARN] Pose {i+1}/{len(motion_plan)} ({step.get('desc')}) capture failed ({consecutive_failures}/3)")

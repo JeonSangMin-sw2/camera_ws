@@ -33,8 +33,9 @@ class RealSenseCamera:
         # Reconnect selected camera for safe usage
         print("Resetting Realsense device...")
         devices[self.device_number].hardware_reset()
-        # Wait for camera to reconnect
-        time.sleep(3)
+        # Wait for camera to reconnect. 3 s was not always enough for the device to re-enumerate
+        # on every PC / USB hub, which surfaced as "did not reconnect after reset" on a working camera.
+        time.sleep(5)
 
         # Re-verify camera info (hardware reset performed)
         ctx = rs.context()
@@ -97,6 +98,7 @@ class RealSenseCamera:
         self.io_lock = threading.RLock()
         self.frame_id = 0
         self.frame_timestamp = None
+        self._frame_times = []                                  # Recent frame arrival times, for the measured fps
         self.temperature = None
         self.temperature_timestamp = None
         self.last_error = ""
@@ -120,27 +122,17 @@ class RealSenseCamera:
             # Start pipeline
             self.profile = self.pipeline.start(self.config)
         except Exception as e:
+            # No lower-resolution fallback. Calibration is only valid at the resolution the
+            # intrinsics and the rest of the pipeline were set up for, and a camera that cannot
+            # open it is almost always on a USB 2 link (bad cable or port) -- continuing at
+            # 848x480 or 640x480 hid that and produced degraded results instead of a clear stop.
             print(f"Failed to start pipeline with {self.width}x{self.height}@{self.fps}. Error: {e}")
-            print("Attempting fallback resolution (848x480 @ 30fps)...")
-            try:
-                self.config = rs.config() # Reset config
-                self.config.enable_device(self.serial_number)
-                self.width, self.height, self.fps = 848, 480, 30
-                # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-                self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-                self.profile = self.pipeline.start(self.config)
-            except Exception as e2:
-                print(f"Fallback 1 failed: {e2}. Attempting 640x480 @ 30fps...")
-                try:
-                    self.config = rs.config()
-                    self.config.enable_device(self.serial_number)
-                    self.width, self.height, self.fps = 640, 480, 30
-                    # self.config.enable_stream(rs.stream.depth, self.width, self.height, rs.format.z16, self.fps)
-                    self.config.enable_stream(rs.stream.color, self.width, self.height, rs.format.bgr8, self.fps)
-                    self.profile = self.pipeline.start(self.config)
-                except Exception as e3:
-                    print(f"All profile attempts failed: {e3}")
-                    raise e3
+            raise CameraUnavailableError(
+                f"Camera could not open {self.width}x{self.height} @ {self.fps} fps ({e}). "
+                f"This usually means a USB 2 connection: replace the cable with a USB 3 cable and "
+                f"use a USB 3 port. / 카메라가 {self.width}x{self.height} 해상도를 열지 못했습니다. "
+                f"USB 3 케이블로 교체하고 USB 3 포트에 연결해 주세요."
+            ) from e
 
         try:
             # Discard first 10 frames to allow camera exposure to stabilize
@@ -152,6 +144,7 @@ class RealSenseCamera:
             for sensor in device.query_sensors():
                 if sensor.supports(rs.option.enable_auto_exposure):
                     sensor.set_option(rs.option.enable_auto_exposure, 1) # Enable auto exposure (previously manual 0)
+            self._pin_frame_rate_over_exposure()
                 # Comment out previous manual settings
                 # if sensor.supports(rs.option.exposure):
                 #     try:
@@ -254,6 +247,8 @@ class RealSenseCamera:
                 self.actual_exposure = exposure
                 self.frame_id += 1
                 self.frame_timestamp = time.time()
+                self._frame_times.append(self.frame_timestamp)
+                del self._frame_times[:-60]
                 self.last_error = ""
         except Exception as error:
             with self.lock:
@@ -306,25 +301,138 @@ class RealSenseCamera:
                 print(f"Failed to get temperature: {e}")
                 return None
 
+    def _color_sensor(self):
+        """The sensor the colour stream comes from -- the only one exposure should be set on.
+
+        Which physical sensor that is differs by model: on a D435 colour comes from a separate
+        RGB camera, on a D405 from the stereo module itself. Their exposure options do not share
+        a range or even a unit, so writing one number to every sensor that accepts `exposure`
+        (what this used to do) sets a sane value on one and a nonsensical one on the other.
+        """
+        if self.profile is None:
+            return None
+        cached = getattr(self, "_color_sensor_cache", None)
+        if cached is not None:
+            return cached
+        try:
+            for sensor in self.profile.get_device().query_sensors():
+                if any(p.stream_type() == rs.stream.color for p in sensor.get_stream_profiles()):
+                    self._color_sensor_cache = sensor
+                    return sensor
+        except Exception as e:
+            print(f"[Camera] Could not identify the colour sensor: {e}")
+        return None
+
+    def _pin_frame_rate_over_exposure(self):
+        """Stop auto exposure from buying a longer exposure with a lower frame rate.
+
+        `auto_exposure_priority` defaults to on, which lets the sensor drop below the requested
+        fps whenever the scene is dim. Nothing here ever set it, and on 2026-09-21 the left-arm
+        sweeps came back at 19.6 fps against the right arm's 31.0 -- the left marker sits near the
+        edge of the frame where it is darker. The image still looks the same, so this is invisible
+        by eye, but it costs a third of the captures and stretches the camera-to-encoder latency
+        the J6 fit is paired against (73.7 ms -> 95.6 ms across those two runs).
+        """
+        sensor = self._color_sensor()
+        if sensor is None:
+            return
+        try:
+            if sensor.supports(rs.option.auto_exposure_priority):
+                sensor.set_option(rs.option.auto_exposure_priority, 0)
+                print("[Camera] auto_exposure_priority off: the requested frame rate is held.")
+        except Exception as e:
+            print(f"[Camera] Could not pin the frame rate: {e}")
+
+    def measured_fps(self):
+        """Frame rate actually arriving over the last ~2 s, or None before there is enough data."""
+        with self.lock:
+            times = list(self._frame_times)
+        now = time.time()
+        times = [t for t in times if now - t <= 2.0]
+        if len(times) < 5 or times[-1] <= times[0]:
+            return None
+        return (len(times) - 1) / (times[-1] - times[0])
+
+    def get_stream_info(self):
+        """What the colour stream really runs at: device, serial, negotiated resolution and fps."""
+        width, height, fps = self.width, self.height, self.fps
+        try:
+            stream = self.profile.get_stream(rs.stream.color).as_video_stream_profile()
+            width, height, fps = stream.width(), stream.height(), stream.fps()
+        except Exception:
+            pass
+        return {
+            "device_name": getattr(self, "device_name", None),
+            "serial_number": getattr(self, "serial_number", None),
+            "width": width, "height": height, "fps": fps,
+            "measured_fps": self.measured_fps(),
+            "running": bool(getattr(self, "camera_running", False)),
+        }
+
+    def get_exposure_range(self):
+        """(min, max, step, default) the colour sensor actually accepts, or None.
+
+        The units are the sensor's own and are not comparable across models, so this has to be
+        read from the device rather than assumed. A D435's RGB camera bottoms out far below the
+        100 the UI used to allow, which made short exposures unreachable on it.
+        """
+        with self.io_lock:
+            sensor = self._color_sensor()
+            if sensor is None or not self.camera_running:
+                return None
+            try:
+                limits = sensor.get_option_range(rs.option.exposure)
+                return float(limits.min), float(limits.max), float(limits.step), float(limits.default)
+            except Exception as e:
+                print(f"[Camera] Failed to read the exposure range: {e}")
+                return None
+
+    def get_exposure_unit_us(self):
+        """Microseconds per step of the colour sensor's exposure option.
+
+        A separate RGB module (D415/D435/D455: "RGB Camera") is a UVC camera whose exposure is in
+        100 us units, so 100 there is 10 ms. The D405 takes its colour from the stereo module,
+        whose exposure is in microseconds. Frame metadata (actual_exposure) is microseconds on both.
+        """
+        with self.io_lock:
+            sensor = self._color_sensor()
+            if sensor is None:
+                return 1.0
+            try:
+                name = sensor.get_info(rs.camera_info.name)
+            except Exception:
+                return 1.0
+        return 100.0 if "rgb" in str(name).lower() else 1.0
+
     def set_exposure(self, exposure_val, auto_exposure=False):
         """
-        exposure_val: exposure time in microseconds (e.g. 100 ~ 100000)
+        exposure_val: exposure time in the colour sensor's own units (see get_exposure_range)
         auto_exposure: True for auto exposure, False for manual exposure
         """
         with self.io_lock:
             try:
                 if not self.camera_running or self.profile is None:
                     return False
-                device = self.profile.get_device()
-                for sensor in device.query_sensors():
-                    if auto_exposure:
-                        if sensor.supports(rs.option.enable_auto_exposure):
-                            sensor.set_option(rs.option.enable_auto_exposure, 1)
-                    else:
-                        if sensor.supports(rs.option.enable_auto_exposure):
-                            sensor.set_option(rs.option.enable_auto_exposure, 0)
-                        if sensor.supports(rs.option.exposure):
-                            sensor.set_option(rs.option.exposure, float(exposure_val))
+                sensor = self._color_sensor()
+                if sensor is None:
+                    return False
+                if auto_exposure:
+                    if sensor.supports(rs.option.enable_auto_exposure):
+                        sensor.set_option(rs.option.enable_auto_exposure, 1)
+                    # Switching back to auto re-arms the frame-rate trade, so pin it again.
+                    self._pin_frame_rate_over_exposure()
+                    return True
+                if sensor.supports(rs.option.enable_auto_exposure):
+                    sensor.set_option(rs.option.enable_auto_exposure, 0)
+                if not sensor.supports(rs.option.exposure):
+                    return False
+                value = float(exposure_val)
+                limits = sensor.get_option_range(rs.option.exposure)
+                clamped = min(max(value, limits.min), limits.max)
+                if clamped != value:
+                    print(f"[Camera] Exposure {value:g} is outside this camera's "
+                          f"{limits.min:g}..{limits.max:g}; using {clamped:g}.")
+                sensor.set_option(rs.option.exposure, clamped)
                 return True
             except Exception as e:
                 print(f"[Camera] Failed to set exposure (auto={auto_exposure}, val={exposure_val}): {e}")
@@ -338,17 +446,15 @@ class RealSenseCamera:
             try:
                 if not self.camera_running or self.profile is None:
                     return True, 6000.0
-                device = self.profile.get_device()
-                for sensor in device.query_sensors():
-                    if sensor.supports(rs.option.enable_auto_exposure):
-                        is_auto = bool(sensor.get_option(rs.option.enable_auto_exposure) > 0.5)
-                        exp_val = sensor.get_option(rs.option.exposure) if sensor.supports(rs.option.exposure) else 6000.0
-                        return is_auto, float(exp_val)
-                return True, 6000.0
+                sensor = self._color_sensor()
+                if sensor is None or not sensor.supports(rs.option.enable_auto_exposure):
+                    return True, 6000.0
+                is_auto = bool(sensor.get_option(rs.option.enable_auto_exposure) > 0.5)
+                exp_val = sensor.get_option(rs.option.exposure) if sensor.supports(rs.option.exposure) else 6000.0
+                return is_auto, float(exp_val)
             except Exception as e:
                 print(f"[Camera] Failed to get exposure: {e}")
                 return True, 6000.0
-            return None
 
     def get_actual_exposure(self):
         """Returns the actual measured exposure (in microseconds) from the latest frame metadata."""

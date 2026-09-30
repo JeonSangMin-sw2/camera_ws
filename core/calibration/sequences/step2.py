@@ -7,8 +7,10 @@ import datetime
 from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
-from ..data import get_arm_config, get_both_arm_config, get_head_config, validate_dataset
+from ..data import (get_arm_config, get_both_arm_config, get_head_config, load_step2_min_rot_noise_deg,
+                    validate_dataset)
 from ..calibration_optimizer import QPCalibrationOptimizer
+from ..observability import format_weak_directions, step2_weak_directions
 from ..CalibratorBase import BaseCalibrator
 D2R = np.pi / 180.0
 
@@ -48,6 +50,13 @@ def optimize_step2(
         if key in self.marker_calibrator.camera_config:
             ee_to_marker_nom[side] = self.marker_calibrator.camera_config[key]
             self.log_msg(f"[INFO] Using calibrated marker bracket values for {side}: {ee_to_marker_nom[side]}")
+
+    # Floor on the estimated orientation noise (see load_step2_min_rot_noise_deg).
+    min_rot_noise_deg, from_config = load_step2_min_rot_noise_deg()
+    if not from_config:
+        self.log_msg(f"[WARN] step2.min_rot_noise_deg is missing from setting.yaml; using the default {min_rot_noise_deg} deg.")
+    self.log_msg(f"[INFO] Step 2 marker-orientation noise floor: {min_rot_noise_deg} deg")
+    min_rot_noise_rad = min_rot_noise_deg * D2R
 
     head_cfg = get_head_config(self.model)
     use_head_kinematics = (
@@ -176,6 +185,7 @@ def optimize_step2(
             camera_rot_bound_rad=3.0 * D2R,
             eps=1e-7,
             max_iter=200,
+            min_rot_noise_std_rad=min_rot_noise_rad,
         )
         optimizer_pass1.stop_event = self.stop_event
         self.stop_check()
@@ -223,6 +233,7 @@ def optimize_step2(
             camera_rot_bound_rad=3.0 * D2R,
             eps=1e-7,
             max_iter=200,
+            min_rot_noise_std_rad=min_rot_noise_rad,
         )
         optimizer.stop_event = self.stop_event
         self.stop_check()
@@ -260,6 +271,7 @@ def optimize_step2(
             camera_rot_bound_rad=2.0 * D2R,
             eps=1e-7,
             max_iter=200,
+            min_rot_noise_std_rad=min_rot_noise_rad,
         )
         opt_single.stop_event = self.stop_event
         self.stop_check()
@@ -325,6 +337,25 @@ def optimize_step2(
         result_dict["xi_mount_cam"] = result_dict["xi_cam"]
     else:
         result_dict["xi_head_base_cam"] = result_dict["xi_cam"]
+
+    # Which offset combinations these poses barely constrain, and how far each moves the hands at the
+    # check pose (2026-09-29: small Step 2 residual, check pose off fore-aft). Report only.
+    try:
+        reference_q_arm = None
+        try:
+            # get_ready_pose returns radians.
+            reference_q_arm = np.concatenate([
+                self.marker_calibrator.get_ready_pose(f"v{self.get_robot_version()}", "check_calib", None, side)
+                for side in ("right", "left") if side in active_arms])
+        except Exception as error:
+            self.log_msg(f"[WARN] Step 2 observability: check pose not available ({error}); reporting without it.")
+        observability = step2_weak_directions(optimizer, q_arm_list, q_head_list, T_meas_list, q_arm_offset,
+                                              q_head_offset, xi_cam, active_arms, reference_q_arm=reference_q_arm)
+        for line in format_weak_directions(observability):
+            self.log_msg(line)
+        result_dict["observability"] = observability
+    except Exception as error:
+        self.log_msg(f"[WARN] Step 2 observability report failed: {error}")
 
     self.stop_check()
     ResultStorage.save(result_path, result_dict)

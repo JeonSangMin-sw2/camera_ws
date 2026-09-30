@@ -20,6 +20,10 @@ class AutoCollectionConfig:
     hold_time: float = 0.4
     priority: int = 10
 
+# Optional plan steps (wrist-diversity poses) are skipped when a joint target comes this close to its limit.
+OPTIONAL_POSE_LIMIT_MARGIN_DEG = 5.0
+
+
 def rot_x(rad):
     c, s = np.cos(rad), np.sin(rad)
     return np.array([[1, 0, 0], [0, c, -s], [0, s, c]], dtype=np.float64)
@@ -115,9 +119,15 @@ def reset_motion_state():
         "p_marker_0": None,
     }
 
-def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"], include_head_motion=True):
+def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"], include_head_motion=True,
+                                  wrist_diversity=None):
     """
     현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다. (최대 2루프, 총 82개 포즈로 구성)
+
+    wrist_diversity: extra poses for head robots (load_step2_wrist_diversity), each
+    {"right": [dJ4, dJ5, dJ6], "left": [...], "head": [dpan, dtilt]} in degrees from the baseline.
+    They are appended once, marked optional (a pose that is out of limits or loses a marker is
+    skipped instead of aborting Step 2), and followed by a return to the baseline.
     """
     reset_motion_state()
     if robot is None:
@@ -340,7 +350,29 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             
         T_curr_right = apply_cartesian_offset(T_curr_right, dx=config.step_x_m)
         T_curr_left = apply_cartesian_offset(T_curr_left, dx=config.step_x_m)
-        
+
+    if has_head and wrist_diversity:
+        n = len(wrist_diversity)
+        for k, pose in enumerate(wrist_diversity, start=1):
+            plan.append({
+                "type": "joint",
+                "joint_idx": None,
+                "offsets_by_arm": {side: {4: pose[side][0], 5: pose[side][1], 6: pose[side][2]}
+                                   for side in ("right", "left")},
+                "head_pan_offset_deg": pose["head"][0],
+                "head_tilt_offset_deg": pose["head"][1],
+                "optional": True,
+                "T_right": T_base_right.copy() if T_base_right is not None else None,
+                "T_left": T_base_left.copy() if T_base_left is not None else None,
+                "desc": f"Wrist diversity {k}/{n}: R J4-6 {pose['right']} L J4-6 {pose['left']} head {pose['head']} deg",
+            })
+        plan.append({
+            "type": "restore_baseline",
+            "T_right": T_base_right.copy() if T_base_right is not None else None,
+            "T_left": T_base_left.copy() if T_base_left is not None else None,
+            "desc": "Restore Baseline Pose",
+        })
+
     return plan
 
 def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None,
@@ -581,6 +613,8 @@ def send_auto_motion_cmd(
         raise RuntimeError(f"Auto motion command failed: {rv.finish_code}")
 
 def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, include_head_motion=True):
+    """Moves to one plan step and returns it, or None when an optional step was skipped (its joint
+    targets fall within OPTIONAL_POSE_LIMIT_MARGIN_DEG of a joint limit) -- then take no sample."""
     global _motion_state
 
     step_type = motion_plan_step.get("type")
@@ -630,7 +664,24 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
         q_right_target = _motion_state["q_right_baseline"].copy()
         q_left_target = _motion_state["q_left_baseline"].copy()
 
-        if "offsets_dict" in motion_plan_step and motion_plan_step["offsets_dict"] is not None:
+        if motion_plan_step.get("offsets_by_arm") is not None:
+            # Explicit per-arm offsets (no mirroring), e.g. the wrist-diversity poses.
+            targets = {"right": q_right_target, "left": q_left_target}
+            for side, offsets in motion_plan_step["offsets_by_arm"].items():
+                if side in active_arms:
+                    for j_i, off_deg in offsets.items():
+                        targets[side][int(j_i)] += np.deg2rad(off_deg)
+            if motion_plan_step.get("optional"):
+                names = model.robot_joint_names
+                limit_state = dyn_model.make_state(["link_torso_5", "ee_right"], names)
+                lower = np.asarray(dyn_model.get_limit_q_lower(limit_state))
+                upper = np.asarray(dyn_model.get_limit_q_upper(limit_state))
+                margin = np.deg2rad(OPTIONAL_POSE_LIMIT_MARGIN_DEG)
+                for side, idx, q_t in (("right", model.right_arm_idx[:7], q_right_target),
+                                       ("left", model.left_arm_idx[:7], q_left_target)):
+                    if side in active_arms and (np.any(q_t < lower[idx] + margin) or np.any(q_t > upper[idx] - margin)):
+                        return None      # skipped: the caller takes no sample
+        elif "offsets_dict" in motion_plan_step and motion_plan_step["offsets_dict"] is not None:
             for j_i, off_deg in motion_plan_step["offsets_dict"].items():
                 if j_i == 2:
                     if "right" in active_arms:

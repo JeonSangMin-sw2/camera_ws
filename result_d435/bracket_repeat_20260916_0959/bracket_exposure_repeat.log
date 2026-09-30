@@ -1,0 +1,126 @@
+09:59:11 [RUN] Connecting robot 192.168.1.40:50051 ...
+09:59:13 [INFO] Power (48v) is already ON.
+09:59:13 [INFO] Required servos (^(?!.*wheel).*$) are already ON.
+09:59:13 [INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
+09:59:13 [INFO] Enabling control manager with unlimited_mode_enabled=True...
+09:59:14 [RUN] Connecting camera ...
+09:59:24 [Camera] Auto exposure enabled
+09:59:26 
+[RUN] ===== exposure test: left arm, axis 4 =====
+09:59:26 [RUN] keeping camera exposure as configured: auto=True, value=33000 us
+09:59:26 [INFO] Moving right arm to marker Ready Pose...
+09:59:26 [INFO] Moving inactive arm to zero pose first...
+09:59:29 [INFO] Moving active arm, torso, and head to ready pose...
+09:59:34 [INFO] Ready Pose Reached.
+09:59:34 
+==================================================
+09:59:34    STARTING 4 CONTINUOUS MARKER SWEEP
+09:59:34 ==================================================
+09:59:49 
+==================================================
+09:59:49    STARTING 6 CONTINUOUS MARKER SWEEP
+09:59:49 ==================================================
+10:00:04 
+==================================================
+10:00:04    STARTING 5 CONTINUOUS MARKER SWEEP
+10:00:04 ==================================================
+10:00:19 [FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [48]
+10:00:19 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.090 -> 0.095 mm, axis change (J4/J6/J5) 0.22/0.61/0.19 deg, axis-to-wrist gap before 1.21/1.77/1.02 mm
+10:00:20 [RUN] right rep1 (55s): {'x_e': 0.0, 'y_e': -54.1535, 'z_e': -49.0721, 'roll_e': 88.9082, 'pitch_e': -0.3973, 'yaw_e': 180.0} | refit rms 0.0904->0.095 | frames {'axis4': 298, 'axis6': 306, 'axis5': 299}
+10:00:20 [INFO] Moving right arm to marker Ready Pose...
+10:00:20 [INFO] Moving inactive arm to zero pose first...
+10:00:24 [INFO] Moving active arm, torso, and head to ready pose...
+10:00:29 [INFO] Ready Pose Reached.
+10:00:29 
+==================================================
+10:00:29    STARTING 4 CONTINUOUS MARKER SWEEP
+10:00:29 ==================================================
+10:00:44 
+==================================================
+10:00:44    STARTING 6 CONTINUOUS MARKER SWEEP
+10:00:44 ==================================================
+10:00:58 [FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [178]
+10:00:59 
+==================================================
+10:00:59    STARTING 5 CONTINUOUS MARKER SWEEP
+10:00:59 ==================================================
+10:01:13 [FILTER] Filtered 4 IPPE flip spike frame(s) at indices: [31, 51, 60, 61]
+10:01:14 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.086 -> 0.092 mm, axis change (J4/J6/J5) 0.26/0.56/0.44 deg, axis-to-wrist gap before 1.49/1.41/1.62 mm
+10:01:15 [RUN] right rep2 (55s): {'x_e': 0.0, 'y_e': -53.9489, 'z_e': -49.2798, 'roll_e': 89.6294, 'pitch_e': -0.3824, 'yaw_e': 180.0} | refit rms 0.0863->0.0922 | frames {'axis4': 309, 'axis6': 308, 'axis5': 306}
+10:01:15 [INFO] Moving right arm to marker Ready Pose...
+10:01:15 [INFO] Moving inactive arm to zero pose first...
+10:01:18 [INFO] Moving active arm, torso, and head to ready pose...
+10:01:24 [INFO] Ready Pose Reached.
+10:01:24 
+==================================================
+10:01:24    STARTING 4 CONTINUOUS MARKER SWEEP
+10:01:24 ==================================================
+10:01:39 
+==================================================
+10:01:39    STARTING 6 CONTINUOUS MARKER SWEEP
+10:01:39 ==================================================
+10:01:54 
+==================================================
+10:01:54    STARTING 5 CONTINUOUS MARKER SWEEP
+10:01:54 ==================================================
+10:02:08 [FILTER] Filtered 4 IPPE flip spike frame(s) at indices: [30, 47, 51, 78]
+10:02:09 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.089 -> 0.095 mm, axis change (J4/J6/J5) 0.30/0.72/0.44 deg, axis-to-wrist gap before 1.43/1.73/1.63 mm
+10:02:10 [RUN] right rep3 (55s): {'x_e': 0.0, 'y_e': -53.7353, 'z_e': -49.3922, 'roll_e': 89.4224, 'pitch_e': -0.3793, 'yaw_e': 180.0} | refit rms 0.089->0.0945 | frames {'axis4': 299, 'axis6': 273, 'axis5': 298}
+10:02:10 [INFO] Moving left arm to marker Ready Pose...
+10:02:10 [INFO] Moving inactive arm to zero pose first...
+10:02:13 [INFO] Moving active arm, torso, and head to ready pose...
+10:02:18 [INFO] Ready Pose Reached.
+10:02:18 
+==================================================
+10:02:18    STARTING 4 CONTINUOUS MARKER SWEEP
+10:02:18 ==================================================
+10:02:33 [FILTER] Filtered 3 IPPE flip spike frame(s) at indices: [69, 74, 83]
+10:02:33 
+==================================================
+10:02:33    STARTING 6 CONTINUOUS MARKER SWEEP
+10:02:33 ==================================================
+10:02:48 
+==================================================
+10:02:48    STARTING 5 CONTINUOUS MARKER SWEEP
+10:02:48 ==================================================
+10:03:03 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.096 -> 0.111 mm, axis change (J4/J6/J5) 1.42/0.57/2.03 deg, axis-to-wrist gap before 0.55/0.70/0.93 mm
+10:03:04 [RUN] left rep1 (55s): {'x_e': 0.0, 'y_e': 51.7231, 'z_e': -49.7084, 'roll_e': 89.1436, 'pitch_e': -0.302, 'yaw_e': 0.0} | refit rms 0.0963->0.1112 | frames {'axis4': 303, 'axis6': 303, 'axis5': 309}
+10:03:04 [INFO] Moving left arm to marker Ready Pose...
+10:03:04 [INFO] Moving inactive arm to zero pose first...
+10:03:08 [INFO] Moving active arm, torso, and head to ready pose...
+10:03:13 [INFO] Ready Pose Reached.
+10:03:13 
+==================================================
+10:03:13    STARTING 4 CONTINUOUS MARKER SWEEP
+10:03:13 ==================================================
+10:03:28 [FILTER] Filtered 3 IPPE flip spike frame(s) at indices: [81, 82, 84]
+10:03:28 
+==================================================
+10:03:28    STARTING 6 CONTINUOUS MARKER SWEEP
+10:03:28 ==================================================
+10:03:43 
+==================================================
+10:03:43    STARTING 5 CONTINUOUS MARKER SWEEP
+10:03:43 ==================================================
+10:03:58 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.094 -> 0.111 mm, axis change (J4/J6/J5) 1.48/0.59/2.03 deg, axis-to-wrist gap before 0.60/0.52/0.86 mm
+10:03:59 [RUN] left rep2 (55s): {'x_e': 0.0, 'y_e': 51.8293, 'z_e': -49.807, 'roll_e': 89.2555, 'pitch_e': -0.2828, 'yaw_e': 0.0} | refit rms 0.094->0.1106 | frames {'axis4': 306, 'axis6': 302, 'axis5': 303}
+10:03:59 [INFO] Moving left arm to marker Ready Pose...
+10:03:59 [INFO] Moving inactive arm to zero pose first...
+10:04:02 [INFO] Moving active arm, torso, and head to ready pose...
+10:04:08 [INFO] Ready Pose Reached.
+10:04:08 
+==================================================
+10:04:08    STARTING 4 CONTINUOUS MARKER SWEEP
+10:04:08 ==================================================
+10:04:22 [FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [81, 84]
+10:04:23 
+==================================================
+10:04:23    STARTING 6 CONTINUOUS MARKER SWEEP
+10:04:23 ==================================================
+10:04:38 
+==================================================
+10:04:38    STARTING 5 CONTINUOUS MARKER SWEEP
+10:04:38 ==================================================
+10:04:53 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.097 -> 0.109 mm, axis change (J4/J6/J5) 1.39/0.71/1.83 deg, axis-to-wrist gap before 0.66/0.24/0.58 mm
+10:04:54 [RUN] left rep3 (55s): {'x_e': 0.0, 'y_e': 51.7097, 'z_e': -49.9129, 'roll_e': 89.2354, 'pitch_e': -0.2822, 'yaw_e': 0.0} | refit rms 0.0967->0.1094 | frames {'axis4': 303, 'axis6': 308, 'axis5': 303}
+10:04:55 [RUN] Core closed

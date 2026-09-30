@@ -1,0 +1,81 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: WRIST_YAW2
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_left_joint_B_axis_5.txt
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-11.28°, optimal_offset=-1.27°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 88.1960 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.7871 mm
+  * Estimated Circle Center Distance       : 58.8438 mm
+  * Calculated Offset Correction           : -1.272292 deg
+==================================================
+  * Angle Error (from 90.0°)         : 1.8040° (Raw: 88.1960°)
+  * Circle Radii (r_A / r_B)         : 54.2 mm / 175.0 mm
+  * Center Distance                  : 58.8438 mm
+[ITERATION 1/8] offset=0.0000°, residual=-1.2723° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -1.2723°
+
+[ITERATION 2/8] Sweeping physically with staged offset -1.2723°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.2723°]
+==================================================
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-9.76°, optimal_offset=-1.03°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 87.2993 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.6389 mm
+  * Estimated Circle Center Distance       : 61.7004 mm
+  * Calculated Offset Correction           : -1.025495 deg
+==================================================
+  * Angle Error (from 90.0°)         : 2.7007° (Raw: 87.2993°)
+  * Circle Radii (r_A / r_B)         : 54.3 mm / 174.9 mm
+  * Center Distance                  : 61.7004 mm
+[ITERATION 2/8] offset=-1.2723°, residual=+0.2468° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -1.0749°
+
+[ITERATION 3/8] Sweeping physically with staged offset -1.0749°...
+
+==================================================
+   STARTING WRIST_YAW2 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.0749°]
+==================================================
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-9.94°, optimal_offset=-1.00°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 87.5829 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.6642 mm
+  * Estimated Circle Center Distance       : 60.7559 mm
+  * Calculated Offset Correction           : -1.002917 deg
+==================================================
+  * Angle Error (from 90.0°)         : 2.4171° (Raw: 87.5829°)
+  * Circle Radii (r_A / r_B)         : 54.2 mm / 174.9 mm
+  * Center Distance                  : 60.7559 mm
+[ITERATION 3/8] offset=-1.0749°, residual=+0.0719° -> retry (exceeds 0.06° tolerance)
+  * Mean of 2 near-target estimates: -1.0142° (std=0.0600°, std err=0.0424°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: -1.0255°, -1.0029°
+  * Std err 0.0424° <= 0.06°
+  * Recommended Absolute Offset (mean): -1.0142°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\j4_test_20260921_184230\run1_J4_m80\circle_fit_left_wrist_yaw2_joint_calib.png

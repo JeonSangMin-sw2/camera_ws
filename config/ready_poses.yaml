@@ -6,15 +6,53 @@ v1.2:
     elbow:
       right_arm: [-117.0, -20.0, 0.0, 0.0, -100.0, 85.0, -115.0]
       left_arm: [-117.0, 20.0, 0.0, 0.0, 100.0, 85.0, 115.0]
+    # Same posture as `marker` below, on purpose (v1.3 already pairs them this way).
+    # J6 is solved from where the centre of the J5 circle sits relative to the J6 axis, so the
+    # J5 arc (sweep_joint_B, +-15 deg) has to be swept in full. From the old wrist_pitch posture
+    # the marker ran off the bottom of the frame part way through: 2026-09-21 captured only
+    # 22.18 of 30 deg on the right arm and 26.29 on the left, both ending ~50 px from the image
+    # edge, which biased the circle centre -- and the two arms unequally, since they lost
+    # different amounts. The marker posture keeps the whole sweep in view (its own 40/40/45 deg
+    # sweeps all complete with >100 px of margin).
     wrist_yaw2:
-      right_arm: [-55.0, -45.0, 25.0, -127.0, 90.0, 0.0, 0.0]
-      left_arm: [-55.0, 45.0, -25.0, -127.0, -90.0, 0.0, 0.0]
+      right_arm: [-90.0, -40.0, 73.0, -97.0, 90.0, 90.0, -10.0]
+      left_arm: [-90.0, 40.0, -73.0, -97.0, -80.0, 90.0, 10.0]
   marker:
     right_arm: [-90.0, -40.0, 73.0, -97.0, 90.0, 90.0, -10.0]
     left_arm: [-90.0, 40.0, -73.0, -97.0, -80.0, 90.0, 10.0]
   check_calib:
     right_arm: [-24.670293247716117, -39.97309779281507, 11.245521098854034, -107.94826174466372, -123.90104309118438, 62.20615349398536, 58.400917359415544]
     left_arm: [-24.673371649425416, 39.977181699521026, -11.2449384541747, -107.94870000866068, 123.90090751555407, 62.20615370729742, -58.400917505707554]
+  # Step 2 wrist-diversity poses (head robots, setting.yaml step2.wrist_diversity_poses): deltas in deg from the
+  # Step 2 baseline -- right/left [J4, J5, J6], head [pan, tilt]; J0-J3 stay at the baseline. Chosen offline on
+  # 2026-09-30 from the 09-29 15:13 D405 run (both markers in view with 60 px margin, incidence <= 40 deg,
+  # range <= 330 mm, markers >= 11 cm apart; re-checked on the 12:23 and 14:32 baselines). Offline estimate:
+  # weakest Step 2 direction 2.4 -> 5.0, a 1 deg Step 1 J6 error reaches the check pose about half as much.
+  step2_wrist_diversity:
+    - {right: [29.0, -28.1, -35.7], left: [-14.1, -29.7, 14.6], head: [0.0, 12.5]}
+    - {right: [28.8, 16.4, 4.6], left: [31.9, -0.5, -35.5], head: [0.0, -10.0]}
+    - {right: [34.0, -14.5, 3.6], left: [-34.7, 3.1, 13.1], head: [-10.0, 12.5]}
+    - {right: [29.1, 12.4, -15.4], left: [-1.1, -25.3, 20.3], head: [5.0, 2.5]}
+    - {right: [26.6, -25.4, -6.3], left: [-11.6, 23.5, -31.2], head: [0.0, 7.5]}
+    - {right: [7.4, -10.2, -21.7], left: [-19.2, -29.0, 15.6], head: [0.0, 10.0]}
+    - {right: [2.5, -18.0, -12.2], left: [-14.1, 18.9, -23.9], head: [-7.5, -5.0]}
+    - {right: [-15.1, 0.8, 36.5], left: [37.6, 6.2, -35.2], head: [0.0, -10.0]}
+    - {right: [34.9, -18.8, -7.4], left: [-10.1, -20.0, 14.5], head: [0.0, 2.5]}
+    - {right: [20.6, 10.0, -18.8], left: [29.0, -1.0, -39.9], head: [0.0, -2.5]}
+    - {right: [22.1, -17.4, -6.1], left: [-16.6, -22.3, 34.5], head: [0.0, 2.5]}
+    - {right: [5.0, 3.5, 38.9], left: [-36.8, -2.8, 11.8], head: [0.0, 12.5]}
+    - {right: [-24.3, 2.6, 40.2], left: [20.6, -3.8, -30.7], head: [0.0, -7.5]}
+    - {right: [9.1, -14.6, -11.1], left: [27.5, 26.8, -28.7], head: [0.0, -5.0]}
+    - {right: [38.0, 14.0, 15.7], left: [-29.8, 18.5, -6.9], head: [7.5, 10.0]}
+    - {right: [7.0, -18.6, -18.6], left: [-31.9, 29.5, -3.9], head: [0.0, 0.0]}
+    - {right: [16.3, 26.9, 10.3], left: [28.4, 1.9, -25.1], head: [0.0, -5.0]}
+    - {right: [9.8, 28.3, 44.9], left: [-19.1, -21.2, 1.7], head: [5.0, 5.0]}
+    - {right: [39.3, -15.9, -15.2], left: [-34.0, 24.8, 29.5], head: [0.0, 0.0]}
+    - {right: [38.1, -27.8, -20.4], left: [-13.0, 8.5, 8.1], head: [0.0, 7.5]}
+    - {right: [17.0, -1.5, -33.1], left: [37.8, 11.7, -33.4], head: [0.0, -10.0]}
+    - {right: [-35.3, 5.5, 43.5], left: [-3.2, 16.2, -36.2], head: [0.0, -10.0]}
+    - {right: [33.8, 24.2, -5.2], left: [-7.9, -22.0, 42.8], head: [0.0, 0.0]}
+    - {right: [15.0, -6.5, 19.4], left: [-2.7, -5.2, -12.1], head: [-7.5, 5.0]}
 v1.3:
   joint:
     wrist_pitch:

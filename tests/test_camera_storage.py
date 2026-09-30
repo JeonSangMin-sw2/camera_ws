@@ -22,6 +22,7 @@ def fake_camera():
     camera.thread = None
     camera.frame_id = 1
     camera.frame_timestamp = 123.0
+    camera._frame_times = []
     camera.temperature = 32.5
     camera.temperature_timestamp = 120.0
     camera.actual_exposure = 6000.0
@@ -151,3 +152,169 @@ class TestStorage(unittest.TestCase):
             path = Path(folder) / "config.yaml"
             FileStorage.write_text(path, "".join(lines))
             self.assertEqual(ConfigStorage.load(path)["camera"]["mount_to_cam"], [1, 2, 3, 4, 5, 6])
+
+
+def fake_sensor(streams, low, high, step=1.0, default=1.0):
+    """A sensor exposing the given stream types and exposure range; records what is written."""
+    import pyrealsense2 as rs
+    sensor = SimpleNamespace(written={})
+    sensor.get_stream_profiles = lambda: [SimpleNamespace(stream_type=lambda t=t: t) for t in streams]
+    sensor.supports = lambda option: option in (rs.option.exposure, rs.option.enable_auto_exposure,
+                                               rs.option.auto_exposure_priority)
+    sensor.get_option_range = lambda option: SimpleNamespace(min=low, max=high, step=step, default=default)
+    sensor.set_option = lambda option, value: sensor.written.__setitem__(option, value)
+    sensor.get_option = lambda option: sensor.written.get(option, default)
+    return sensor
+
+
+def camera_with(sensors):
+    camera = RealSenseCamera.__new__(RealSenseCamera)
+    camera.lock = threading.RLock()
+    camera.io_lock = threading.RLock()
+    camera.camera_running = True
+    camera.profile = SimpleNamespace(
+        get_device=lambda: SimpleNamespace(query_sensors=lambda: sensors))
+    return camera
+
+
+class TestExposureFollowsTheColourSensor(unittest.TestCase):
+    """Exposure belongs to whichever sensor produces the colour stream, and only to that one.
+
+    Which sensor that is, and the range and unit of its exposure option, differ by model: a D405
+    streams colour from the stereo module, a D435 from a separate RGB camera whose range is far
+    smaller. Writing one number to every sensor that accepts `exposure` set a sane value on one
+    and a nonsensical one on the other, and the UI's fixed floor of 100 put short exposures out
+    of reach on a D435 entirely.
+    """
+
+    def stereo_and_rgb(self):
+        import pyrealsense2 as rs
+        stereo = fake_sensor([rs.stream.depth, rs.stream.infrared], 1.0, 165000.0, default=8500.0)
+        rgb = fake_sensor([rs.stream.color], 1.0, 10000.0, default=156.0)
+        return stereo, rgb
+
+    def test_range_is_read_from_the_camera_not_assumed(self):
+        stereo, rgb = self.stereo_and_rgb()
+        self.assertEqual(camera_with([stereo, rgb]).get_exposure_range()[:2], (1.0, 10000.0))
+
+    def test_a_value_below_the_old_fixed_floor_reaches_the_colour_sensor(self):
+        import pyrealsense2 as rs
+        stereo, rgb = self.stereo_and_rgb()
+
+        camera_with([stereo, rgb]).set_exposure(50)
+
+        self.assertEqual(rgb.written[rs.option.exposure], 50.0)
+        self.assertNotIn(rs.option.exposure, stereo.written,
+                         "the depth sensor's exposure is not the colour exposure")
+
+    def test_a_value_the_camera_cannot_take_is_clamped_not_rejected(self):
+        import pyrealsense2 as rs
+        stereo, rgb = self.stereo_and_rgb()
+
+        self.assertTrue(camera_with([stereo, rgb]).set_exposure(60000))
+
+        self.assertEqual(rgb.written[rs.option.exposure], 10000.0)
+
+    def test_a_camera_whose_stereo_module_carries_colour_is_driven_there(self):
+        import pyrealsense2 as rs
+        # A D405 has no separate RGB camera; colour comes off the stereo module.
+        stereo = fake_sensor([rs.stream.depth, rs.stream.color], 1.0, 200000.0, default=33000.0)
+
+        camera = camera_with([stereo])
+        camera.set_exposure(6000)
+
+        self.assertEqual(camera.get_exposure_range()[:2], (1.0, 200000.0))
+        self.assertEqual(stereo.written[rs.option.exposure], 6000.0)
+        self.assertEqual(camera.get_exposure(), (False, 6000.0))
+
+    def test_no_colour_sensor_is_reported_rather_than_guessed(self):
+        import pyrealsense2 as rs
+        stereo = fake_sensor([rs.stream.depth], 1.0, 165000.0)
+
+        camera = camera_with([stereo])
+
+        self.assertIsNone(camera.get_exposure_range())
+        self.assertFalse(camera.set_exposure(100))
+        self.assertNotIn(rs.option.exposure, stereo.written)
+
+    def test_auto_mode_keeps_the_frame_rate_instead_of_a_longer_exposure(self):
+        import pyrealsense2 as rs
+        stereo, rgb = self.stereo_and_rgb()
+
+        camera_with([stereo, rgb]).set_exposure(0, auto_exposure=True)
+
+        self.assertEqual(rgb.written[rs.option.enable_auto_exposure], 1)
+        self.assertEqual(rgb.written[rs.option.auto_exposure_priority], 0,
+                         "auto exposure defaults to trading frame rate for exposure; left on, it "
+                         "silently ran the dimmer arm's sweeps at 19.6 fps instead of 31.0")
+
+
+class TestResolutionIsNotNegotiatedDown(unittest.TestCase):
+    """A camera that cannot open the configured resolution must stop, not quietly drop to a
+    lower one: the intrinsics and results are only valid at the configured size, and the usual
+    cause is a USB 2 link that should be fixed with a cable, not worked around."""
+
+    def test_refused_profile_raises_with_a_cable_hint_and_never_falls_back(self):
+        from core.camera_processing import CameraUnavailableError
+        camera = RealSenseCamera.__new__(RealSenseCamera)
+        camera.serial_number = "test"
+        camera.config = MagicMock()
+        camera.pipeline = MagicMock()
+        camera.pipeline.start.side_effect = RuntimeError("Couldn't resolve requests")
+
+        with self.assertRaises(CameraUnavailableError) as caught:
+            camera.initialize_camera(1280, 720, 30)
+
+        self.assertIn("USB 3", str(caught.exception))
+        self.assertEqual(camera.pipeline.start.call_count, 1, "no lower-resolution retry")
+        self.assertEqual((camera.width, camera.height), (1280, 720))
+
+
+class TestStreamInfoForTheWizard(unittest.TestCase):
+    def test_reports_the_negotiated_stream_and_the_measured_rate(self):
+        camera = fake_camera()
+        camera.width, camera.height, camera.fps = 1280, 720, 30
+        camera.device_name, camera.serial_number = "Intel RealSense D435I", "123"
+        stream = SimpleNamespace(width=lambda: 848, height=lambda: 480, fps=lambda: 15)
+        camera.profile = SimpleNamespace(get_stream=lambda kind: SimpleNamespace(as_video_stream_profile=lambda: stream))
+        now = time.time()
+        camera._frame_times = [now - 1.0 + i * 0.05 for i in range(21)]
+        info = camera.get_stream_info()
+        self.assertEqual((info["width"], info["height"], info["fps"]), (848, 480, 15))
+        self.assertAlmostEqual(info["measured_fps"], 20.0, places=3)
+        self.assertEqual(info["device_name"], "Intel RealSense D435I")
+
+    def test_no_rate_before_enough_frames(self):
+        camera = fake_camera()
+        camera._frame_times = [time.time()]
+        self.assertIsNone(camera.measured_fps())
+
+    def test_capture_records_frame_times(self):
+        camera = fake_camera()
+        frame = MagicMock()
+        frame.get_data.return_value = np.zeros((2, 2, 3), dtype=np.uint8)
+        frame.supports_frame_metadata.return_value = False
+        camera.pipeline.wait_for_frames.return_value.get_color_frame.return_value = frame
+        for _ in range(3):
+            camera.capture_image()
+        self.assertEqual(len(camera._frame_times), 3)
+
+
+class TestExposureUnitFollowsTheColourModule(unittest.TestCase):
+    """A D435's RGB module is a UVC camera (exposure in 100 us steps); a D405's colour comes from
+    the stereo module (microseconds). "100" is 10 ms on the first and 0.1 ms on the second."""
+
+    def named(self, sensor, name):
+        sensor.get_info = lambda info: name
+        return sensor
+
+    def test_rgb_module_counts_in_100_us(self):
+        import pyrealsense2 as rs
+        stereo = self.named(fake_sensor([rs.stream.depth], 1.0, 165000.0), "Stereo Module")
+        rgb = self.named(fake_sensor([rs.stream.color], 1.0, 10000.0), "RGB Camera")
+        self.assertEqual(camera_with([stereo, rgb]).get_exposure_unit_us(), 100.0)
+
+    def test_colour_from_the_stereo_module_counts_in_us(self):
+        import pyrealsense2 as rs
+        stereo = self.named(fake_sensor([rs.stream.depth, rs.stream.color], 1.0, 165000.0), "Stereo Module")
+        self.assertEqual(camera_with([stereo]).get_exposure_unit_us(), 1.0)
