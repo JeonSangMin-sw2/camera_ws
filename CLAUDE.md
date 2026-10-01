@@ -52,7 +52,7 @@ session metrics. Native reads bypass all of that.
 ## 🔴 반드시 지킬 것
 - 보정 수학을 바꾸기 전에 노션 프로젝트 문서(design 4장 원리·수식, project_harness 트랩, process 진행 기록)를 먼저 읽는다.
 - Step 1 수렴 기준 0.06°를 올려서 통과시키지 않는다 (사용자가 거부한 결정).
-- 카메라 내부 파라미터 모드(`calib_intrinsics_mode`)를 바꾸지 않는다. 로봇별 상수·시리얼을 yaml에 넣지 않는다.
+- 카메라 내부 파라미터 모드(`calib_intrinsics_mode`)를 바꾸지 않는다. 로봇별 상수·로봇 시리얼을 yaml에 넣지 않는다. 예외: 카메라 시리얼별 내부 파라미터 파일은 허용 (2026-09-30 사용자 결정).
 - 테스트·분석 스크립트는 결과 경로를 임시 폴더로 돌린다. `result/`를 덮어쓰지 않는다.
 - `config/home_reset_baseline.json`은 Home Offset Reset마다 새로 써진다. `created_at`을 확인하고 같은 리셋 이후 결과끼리만 비교한다.
 - Home Offset Apply는 로봇 홈에 실제로 기록된다. 이후 분석에서 오프셋을 다시 더하면 이중 적용이 된다.
@@ -75,6 +75,7 @@ session metrics. Native reads bypass all of that.
 | 2026-09-26 | 테스트는 물어보고 실행, lint는 자동 | 권한 ASK + PostToolUse hook (py_compile) | `.claude/settings.json`, `.claude/hooks/ask_tests.py` |
 | 2026-09-26 | 계층 경계 (compute 순수성, comm의 로봇 제어 금지) | 센서(테스트) | `tests/test_module_boundaries.py` |
 | 2026-09-28 | 파일 읽기에 권한 창이 뜸 (묶은 명령·sed) → sed 허용, 읽기는 단일 명령/Read·Grep | 권한 ALLOW | `.claude/settings.json` |
+| 2026-09-30 | `start/stop_sim_wsl.bat`이 LF 줄바꿈이라 한글 줄과 `chcp 65001`에서 명령이 잘려 실행됨 (`ker`) | 저장소 설정 (체크아웃 시 CRLF 강제) | `.gitattributes` (`*.bat`, `*.cmd` eol=crlf) |
 
 ## 진행 상태
 작업 중 상태는 `docs/progress.md`에 갱신한다. 노션은 사용자가 요청할 때만 정리한다.

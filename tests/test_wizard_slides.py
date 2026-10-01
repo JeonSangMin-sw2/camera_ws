@@ -6,7 +6,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 from PySide6.QtWidgets import QApplication
@@ -18,6 +18,7 @@ from core.calibration.data import (DEFAULT_MAX_MARKER_JITTER_MM, load_max_marker
 from core.calibration.sequences.marker_monitor import MarkerMonitor
 from core.calibration.sequences.result import SequenceCancelled
 from core.storage import ConfigStorage
+from core.language import tr
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -213,10 +214,56 @@ class TestWizardSlides(unittest.TestCase):
 
     def test_new_slides_sit_where_requested(self):
         W = self.W
-        self.assertEqual(W.SLIDE_MARKER_BRACKET, W.SLIDE_GRIPPER + 1)
+        # 2026-09-30: gripper removal + marker bracket are one slide. 2026-10-01: it comes right after
+        # the robot connection, because its photo depends on the robot version.
+        self.assertEqual(W.SLIDE_MARKER_BRACKET, W.SLIDE_ROBOT_CONNECT + 1)
+        self.assertEqual(W.SLIDE_ZERO_POSE, W.SLIDE_MARKER_BRACKET + 1)
+        numbers = [tr(W.TITLE_KEYS[i]).split(".")[0] for i in range(W.SLIDE_COUNT)]
+        self.assertEqual(numbers, ["1-1", "1-2", "2", "3", "3-1", "3-2", "3-3", "4", "5"])
         self.assertEqual(W.SLIDE_EXPOSURE, W.SLIDE_HOME_OFFSET + 1)
         self.assertEqual(W.SLIDE_CALIBRATION, W.SLIDE_EXPOSURE + 1)
         self.assertIn(W.SLIDE_EXPOSURE, W.VIDEO_SLIDES)
+        self.assertFalse(hasattr(W, "SLIDE_GRIPPER") or hasattr(W, "SLIDE_INTRINSICS_CHECK"))
+
+    def test_intrinsics_calibration_is_opened_from_the_camera_slide(self):
+        W = self.W
+        self.wiz.btn_cam_intrinsics.click()
+        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_INTRINSICS_CALIB)
+        self.wiz.go_next()
+        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_ROBOT_CONNECT)
+        self.wiz.stacked_widget.setCurrentIndex(W.SLIDE_INTRINSICS_CALIB)
+        self.wiz.go_prev()
+        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_CAMERA_MOUNT)
+
+    def test_camera_without_its_own_intrinsics_is_warned(self):
+        base = {"running": True, "device_name": "Intel RealSense D405", "serial_number": "123456789",
+                "camera_model": "D405", "width": 1280, "height": 720, "fps": 30, "measured_fps": 30.0,
+                "intrinsics_file": "camera_intrinsics.yaml"}
+        warning = tr("wizard.slides.slide_0.cam_warn_serial")
+        with patch.object(self.wiz, "camera_info", return_value={**base, "intrinsics_serial_matched": False,
+                                                                  "intrinsics_source": "model"}):
+            self.wiz.refresh_camera_info()
+            self.assertIn(warning, self.wiz.lbl_cam_info.text())
+        with patch.object(self.wiz, "camera_info", return_value={**base, "intrinsics_serial_matched": True,
+                                                                  "intrinsics_source": "serial"}):
+            self.wiz.refresh_camera_info()
+            self.assertNotIn(warning, self.wiz.lbl_cam_info.text())
+
+    def test_bracket_photo_follows_the_connected_robot_version(self):
+        # The slide comes after the robot connection, so the version is known when it opens.
+        version = self.window.robot_version
+        try:
+            for robot_version in ("1.3", "1.2"):
+                self.window.robot_version = robot_version
+                self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_ROBOT_CONNECT)
+                self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_MARKER_BRACKET)
+                self.assertEqual(self.wiz.bracket_version, robot_version)
+                self.assertFalse(self.wiz.img_mb_assemble.pixmap().isNull())
+        finally:
+            self.window.robot_version = version
+        self.assertFalse(hasattr(self.wiz, "rdo_mb_version"))
+        for path in self.W.BRACKET_ASSEMBLE_IMAGES.values():
+            self.assertTrue((ROOT / path).is_file(), path)
 
     def test_marker_monitor_runs_only_on_the_exposure_slide(self):
         core = self.window.core
@@ -255,8 +302,9 @@ class TestWizardSlides(unittest.TestCase):
     def test_new_texts_exist_in_both_languages(self):
         slides = ConfigStorage.load(ROOT / "config" / "ui_config" / "i18n.yaml")["wizard"]["slides"]
         needed = {
-            "slide_0": ("title", "cap_head", "cap_nohead", "inst1"),
-            "slide_1": ("title", "box_title", "inst1"),
+            "slide_0": ("title", "cap_head", "cap_nohead", "inst1", "btn_intrinsics", "cam_warn_serial", "cam_source",
+                        "cam_source_serial", "cam_source_model", "cam_source_factory", "cam_source_file"),
+            "slide_1": ("box_title", "inst1"),
             "slide_marker_bracket": ("title", "box_title", "cap_assemble", "cap_overview", "inst1", "inst2", "inst3"),
             "slide_6": ("inst1", "inst2", "shoulder_warn"),
             "slide_exposure": ("title", "inst", "monitor_title", "monitor_right", "monitor_left", "monitor_idle",

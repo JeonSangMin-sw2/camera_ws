@@ -58,6 +58,24 @@ main_tabs:
   tab_step2:
     en: "Step 2"
     ko: "Step 2"
+  tab_camera:
+    en: "Camera"
+    ko: "카메라"
+  tab_advanced:
+    en: "Advanced"
+    ko: "고급"
+  camera_intrinsics:
+    en: "Intrinsics Calibration"
+    ko: "내부 파라미터 보정"
+  camera_exposure:
+    en: "Brightness"
+    ko: "밝기 조정"
+  camera_info:
+    en: "Camera: {model}  S/N {serial}  |  intrinsics: {file} ({source})"
+    ko: "카메라: {model}  S/N {serial}  |  내부 파라미터: {file} ({source})"
+  camera_info_none:
+    en: "No camera connected"
+    ko: "카메라가 연결되지 않았습니다"
 
 wizard:
   title:
@@ -153,10 +171,28 @@ wizard:
       cam_warn_intrinsics:
         en: "Warning: no intrinsics file is in use. Calibrate and save the intrinsics first."
         ko: "경고: 사용 중인 내부 파라미터 파일이 없습니다. 내부 파라미터 보정 후 저장하세요."
+      cam_source:
+        en: "Intrinsics source: {source}"
+        ko: "내부 파라미터 출처: {source}"
+      cam_source_serial:
+        en: "calibrated for this camera (S/N)"
+        ko: "이 카메라(S/N) 전용 보정값"
+      cam_source_model:
+        en: "shared file of the same camera model"
+        ko: "같은 모델 공용 파일"
+      cam_source_factory:
+        en: "camera factory values"
+        ko: "카메라 공장값"
+      cam_source_file:
+        en: "stored file (no camera identified)"
+        ko: "저장된 파일 (카메라 식별 안 됨)"
+      cam_warn_serial:
+        en: "Caution: no intrinsics were calibrated for this camera (S/N). If the intrinsics differ, the robot calibration result can be wrong. When using a new camera, please calibrate the intrinsics first."
+        ko: "주의: 이 카메라(S/N)로 보정한 내부 파라미터가 없습니다. 내부 파라미터가 다르면 로봇 보정 결과가 이상할 수 있습니다. 새 카메라를 사용하는 경우 가급적 내부 파라미터를 보정해 주세요."
+      btn_intrinsics:
+        en: "Calibrate Camera Intrinsics"
+        ko: "카메라 내부 파라미터 보정"
     slide_1:
-      title:
-        en: "1-2. Gripper Removal"
-        ko: "1-2. 그리퍼 분리"
       box_title:
         en: "Gripper Removal"
         ko: "그리퍼 분리 안내"
@@ -165,8 +201,8 @@ wizard:
         ko: "양쪽 로봇 팔에 장착된 그리퍼를 제거하십시오 (<a href=\"https://rainbowco-my.sharepoint.com/:p:/g/personal/support_rainbow-robotics_com/IQBQNoNxvENnSIt29V1aNsCCAYICOBKbsLJnAnvFFuTkA80?e=AEW1KM\" style=\"color: #00e5ff;\">그리퍼 해체 가이드</a>). 마커 브라켓은 다음 단계에서 부착합니다."
     slide_marker_bracket:
       title:
-        en: "1-3. Marker Bracket Attachment"
-        ko: "1-3. 마커 브라켓 부착"
+        en: "3. Gripper Removal & Marker Bracket Attachment"
+        ko: "3. 그리퍼 분리 및 마커 브라켓 부착"
       box_title:
         en: "Marker Bracket Guidelines"
         ko: "마커 브라켓 부착 지침 사항"
@@ -249,26 +285,10 @@ wizard:
       status_confirmed:
         en: "Status: Exposure Confirmed! You can now click NEXT."
         ko: "상태: 카메라 밝기 설정 완료! 다음(NEXT) 버튼을 눌러 진행하세요."
-    slide_2:
-      title:
-        en: "1-4. Camera Intrinsics Check (Optional)"
-        ko: "1-4. 카메라 내부 파라미터 확인 (선택)"
-      box_title:
-        en: "Camera Parameter Verification"
-        ko: "카메라 파라미터 검증"
-      inst1:
-        en: "Camera lens distortion may affect tracking accuracy. Calibrate camera intrinsics if necessary."
-        ko: "카메라 렌즈 왜곡은 마커 추적 정밀도에 영향을 줄 수 있습니다. 필요시 내부 파라미터를 보정하세요."
-      skip_note:
-        en: "Please proceed if you have a checkerboard or if the environment is harsh (high temperature, bright light). Otherwise, proceed to the next step."
-        ko: "체커보드가 있거나, 환경이 열약하다면(높은 온도, 밝은 빛) 진행해주세요. 그렇지 않다면 다음 단계로 이동하세요."
-      btn_go:
-        en: "Calibrate Camera Intrinsics"
-        ko: "카메라 내부 파라미터 보정"
     slide_3:
       title:
-        en: "2. Camera Intrinsics Calibration (Optional)"
-        ko: "2. 카메라 내부 파라미터 보정 (선택)"
+        en: "1-2. Camera Intrinsics Calibration (Optional)"
+        ko: "1-2. 카메라 내부 파라미터 보정 (선택)"
       skip_hint:
         en: "If you have already completed this step, click Next or Skip to proceed."
         ko: "이미 완료하셨다면 다음 또는 건너뛰기 버튼을 누르세요."
@@ -316,8 +336,8 @@ wizard:
         ko: "4. 캡처 중에는 보드를 흔들리지 않게 들고 계세요."
     slide_4:
       title:
-        en: "3. Robot Connection"
-        ko: "3. 로봇 연결"
+        en: "2. Robot Connection"
+        ko: "2. 로봇 연결"
       box_title:
         en: "Robot Connection & Initialization"
         ko: "로봇 연결 및 초기화"

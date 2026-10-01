@@ -76,24 +76,28 @@ class HowToMoveArmsDialog(QDialog):
 class CalibrationWizardWidget(QWidget):
     # Slide order. Everything that depends on a slide position uses these names (main_ui too),
     # so slides can be added or moved by editing this list alone.
-    SLIDE_CAMERA_MOUNT = 0       # 1-1 camera bracket assembly & mounting
-    SLIDE_GRIPPER = 1            # 1-2 gripper removal
-    SLIDE_MARKER_BRACKET = 2     # 1-3 marker bracket attachment
-    SLIDE_INTRINSICS_CHECK = 3   # 1-4 intrinsics check
-    SLIDE_INTRINSICS_CALIB = 4   # 2 intrinsics calibration (optional)
-    SLIDE_ROBOT_CONNECT = 5      # 3 robot connection
-    SLIDE_ZERO_POSE = 6          # 3-1 initial zero pose
-    SLIDE_HOME_OFFSET = 7        # 3-2 home offset reset
-    SLIDE_EXPOSURE = 8           # 3-3 exposure & marker recognition (arms taught into view)
-    SLIDE_CALIBRATION = 9        # 4 calibration start
-    SLIDE_APPLY = 10             # 5 apply home offset
-    SLIDE_COUNT = 11
+    # 2026-09-30: the gripper-removal and marker-bracket slides are one slide, and the separate
+    # intrinsics-check slide is gone: the camera slide warns when the connected unit (S/N) has no
+    # intrinsics of its own and opens the optional calibration slide from a button.
+    # 2026-10-01: the bracket slide comes after the robot connection, because its photo depends on
+    # the robot version, which is only known once the robot is connected.
+    SLIDE_CAMERA_MOUNT = 0       # 1-1 camera bracket assembly & mounting (+ intrinsics warning/button)
+    SLIDE_INTRINSICS_CALIB = 1   # 1-2 intrinsics calibration (optional, entered from 1-1 only)
+    SLIDE_ROBOT_CONNECT = 2      # 2 robot connection
+    SLIDE_MARKER_BRACKET = 3     # 3 gripper removal & marker bracket attachment (photo by robot version)
+    SLIDE_ZERO_POSE = 4          # 3-1 initial zero pose
+    SLIDE_HOME_OFFSET = 5        # 3-2 home offset reset
+    SLIDE_EXPOSURE = 6           # 3-3 exposure & marker recognition (arms taught into view)
+    SLIDE_CALIBRATION = 7        # 4 calibration start
+    SLIDE_APPLY = 8              # 5 apply home offset
+    SLIDE_COUNT = 9
+    # Marker bracket photo per robot version (taken from the connected robot).
+    BRACKET_ASSEMBLE_IMAGES = {"1.2": "img/marker_bracket_assemble_1_2.png",
+                               "1.3": "img/marker_bracket_assemble_1_3.png"}
     TITLE_KEYS = {
         SLIDE_CAMERA_MOUNT: "wizard.slides.slide_0.title",
-        SLIDE_GRIPPER: "wizard.slides.slide_1.title",
-        SLIDE_MARKER_BRACKET: "wizard.slides.slide_marker_bracket.title",
-        SLIDE_INTRINSICS_CHECK: "wizard.slides.slide_2.title",
         SLIDE_INTRINSICS_CALIB: "wizard.slides.slide_3.title",
+        SLIDE_MARKER_BRACKET: "wizard.slides.slide_marker_bracket.title",
         SLIDE_ROBOT_CONNECT: "wizard.slides.slide_4.title",
         SLIDE_ZERO_POSE: "wizard.slides.slide_5.title",
         SLIDE_HOME_OFFSET: "wizard.slides.slide_6.title",
@@ -147,9 +151,7 @@ class CalibrationWizardWidget(QWidget):
         # State tracking for each step to enable Next
         self.step_completed = [False] * self.SLIDE_COUNT
         self.step_completed[self.SLIDE_CAMERA_MOUNT] = True
-        self.step_completed[self.SLIDE_GRIPPER] = True
         self.step_completed[self.SLIDE_MARKER_BRACKET] = True
-        self.step_completed[self.SLIDE_INTRINSICS_CHECK] = True
         self.step_completed[self.SLIDE_INTRINSICS_CALIB] = False  # Optional (Skip)
         self.step_completed[self.SLIDE_ROBOT_CONNECT] = False
         self.step_completed[self.SLIDE_ZERO_POSE] = False         # Must move to the zero pose
@@ -184,14 +186,12 @@ class CalibrationWizardWidget(QWidget):
         if hasattr(self, 'cam_info_box'): self.cam_info_box.setTitle(tr("wizard.slides.slide_0.cam_box_title"))
         if hasattr(self, 'lbl_cam_bracket_head'): self.lbl_cam_bracket_head.setText(tr("wizard.slides.slide_0.cap_head"))
         if hasattr(self, 'lbl_cam_bracket_nohead'): self.lbl_cam_bracket_nohead.setText(tr("wizard.slides.slide_0.cap_nohead"))
+        if hasattr(self, 'btn_cam_intrinsics'): self.btn_cam_intrinsics.setText(tr("wizard.slides.slide_0.btn_intrinsics"))
         self.refresh_camera_info()
 
-        # Gripper removal
-        if hasattr(self, 't1_2'): self.t1_2.setText(tr("wizard.slides.slide_1.title"))
+        # Gripper removal & marker bracket attachment
         if hasattr(self, 'd1_2_box'): self.d1_2_box.setTitle(tr("wizard.slides.slide_1.box_title"))
         if hasattr(self, 'lbl_m1'): self.lbl_m1.setText(tr("wizard.slides.slide_1.inst1"))
-
-        # Marker bracket attachment
         if hasattr(self, 'mb_box'): self.mb_box.setTitle(tr("wizard.slides.slide_marker_bracket.box_title"))
         if hasattr(self, 'lbl_mb_cap_assemble'): self.lbl_mb_cap_assemble.setText(tr("wizard.slides.slide_marker_bracket.cap_assemble"))
         if hasattr(self, 'lbl_mb_cap_overview'): self.lbl_mb_cap_overview.setText(tr("wizard.slides.slide_marker_bracket.cap_overview"))
@@ -216,13 +216,7 @@ class CalibrationWizardWidget(QWidget):
             else:
                 self.lbl_wiz_exp_status.setText(tr("wizard.slides.slide_exposure.status_waiting"))
 
-        # Slide 3 (Intrinsics Check)
-        if hasattr(self, 't1_3'): self.t1_3.setText(tr("wizard.slides.slide_2.title"))
-        if hasattr(self, 'lbl_intrinsics_hint'): self.lbl_intrinsics_hint.setText(tr("wizard.slides.slide_2.skip_note"))
-        if hasattr(self, 'd1_3'): self.d1_3.setText(tr("wizard.slides.slide_2.inst1"))
-        if hasattr(self, 'btn_go_intrinsics'): self.btn_go_intrinsics.setText(tr("wizard.slides.slide_3.title"))
-
-        # Slide 4 (Intrinsics Calib)
+        # Intrinsics calibration (optional)
         if hasattr(self, 't1'): self.t1.setText(tr("wizard.slides.slide_3.title"))
         if hasattr(self, 'lbl_skip_hint1'): self.lbl_skip_hint1.setText(tr("wizard.slides.slide_3.skip_hint"))
         if hasattr(self, 'instr_box'): self.instr_box.setTitle(tr("wizard.slides.slide_3.box_guidelines"))
@@ -355,6 +349,12 @@ class CalibrationWizardWidget(QWidget):
         self.lbl_cam_info.setTextFormat(Qt.RichText)
         cam_layout.addWidget(self.lbl_cam_info)
         l0.addWidget(self.cam_info_box, alignment=Qt.AlignCenter)
+        # A camera without intrinsics of its own (S/N) is warned about in lbl_cam_info; the optional
+        # calibration slide is opened from here (the separate 1-4 check slide was removed).
+        self.btn_cam_intrinsics = QPushButton(tr("wizard.slides.slide_0.btn_intrinsics"))
+        self.btn_cam_intrinsics.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; padding: 10px 20px; border-radius: 6px;")
+        self.btn_cam_intrinsics.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(self.SLIDE_INTRINSICS_CALIB))
+        cam_layout.addWidget(self.btn_cam_intrinsics, alignment=Qt.AlignCenter)
         self.cam_info_timer = QTimer(self)
         self.cam_info_timer.timeout.connect(self.refresh_camera_info)
         self.cam_info_timer.start(1000)
@@ -380,54 +380,45 @@ class CalibrationWizardWidget(QWidget):
         slides[self.SLIDE_CAMERA_MOUNT] = slide0
 
         # -----------------------------------------
-        # 1-2. Gripper Removal
+        # 1-2. Gripper Removal & Marker Bracket Attachment
         # -----------------------------------------
-        slide1_2 = QWidget()
-        l1_2 = QVBoxLayout(slide1_2)
-        l1_2.setSpacing(14)
-        l1_2.setAlignment(Qt.AlignCenter)
-
-        self.t1_2 = QLabel(tr("wizard.slides.slide_1.title"))
-        self.t1_2.setVisible(False)
+        slide_mb = QWidget()
+        l_mb = QVBoxLayout(slide_mb)
+        l_mb.setSpacing(10)
+        l_mb.setAlignment(Qt.AlignCenter)
 
         self.d1_2_box = QGroupBox(tr("wizard.slides.slide_1.box_title"))
         self.d1_2_box.setStyleSheet("QGroupBox::title { color: #00e5ff; font-weight: bold; font-size: 16px;}")
-        self.d1_2_box.setFixedWidth(750)
+        self.d1_2_box.setFixedWidth(900)
         d1_2_layout = QVBoxLayout(self.d1_2_box)
         d1_2_layout.setSpacing(8)
-
         self.lbl_m1 = QLabel(tr("wizard.slides.slide_1.inst1"))
         self.lbl_m1.setStyleSheet("font-size: 15px; color: #dddddd; font-weight: bold;")
         self.lbl_m1.setWordWrap(True)
         self.lbl_m1.setOpenExternalLinks(True)
         d1_2_layout.addWidget(self.lbl_m1)
+        l_mb.addWidget(self.d1_2_box, alignment=Qt.AlignCenter)
 
-        l1_2.addWidget(self.d1_2_box, alignment=Qt.AlignCenter)
-        slides[self.SLIDE_GRIPPER] = slide1_2
-
-        # -----------------------------------------
-        # 1-3. Marker Bracket Attachment
-        # -----------------------------------------
-        slide_mb = QWidget()
-        l_mb = QVBoxLayout(slide_mb)
-        l_mb.setSpacing(12)
-        l_mb.setAlignment(Qt.AlignCenter)
-
-        # How the bracket bolts to the flange | which marker goes on which arm.
+        # How the bracket bolts to the flange (photo of the connected robot's version: this slide
+        # comes after the robot connection) | which marker goes on which arm.
         mb_row = QHBoxLayout()
         mb_row.setSpacing(24)
         mb_row.setAlignment(Qt.AlignCenter)
-        for image, caption_key, attr, size in (
-                ("img/marker_bracket_assemble.png", "wizard.slides.slide_marker_bracket.cap_assemble", "lbl_mb_cap_assemble", (430, 190)),
-                ("img/marker_bracket_overview.png", "wizard.slides.slide_marker_bracket.cap_overview", "lbl_mb_cap_overview", (430, 200))):
-            col = QVBoxLayout()
-            col.setSpacing(6)
-            col.addWidget(self.image_label(image, *size))
-            caption = self.caption_label(tr(caption_key))
-            setattr(self, attr, caption)
-            col.addWidget(caption)
-            mb_row.addLayout(col)
+        col = QVBoxLayout()
+        col.setSpacing(6)
+        self.img_mb_assemble = self.image_label(self.BRACKET_ASSEMBLE_IMAGES["1.2"], 400, 180)
+        col.addWidget(self.img_mb_assemble)
+        self.lbl_mb_cap_assemble = self.caption_label(tr("wizard.slides.slide_marker_bracket.cap_assemble"))
+        col.addWidget(self.lbl_mb_cap_assemble)
+        mb_row.addLayout(col)
+        col = QVBoxLayout()
+        col.setSpacing(6)
+        col.addWidget(self.image_label("img/marker_bracket_overview.png", 400, 180))
+        self.lbl_mb_cap_overview = self.caption_label(tr("wizard.slides.slide_marker_bracket.cap_overview"))
+        col.addWidget(self.lbl_mb_cap_overview)
+        mb_row.addLayout(col)
         l_mb.addLayout(mb_row)
+        self.bracket_version = "1.2"
 
         self.mb_box = QGroupBox(tr("wizard.slides.slide_marker_bracket.box_title"))
         self.mb_box.setStyleSheet("QGroupBox::title { color: #00e5ff; font-weight: bold; font-size: 16px;}")
@@ -603,58 +594,6 @@ class CalibrationWizardWidget(QWidget):
 
         slide_exp_layout.addLayout(content_exp_layout)
         slides[self.SLIDE_EXPOSURE] = slide_exp
-
-        # -----------------------------------------
-        # Slide 3: 1-4. Camera Intrinsics Check
-        # -----------------------------------------
-        slide1_3 = QWidget()
-        l1_3 = QVBoxLayout(slide1_3)
-        l1_3.setSpacing(14)
-        l1_3.setAlignment(Qt.AlignCenter)
-
-        self.t1_3 = QLabel(tr("wizard.slides.slide_2.title"))
-        self.t1_3.setVisible(False)
-
-        self.lbl_intrinsics_hint = QLabel(tr("wizard.slides.slide_2.skip_note"))
-        self.lbl_intrinsics_hint.setStyleSheet("color: #ff5252; font-weight: bold; font-size: 16px;")
-        self.lbl_intrinsics_hint.setWordWrap(True)
-        self.lbl_intrinsics_hint.setAlignment(Qt.AlignCenter)
-        l1_3.addWidget(self.lbl_intrinsics_hint)
-
-        img_row1_3 = QHBoxLayout()
-
-        img1_3_left = QLabel()
-        pix1_3_left = QPixmap(get_asset_path("img/CHARUCOBOARD.png"))
-        if not pix1_3_left.isNull():
-            img1_3_left.setPixmap(pix1_3_left.scaled(380, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img1_3_left.setText("[img/CHARUCOBOARD.png not found]")
-        img1_3_left.setAlignment(Qt.AlignCenter)
-        img_row1_3.addWidget(img1_3_left)
-
-        img1_3_right = QLabel()
-        pix1_3_right = QPixmap(get_asset_path("img/camera_intrinsics.png"))
-        if not pix1_3_right.isNull():
-            img1_3_right.setPixmap(pix1_3_right.scaled(380, 260, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            img1_3_right.setText("[img/camera_intrinsics.png not found]")
-        img1_3_right.setAlignment(Qt.AlignCenter)
-        img_row1_3.addWidget(img1_3_right)
-
-        l1_3.addLayout(img_row1_3)
-
-        self.d1_3 = QLabel(tr("wizard.slides.slide_2.inst1"))
-        self.d1_3.setStyleSheet("font-size: 16px; color: #dddddd; font-weight: bold;")
-        self.d1_3.setAlignment(Qt.AlignCenter)
-        self.d1_3.setWordWrap(True)
-        l1_3.addWidget(self.d1_3)
-
-        self.btn_go_intrinsics = QPushButton(tr("wizard.slides.slide_3.title"))
-        self.btn_go_intrinsics.setStyleSheet("background-color: #fb8c00; color: #000000; font-weight: bold; font-size: 15px; padding: 10px 20px; border-radius: 6px;")
-        self.btn_go_intrinsics.clicked.connect(lambda: self.stacked_widget.setCurrentIndex(self.SLIDE_INTRINSICS_CALIB))
-        l1_3.addWidget(self.btn_go_intrinsics, alignment=Qt.AlignCenter)
-
-        slides[self.SLIDE_INTRINSICS_CHECK] = slide1_3
 
         # -----------------------------------------
         # Slide 3: Camera Intrinsics Calibration (Optional)
@@ -1239,6 +1178,24 @@ class CalibrationWizardWidget(QWidget):
         for index in range(self.SLIDE_COUNT):
             self.stacked_widget.addWidget(slides[index])
 
+    def set_bracket_version(self, version):
+        """Show the marker bracket photo of robot version `version` ("1.2" / "1.3")."""
+        version = str(version).removeprefix("v")
+        if version not in self.BRACKET_ASSEMBLE_IMAGES:
+            return
+        self.bracket_version = version
+        pix = QPixmap(get_asset_path(self.BRACKET_ASSEMBLE_IMAGES[version]))
+        if pix.isNull():
+            self.img_mb_assemble.setPixmap(QPixmap())
+            self.img_mb_assemble.setText(f"[{self.BRACKET_ASSEMBLE_IMAGES[version]} not found]")
+        else:
+            self.img_mb_assemble.setPixmap(pix.scaled(400, 180, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def sync_bracket_version_from_robot(self):
+        """Show the bracket photo of the connected robot's version (called when the slide opens)."""
+        if hasattr(self.parent_app, "get_robot_version"):
+            self.set_bracket_version(self.parent_app.get_robot_version())
+
     def camera_info(self):
         core = getattr(self.parent_app, "core", None)
         observer = getattr(core, "observer", None)
@@ -1278,8 +1235,17 @@ class CalibrationWizardWidget(QWidget):
             lines.append((tr("wizard.slides.slide_0.cam_warn_resolution"), bad))
         if not fps_ok:
             lines.append((tr("wizard.slides.slide_0.cam_warn_fps"), warn))
+        source = info.get("intrinsics_source")
+        if source:
+            lines.append((tr("wizard.slides.slide_0.cam_source",
+                             source=tr(f"wizard.slides.slide_0.cam_source_{source}")),
+                          ok if source == "serial" else warn))
         if not info.get("intrinsics_file"):
             lines.append((tr("wizard.slides.slide_0.cam_warn_intrinsics"), warn))
+        # A unit without its own calibration (S/N) is the case the operator must notice: the model
+        # file came from another unit of the same model, or the factory values are in use.
+        if info.get("serial_number") and not info.get("intrinsics_serial_matched"):
+            lines.append((tr("wizard.slides.slide_0.cam_warn_serial"), bad))
         self.lbl_cam_info.setText("<br>".join(
             f'<span style="font-size:15px; color:{color}; font-weight:bold;">{text}</span>'
             for text, color in lines))
@@ -1484,9 +1450,10 @@ class CalibrationWizardWidget(QWidget):
 
     def go_prev(self):
         idx = self.stacked_widget.currentIndex()
-        # The optional intrinsics calibration is entered only from the intrinsics check slide.
-        if idx in (self.SLIDE_ROBOT_CONNECT, self.SLIDE_INTRINSICS_CALIB):
-            self.stacked_widget.setCurrentIndex(self.SLIDE_INTRINSICS_CHECK)
+        # The optional intrinsics calibration (1-2) is entered only from the button on the camera
+        # slide (1-1), so going back from the robot connection (2) skips it.
+        if idx == self.SLIDE_ROBOT_CONNECT:
+            self.stacked_widget.setCurrentIndex(self.SLIDE_CAMERA_MOUNT)
         elif idx > 0:
             self.stacked_widget.setCurrentIndex(idx - 1)
         else:
@@ -1506,7 +1473,8 @@ class CalibrationWizardWidget(QWidget):
 
     def go_next(self):
         idx = self.stacked_widget.currentIndex()
-        if idx == self.SLIDE_INTRINSICS_CHECK:
+        if idx == self.SLIDE_CAMERA_MOUNT:
+            # 1-1 -> 2: the optional calibration (1-2) is opened from its button only.
             self.stacked_widget.setCurrentIndex(self.SLIDE_ROBOT_CONNECT)
         elif idx < self.stacked_widget.count() - 1:
             self.stacked_widget.setCurrentIndex(idx + 1)
@@ -1539,6 +1507,8 @@ class CalibrationWizardWidget(QWidget):
         self.sync_marker_monitor()
         if idx == self.SLIDE_APPLY and hasattr(self, "btn_apply_new_offset"):
             self.refresh_apply_gate()
+        if idx == self.SLIDE_MARKER_BRACKET:
+            self.sync_bracket_version_from_robot()
 
         # Update shared top title dynamically to prevent title layout shifts
         if hasattr(self, 'lbl_wizard_title') and idx in self.TITLE_KEYS:

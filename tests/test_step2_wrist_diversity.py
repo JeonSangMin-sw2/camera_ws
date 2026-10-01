@@ -56,9 +56,11 @@ class TestLoader(unittest.TestCase):
         ConfigStorage.save(self.setting, {"step2": {"wrist_diversity_poses": True}})
         steps, _ = load_step2_wrist_diversity("1.2", self.setting, ROOT / "config" / "ready_poses.yaml")
         self.assertEqual(len(steps), 24)
-        wrist = np.array([s["right"] + s["left"] for s in steps])
+        wrist = np.abs(np.array([s["right"] + s["left"] for s in steps]))
         head = np.array([s["head"] for s in steps])
-        self.assertLessEqual(np.abs(wrist).max(), 45.0)        # J4 +-40, J5 +-30, J6 +-45 deg
+        # 2026-09-30 user limit: J4 +-25, J5 +-20, J6 +-30 deg (marker tilt to the camera <= 30 deg)
+        for col, limit in zip(range(6), (25.0, 20.0, 30.0) * 2):
+            self.assertLessEqual(wrist[:, col].max(), limit)
         self.assertLessEqual(np.abs(head).max(), 12.5)
         shipped = ConfigStorage.load(ROOT / "config" / "setting.yaml")["step2"]
         self.assertIn("wrist_diversity_poses", shipped)          # explicit on/off, never implicit

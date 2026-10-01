@@ -1,4 +1,4 @@
-from core.storage import camera_intrinsics_path
+from core.storage import camera_intrinsics_path, camera_intrinsics_serial_path
 from core.storage import ConfigStorage
 from core.storage import FileStorage
 from core.camera_processing import RealSenseCamera, CameraUnavailableError
@@ -544,6 +544,8 @@ class Marker_Transform:
         info["camera_model"] = getattr(self, "camera_model", None)
         path = getattr(self, "active_intrinsics_path", None)
         info["intrinsics_file"] = os.path.basename(path) if path else None
+        info["intrinsics_serial_matched"] = bool(getattr(self, "intrinsics_serial_matched", False))
+        info["intrinsics_source"] = getattr(self, "intrinsics_source", None)
         return info
 
     def get_camera_exposure_range(self):
@@ -589,6 +591,12 @@ class Marker_Transform:
         self.calib_device_name = ""
         self.active_intrinsics_path = None
         self.camera_model = None
+        # Serial of the connected unit (None in simulation), whether its own intrinsics file was
+        # found, and where the intrinsics in use came from: "serial", "model", "file" (simulation /
+        # no camera) or "factory".
+        self.camera_serial = getattr(self.camera, "serial_number", None) or None
+        self.intrinsics_serial_matched = False
+        self.intrinsics_source = None
 
         try:
             config_data = ConfigStorage.load(setting_config_path)
@@ -753,11 +761,16 @@ class Marker_Transform:
         if self.camera_model is None:
             # No camera (simulation, or it failed to open): keep whatever is on file.
             self.active_intrinsics_path = working if working_data else None
+            self.intrinsics_source = "file" if working_data else None
+            return
+
+        if self._use_serial_intrinsics(working, working_data, working_family):
             return
 
         if working_family == self.camera_model:
             self.active_intrinsics_path = working if working_data else None
             self.intrinsics_missing = not working_data
+            self.intrinsics_source = "model" if working_data else "factory"
             return
 
         self.intrinsics_mismatch = bool(working_family)
@@ -789,6 +802,7 @@ class Marker_Transform:
         if store_data is None:
             self.intrinsics_missing = True
             self.active_intrinsics_path = None
+            self.intrinsics_source = "factory"
             print(f"[ERROR] No intrinsics calibration for '{self.camera_model}' "
                   f"({os.path.basename(store)} not found or unusable). Falling back to the camera's "
                   f"factory intrinsics -- run the Step 1 intrinsics calibration and save it.")
@@ -810,6 +824,7 @@ class Marker_Transform:
                 print(f"[WARNING] Could not archive the previous intrinsics to {outgoing}: {e}")
 
         store_data["device_name"] = self.camera_model
+        self.intrinsics_source = "model"
         try:
             ConfigStorage.save(working, store_data)
             ConfigStorage.save(store, store_data)
@@ -823,6 +838,70 @@ class Marker_Transform:
             self.active_intrinsics_path = store
             print(f"[WARNING] Could not update camera_intrinsics.yaml ({e}); "
                   f"reading {os.path.basename(store)} directly.")
+
+    def _use_serial_intrinsics(self, working, working_data, working_family):
+        """Use this unit's own calibration, config/camera_intrinsics/<serial>.yaml, when it has one
+        (or when the working file is already stamped with its serial). Returns False to fall back
+        to the per-model store. The outgoing working file is archived first, as for a model swap.
+        """
+        serial = self.camera_serial
+        if not serial:
+            return False
+        path = camera_intrinsics_serial_path(serial)
+        data = None
+        if path and os.path.exists(path):
+            try:
+                data = ConfigStorage.load(path) or {}
+                if "camera_matrix" not in data:
+                    raise KeyError("camera_matrix")
+            except Exception as e:
+                data = None
+                print(f"[ERROR] Failed to read {path}: {e}")
+        if data is None:
+            if working_data and str(working_data.get("serial_number") or "") == str(serial) \
+                    and "camera_matrix" in working_data:
+                data, path = working_data, working
+            else:
+                print(f"[INFO] No intrinsics calibrated for camera S/N {serial}; using the "
+                      f"'{self.camera_model}' model calibration if there is one.")
+                return False
+
+        if working_data and path != working:
+            other = working_data.get("serial_number")
+            if other and str(other) != str(serial):
+                outgoing = camera_intrinsics_serial_path(other)
+                if outgoing and os.path.exists(outgoing):
+                    outgoing = None      # that unit's own file already holds it
+            elif not other and working_family != self.camera_model:
+                outgoing = (camera_intrinsics_path(working_family) if working_family
+                            else camera_intrinsics_path(f"unknown_{time.strftime('%Y%m%d_%H%M%S')}"))
+            else:
+                outgoing = None          # same model, no serial: the model store keeps it
+            if outgoing:
+                try:
+                    os.makedirs(os.path.dirname(outgoing), exist_ok=True)
+                    ConfigStorage.save(outgoing, working_data)
+                    print(f"[INFO] Archived the previous intrinsics to {outgoing}")
+                except Exception as e:
+                    print(f"[WARNING] Could not archive the previous intrinsics to {outgoing}: {e}")
+
+        data = dict(data)
+        data["device_name"] = self.camera_model
+        data["serial_number"] = str(serial)
+        self.active_intrinsics_path = working
+        if path != working:
+            try:
+                ConfigStorage.save(working, data)
+            except Exception as e:
+                self.active_intrinsics_path = path
+                print(f"[WARNING] Could not update camera_intrinsics.yaml ({e}); reading {path} directly.")
+        self.calib_device_name = self.camera_model
+        self.intrinsics_missing = False
+        self.intrinsics_mismatch = False
+        self.intrinsics_serial_matched = True
+        self.intrinsics_source = "serial"
+        print(f"[INFO] Loaded the intrinsics calibrated for camera S/N {serial} ({self.camera_model}).")
+        return True
 
     def set_marker_type(self, marker_type="plate"):
         self.marker_detection.set_marker_type(marker_type)

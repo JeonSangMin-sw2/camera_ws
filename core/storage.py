@@ -342,6 +342,42 @@ def camera_intrinsics_path(family=None):
     return f"{root}_{str(family).lower()}{ext}"
 
 
+def camera_intrinsics_serial_path(serial):
+    """Path of one camera unit's own intrinsics: config/camera_intrinsics/<serial>.yaml.
+
+    2026-09-30: two units of the same model differ enough that a new camera should get its own
+    calibration; a file named after the serial is used before the per-model store. Camera serials
+    are allowed in config (user decision); robot serials and robot constants are not.
+    """
+    if not serial:
+        return None
+    safe = "".join(ch for ch in str(serial) if ch.isalnum() or ch in "-_")
+    if not safe:
+        return None
+    return os.path.join(os.path.dirname(CONFIG_PATHS["camera_intrinsics"]), "camera_intrinsics", f"{safe}.yaml")
+
+
+def save_camera_intrinsics(data, family=None, serial=None):
+    """Write a calibration to the working file, the model store and (with a serial) the unit's own
+    file, which is always overwritten so a recalibration is not undone at the next start.
+    Returns the paths written."""
+    data = dict(data)
+    if family:
+        data["device_name"] = family
+    if serial:
+        data["serial_number"] = str(serial)
+    paths = [camera_intrinsics_path()]
+    if family:
+        paths.append(camera_intrinsics_path(family))
+    serial_path = camera_intrinsics_serial_path(serial)
+    if serial_path:
+        os.makedirs(os.path.dirname(serial_path), exist_ok=True)
+        paths.append(serial_path)
+    for path in paths:
+        ConfigStorage.save(path, data)
+    return paths
+
+
 class ArtifactStorage:
     @staticmethod
     def read_image(path, *args):

@@ -75,7 +75,7 @@ from core.storage import ResultStorage, ConfigStorage
 from core.calibration.calibration_core import CalibrationCore
 from ui.core_bridge import CoreBridge, SequenceWorker, FullAutoWorker, HeadCamSweepWorker, JointCalibrationWorker, MarkerCalibrationWorker, Step2AutoMotionWorker, Step2CalculateWorker
 from core.storage import FileStorage
-from core.storage import camera_intrinsics_path
+from core.storage import save_camera_intrinsics
 from core.calibration import BaseCalibrator, IntrinsicsCalibrator
 from core.robot.home_offset import load_offset_from_json
 
@@ -909,6 +909,23 @@ class UnifiedCalibrationApp(QWidget):
     marker_problem_signal = Signal(str, object, object)
     marker_spacing_signal = Signal(float, float, object)
 
+    # Tab layout (2026-09-30): Wizard / Camera (intrinsics, brightness) / Advanced (Step 1, Step 2).
+    # Code checks tabs by these names, never by a bare index.
+    TAB_WIZARD, TAB_CAMERA, TAB_ADVANCED = 0, 1, 2
+    CAMERA_SUB_INTRINSICS, CAMERA_SUB_EXPOSURE = 0, 1
+    ADV_SUB_STEP1, ADV_SUB_STEP2 = 0, 1
+
+    def is_camera_tab_active(self):
+        return hasattr(self, 'left_tabs') and self.left_tabs.currentIndex() == self.TAB_CAMERA
+
+    def is_intrinsics_subtab_active(self):
+        return (self.is_camera_tab_active() and hasattr(self, 'camera_tabs')
+                and self.camera_tabs.currentIndex() == self.CAMERA_SUB_INTRINSICS)
+
+    def is_step2_view_active(self):
+        return (hasattr(self, 'left_tabs') and self.left_tabs.currentIndex() == self.TAB_ADVANCED
+                and hasattr(self, 'advanced_tabs') and self.advanced_tabs.currentIndex() == self.ADV_SUB_STEP2)
+
     @property
     def is_ko_ui(self) -> bool:
         return LanguageManager.instance().is_korean
@@ -1387,6 +1404,7 @@ class UnifiedCalibrationApp(QWidget):
         try:
             self.core.connect_camera()
             self.init_camera_exposure_state()
+            self.refresh_camera_tab_info()
             self.log_msg("[SUCCESS] RealSense Camera connected and streaming successfully!")
             if show_dialog:
                 QMessageBox.information(self, "Camera Connected", "RealSense camera successfully connected and active!")
@@ -1546,6 +1564,7 @@ class UnifiedCalibrationApp(QWidget):
 
         # --- Top-Level Step Tabs ---
         self.left_tabs = QTabWidget()
+        self.left_tabs.setObjectName("mainTabs")   # larger, high-contrast tab bar (dark_theme.qss)
         self.left_tabs.currentChanged.connect(self.on_left_tab_changed)
 
         # ==========================================
@@ -2254,14 +2273,42 @@ class UnifiedCalibrationApp(QWidget):
         exposure_box.setLayout(exp_layout)
 
         int_right.addWidget(stats_box2)
-        int_right.addWidget(self.btn_reconnect_cam)
-        int_right.addWidget(exposure_box)
-        int_right.addWidget(controls_box) # Placed below exposure box!
+        int_right.addWidget(controls_box)
         int_right.addStretch()
 
         camera_tab_layout.addLayout(int_left, 2)
         camera_tab_layout.addLayout(int_right, 1)
         camera_tab.setLayout(camera_tab_layout)
+
+        # Brightness sub-tab: its own live view (a widget can sit in one tab only) + exposure box.
+        exposure_tab = QWidget()
+        exposure_tab_layout = QHBoxLayout(exposure_tab)
+        self.video_label_exposure = QLabel("Camera Feed Loading...")
+        self.video_label_exposure.setAlignment(Qt.AlignCenter)
+        self.video_label_exposure.setMinimumSize(480, 300)
+        self.video_label_exposure.setStyleSheet("background-color: black; color: white; border: 2px solid #2d2d2d; border-radius: 8px;")
+        exposure_tab_layout.addWidget(self.video_label_exposure, 2)
+        exp_right = QVBoxLayout()
+        exp_right.addWidget(exposure_box)
+        exp_right.addStretch()
+        exposure_tab_layout.addLayout(exp_right, 1)
+
+        # Top-level Camera tab (2026-09-30): connected camera line + reconnect, then the two sub-tabs.
+        camera_top_tab = QWidget()
+        camera_top_layout = QVBoxLayout(camera_top_tab)
+        camera_top_layout.setContentsMargins(6, 6, 6, 6)
+        cam_header = QHBoxLayout()
+        self.lbl_camera_tab_info = QLabel("")
+        self.lbl_camera_tab_info.setStyleSheet("color: #dddddd; font-weight: bold; font-size: 13px;")
+        self.lbl_camera_tab_info.setWordWrap(True)
+        cam_header.addWidget(self.lbl_camera_tab_info, 1)
+        cam_header.addWidget(self.btn_reconnect_cam)
+        camera_top_layout.addLayout(cam_header)
+        self.camera_tabs = QTabWidget()
+        self.camera_tabs.addTab(camera_tab, "Intrinsics Calibration")
+        self.camera_tabs.addTab(exposure_tab, "Brightness")
+        self.camera_tabs.currentChanged.connect(lambda _index: self.on_left_tab_changed(self.left_tabs.currentIndex()))
+        camera_top_layout.addWidget(self.camera_tabs, 1)
 
         # ==========================================
         # Overview Tab
@@ -2311,22 +2358,17 @@ class UnifiedCalibrationApp(QWidget):
         overview_tab.setLayout(overview_layout)
 
         # ==========================================
-        # Step 1 Tab: Contains Main + Camera as sub-tabs
+        # Top-level tabs (2026-09-30): Wizard / Camera / Advanced (Step 1 + Step 2 sub-tabs)
         # ==========================================
-        step1_tab = QWidget()
-        step1_layout = QVBoxLayout()
-        step1_layout.setContentsMargins(0, 0, 0, 0)
-
-        self.step1_tabs = QTabWidget()
-        self.step1_tabs.currentChanged.connect(self._on_step1_subtab_changed)
-        self.step1_tabs.addTab(main_tab, "Main")
-        self.step1_tabs.addTab(camera_tab, "Camera")
-
-        step1_layout.addWidget(self.step1_tabs)
-        step1_tab.setLayout(step1_layout)
-
-        self.left_tabs.addTab(overview_tab, "Overview")
-        self.left_tabs.addTab(step1_tab, "Step 1")
+        self.left_tabs.addTab(overview_tab, "Wizard")
+        self.left_tabs.addTab(camera_top_tab, "Camera")
+        advanced_tab = QWidget()
+        advanced_layout = QVBoxLayout(advanced_tab)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        self.advanced_tabs = QTabWidget()
+        self.advanced_tabs.addTab(main_tab, "Step 1")
+        advanced_layout.addWidget(self.advanced_tabs)
+        self.left_tabs.addTab(advanced_tab, "Advanced")
 
         # ==========================================
         # Step 2 Tab: Shared widgets + empty Box1
@@ -2519,7 +2561,8 @@ class UnifiedCalibrationApp(QWidget):
 
         step2_tab.setLayout(step2_layout)
 
-        self.left_tabs.addTab(step2_tab, "Step 2")
+        self.advanced_tabs.addTab(step2_tab, "Step 2")
+        self.advanced_tabs.currentChanged.connect(lambda _index: self.on_left_tab_changed(self.left_tabs.currentIndex()))
 
         # Keep references for reparenting logic
         # Step 1 Main tab column layout indices for reinserting shared widgets
@@ -2597,9 +2640,16 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'lbl_lang_select'):
             self.lbl_lang_select.setText(tr("common.language") + ":")
         if hasattr(self, 'left_tabs'):
-            self.left_tabs.setTabText(0, tr("main_tabs.tab_overview"))
-            self.left_tabs.setTabText(1, tr("main_tabs.tab_step1"))
-            self.left_tabs.setTabText(2, tr("main_tabs.tab_step2"))
+            self.left_tabs.setTabText(self.TAB_WIZARD, tr("main_tabs.tab_overview"))
+            self.left_tabs.setTabText(self.TAB_CAMERA, tr("main_tabs.tab_camera"))
+            self.left_tabs.setTabText(self.TAB_ADVANCED, tr("main_tabs.tab_advanced"))
+        if hasattr(self, 'camera_tabs'):
+            self.camera_tabs.setTabText(self.CAMERA_SUB_INTRINSICS, tr("main_tabs.camera_intrinsics"))
+            self.camera_tabs.setTabText(self.CAMERA_SUB_EXPOSURE, tr("main_tabs.camera_exposure"))
+        if hasattr(self, 'advanced_tabs'):
+            self.advanced_tabs.setTabText(self.ADV_SUB_STEP1, tr("main_tabs.tab_step1"))
+            self.advanced_tabs.setTabText(self.ADV_SUB_STEP2, tr("main_tabs.tab_step2"))
+        self.refresh_camera_tab_info()
         if hasattr(self, 'btn_start_wizard'):
             self.btn_start_wizard.setText(tr("wizard.btn_start_wizard"))
         if hasattr(self, 'btn_reconnect_cam'):
@@ -3153,24 +3203,6 @@ class UnifiedCalibrationApp(QWidget):
         spacing_vis = getattr(self, 'marker_spacing_dlg', None) is not None
         return feed_vis or prob_vis or spacing_vis
 
-    def _on_step1_subtab_changed(self, index):
-        """Handle sub-tab switching within Step 1 (Main=0, Camera=1)."""
-        if not hasattr(self, 'poll_timer') or not hasattr(self, 'video_timer'):
-            return
-        # Only act if Step 1 is the active top-level tab
-        if self.left_tabs.currentIndex() != 1:
-            return
-        dialog_visible = self.is_any_camera_dialog_visible()
-        if index == 1 or dialog_visible:  # Camera sub-tab
-            if self.poll_timer.isActive():
-                self.poll_timer.stop()
-            self.video_timer.start(50)
-        else:  # Main sub-tab
-            if self.video_timer.isActive():
-                self.video_timer.stop()
-            if not self.ui_only and self.core.observer is not None:
-                self.poll_timer.start(200)
-
     def is_wizard_video_active(self):
         if not hasattr(self, 'wizard_widget') or self.wizard_widget is None:
             return False
@@ -3187,19 +3219,24 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
             self.wizard_widget.check_pose_init_done = False
 
-        # Reparent shared widgets between Step 1 and Step 2
-        self._reparent_shared_widgets(index)
+        # Reparent shared widgets between Step 1 and Step 2 (both under the Advanced tab)
+        self._reparent_shared_widgets(self.is_step2_view_active())
+        self.refresh_camera_tab_info()
 
         dialog_visible = self.is_any_camera_dialog_visible()
 
-        if index == 1:  # Step 1 tab
-            # Delegate to sub-tab handler
-            self._on_step1_subtab_changed(self.step1_tabs.currentIndex())
-        elif index == 2:  # Step 2 tab
-            # Step 2 has no camera feed — stop video, start poll
+        if index == self.TAB_CAMERA:
+            # Both camera sub-tabs show the live feed
+            if self.poll_timer.isActive():
+                self.poll_timer.stop()
+            self.video_timer.start(50)
+        elif index == self.TAB_ADVANCED:
+            # Step 1 / Step 2 have no camera feed of their own -- poll, unless a feed dialog is open
             if self.video_timer.isActive():
                 self.video_timer.stop()
             if dialog_visible:
+                if self.poll_timer.isActive():
+                    self.poll_timer.stop()
                 self.video_timer.start(50)
             elif not self.ui_only and self.core.observer is not None:
                 self.poll_timer.start(200)
@@ -3216,6 +3253,31 @@ class UnifiedCalibrationApp(QWidget):
                 if not self.ui_only and self.core.observer is not None:
                     self.poll_timer.start(200)
 
+    def refresh_camera_tab_info(self):
+        """Camera tab header: model, S/N, intrinsics file and where it came from (serial / model / factory)."""
+        if not hasattr(self, 'lbl_camera_tab_info'):
+            return
+        observer = getattr(getattr(self, 'core', None), 'observer', None)
+        info = None
+        if observer is not None and hasattr(observer, 'get_camera_info'):
+            try:
+                info = observer.get_camera_info()
+            except Exception:
+                info = None
+        if not info:
+            self.lbl_camera_tab_info.setText(tr("main_tabs.camera_info_none"))
+            self.lbl_camera_tab_info.setStyleSheet("color: #f44336; font-weight: bold; font-size: 13px;")
+            return
+        unknown = tr("wizard.slides.slide_0.cam_unknown")
+        source = info.get("intrinsics_source")
+        self.lbl_camera_tab_info.setText(tr(
+            "main_tabs.camera_info", model=(info.get("camera_model") or unknown).upper(),
+            serial=info.get("serial_number") or unknown, file=info.get("intrinsics_file") or unknown,
+            source=tr(f"wizard.slides.slide_0.cam_source_{source}") if source else unknown))
+        matched = info.get("intrinsics_serial_matched") or not info.get("serial_number")
+        color = "#dddddd" if matched else "#ffb74d"
+        self.lbl_camera_tab_info.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 13px;")
+
     def _on_workflow_tab_changed(self, index):
         """Automatically toggle Column 2 Dashboard between Arm/Marker and Head/Camera."""
         if hasattr(self, 'dash_stack') and self.dash_stack is not None:
@@ -3224,14 +3286,14 @@ class UnifiedCalibrationApp(QWidget):
             else:
                 self.dash_stack.setCurrentIndex(0)
 
-    def _reparent_shared_widgets(self, top_tab_index):
-        """Move shared GroupBoxes between Step 1 Main and Step 2 layouts."""
+    def _reparent_shared_widgets(self, step2_active):
+        """Move shared GroupBoxes between the Step 1 and Step 2 layouts (Advanced tab)."""
         if not hasattr(self, 'conn_head_box') or self.conn_head_box is None:
             return
         if not hasattr(self, 'step2_left_col'):
             return
 
-        if top_tab_index == 2:  # Switching TO Step 2
+        if step2_active:  # Switching TO Step 2
             # Move shared widgets into Step 2 layout
             self.step2_top_row.insertWidget(0, self.conn_head_box)
             self.step2_top_row.insertWidget(1, self.home_offset_box)
@@ -4429,7 +4491,7 @@ class UnifiedCalibrationApp(QWidget):
 
         # Restart poll_timer if appropriate
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        camera_subtab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        camera_subtab_active = self.is_camera_tab_active()
         if not camera_subtab_active and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
@@ -4786,7 +4848,7 @@ class UnifiedCalibrationApp(QWidget):
 
         # Restart poll_timer if appropriate (not tab 2 and feed dialog closed)
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
-        camera_subtab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        camera_subtab_active = self.is_camera_tab_active()
         if not camera_subtab_active and not dialog_visible:
             if not self.poll_timer.isActive():
                 self.poll_timer.start(200)
@@ -5439,7 +5501,7 @@ class UnifiedCalibrationApp(QWidget):
         dialog_visible = hasattr(self, 'feed_dialog') and self.feed_dialog is not None and self.feed_dialog.isVisible()
         prob_dlg_visible = hasattr(self, 'marker_problem_dlg') and self.marker_problem_dlg is not None
         spacing_dlg = getattr(self, 'marker_spacing_dlg', None)
-        camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        camera_tab_active = self.is_camera_tab_active()
         wizard_active = hasattr(self, 'wizard_widget') and self.wizard_widget is not None and not self.wizard_widget.isHidden()
         wizard_slide_idx = self.wizard_widget.stacked_widget.currentIndex() if wizard_active else -1
         wizard_slide_mount = wizard_active and (wizard_slide_idx == self.wizard_widget.SLIDE_CAMERA_MOUNT)
@@ -5504,7 +5566,7 @@ class UnifiedCalibrationApp(QWidget):
         display_img = img.copy()
 
         guide_checked = (hasattr(self, 'chk_int_guide') and self.chk_int_guide.isChecked()) or (hasattr(self, 'wizard_widget') and hasattr(self.wizard_widget, 'chk_int_guide') and self.wizard_widget.chk_int_guide.isChecked())
-        if guide_checked and (camera_tab_active or wizard_slide_calib):
+        if guide_checked and (self.is_intrinsics_subtab_active() or wizard_slide_calib):
             num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
             if self.current_guide_idx < num_steps:
                 guideline = IntrinsicsCalibrator.CALIB_GUIDELINES[self.current_guide_idx]
@@ -5534,8 +5596,10 @@ class UnifiedCalibrationApp(QWidget):
         qimg = QImage(display_img.data, w, h, bytes_per_line, QImage.Format_RGB888)
         pixmap = QPixmap.fromImage(qimg)
 
-        if camera_tab_active and hasattr(self, 'video_label'):
-            self.video_label.setPixmap(pixmap.scaled(self.video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
+        if camera_tab_active:
+            target = self.video_label if self.is_intrinsics_subtab_active() else getattr(self, 'video_label_exposure', None)
+            if target is not None:
+                target.setPixmap(pixmap.scaled(target.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
         if wizard_slide_exp and hasattr(self.wizard_widget, 'wizard_exposure_video_label'):
             self.wizard_widget.wizard_exposure_video_label.setPixmap(pixmap.scaled(self.wizard_widget.wizard_exposure_video_label.size(), Qt.KeepAspectRatio, Qt.FastTransformation))
         if (wizard_slide_mount or wizard_slide_calib) and hasattr(self.wizard_widget, 'wizard_video_label'):
@@ -5554,9 +5618,9 @@ class UnifiedCalibrationApp(QWidget):
             spacing_dlg.lbl_live_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
 
     def keyPressEvent(self, event):
-        camera_tab_active = (self.left_tabs.currentIndex() == 1 and hasattr(self, 'step1_tabs') and self.step1_tabs.currentIndex() == 1)
+        intrinsics_tab_active = self.is_intrinsics_subtab_active()
         wizard_slide4_active = (hasattr(self, 'wizard_widget') and self.wizard_widget.isVisible() and self.wizard_widget.stacked_widget.currentIndex() == self.wizard_widget.SLIDE_INTRINSICS_CALIB)
-        if event.key() == Qt.Key_C and (camera_tab_active or wizard_slide4_active):
+        if event.key() == Qt.Key_C and (intrinsics_tab_active or wizard_slide4_active):
             self.capture_intrinsics_frame()
         super().keyPressEvent(event)
 
@@ -5665,22 +5729,22 @@ class UnifiedCalibrationApp(QWidget):
                 "width": int(self.captured_images[0].shape[1]),
                 "height": int(self.captured_images[0].shape[0])
             }
+            # Working file + this model's store (swapping cameras and coming back picks it up again)
+            # + this unit's own serial file, which is always overwritten: the serial file wins at
+            # the next start, so an old one would undo this calibration (2026-09-30).
+            serial = getattr(self.core.observer, 'camera_serial', None) if self.core.observer is not None else None
             FileStorage.ensure_dir(os.path.dirname(self.output_yaml), exist_ok=True)
-            FileStorage.write_text(self.output_yaml, yaml.dump(data))
-            self.log_msg(f"[SUCCESS] Intrinsic parameters saved to: {self.output_yaml}")
-
-            # Also keep a copy in this model's own store, so swapping cameras and coming back
-            # picks the calibration up again instead of asking for it a second time.
-            if camera_model:
-                store = camera_intrinsics_path(camera_model)
-                FileStorage.write_text(store, yaml.dump(data))
-                self.log_msg(f"[SUCCESS] Also saved as the '{camera_model}' intrinsics: {store}")
-                observer = self.core.observer
-                if observer is not None:
-                    observer.active_intrinsics_path = self.output_yaml
-                    observer.calib_device_name = camera_model
-                    observer.intrinsics_missing = False
-                    observer.intrinsics_mismatch = False
+            for path in save_camera_intrinsics(data, family=camera_model or None, serial=serial):
+                self.log_msg(f"[SUCCESS] Intrinsic parameters saved to: {path}")
+            observer = self.core.observer
+            if observer is not None and camera_model:
+                observer.active_intrinsics_path = self.output_yaml
+                observer.calib_device_name = camera_model
+                observer.intrinsics_missing = False
+                observer.intrinsics_mismatch = False
+                observer.intrinsics_serial_matched = bool(serial)
+                observer.intrinsics_source = "serial" if serial else "model"
+            self.refresh_camera_tab_info()
 
             # Load what was just saved into the running detector. It used to take effect only on
             # the next start, so calibrating, saving and carrying straight on in the same session

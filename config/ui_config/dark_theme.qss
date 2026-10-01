@@ -110,6 +110,28 @@ QTabBar::tab:hover:!selected {
     color: #ffffff;
 }
 
+/* Top-level tabs (Wizard / Camera / Advanced): larger and high-contrast so they stand out from
+   the sub-tabs below them (2026-09-30: the old top tabs were too small and too faint). */
+/* 2026-10-01: about 20 % lower than the first version (46 -> 37 px), and the side padding equals
+   the block height minus the text height (16 px), with no minimum width. */
+QTabWidget#mainTabs > QTabBar::tab {
+    font-size: 17px;
+    padding: 8px 16px;
+    color: #bdbdbd;
+    background: #1f1f1f;
+}
+
+QTabWidget#mainTabs > QTabBar::tab:selected {
+    background: #1e88e5;
+    color: #ffffff;
+    border-bottom: 3px solid #90caf9;
+}
+
+QTabWidget#mainTabs > QTabBar::tab:hover:!selected {
+    background: #2f3b45;
+    color: #ffffff;
+}
+
 QCheckBox {
     spacing: 8px;
     font-weight: bold;

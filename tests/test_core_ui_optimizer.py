@@ -64,8 +64,8 @@ class TestQtBridge(unittest.TestCase):
     def test_ui_video_reads_snapshot_without_detection(self):
         from main_ui import UnifiedCalibrationApp
         window = UnifiedCalibrationApp(ui_only=True)
-        window.left_tabs.setCurrentIndex(1)
-        window.step1_tabs.setCurrentIndex(1)
+        window.left_tabs.setCurrentIndex(window.TAB_CAMERA)
+        window.camera_tabs.setCurrentIndex(window.CAMERA_SUB_INTRINSICS)
         window.ui_only = False
         observer = MagicMock()
         window.core.observer = observer
