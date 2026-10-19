@@ -14,11 +14,11 @@ Write-Host "===================================================" -ForegroundColo
 Write-Host "[*] Closing any running camera_calibrator instances..." -ForegroundColor Yellow
 Get-Process -Name "camera_calibrator*" -ErrorAction SilentlyContinue | Stop-Process -Force
 
-# 1. Find suitable Python (prefer 3.11, 3.10, 3.12)
+# 1. Find suitable Python (3.11 first, then 3.12; setup.py requires >=3.11,<3.13)
 $pyExe = "python"
 $pyArgs = @()
 
-foreach ($ver in @("3.11", "3.10", "3.12")) {
+foreach ($ver in @("3.11", "3.12")) {
     $test = & py -$ver --version 2>$null
     if ($LASTEXITCODE -eq 0) {
         $pyExe = "py"
@@ -33,7 +33,7 @@ if ($pyExe -eq "python" -and $pyArgs.Count -eq 0) {
         $pythonVersion = python --version 2>&1
         Write-Host "[*] Found Python: $pythonVersion" -ForegroundColor Green
     } catch {
-        Write-Host "[ERROR] Python 3.10, 3.11, or 3.12 is not installed or not in PATH!" -ForegroundColor Red
+        Write-Host "[ERROR] Python 3.11 or 3.12 is not installed or not in PATH!" -ForegroundColor Red
         Write-Host "Please install Python 3.11 and add it to PATH."
         Exit 1
     }

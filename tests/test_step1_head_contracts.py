@@ -5,6 +5,7 @@ No robot client, camera, UI, motion, or production configuration writes.
 """
 import json
 import re
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -91,11 +92,70 @@ class StepContracts(unittest.TestCase):
         self.assertLess(rms_mm, .01,
                         'Head/camera gauge must preserve full SE(3), including translation')
 
+    def test_direction_check_starts_from_the_joint_solution_and_agrees_with_it(self):
+        # 2026-10-08, real sweeps: the out-only / back-only solves started from zero, hit the evaluation
+        # limit and reported tilt -0.09 / -0.13 deg next to a joint solution of -1.655 deg.
+        nominal = [.047, .009, .057, -90., 0., -90.]
+        mount_r = Rotation.from_euler('xyz', nominal[3:], degrees=True).as_matrix()
+        mount_t = np.array(nominal[:3])
+        marker = np.array([.30, -.04, .02])
+        tilt_zero_deg = -1.6
+
+        def head_r(p, t):
+            return (Rotation.from_euler('z', p, degrees=True).as_matrix()
+                    @ Rotation.from_euler('y', t, degrees=True).as_matrix())
+
+        def phase(joint, name):
+            angles = np.concatenate([np.linspace(-10., 10., 21), np.linspace(10., -10., 21)[1:]])
+            times = np.arange(len(angles)) * 0.1
+            samples = []
+            for t, a in zip(times, angles):
+                pan, tilt = (0., a) if joint == 1 else (a, 0.)
+                samples.append({"t": float(t), "side": "right", "deg": float(a),
+                                "p": mount_r.T @ (head_r(pan, tilt + tilt_zero_deg).T @ marker - mount_t)})
+            return {"joint": joint, "name": name, "enc_t": times, "enc_deg": angles, "missing": 0, "samples": samples}
+
+        solver = HeadCameraCalibrator.__new__(HeadCameraCalibrator)
+        solver.robot = SimpleNamespace(
+            model=lambda: SimpleNamespace(head_idx=[0, 1]),
+            get_dynamics=lambda: None,
+            get_state=lambda: SimpleNamespace(position=np.zeros(2)),
+        )
+
+        def fk(robot, dynamics, q, ee_link, base_link):
+            transform = np.eye(4)
+            transform[:3, :3] = head_r(*np.rad2deg(q))
+            return transform
+
+        # core.calibration re-exports the class under the module's name, so take the module itself.
+        head_module = sys.modules[HeadCameraCalibrator.__module__]
+        original_least_squares = head_module.least_squares
+        solves = []
+
+        def recording(fun, x0, **options):
+            solution = original_least_squares(fun, x0, **options)
+            solves.append((np.array(x0, dtype=float), solution))
+            return solution
+        with patch.object(BaseCalibrator, 'compute_fk', side_effect=fk), \
+                patch.object(head_module, 'least_squares', recording):
+            result = solver._solve_head_camera([phase(1, "Tilt"), phase(0, "Pan")], nominal, mount_r,
+                                               marker_priors={"right": marker + np.array([.004, -.003, .005])})
+        self.assertEqual(len(solves), 3, "joint solve, then the out-only and back-only solves")
+        joint = solves[0][1].x
+        for start, _ in solves[1:]:
+            np.testing.assert_allclose(start, joint, atol=1e-8)
+        check = result["direction_consistency"]
+        self.assertTrue(check["converged"])
+        joint_tilt = result["head_offsets_deg"]["tilt"]
+        self.assertAlmostEqual(check["tilt_out_deg"], joint_tilt, delta=0.01)
+        self.assertAlmostEqual(check["tilt_back_deg"], joint_tilt, delta=0.01)
+
     def test_step1_constant_absolute_j6_target_converges_to_target(self):
         # Backup tests/test_joint_retry.py isolates the iterator from hardware.
         # Here the CURRENT API returns an absolute J6 target, not a residual.
         cal = JointCalibrator.__new__(JointCalibrator)
         cal.robot = None
+        cal.marker_st = None
         cal.joint_offsets = {'right': {'wrist_yaw2': -2.}}
         cal.use_angle_based_fitting = True
         stages = []
@@ -428,3 +488,72 @@ class WristYaw2FromBracketSweeps(unittest.TestCase):
             self.assertEqual((c.args[1]["sweep"], c.args[2]["sweep"]), (6, 5))
         self.assertEqual(store["right"]["joint6"], 0.25)
         self.assertEqual(store["left"]["joint6"], -0.5)
+
+
+class V13PassOneBracketResolvedWithJ6(unittest.TestCase):
+    """v1.3 solves the bracket position before J6 is calibrated, so pass 1 read x short by the J6 tilt
+    (0.46 mm at 3.6 deg, simulator 2026-10-16) and the pass 2 comparison measured that bias, not
+    repeatability. Pass 1 is re-solved from its own J5/J6 sweeps with the J6 offset staged in pass 1."""
+    J6_DEG = 5.0
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        patcher = patch.dict(CONFIG_PATHS, txt_dir=folder.name, result_dir=folder.name, plot_dir=folder.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_step1(self, resolve):
+        from unittest.mock import MagicMock
+        from threading import Event
+        from core.calibration.sequences.step1 import execute_step1_sequence
+        from core.calibration.sequences.result import SequenceContext
+
+        class NoWait(Event):
+            def wait(self, timeout=None):
+                return False
+
+        joint, marker = MagicMock(), MagicMock()
+        marker.get_robot_version.return_value = "1.3"
+        marker.camera_config, marker.joint_offsets, joint.joint_offsets = {}, {}, {}
+        marker.user_taught_ready_poses = {}
+        joint.NOMINAL_BRACKET_TEMPLATES = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES
+        joint.robot.model.return_value = SimpleNamespace(right_arm_idx=list(range(7)), left_arm_idx=list(range(7, 14)))
+        joint.robot.get_state.return_value = SimpleNamespace(position=np.zeros(20))
+        joint.perform_move_to_ready_pose.return_value = True
+        marker.perform_move_to_ready_pose.return_value = True
+        joint.perform_joint_calibration.side_effect = lambda arm, mode, **kw: {
+            "converged": True, "recommended_joint_offset": self.J6_DEG if mode == "wrist_roll_v13" else 0.1}
+        marker.perform_calibration_sweep.side_effect = lambda arm, axis, **kw: {"axis_opt": [0.0, 0.0, 1.0], "sweep": axis}
+
+        def bracket_x(arm):
+            # x reads 0.85 mm short until the J6 offset is known, as 123^2 sin^2(5 deg) / (2 * 67.5) predicts.
+            return 67.5 if marker.joint_offsets[arm].get("wrist_roll") else 66.65
+        marker.compute_marker_bracket_from_orthogonal_sweeps.side_effect = lambda r4, r5, r6, arm: {
+            "x_e": bracket_x(arm), "y_e": 0.0, "z_e": 0.0, "roll_e": 90.0, "pitch_e": 0.0, "yaw_e": -90.0,
+            "position_source": "test", "position_at_limit": False}
+        self.resolved = []
+
+        def v13_resolve(r5, r6, arm, nominal_mm):
+            self.resolved.append((arm, r5["sweep"], r6["sweep"], marker.joint_offsets[arm].get("wrist_roll")))
+            return ((bracket_x(arm), 0.0, 0.0), False) if resolve else None
+        marker.v13_bracket_position_from_radii.side_effect = v13_resolve
+        marker.generate_marker_plot.return_value = None
+        joint.save_calibration_comparison_plot.return_value = None
+        store = {arm: {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0} for arm in ("right", "left")}
+        logs = []
+        result = execute_step1_sequence(joint, marker, store, log_callback=logs.append,
+                                        context=SequenceContext("step1", NoWait()))
+        self.assertEqual(result.status, "completed", result.error)
+        return "\n".join(logs)
+
+    def test_pass_two_is_compared_with_pass_one_resolved_under_the_j6_offset(self):
+        logs = self.run_step1(resolve=True)
+        self.assertEqual(self.resolved, [("right", 5, 6, self.J6_DEG), ("left", 5, 6, self.J6_DEG)])
+        self.assertIn("pass 1 bracket position with the J6 offset found in pass 1: x 67.50", logs)
+        self.assertEqual(logs.count("All parameters converged physically"), 2)
+        self.assertNotIn("Pass-to-pass changes exceed tolerance", logs)
+
+    def test_without_the_resolve_the_bias_alone_trips_the_limit(self):
+        logs = self.run_step1(resolve=False)
+        self.assertEqual(logs.count("Pass-to-pass changes exceed tolerance"), 2)

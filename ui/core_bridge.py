@@ -223,9 +223,9 @@ class MoveToReadyWorker(SequenceWorker):
     log_signal = Signal(str)
     finished_signal = Signal(bool, str)
 
-    def __init__(self, core, arm_side, mode="marker"):
+    def __init__(self, core, arm_side, mode="marker", head_zero=False):
         kind = "marker" if mode == "marker" else "joint"
-        super().__init__(core, "ready", dict(kind=kind, arm_side=arm_side, mode=mode))
+        super().__init__(core, "ready", dict(kind=kind, arm_side=arm_side, mode=mode, head_zero=head_zero))
 
     def run(self):
         super().run()

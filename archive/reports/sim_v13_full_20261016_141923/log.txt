@@ -1,0 +1,16 @@
+[14:19:25] output: C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261016_141923
+[14:19:25] simulated sensor noise: position 0.100 mm, orientation 0.370 deg
+[14:19:25] v1.3 J5 stage sweeps: J6 +-30 deg, J4 +-30 deg
+[14:19:30] [WARN] Initial connection attempt failed. Waiting 1.0s before retrying...
+[14:19:36] [FATAL] Traceback (most recent call last):
+  File "C:\Users\User\Desktop\camera_ws\scratch\validate_full_v13_sim.py", line 152, in <module>
+    core.connect_robot(ADDR, MODEL, include_head=True, simulated=True)
+  File "C:\Users\User\Desktop\camera_ws\core\calibration\calibration_core.py", line 129, in connect_robot
+    robot = connect_robot_session(address, model, log_callback=self.log_msg, **options)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\camera_ws\core\robot\robot_core.py", line 351, in connect_robot_session
+    raise ConnectionError(f"Failed to connect robot at {addr}")
+ConnectionError: Failed to connect robot at 127.0.0.1:50052
+
+[14:19:36] 
+summary: C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261016_141923\summary.json

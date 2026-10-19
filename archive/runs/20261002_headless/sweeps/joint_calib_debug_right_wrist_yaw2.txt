@@ -1,0 +1,31 @@
+
+=== NEW ITERATION ===
+[INFO] wrist_yaw2: J7 nominal ready pose=-9.99°, raw_diff=10.40°, optimal_offset=0.42°
+  * Position-based J6: 16 frames near the sweep ends, spread 0.182° -> offset +0.8539°
+[INFO] wrist_yaw2 J6 estimates: orientation +0.418°, position +0.854° (difference +0.436°); using the orientation method.
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 87.2476 deg
+  * Circle Size Error (abs: r_A - r_B)     : 121.2702 mm
+  * Estimated Circle Center Distance       : 45.1496 mm
+  * Calculated Offset Correction           : 0.418128 deg
+==================================================
+[INFO] right J6 (wrist_yaw2) from the bracket sweeps: +0.4181° (J6 sweep 356 frames, r 54.5 mm; J5 sweep 257 frames, r 175.8 mm; orientation +0.4181°, position +0.8539°, method orientation)
+
+=== NEW ITERATION ===
+[INFO] wrist_yaw2: J7 nominal ready pose=-9.99°, raw_diff=9.93°, optimal_offset=0.36°
+  * Position-based J6: 14 frames near the sweep ends, spread 0.139° -> offset +0.9132°
+[INFO] wrist_yaw2 J6 estimates: orientation +0.356°, position +0.913° (difference +0.557°); using the orientation method.
+[WARN] wrist_yaw2: the two J6 estimates differ by 0.56° (> 0.5°). The orientation method follows the marker-orientation measurement, the position method the bracket's lateral mounting; check both before trusting J6.
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 86.7611 deg
+  * Circle Size Error (abs: r_A - r_B)     : 121.0965 mm
+  * Estimated Circle Center Distance       : 43.6534 mm
+  * Calculated Offset Correction           : 0.356431 deg
+==================================================
+[INFO] right J6 (wrist_yaw2) from the bracket sweeps: +0.3564° (J6 sweep 330 frames, r 54.5 mm; J5 sweep 269 frames, r 175.6 mm; orientation +0.3564°, position +0.9132°, method orientation)

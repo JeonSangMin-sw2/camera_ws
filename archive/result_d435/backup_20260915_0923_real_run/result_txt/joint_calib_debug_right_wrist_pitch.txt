@@ -1,0 +1,28 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_PITCH
+============================================================
+
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+  * Angle Error (Deviation)          : 3.0000°
+  * Circle Size Error (r_A-r_B)      : 0.0000 mm
+  * Center Distance Error            : 5.0000 mm
+  * Max Fitting Error Metric         : 5.0000 mm
+[ITERATION 1/6] offset=0.0000°, residual=+3.0000° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : 2.5000°
+
+[ITERATION 2/6] Sweeping physically with staged offset 2.5000°...
+  * Angle Error (Deviation)          : 0.0200°
+  * Circle Size Error (r_A-r_B)      : 0.0000 mm
+  * Center Distance Error            : 5.0000 mm
+  * Max Fitting Error Metric         : 5.0000 mm
+[ITERATION 2/6] offset=2.5000°, residual=+0.0100° -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED successfully:
+  * Residual Error: 0.0100° < 0.06° (reached resolution limit)
+  * Recommended Absolute Offset: 2.5000°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_right_wrist_pitch_joint_calib.png

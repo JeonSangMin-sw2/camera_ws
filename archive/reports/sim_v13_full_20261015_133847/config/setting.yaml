@@ -1,0 +1,40 @@
+camera:
+  auto_exposure: true
+  camera_mount_link: link_head_2
+  device_name: D405
+  fps: 30
+  head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  head_base_to_cam_nominal: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  height: 720
+  mount_to_cam: [0.0433, 0.009, 0.063, -90.0, 0.0, -90.0]
+  mount_to_cam_nominal: [0.0433, 0.009, 0.063, -90.0, 0.0, -90.0]
+  width: 1280
+joint_offset:
+  left:
+    joint3: -0.7018281951756775
+    joint5: -3.6426952118184985
+    joint6: -4.233095160594222
+  right:
+    joint3: -0.5026201921709437
+    joint5: 2.021084492969326
+    joint6: -1.527345030649986
+  head:
+    pan: 0.0
+    tilt: 0.0
+marker:
+  Tf_to_marker_left: [0.067, 0.0, 0.0, 89.99999999999999, 0.0, -89.45953773996607]
+  Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
+  Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  Tf_to_marker_right: [0.067, 0.0, 0.0, 89.99999999999999, 0.0, -89.45953773996607]
+  Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
+  Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  plate:
+    left_ids: [7]
+    plate_size_mm: 80.0
+    right_ids: [8]
+step2:
+  min_marker_x_gap_m: 0.11
+  min_rot_noise_deg: 0.3
+  wrist_diversity_poses: false
+exposure_check:
+  max_marker_jitter_rms_mm: 0.2

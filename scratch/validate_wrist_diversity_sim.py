@@ -34,7 +34,7 @@ os.chdir(ROOT)
 from core.calibration import CalibrationCore  # noqa: E402
 from core.calibration.CalibratorBase import BaseCalibrator  # noqa: E402
 from core.calibration.sequences import collection, step2 as step2_mod  # noqa: E402
-from core.marker_detection import SimulationModel, load_truth_config  # noqa: E402
+from core.calibration.simulation import SimulationModel, load_truth_config  # noqa: E402
 from core.robot.motion import AutoCollectionConfig  # noqa: E402
 
 ADDR, MODEL, VERSION = "127.0.0.1:50051", "m", "1.2"

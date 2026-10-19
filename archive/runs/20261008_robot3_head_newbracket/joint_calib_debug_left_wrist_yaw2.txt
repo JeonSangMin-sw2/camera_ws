@@ -1,0 +1,32 @@
+
+=== NEW ITERATION ===
+[INFO] wrist_yaw2: J7 nominal ready pose=10.01°, raw_diff=-11.28°, optimal_offset=-1.26°
+  * Position-based J6: 16 frames near the sweep ends, spread 0.147° -> offset -0.3111°
+[INFO] wrist_yaw2 J6 estimates: orientation -1.265°, position -0.311° (difference +0.954°); using the orientation method.
+[WARN] wrist_yaw2: the two J6 estimates differ by 0.95° (> 0.5°). The orientation method follows the marker-orientation measurement, the position method the bracket's lateral mounting; check both before trusting J6.
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 88.5553 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.9964 mm
+  * Estimated Circle Center Distance       : 48.2223 mm
+  * Calculated Offset Correction           : -1.264693 deg
+==================================================
+[INFO] left J6 (wrist_yaw2) from the bracket sweeps: -1.2647° (J6 sweep 391 frames, r 54.1 mm; J5 sweep 290 frames, r 175.1 mm; orientation -1.2647°, position -0.3111°, method orientation)
+
+=== NEW ITERATION ===
+[INFO] wrist_yaw2: J7 nominal ready pose=10.00°, raw_diff=-10.02°, optimal_offset=-1.28°
+  * Position-based J6: 15 frames near the sweep ends, spread 0.182° -> offset -0.1584°
+[INFO] wrist_yaw2 J6 estimates: orientation -1.278°, position -0.158° (difference +1.119°); using the orientation method.
+[WARN] wrist_yaw2: the two J6 estimates differ by 1.12° (> 0.5°). The orientation method follows the marker-orientation measurement, the position method the bracket's lateral mounting; check both before trusting J6.
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 88.5229 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.9163 mm
+  * Estimated Circle Center Distance       : 48.4443 mm
+  * Calculated Offset Correction           : -1.277770 deg
+==================================================
+[INFO] left J6 (wrist_yaw2) from the bracket sweeps: -1.2778° (J6 sweep 395 frames, r 54.1 mm; J5 sweep 285 frames, r 175.1 mm; orientation -1.2778°, position -0.1584°, method orientation)

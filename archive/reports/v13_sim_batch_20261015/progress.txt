@@ -1,0 +1,9 @@
+start 12:06
+noise_free done 12:29 archive/reports/sim_v13_full_20261015_120623
+v12 seed 1 done 12:53 archive/reports/sim_v13_full_20261015_122945
+v12 seed 2 done 13:13 archive/reports/sim_v13_full_20261015_125346
+v12 seed 3 done 13:38 archive/reports/sim_v13_full_20261015_131341
+v12 seed 4 done 14:02 archive/reports/sim_v13_full_20261015_133847
+v12 seed 5 done 14:10 archive/reports/sim_v13_full_20261015_140243
+v12 seed 6 done 14:12 archive/reports/sim_v13_full_20261015_141004
+ori seed 101 clean done 14:24 C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141733

@@ -6,6 +6,7 @@ import shutil
 import tempfile
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from threading import RLock
 from contextlib import contextmanager
@@ -323,8 +324,27 @@ CONFIG_PATHS = {key: str(StoragePaths.root / path) for key, path in {
     "simulation_yaml": "config/simulation.yaml", "ui_config_dir": "config/ui_config",
     "i18n_yaml": "config/ui_config/i18n.yaml", "ui_dropdowns_yaml": "config/ui_config/ui_dropdowns.yaml",
     "dark_theme_qss": "config/ui_config/dark_theme.qss", "result_dir": "result/result_step2",
-    "plot_dir": "result/result_img", "txt_dir": "result/result_txt",
+    "plot_dir": "result/result_img", "txt_dir": "result/result_txt", "log_dir": "result/result_log",
 }.items()}
+
+
+class SessionLog:
+    """Everything the GUI log shows, kept on disk: result/result_log/gui_log_<date>.txt.
+
+    The GUI log was the only place some facts appeared (per-arm bracket fits, exposure changes,
+    why a sequence stopped) and it was gone when the window closed. Lines are appended with the
+    time; the folder is separate from result_txt, whose .txt files a new sweep clears."""
+
+    @staticmethod
+    def path(now=None):
+        now = now or datetime.now()
+        return os.path.join(CONFIG_PATHS["log_dir"], f"gui_log_{now:%Y%m%d}.txt")
+
+    @staticmethod
+    def append(message, now=None):
+        now = now or datetime.now()
+        with FileStorage.lock, FileStorage.open(SessionLog.path(now), "a", encoding="utf-8") as stream:
+            stream.write(f"[{now:%H:%M:%S}] {message}\n")
 
 
 def camera_intrinsics_path(family=None):

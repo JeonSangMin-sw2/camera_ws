@@ -409,6 +409,8 @@ class QPCalibrationOptimizer:
         joint_offsets_to_apply=None,
         lock_camera_head_axis_rotation=True,
         min_rot_noise_std_rad=None,
+        camera_pos_range_m=None,
+        anchor_joint6=True,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -416,6 +418,10 @@ class QPCalibrationOptimizer:
         self.active_arms = active_arms
         self.apply_joint_offset_limits = apply_joint_offset_limits
         self.joint_offsets_to_apply = joint_offsets_to_apply
+        # anchor_joint6=False: J6 is solved from the Step 2 poses instead of being held at Step 1's
+        # value. Only meaningful with camera_pos_range_m: with the camera free, J4 and the camera
+        # height absorb a J6 change and the poses barely tell J6 values apart (2026-10-08).
+        self.anchor_joint6 = anchor_joint6
         # Head-mounted camera: rotation about the camera x axis (= head tilt axis) and y axis
         # (= head pan axis) points the camera exactly like the head joints. Convention (notion
         # References 3.2): the head pan/tilt offsets absorb it, so xi_mount_cam[0:2] stay at the
@@ -458,6 +464,23 @@ class QPCalibrationOptimizer:
         else:
             self.base_link = "link_head_0"
             self.T_mount_to_cam_nom = make_transform(self.head_base_to_cam_nom) if self.head_base_to_cam_nom else np.eye(4)
+
+        # camera_pos_range_m: [low, high] per mount-link axis by which the camera position may differ
+        # from the nominal; all three camera rotations are then held at the nominal. The bounds act
+        # on xi, which is in the camera frame, so they are taken along the mount-link axes nearest the
+        # nominal rotation: the nominal carries Step 1.5's optical-axis rotation (2026-10-16, up to its
+        # 5 deg bound), which turns the box by that angle (0.65 deg: 0.03 mm at the corners of a 3 mm range).
+        self.camera_pos_xi_low = self.camera_pos_xi_high = None
+        if camera_pos_range_m is not None:
+            R_nom = self.T_mount_to_cam_nom[:3, :3]
+            R_axes = np.round(R_nom)
+            is_signed_permutation = (np.allclose(np.abs(R_axes).sum(axis=0), 1.0)
+                                     and np.allclose(np.abs(R_axes).sum(axis=1), 1.0))
+            turn_deg = np.degrees(np.arccos(np.clip((np.trace(R_axes.T @ R_nom) - 1.0) / 2.0, -1.0, 1.0)))
+            if not is_signed_permutation or turn_deg > 6.0:
+                raise ValueError("camera_pos_range_m needs a nominal camera rotation within 6 deg of the mount-link axes")
+            corners = R_axes.T @ np.asarray(camera_pos_range_m, dtype=np.float64).reshape(3, 2)
+            self.camera_pos_xi_low, self.camera_pos_xi_high = corners.min(axis=1), corners.max(axis=1)
 
         self.numeric_jac_eps = 1e-7
 
@@ -555,6 +578,10 @@ class QPCalibrationOptimizer:
 
                     q_lower[13] = min(v1_l6, v2_l6)
                     q_upper[13] = max(v1_l6, v2_l6)
+
+                if not self.anchor_joint6:
+                    for idx in range(6, arm_dim, 7):
+                        q_lower[idx], q_upper[idx] = -15.0 * D2R, 15.0 * D2R
 
             lower_parts.append(q_lower)
             upper_parts.append(q_upper)
@@ -873,6 +900,11 @@ class QPCalibrationOptimizer:
                 for k in (0, 1):
                     lb[rot_slice.start + k] = ub[rot_slice.start + k] = -xi_mount_cam[k]
                 any_bound = True
+            if self.camera_pos_xi_low is not None:
+                lb[rot_slice] = ub[rot_slice] = -xi_mount_cam[:3]
+                lb[pos_slice] = np.maximum(lb[pos_slice], self.camera_pos_xi_low - xi_mount_cam[3:])
+                ub[pos_slice] = np.minimum(ub[pos_slice], self.camera_pos_xi_high - xi_mount_cam[3:])
+                any_bound = True
 
         if not any_bound:
             return None, None
@@ -985,6 +1017,8 @@ class QPCalibrationOptimizer:
                         (12, -jo.get("left", {}).get("joint5", 0.0) * D2R),
                         (13, -jo.get("left", {}).get("joint6", 0.0) * D2R),
                     ]
+                if not self.anchor_joint6:
+                    anchors = [(idx, target_val) for idx, target_val in anchors if idx % 7 != 6]
 
                 for idx, target_val in anchors:
                     if idx < len(q_arm_offset):
@@ -1092,6 +1126,11 @@ class QPCalibrationOptimizer:
             # Also holds when the unconstrained fallback solve was used.
             dx[dim - 6] = -xi_mount_cam[0]
             dx[dim - 5] = -xi_mount_cam[1]
+        if self.optimize_camera and self.camera_pos_xi_low is not None:
+            # The same for the design-pose constraint, and it removes the solver's tolerance on the bounds.
+            dx[dim - 6:dim - 3] = -xi_mount_cam[:3]
+            dx[dim - 3:] = np.clip(dx[dim - 3:], self.camera_pos_xi_low - xi_mount_cam[3:],
+                                   self.camera_pos_xi_high - xi_mount_cam[3:])
         return dx, total_err
 
     def apply_update(self, q_arm_offset, q_head_offset, xi_mount_cam, dx):

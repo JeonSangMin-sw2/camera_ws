@@ -1,0 +1,5 @@
+v12 seed 16 port 50053 done 14:11 C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141036
+ori seed 102 port 50056 done 14:11 C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141046
+v12 seed 17 port 50054 done 14:13 C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141039
+ori seed 101 port 50055 done 14:16 C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043
+parallel all done 14:16

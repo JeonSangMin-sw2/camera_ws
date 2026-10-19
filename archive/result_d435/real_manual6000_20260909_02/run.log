@@ -1,0 +1,65 @@
+CONNECTED REAL ROBOT RobotInfo(model=A@v1.2, dof=24, joints=24, powers=4, emos=1); output=C:\Users\User\Desktop\camera_ws\result\real_manual6000_20260909_02
+[EXPOSURE] auto=False, configured=6000.0us, actual=6000.0us
+Starting FULL AUTO sequential calibration...
+
+==================================================
+   STARTING PASS 1/2 FOR RIGHT ARM
+==================================================
+
+[INFO] Detected Robot Version: 1.2 (is_v1.3: False)
+[FULL AUTO 1/3] Calibrating J5 (Wrist Pitch) first on v1.2 right arm...
+[INFO] Moving right arm to wrist_pitch Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+[SWEEP COMMAND] right J4: 74.9991° -> 104.9991°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP QUALITY] wrist_pitch: relative correction=-0.25556 deg; circles RMS=0.1213/0.1259 mm
+
+[ITERATION 2/6] Sweeping physically with staged offset -0.2556°...
+[SWEEP COMMAND] right J4: 74.9991° -> 104.9991°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991   -0.2556    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991   -0.2556    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2556° -> -0.2556°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0006   89.9991   -0.2556    0.    ]; command already includes staged correction (apply_offsets=False)
+[MEASUREMENT REJECTED] Parallel-joint circles do not coincide: center=0.562 mm, radius difference=0.539 mm. Keeping staged offset -0.2556°; no correction from this measurement.
+[SWEEP QUALITY] {'circle_A': 0.00012075335962671669, 'circle_B': 0.000125017076487218, 'circle_C': 0.00010032875656198349, 'fit': 'observed_adjacent_axes_free_centers', 'relative_correction_deg': -0.04714898421528586, 'center_distance_mm': 0.5616557319551163, 'radius_difference_mm': 0.538654525990836, 'frames': [904, 908, 911], 'arc_deg': [28.98573013330084, 28.72975084682034, 13.741392537430766]}
+[WARNING] right wrist_pitch: Parallel-joint circles do not coincide: center=0.562 mm, radius difference=0.539 mm; no new offset staged in UI.
+[FULL AUTO] J5 remains unconverged; J6, bracket and elbow deferred.
+
+==================================================
+   STARTING PASS 2/2 FOR RIGHT ARM
+==================================================
+
+[INFO] Detected Robot Version: 1.2 (is_v1.3: False)
+[FULL AUTO 1/3] Calibrating J5 (Wrist Pitch) first on v1.2 right arm...
+[INFO] Moving right arm to wrist_pitch Ready Pose...
+[INFO] Moving inactive arm to zero pose first...
+[INFO] Moving active arm, torso, and head to ready pose...
+[INFO] Ready Pose Reached.
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+[SWEEP COMMAND] right J4: 74.9989° -> 104.9989°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP QUALITY] wrist_pitch: relative correction=-0.26231 deg; circles RMS=0.1197/0.1209 mm
+
+[ITERATION 2/6] Sweeping physically with staged offset -0.2623°...
+[SWEEP COMMAND] right J4: 74.9989° -> 104.9989°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989   -0.2623    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=30.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -127.0004   89.9989   -0.2623    0.    ]; command already includes staged correction (apply_offsets=False)
+[ERROR] Iteration 2 sweep failed. Aborting calibration.
+[ERROR] Full Auto sequential calibration failed: Wrist pitch joint calibration failed on right arm
+Traceback (most recent call last):
+  File "C:\Users\User\Desktop\camera_ws\core\calibration_core.py", line 400, in run
+    raise RuntimeError(f"Wrist pitch joint calibration failed on {arm_side} arm")
+RuntimeError: Wrist pitch joint calibration failed on right arm
+
+Traceback (most recent call last):
+  File "C:\Users\User\Desktop\camera_ws\scratch\run_real_calibration.py", line 176, in run
+    raise RuntimeError(f'Step 1 failed: {worker.error_msg}; convergence={worker.arm_convergence}')
+RuntimeError: Step 1 failed: Wrist pitch joint calibration failed on right arm; convergence={'right': False}
+
+FINAL STATUS {"endpoint": "192.168.1.40:50051", "real_camera": true, "include_head": true, "exposure_us": 6000, "auto_exposure": false, "stage": "step1", "j5_sweep_seconds": 30.0, "step1": "failed", "step1_5": "not_run", "step2": "not_run", "robot": "RobotInfo(model=A@v1.2, dof=24, joints=24, powers=4, emos=1)", "exposure_readback": {"auto": false, "configured_us": 6000.0, "actual_us": 6000.0}, "error": "Step 1 failed: Wrist pitch joint calibration failed on right arm; convergence={'right': False}", "final_position_deg": [6.286010742187501, 20.07568359375, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -54.99995165532179, -45.000435102103964, 24.999879138304458, -127.00021271658417, 89.99956054687499, -0.262353515625, 0.30717773437499996, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, -0.00043945312499999996, 0.0, 0.0], "user_configs_preserved": true, "source_unchanged": true}

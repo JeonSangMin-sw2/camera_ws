@@ -1,0 +1,244 @@
+[14:10:49] output: C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043
+[14:10:49] simulated sensor noise: position 0.100 mm, orientation 0.370 deg
+[14:10:49] v1.3 J5 stage sweeps: J6 +-30 deg, J4 +-30 deg
+2026-10-15 14:10:49,678 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:10:49,740 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+2026-10-15 14:10:49,753 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:10:49,805 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+2026-10-15 14:10:49,819 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:10:49,881 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+[14:10:51] [INFO] Power (.*) is not ON. Turning power on...
+[14:10:52] [INFO] Required servos are not fully ON. Disabling Control Manager first to turn on servos (^(?!.*wheel).*$)...
+[14:10:52] [INFO] Turning servos (^(?!.*wheel).*$) on...
+[14:10:52] [INFO] Enabling control manager with unlimited_mode_enabled=True...
+[14:10:53] [INFO] Connected robot model 'M', version string 'v1.3'
+- Loaded Setting Config from setting.yaml
+  * head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  * mount_to_cam: [0.0433, 0.009, 0.063, -90.0, 0.0, -90.0]
+[-6.6128743106408374e-18, 0.054, -0.04871772524581626, 90.0, -0.13886334039470388, 0.0]
+[INFO] Tf_to_marker_left is the v1.2 bracket but this robot is v1.3 (98.9 mm / 90.00 deg apart). Loading the v1.3 nominal...
+[INFO] Tf_to_marker_right is the v1.2 bracket but this robot is v1.3 (98.9 mm / 90.00 deg apart). Loading the v1.3 nominal...
+[INFO] Updated setting.yaml marker brackets for robot v1.3: Tf_to_marker_left=[0.067, 0.0, 0.0, 90.0, 0.0, -90.0], Tf_to_marker_right=[0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+[14:10:54] [Camera] Auto exposure enabled
+[14:10:54] [INFO] head joints in the model: [24, 25]
+[14:10:54] 
+##### exposure-check ready pose (right, head to zero) #####
+[14:10:57] [INFO] Moving right arm to wrist_pitch_v13 Ready Pose...
+[14:10:57] [INFO] Moving inactive arm to zero pose first...
+[14:11:02] [INFO] Moving active arm, torso, and head to ready pose...
+[14:11:10] [INFO] Ready Pose Reached.
+[14:11:10] ##### exposure-check ready pose (right, head to zero): completed (16 s) #####
+[14:11:10] 
+##### exposure-check ready pose (left, head to zero) #####
+[14:11:14] [INFO] Moving left arm to wrist_pitch_v13 Ready Pose...
+[14:11:14] [INFO] Moving inactive arm to zero pose first...
+[14:11:19] [INFO] Moving active arm, torso, and head to ready pose...
+[14:11:27] [INFO] Ready Pose Reached.
+[14:11:27] ##### exposure-check ready pose (left, head to zero): completed (17 s) #####
+[14:11:32] [monitor] 36 summaries in 5 s; last: {}
+[14:11:32] 
+##### Full Auto ready pose #####
+[14:11:32] [INFO] Moving right arm to marker Ready Pose...
+[14:11:32] [INFO] Moving inactive arm to zero pose first...
+[14:11:36] [INFO] Moving active arm, torso, and head to ready pose...
+[14:11:43] [INFO] Ready Pose Reached.
+[14:11:43] [INFO] Moving left arm to marker Ready Pose...
+[14:11:43] [INFO] Moving inactive arm to zero pose first...
+[14:11:47] [INFO] Moving active arm, torso, and head to ready pose...
+[14:11:54] [INFO] Ready Pose Reached.
+[14:11:54] ##### Full Auto ready pose: completed (22 s) #####
+[14:11:54] 
+##### FULL AUTO (Step 1 -> Step 1.5 -> Step 2) #####
+[14:11:54] Starting Step 1 sequential calibration...
+[14:11:54] 
+==================================================
+[14:11:54]    STARTING PASS 1/2 FOR RIGHT ARM
+[14:11:54] ==================================================
+
+[14:11:54] [INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[14:11:54] [FULL AUTO] Starting 3-Axis Bracket Sweeps for right arm (Pass 1)...
+[14:11:54] [FULL AUTO] Moving right arm to marker ready pose...
+[14:11:54] [INFO] Moving right arm to marker Ready Pose...
+[14:11:54] [INFO] Moving inactive arm to zero pose first...
+[14:11:58] [INFO] Moving active arm, torso, and head to ready pose...
+[14:12:05] [INFO] Ready Pose Reached.
+[14:12:05] [FULL AUTO] Sweeping Axis 4 (Wrist Yaw)...
+[14:12:05] 
+==================================================
+[14:12:05]    STARTING 4 CONTINUOUS MARKER SWEEP
+[14:12:05] ==================================================
+2026-10-15 14:12:05,704 [INFO] [INFO] Moving Marker Axis 4 to start sweep position...
+2026-10-15 14:12:08,071 [INFO] [INFO] Commencing continuous sweep on Marker Axis 4 (duration=10.0s)...
+2026-10-15 14:12:21,067 [INFO]     -> Swept 490 dense raw coordinate frames during Marker Axis 4 motion.
+[14:12:23] [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
+[14:12:23] [FULL AUTO] Sweeping Axis 6 (Wrist Roll)...
+[14:12:23] 
+==================================================
+[14:12:23]    STARTING 6 CONTINUOUS MARKER SWEEP
+[14:12:23] ==================================================
+2026-10-15 14:12:23,303 [INFO] [INFO] Moving Marker Axis 6 to start sweep position...
+2026-10-15 14:12:26,054 [INFO] [INFO] Commencing continuous sweep on Marker Axis 6 (duration=10.0s)...
+2026-10-15 14:12:41,310 [INFO]     -> Swept 485 dense raw coordinate frames during Marker Axis 6 motion.
+[14:12:43] [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+[14:12:43] [FULL AUTO] Sweeping Axis 5 (Wrist Pitch)...
+[14:12:43] 
+==================================================
+[14:12:43]    STARTING 5 CONTINUOUS MARKER SWEEP
+[14:12:43] ==================================================
+2026-10-15 14:12:43,118 [INFO] [INFO] Moving Marker Axis 5 to start sweep position...
+2026-10-15 14:12:45,751 [INFO] [INFO] Commencing continuous sweep on Marker Axis 5 (duration=10.0s)...
+2026-10-15 14:12:59,810 [INFO]     -> Swept 473 dense raw coordinate frames during Marker Axis 5 motion.
+[14:13:01] [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
+[14:13:01] 
+[FULL AUTO] Computing Marker Bracket Transform for right arm...
+[14:13:06] 
+[FULL AUTO] Calibrating J6 (Wrist Roll) under locked bracket...
+[14:13:06] [INFO] Moving right arm to wrist_roll_v13 Ready Pose...
+[14:13:06] [INFO] Moving inactive arm to zero pose first...
+[14:13:10] [INFO] Moving active arm, torso, and head to ready pose...
+[14:13:16] [INFO] Ready Pose Reached.
+[14:13:16] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+2026-10-15 14:13:16,871 [INFO] 
+--- Commencing Continuous Sweep on Joint A (Index 6, duration=12.0s) ---
+2026-10-15 14:13:16,878 [INFO] [INFO] Moving Joint A to start sweep position...
+2026-10-15 14:13:19,111 [INFO] [INFO] Commencing continuous sweep on Joint A (duration=12.0s)...
+2026-10-15 14:13:34,844 [INFO]     -> Swept 598 dense raw coordinate frames during Joint A motion.
+2026-10-15 14:13:35,345 [INFO] 
+--- Commencing Continuous Sweep on Joint B (Index 5, duration=12.0s) ---
+2026-10-15 14:13:35,350 [INFO] [INFO] Moving Joint B to start sweep position...
+2026-10-15 14:13:37,581 [INFO] [INFO] Commencing continuous sweep on Joint B (duration=12.0s)...
+2026-10-15 14:13:54,563 [INFO]     -> Swept 623 dense raw coordinate frames during Joint B motion.
+2026-10-15 14:13:55,207 [INFO] Swept 598 dense raw coordinate frames during Joint A motion... downsampled to 598 for optimization.
+2026-10-15 14:13:55,207 [INFO] Swept 623 dense raw coordinate frames during Joint B motion... downsampled to 623 for optimization.
+2026-10-15 14:13:58,972 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:13:59,047 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+DEBUG SOLVER v1.2: arm_side=right
+  L_5_ee = 125.0000
+  radius_6 = 123.0238, radius_5 = 137.6988, radius_4 = 0.0000
+  x_nom = 67.0000, y_nom = 0.0000, z_nom = 0.0000
+  x_e = 61.8555, y_e = 0.0000, z_e = 1.9762
+  Initial guess: [67.0, 0.0, 0.0]
+  Lower bounds: [27.0, -30.0, -40.0]
+  Upper bounds: [107.0, 30.0, 40.0]
+  Optimal residuals: [np.float64(-8.255663885847753e-08), np.float64(1.1452380022092257e-07), np.float64(-0.000514450748192818), np.float64(2.519059930639639e-25), np.float64(0.0001976196596791373)]
+[VALIDATION] RIGHT ARM BRACKET SWEEP CIRCLE RESIDUALS (No J4 data):
+  * J6 Sweep Radius Err: 0.0000 mm
+  * J5 Sweep Radius Err: 0.0000 mm
+  [SUCCESS] Circle reconstruction PASSED (Max Residual: 0.0000 mm < 1.0 mm)
+[14:13:59] [INFO] wrist_roll_v13: J7 nominal ready pose=-15.02°, raw_diff=13.87°, optimal_offset=-1.16°
+[14:13:59] [ITERATION 1/8] offset=0.0000°, residual=-1.1576° -> retry (exceeds 0.06° tolerance)
+[14:13:59] 
+[ITERATION 2/8] Sweeping physically with staged offset -1.1576°...
+2026-10-15 14:13:59,665 [INFO] 
+--- Commencing Continuous Sweep on Joint A (Index 6, duration=12.0s) ---
+2026-10-15 14:13:59,672 [INFO] [INFO] Moving Joint A to start sweep position...
+2026-10-15 14:14:01,996 [INFO] [INFO] Commencing continuous sweep on Joint A (duration=12.0s)...
+2026-10-15 14:14:18,102 [INFO]     -> Swept 613 dense raw coordinate frames during Joint A motion.
+2026-10-15 14:14:18,603 [INFO] 
+--- Commencing Continuous Sweep on Joint B (Index 5, duration=12.0s) ---
+2026-10-15 14:14:18,611 [INFO] [INFO] Moving Joint B to start sweep position...
+2026-10-15 14:14:20,782 [INFO] [INFO] Commencing continuous sweep on Joint B (duration=12.0s)...
+2026-10-15 14:14:36,619 [INFO]     -> Swept 623 dense raw coordinate frames during Joint B motion.
+2026-10-15 14:14:37,163 [INFO] Swept 613 dense raw coordinate frames during Joint A motion... downsampled to 613 for optimization.
+2026-10-15 14:14:37,164 [INFO] Swept 623 dense raw coordinate frames during Joint B motion... downsampled to 623 for optimization.
+2026-10-15 14:14:39,836 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:14:39,886 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+DEBUG SOLVER v1.2: arm_side=right
+  L_5_ee = 125.0000
+  radius_6 = 122.9443, radius_5 = 137.1238, radius_4 = 0.0000
+  x_nom = 67.0000, y_nom = 0.0000, z_nom = 0.0000
+  x_e = 60.7259, y_e = 0.0000, z_e = 2.0557
+  Initial guess: [67.0, 0.0, 0.0]
+  Lower bounds: [27.0, -30.0, -40.0]
+  Upper bounds: [107.0, 30.0, 40.0]
+  Optimal residuals: [np.float64(-1.064662171756936e-07), np.float64(1.416735528891877e-07), np.float64(-0.0006274081664262717), np.float64(0.0), np.float64(0.0002055735479527252)]
+[VALIDATION] RIGHT ARM BRACKET SWEEP CIRCLE RESIDUALS (No J4 data):
+  * J6 Sweep Radius Err: 0.0000 mm
+  * J5 Sweep Radius Err: 0.0000 mm
+  [SUCCESS] Circle reconstruction PASSED (Max Residual: 0.0000 mm < 1.0 mm)
+[14:14:40] [INFO] wrist_roll_v13: J7 nominal ready pose=-15.03°, raw_diff=14.90°, optimal_offset=-1.29°
+[14:14:40] [ITERATION 2/8] offset=-1.1576°, residual=-0.1317° -> retry (exceeds 0.06° tolerance)
+[14:14:40] 
+[ITERATION 3/8] Sweeping physically with staged offset -1.2893°...
+2026-10-15 14:14:40,458 [INFO] 
+--- Commencing Continuous Sweep on Joint A (Index 6, duration=12.0s) ---
+2026-10-15 14:14:40,463 [INFO] [INFO] Moving Joint A to start sweep position...
+2026-10-15 14:14:42,574 [INFO] [INFO] Commencing continuous sweep on Joint A (duration=12.0s)...
+2026-10-15 14:14:57,913 [INFO]     -> Swept 625 dense raw coordinate frames during Joint A motion.
+2026-10-15 14:14:58,415 [INFO] 
+--- Commencing Continuous Sweep on Joint B (Index 5, duration=12.0s) ---
+2026-10-15 14:14:58,421 [INFO] [INFO] Moving Joint B to start sweep position...
+2026-10-15 14:15:00,644 [INFO] [INFO] Commencing continuous sweep on Joint B (duration=12.0s)...
+2026-10-15 14:15:16,640 [INFO]     -> Swept 641 dense raw coordinate frames during Joint B motion.
+2026-10-15 14:15:17,190 [INFO] Swept 625 dense raw coordinate frames during Joint A motion... downsampled to 625 for optimization.
+2026-10-15 14:15:17,190 [INFO] Swept 641 dense raw coordinate frames during Joint B motion... downsampled to 641 for optimization.
+2026-10-15 14:15:20,128 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:15:20,177 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+DEBUG SOLVER v1.2: arm_side=right
+  L_5_ee = 125.0000
+  radius_6 = 123.0411, radius_5 = 137.0987, radius_4 = 0.0000
+  x_nom = 67.0000, y_nom = 0.0000, z_nom = 0.0000
+  x_e = 60.4726, y_e = 0.0000, z_e = 1.9589
+  Initial guess: [67.0, 0.0, 0.0]
+  Lower bounds: [27.0, -30.0, -40.0]
+  Upper bounds: [107.0, 30.0, 40.0]
+  Optimal residuals: [np.float64(-1.1322234172439494e-07), np.float64(1.4798445135966176e-07), np.float64(-0.0006527416516183869), np.float64(0.0), np.float64(0.00019588509002885506)]
+[VALIDATION] RIGHT ARM BRACKET SWEEP CIRCLE RESIDUALS (No J4 data):
+  * J6 Sweep Radius Err: 0.0000 mm
+  * J5 Sweep Radius Err: 0.0000 mm
+  [SUCCESS] Circle reconstruction PASSED (Max Residual: 0.0000 mm < 1.0 mm)
+[14:15:20] [INFO] wrist_roll_v13: J7 nominal ready pose=-15.03°, raw_diff=13.20°, optimal_offset=-3.12°
+[14:15:20] [ITERATION 3/8] offset=-1.2893°, residual=-1.8270° -> retry (exceeds 0.06° tolerance)
+[14:15:20] 
+[ITERATION 4/8] Sweeping physically with staged offset -3.1162°...
+2026-10-15 14:15:20,688 [INFO] 
+--- Commencing Continuous Sweep on Joint A (Index 6, duration=12.0s) ---
+2026-10-15 14:15:20,692 [INFO] [INFO] Moving Joint A to start sweep position...
+2026-10-15 14:15:22,853 [INFO] [INFO] Commencing continuous sweep on Joint A (duration=12.0s)...
+2026-10-15 14:15:38,395 [INFO]     -> Swept 621 dense raw coordinate frames during Joint A motion.
+2026-10-15 14:15:38,897 [INFO] 
+--- Commencing Continuous Sweep on Joint B (Index 5, duration=12.0s) ---
+2026-10-15 14:15:38,904 [INFO] [INFO] Moving Joint B to start sweep position...
+2026-10-15 14:15:41,394 [INFO] [INFO] Commencing continuous sweep on Joint B (duration=12.0s)...
+2026-10-15 14:15:57,323 [INFO]     -> Swept 644 dense raw coordinate frames during Joint B motion.
+2026-10-15 14:15:57,852 [INFO] Swept 621 dense raw coordinate frames during Joint A motion... downsampled to 621 for optimization.
+2026-10-15 14:15:57,852 [INFO] Swept 644 dense raw coordinate frames during Joint B motion... downsampled to 644 for optimization.
+2026-10-15 14:16:00,617 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:16:00,680 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\config\ready_poses.yaml
+DEBUG SOLVER v1.2: arm_side=right
+  L_5_ee = 125.0000
+  radius_6 = 122.9846, radius_5 = 136.1766, radius_4 = 0.0000
+  x_nom = 67.0000, y_nom = 0.0000, z_nom = 0.0000
+  x_e = 58.4711, y_e = 0.0000, z_e = 2.0154
+  Initial guess: [67.0, 0.0, 0.0]
+  Lower bounds: [27.0, -30.0, -40.0]
+  Upper bounds: [107.0, 30.0, 40.0]
+  Optimal residuals: [np.float64(-1.5923792773264722e-07), np.float64(1.9863466604874702e-07), np.float64(-0.0008528912768142547), np.float64(5.8495858650541515e-24), np.float64(0.00020154174833357215)]
+[VALIDATION] RIGHT ARM BRACKET SWEEP CIRCLE RESIDUALS (No J4 data):
+  * J6 Sweep Radius Err: 0.0000 mm
+  * J5 Sweep Radius Err: 0.0000 mm
+  [SUCCESS] Circle reconstruction PASSED (Max Residual: 0.0000 mm < 1.0 mm)
+[14:16:01] [INFO] wrist_roll_v13: J7 nominal ready pose=-15.03°, raw_diff=15.88°, optimal_offset=-2.27°
+[14:16:01] [ITERATION 4/8] offset=-3.1162°, residual=+0.8502° -> retry (exceeds 0.06° tolerance)
+[14:16:01] 
+[ITERATION 5/8] Sweeping physically with staged offset -2.4361°...
+2026-10-15 14:16:01,196 [INFO] 
+--- Commencing Continuous Sweep on Joint A (Index 6, duration=12.0s) ---
+2026-10-15 14:16:01,203 [INFO] [INFO] Moving Joint A to start sweep position...
+[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+2026-10-15 14:16:01,211 [ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+[14:16:01] [ERROR] Failed to move Joint A to start pose or stop requested.
+[14:16:01] [INFO] Prompting user for posture readjustment (Attempt 1/2)...
+[14:16:01] [INFO] Moving right arm to wrist_roll_v13 Ready Pose...
+[14:16:01] [INFO] Moving inactive arm to zero pose first...
+[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+2026-10-15 14:16:01,225 [ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+[14:16:01] [ERROR] Failed to move inactive arm to zero pose.
+[14:16:01] [PROMPT] Marker problem on right (wrist_roll_v13): the GUI would ask for re-teaching. Refused.
+[14:16:01] [ERROR] Posture readjustment cancelled by user. Aborting calibration.
+[14:16:03] ##### FULL AUTO (Step 1 -> Step 1.5 -> Step 2): failed -- right_wrist_roll_v13: joint calibration did not converge (250 s) #####
+[14:16:03]  step1: failed -- right_wrist_roll_v13: joint calibration did not converge
+[14:16:03]  joint_offsets_store after the run: {"left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}, "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}, "head": {"pan": 0.0, "tilt": 0.0}}
+[14:16:03] 
+summary: C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141043\summary.json

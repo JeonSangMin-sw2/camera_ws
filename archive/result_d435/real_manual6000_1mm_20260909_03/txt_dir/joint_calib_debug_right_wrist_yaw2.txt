@@ -1,0 +1,14 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_YAW2
+============================================================
+
+
+[ITERATION 1/6] Sweeping physically with staged offset 0.0000°...
+[SWEEP COMMAND] right J6: -20.0000° -> 20.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -126.9998   89.9996   -0.2718    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2718° -> 14.7282°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.      -45.0004   24.9999 -126.9998   89.9996   -0.2718    0.    ]; command already includes staged correction (apply_offsets=False)
+[MEASUREMENT REJECTED] Poor circle observation: arc=4.81 deg, RMS=1.038 mm. Keeping staged offset 0.0000°; no correction from this measurement.
+[SWEEP QUALITY] {}

@@ -17,7 +17,8 @@ JOINT_SWEEP_DURATION_S = 8.0
 # wrist_yaw2 (J6) pairs marker orientation with encoder angles, so a faster one-direction sweep
 # biases it (real test 2026-09-15, right arm, 3 reps: 12 s mean -2.07 std 0.11 vs 8 s mean -2.71
 # std 0.32). Elbow was unaffected (12 s -1.982/0.024 vs 8 s -1.979/0.025).
-JOINT_SWEEP_DURATION_BY_MODE_S = {"wrist_yaw2": 12.0}
+# v1.3's J6 (wrist_roll_v13) is estimated the same way, so it gets the same duration (2026-10-15).
+JOINT_SWEEP_DURATION_BY_MODE_S = {"wrist_yaw2": 12.0, "wrist_roll_v13": 12.0}
 # How the v1.2 J6 (wrist_yaw2) offset is estimated.
 #   "position"   : marker positions only -- the angle, about the J6 axis, between the J5 axis and
 #                  the marker's radial offset, compared with the same angle from the URDF.
@@ -59,8 +60,11 @@ MAX_FIT_POINTS = 1000
 # Per-sweep target-estimate scatter measured on the real robot (deg). Used as a floor on the
 # sample std so a mean of only 2 agreeing sweeps cannot pass on luck.
 # elbow: 0.025 deg measured with +-20 deg sweeps fitting all frames (2026-09-15); floor kept at 0.05.
-JOINT_ESTIMATE_NOISE_DEG = {"wrist_pitch": 0.03, "wrist_yaw2": 0.06, "elbow": 0.05}
-MIN_MEAN_SAMPLES_BY_MODE = {"wrist_pitch": 2, "wrist_yaw2": 2, "elbow": 2}
+# v1.3 (2026-10-15; before, both fell back to 3 samples and no floor): wrist_roll_v13 is the wrist_yaw2
+# method, so it takes its floor; wrist_pitch_v13 measured 0.06-0.13 deg per sweep pair in the simulator.
+JOINT_ESTIMATE_NOISE_DEG = {"wrist_pitch": 0.03, "wrist_yaw2": 0.06, "elbow": 0.05,
+                            "wrist_roll_v13": 0.06, "wrist_pitch_v13": 0.10}
+MIN_MEAN_SAMPLES_BY_MODE = {"wrist_pitch": 2, "wrist_yaw2": 2, "elbow": 2, "wrist_roll_v13": 2, "wrist_pitch_v13": 2}
 
 
 class DebugLogger:
@@ -104,6 +108,13 @@ class JointCalibrator(BaseCalibrator):
         super().__init__(marker_st, robot)
         self.use_angle_based_fitting = True
 
+    @staticmethod
+    def sweep_points_tag(mode, key_type):
+        """Name part of a joint calibration's sweep_points file. The mode is in it because two modes
+        of one arm can sweep the same axis (v1.3: J6 in wrist_roll_v13 and wrist_pitch_v13, J4 in
+        wrist_pitch_v13 and elbow); with the axis alone, the later mode deleted the earlier one's file."""
+        return f"{mode}_{key_type}"
+
     def perform_joint_calibration(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, pass_idx=1, pass1_res=None):
         if sweep_duration is None:
             sweep_duration = JOINT_SWEEP_DURATION_BY_MODE_S.get(mode, JOINT_SWEEP_DURATION_S)
@@ -126,7 +137,7 @@ class JointCalibrator(BaseCalibrator):
             for key_type, j_key in [("joint_A", "sweep_joint_A"), ("joint_B", "sweep_joint_B")]:
                 axis = jcfg.get(j_key)
                 if axis is not None:
-                    fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{key_type}_axis_{axis}.txt")
+                    fname = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{self.sweep_points_tag(mode, key_type)}_axis_{axis}.txt")
                     if os.path.exists(fname):
                         try: FileStorage.remove(fname)
                         except: pass
@@ -144,7 +155,12 @@ class JointCalibrator(BaseCalibrator):
                 log_callback("   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE")
                 log_callback(f"   Target Arm: {arm_side.upper()} | Joint Target: {mode.upper()}")
                 log_callback("="*60 + "\n")
-                
+            exposure = self.camera_exposure_record()
+            if exposure is not None:
+                log_callback(f"[INFO] Camera exposure for these sweeps: {'auto' if exposure['auto'] else 'manual'}, "
+                             f"setpoint {exposure['setpoint']:.0f} (x {exposure['setpoint_unit_us']:g} us), "
+                             f"last frame {exposure['last_frame_us']:.0f} us")
+
             max_readjust_retries = 2
             readjust_retry_count = 0
             max_iterations = 8
@@ -188,15 +204,20 @@ class JointCalibrator(BaseCalibrator):
                     except Exception:
                         pass
 
-                # save_debug는 각 시퀀스의 첫 번째 sweep(원본 데이터)에서만 저장
+                # The debug plot is saved for the first sweep only (the uncorrected state). The raw
+                # sweep points are saved for every sweep: on 2026-10-06 the elbow estimates scattered
+                # 0.15 deg between sweeps and only the first sweep was on disk to look at.
                 _sweep_count = [0]
                 def run_single_sweep(offset):
                     _sweep_count[0] += 1
                     do_save = save_debug and (_sweep_count[0] == 1)
+                    points_note = (f"pass {pass_idx}, sweep {_sweep_count[0]}, staged offset {offset:.4f} deg"
+                                   if save_debug else None)
                     return self.perform_calibration_sweep_continuous(
                         arm_side, mode, log_callback=log_callback, status_callback=status_callback,
                         current_offset_deg=offset, sweep_duration=sweep_duration,
                         use_angle_based_fitting=use_angle_based_fitting, save_debug=do_save,
+                        debug_points_note=points_note,
                         first_starting_pose=first_starting_pose,
                         # the previous sweep of this sequence already saw the marker
                         skip_visibility_check=(_sweep_count[0] > 1)
@@ -954,7 +975,9 @@ class JointCalibrator(BaseCalibrator):
                 log_callback(traceback.format_exc())
             return None
 
-    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None, skip_visibility_check=False):
+    def perform_calibration_sweep_continuous(self, arm_side, mode, log_callback=None, status_callback=None, current_offset_deg=0.0, sweep_duration=None, use_angle_based_fitting=None, save_debug=False, first_starting_pose=None, skip_visibility_check=False, debug_points_note=None):
+        """debug_points_note: when given, the raw sweep points are saved with this line even if
+        save_debug (plot and points) is off for this sweep."""
         if sweep_duration is None:
             sweep_duration = JOINT_SWEEP_DURATION_BY_MODE_S.get(mode, JOINT_SWEEP_DURATION_S)
         self.current_calib_mode = mode
@@ -1077,12 +1100,14 @@ class JointCalibrator(BaseCalibrator):
             return None
 
         # Save FULL captured continuous sweep points to debug txt files before downsampling
-        if save_debug:
+        if save_debug or debug_points_note is not None:
             self.save_debug_points(
-                arm_side, sweep_joint_A, dataset_A, initial_joint_pos, ee_name, dyn_model, None, "joint_A", log_callback
+                arm_side, sweep_joint_A, dataset_A, initial_joint_pos, ee_name, dyn_model, None, "joint_A", log_callback,
+                note=debug_points_note, file_tag=self.sweep_points_tag(mode, "joint_A")
             )
             self.save_debug_points(
-                arm_side, sweep_joint_B, dataset_B, initial_joint_pos, ee_name, dyn_model, None, "joint_B", log_callback
+                arm_side, sweep_joint_B, dataset_B, initial_joint_pos, ee_name, dyn_model, None, "joint_B", log_callback,
+                note=debug_points_note, file_tag=self.sweep_points_tag(mode, "joint_B")
             )
         
         # Fit all captured frames (cap only as a runtime guard)

@@ -1,0 +1,23 @@
+10:45:31 [RUNNER] Connecting robot 192.168.1.40:50051 ...
+10:45:32 [INFO] Power (48v) is not ON. Turning power on...
+10:45:34 [INFO] Required servos are not fully ON. Disabling Control Manager first to turn on servos (^(?!.*wheel).*$)...
+10:45:34 [INFO] Turning servos (^(?!.*wheel).*$) on...
+10:45:36 [INFO] Enabling control manager with unlimited_mode_enabled=True...
+10:45:37 [RUNNER] Robot model=A version=v1.2 core.robot_version=1.2
+10:45:37 [RUNNER] Connecting camera ...
+10:46:05 [RUNNER] ERROR: Frame didn't arrive within 5000
+Traceback (most recent call last):
+  File "C:\Users\User\AppData\Local\Temp\claude\C--Users-User-Desktop-camera-ws\273e55cf-ef27-495b-a308-2f868a49ac2a\scratchpad\run_step1_real.py", line 83, in <module>
+    core.connect_camera()
+  File "C:\Users\User\Desktop\camera_ws\core\calibration\calibration_core.py", line 122, in connect_camera
+    engine = Marker_Transform(**options)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\User\Desktop\camera_ws\core\marker_detection.py", line 392, in __init__
+    self.camera.initialize_camera(self.width, self.height, self.fps)
+  File "C:\Users\User\Desktop\camera_ws\core\camera_processing.py", line 189, in initialize_camera
+    raise e
+  File "C:\Users\User\Desktop\camera_ws\core\camera_processing.py", line 148, in initialize_camera
+    self.pipeline.wait_for_frames()
+RuntimeError: Frame didn't arrive within 5000
+
+10:46:05 [RUNNER] Core closed (robot disconnected, camera stream off)

@@ -19,10 +19,13 @@ from core.marker_detection import Marker_Transform, camera_model_family
 
 ROOT = Path(__file__).resolve().parents[1]
 
-D405_MOUNT = [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]
-D405_HEAD_BASE = [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
-D435_MOUNT = [0.0495, 0.0325, 0.057, -90.0, 0.0, -90.0]
-D435_HEAD_BASE = [0.1045, -0.0115, 0.044, -90.0, 0.0, -90.0]
+# Read from the file the tests copy: these are CAD values that get corrected (2026-10-08: the mount
+# height changed with a new bracket and five tests failed on numbers written out here).
+CAMERA_INFO = ConfigStorage.load(str(ROOT / "config" / "camera_info.yaml"))
+D405_MOUNT = list(CAMERA_INFO["D405"]["mount_to_cam"])
+D405_HEAD_BASE = list(CAMERA_INFO["D405"]["head_base_to_cam"])
+D435_MOUNT = list(CAMERA_INFO["D435"]["mount_to_cam"])
+D435_HEAD_BASE = list(CAMERA_INFO["D435"]["head_base_to_cam"])
 
 
 class CameraModelConfigCase(unittest.TestCase):
@@ -326,22 +329,26 @@ class TestSavedIntrinsicsApplyImmediately(unittest.TestCase):
         self.assertAlmostEqual(engine.marker_detection.fx, self.FACTORY[2])
         self.assertAlmostEqual(engine.marker_detection.principal_point[1], self.FACTORY[1])
 
-    def test_the_core_applies_it_to_the_live_observer(self):
+    def test_the_core_reloads_it_into_the_live_observer(self):
         import threading
+        from unittest.mock import patch
         from core.calibration import CalibrationCore
         engine = self.engine()
+        engine.camera_serial = None
         core = CalibrationCore()
         self.addCleanup(core.close)
         core.observer = SimpleNamespace(engine=engine, lock=threading.RLock(), close=lambda: None)
 
-        self.assertTrue(core.apply_camera_intrinsics(self.saved_file(fx=907.0)))
+        with patch.dict(storage.CONFIG_PATHS, {"camera_intrinsics": self.saved_file(fx=907.0)}):
+            self.assertTrue(core.reload_camera_intrinsics())
         self.assertAlmostEqual(engine.marker_detection.fx, 907.0)
+        self.assertEqual(engine.intrinsics_source, "model")
 
     def test_the_core_reports_no_camera_instead_of_failing(self):
         from core.calibration import CalibrationCore
         core = CalibrationCore()
         self.addCleanup(core.close)
-        self.assertFalse(core.apply_camera_intrinsics(self.saved_file()))
+        self.assertFalse(core.reload_camera_intrinsics())
 
 
 class TestFrozenTranslationsFillNewKeys(unittest.TestCase):

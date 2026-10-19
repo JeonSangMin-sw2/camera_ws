@@ -1,0 +1,5 @@
+[16:50:50] output: C:\Users\User\Desktop\camera_ws\archive\reports\v13_stage_scatter_j6fix_wide_ori037_20261015_165041
+[16:50:50] wrist_pitch_v13: arcs J6 +-30 / J4 +-30 deg, ready J5 as in ready_poses.yaml; wrist_roll_v13: J6 +-30 / J5 +-25 deg
+[16:50:50] noise: position 0.100 mm per axis, orientation 0.370 deg per axis; repeats 6; stages [('wrist_roll_v13', 12.0)]
+[16:54:20] right wrist_roll_v13 12s         n=6 mean -1.5406 std 0.0797 deg | estimates -1.515 -1.634 -1.464 -1.585 -1.606 -1.439
+[16:57:44] left wrist_roll_v13 12s          n=6 mean -4.2013 std 0.0983 deg | estimates -4.227 -4.078 -4.119 -4.176 -4.349 -4.259

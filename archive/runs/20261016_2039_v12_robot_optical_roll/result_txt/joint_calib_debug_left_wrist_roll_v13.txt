@@ -1,0 +1,86 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: WRIST_ROLL_V13
+============================================================
+
+[INFO] Camera exposure for these sweeps: manual, setpoint 6000 (x 1 us), last frame 6000 us
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_wrist_roll_v13_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_left_wrist_roll_v13_joint_B_axis_5.txt
+[INFO] wrist_roll_v13: J7 nominal ready pose=15.00°, raw_diff=-14.09°, optimal_offset=0.91°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_ROLL_V13)
+==================================================
+  * Camera Circle Normals Angle (Reference): 90.0647 deg
+  * Circle Size Error (abs: r_A - r_B)     : 12.7202 mm
+  * Estimated Circle Center Distance       : 31.9857 mm
+  * Calculated Offset Correction           : 0.911193 deg
+==================================================
+  * Angle Error (from 90.0°)         : 0.0647° (Raw: 90.0647°)
+  * Circle Radii (r_A / r_B)         : 125.4 mm / 138.2 mm
+  * Center Distance                  : 31.9857 mm
+[ITERATION 1/8] offset=0.0000°, residual=+0.9112° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : 0.9112°
+
+[ITERATION 2/8] Sweeping physically with staged offset 0.9112°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.9112°]
+==================================================
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_wrist_roll_v13_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_left_wrist_roll_v13_joint_B_axis_5.txt
+[INFO] wrist_roll_v13: J7 nominal ready pose=14.99°, raw_diff=-15.02°, optimal_offset=0.88°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_ROLL_V13)
+==================================================
+  * Camera Circle Normals Angle (Reference): 90.0266 deg
+  * Circle Size Error (abs: r_A - r_B)     : 12.1345 mm
+  * Estimated Circle Center Distance       : 34.0027 mm
+  * Calculated Offset Correction           : 0.883221 deg
+==================================================
+  * Angle Error (from 90.0°)         : 0.0266° (Raw: 90.0266°)
+  * Circle Radii (r_A / r_B)         : 125.4 mm / 137.6 mm
+  * Center Distance                  : 34.0027 mm
+[ITERATION 2/8] offset=0.9112°, residual=-0.0280° -> OK (within 0.06°)
+  * Updated Absolute Offset     : 0.8888°
+
+[ITERATION 3/8] Sweeping physically with staged offset 0.8888°...
+
+==================================================
+   STARTING WRIST_ROLL_V13 CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.8888°]
+==================================================
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_wrist_roll_v13_joint_A_axis_6.txt
+[DEBUG] Saved Axis 5 debug points to sweep_points_left_wrist_roll_v13_joint_B_axis_5.txt
+[INFO] wrist_roll_v13: J7 nominal ready pose=15.00°, raw_diff=-15.02°, optimal_offset=0.86°
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_ROLL_V13)
+==================================================
+  * Camera Circle Normals Angle (Reference): 89.9254 deg
+  * Circle Size Error (abs: r_A - r_B)     : 12.4594 mm
+  * Estimated Circle Center Distance       : 34.1148 mm
+  * Calculated Offset Correction           : 0.860552 deg
+==================================================
+  * Angle Error (from 90.0°)         : 0.0746° (Raw: 89.9254°)
+  * Circle Radii (r_A / r_B)         : 125.4 mm / 137.8 mm
+  * Center Distance                  : 34.1148 mm
+[ITERATION 3/8] offset=0.8888°, residual=-0.0283° -> OK (within 0.06°)
+  * Mean of 2 near-target estimates: 0.8719° (std=0.0600°, std err=0.0424°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: 0.8832°, 0.8606°
+  * Std err 0.0424° <= 0.06°
+  * Recommended Absolute Offset (mean): 0.8719°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_left_wrist_roll_v13_joint_calib.png

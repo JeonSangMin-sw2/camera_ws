@@ -570,7 +570,6 @@ class MarkerCalibrator(BaseCalibrator):
         Phase 2: Once Joint 5 & 6 are confirmed orthogonal, extracts pure 6-DOF marker bracket
         transform (Tf_to_marker) using unbiased forward kinematics and SVD orientation projection.
         """
-        L_5_ee = self.get_link_length(arm_side)
         ver_key = "1.3" if self.is_v13() else "1.2"
         nominal_vec = self.NOMINAL_BRACKET_TEMPLATES[ver_key][arm_side]
         x_nom = nominal_vec[0] * 1000.0
@@ -588,8 +587,16 @@ class MarkerCalibrator(BaseCalibrator):
         poses_5 = marker_data_5.get('captured_poses', []) if marker_data_5 else []
         poses_6 = marker_data_6.get('captured_poses', []) if marker_data_6 else []
 
-        n6_marker_actual = self.extract_axis_from_rotations(poses_6, x_ee_m_ideal)
-        n5_marker_actual = self.extract_axis_from_rotations(poses_5, y_ee_m_ideal)
+        # J6/J5 axes from the circle fit mapped with every frame, as on v1.2: the rotation-only extraction
+        # measures every frame against the middle one and its yaw erred up to 0.48 deg at 0.37 deg noise (2026-10-16).
+        def axis_in_marker_frame(marker_data, poses, ideal_axis):
+            n_cam = marker_data.get('axis_opt') if marker_data else None
+            if n_cam is None or len(poses) == 0:
+                return self.extract_axis_from_rotations(poses, ideal_axis)
+            return self.axis_in_marker_frame_robust(n_cam, poses, ideal_axis)
+
+        n6_marker_actual = axis_in_marker_frame(marker_data_6, poses_6, x_ee_m_ideal)
+        n5_marker_actual = axis_in_marker_frame(marker_data_5, poses_5, y_ee_m_ideal)
         n4_marker_actual = self.extract_axis_from_rotations(poses_4, z_ee_m_ideal) if len(poses_4) > 0 else z_ee_m_ideal
 
         radius_6 = marker_data_6.get('radius', 0.0) if marker_data_6 else 0.0
@@ -627,41 +634,15 @@ class MarkerCalibrator(BaseCalibrator):
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
 
-        # Solve for Translation (x_e, y_e, z_e) in mm
-        # 1. First attempt: Robust median translation from forward kinematics (pts_ee)
-        pts_ee = []
-        for mdata in [marker_data_6, marker_data_5, marker_data_4]:
-            if mdata and 'pts_ee' in mdata and len(mdata['pts_ee']) > 0:
-                pts_ee.append(mdata['pts_ee'])
-        
-        if len(pts_ee) > 0:
-            all_pts_ee = np.vstack(pts_ee)
-            p_ee_median = np.median(all_pts_ee, axis=0)
-            xe_opt, ye_opt, ze_opt = p_ee_median[0], p_ee_median[1], p_ee_median[2]
-            # Safety check: if median is within plausible range, use it directly
-            if abs(xe_opt - x_nom) > 40.0 or abs(ye_opt - y_nom) > 40.0 or abs(ze_opt - z_nom) > 40.0:
-                xe_opt, ye_opt, ze_opt = x_nom, y_nom, z_nom
+        # Translation from the encoder-angle sweep radii, as on v1.2 (2026-10-15). The median-of-FK
+        # path it replaces sat > 40 mm from the design and silently returned the design every run.
+        solved = self.v13_bracket_position_from_radii(marker_data_5, marker_data_6, arm_side, (x_nom, y_nom, z_nom))
+        if solved is None:
+            (xe_opt, ye_opt, ze_opt), position_at_limit = (x_nom, y_nom, z_nom), False
+            position_source = "design value (sweep radii or joint angles missing)"
         else:
-            # Fallback to circle radius least squares
-            z_sign = self.get_z_sign(arm_side)
-            has_j4 = (marker_data_4 is not None and radius_4 > 1.0)
-            def residuals_trans(params):
-                xe, ye, ze = params
-                r6_pred = np.sqrt(ye**2 + ze**2)
-                Z_prime = ze + z_sign * L_5_ee
-                r5_pred = np.sqrt(xe**2 + Z_prime**2)
-                r4_pred = np.sqrt(xe**2 + ye**2)
-                res = [(r6_pred - radius_6), (r5_pred - radius_5)]
-                if has_j4: res.append(r4_pred - radius_4)
-                reg = 1e-2
-                res.append(reg * (xe - x_nom))
-                res.append(reg * (ye - y_nom))
-                res.append(reg * (ze - z_nom))
-                return res
-
-            x_init = [x_nom, y_nom, z_nom]
-            opt_res = least_squares(residuals_trans, x_init, bounds=([max(0.0, x_nom - 30.0), y_nom - 30.0, z_nom - 30.0], [x_nom + 30.0, y_nom + 30.0, z_nom + 30.0]), loss='huber')
-            xe_opt, ye_opt, ze_opt = opt_res.x
+            (xe_opt, ye_opt, ze_opt), position_at_limit = solved
+            position_source = "J5/J6 sweep radii, y held at the design value"
 
         pos_diff_mm = float(np.linalg.norm([xe_opt - x_nom, ye_opt - y_nom, ze_opt - z_nom]))
         warn_large_pos = pos_diff_mm > 40.0
@@ -678,8 +659,51 @@ class MarkerCalibrator(BaseCalibrator):
             'n6_marker_actual': n6_marker_actual,
             'n5_marker_actual': n5_marker_actual,
             'n4_marker_actual': n4_marker_actual,
-            'y_ee_m_ideal': y_ee_m_ideal
+            'y_ee_m_ideal': y_ee_m_ideal,
+            'position_source': position_source,
+            'position_at_limit': bool(position_at_limit),
         }
+
+    def v13_bracket_position_from_radii(self, marker_data_5, marker_data_6, arm_side, nominal_mm):
+        """v1.3 bracket position (mm, ee frame) from the J5 and J6 bracket sweeps' radii.
+
+        The wrist axes meet at the wrist centre w, so the marker origin p sits |(p - w) x a_k| from swept
+        axis k (axes and w from FK at each sweep's first frame, known J6 offset removed): J6 gives z, J5 x.
+        y moves neither to first order, so as on v1.2 it is held at the design value; x/z are fitted within
+        bracket_offset_tolerance_mm. The J4 radius is left out: it tilts with the J5 offset, which is not
+        calibrated yet at this stage (~2.1 mm per deg; simulator J5 -2.1 deg read 72.0 mm for 67.5,
+        2026-10-16). Returns ((x, y, z), at_limit) or None."""
+        sweeps = {5: marker_data_5, 6: marker_data_6}
+        if not self.robot or any(not d or d.get('radius') is None or not d.get('captured_q_full')
+                                 for d in sweeps.values()):
+            return None
+        dyn = self.robot.get_dynamics()
+        model = self.robot.model()
+        arm_idx = list(model.left_arm_idx if arm_side == "left" else model.right_arm_idx)
+        offsets = getattr(self, "joint_offsets", None) or {}
+        arm_offsets = offsets.get(arm_side, offsets) if isinstance(offsets, dict) else {}
+        axis_in_joint_frame = {5: ([0.0, 1.0, 0.0], 4), 6: ([1.0, 0.0, 0.0], 5)}
+        lines = []
+        for k, d in sweeps.items():
+            # Only J6 turns the J5 axis in the ee frame; its offset is known from pass 2 on.
+            q = np.array(d['captured_q_full'][0], dtype=float)
+            q[arm_idx[6]] -= np.radians(float(arm_offsets.get("wrist_roll", 0.0)))
+            to_ee = np.linalg.inv(self.compute_fk(self.robot, dyn, q, f"ee_{arm_side}"))
+            local, link = axis_in_joint_frame[k]
+            T_joint = self.compute_fk(self.robot, dyn, q, f"link_{arm_side}_arm_{link}")
+            axis = to_ee[:3, :3] @ T_joint[:3, :3] @ np.array(local)
+            lines.append((axis / np.linalg.norm(axis), (to_ee @ T_joint[:, 3])[:3] * 1000.0, float(d['radius'])))
+        x0, y0, z0 = nominal_mm
+        tol = self.bracket_offset_tolerance_mm()
+
+        def residuals(v):
+            p = np.array([v[0], y0, v[1]])
+            return [np.linalg.norm(np.cross(p - centre, axis)) - radius for axis, centre, radius in lines]
+
+        fit = least_squares(residuals, [x0, z0], bounds=([x0 - tol, z0 - tol], [x0 + tol, z0 + tol]))
+        x, z = (float(v) for v in fit.x)
+        at_limit = max(abs(x - x0), abs(z - z0)) >= tol - 1e-3
+        return (x, float(y0), z), at_limit
 
     def compute_unified_bracket_calibration_v1_3(self, marker_data_5, marker_data_6, arm_side, tolerance=0.5, marker_data_4=None, calib_roll_deg=None, calib_pitch_deg=None, calib_roll_or_yaw_deg=None, lock_bracket=False):
         if calib_roll_or_yaw_deg is not None:
@@ -917,8 +941,10 @@ class MarkerCalibrator(BaseCalibrator):
         # Rotation-only axis extraction biased the right-arm bracket pitch by ~3 deg on the
         # real robot (2026-09-15) versus ~0.3 deg from the position trajectory; it remains the
         # fallback when no circle-fit axis is available (and the v1.3 path, validated with it).
+        # v1.3 took the rotation-only path until 2026-10-15; with 0.37 deg marker-orientation noise its J6
+        # stage scattered 0.5-0.9 deg per sweep in the simulator and never converged, so it now uses v1.2's.
         def axis_in_marker_frame(marker_data, poses, ideal_axis):
-            n_cam = marker_data.get('axis_opt') if not self.is_v13() else None
+            n_cam = marker_data.get('axis_opt')
             if n_cam is None or len(poses) == 0:
                 return extract_axis_from_rotations(poses, ideal_axis)
             return self.axis_in_marker_frame_robust(n_cam, poses, ideal_axis)

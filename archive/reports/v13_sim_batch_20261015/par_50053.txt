@@ -1,0 +1,66 @@
+[14:10:42] output: C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141036
+[14:10:42] simulated sensor noise: position 0.100 mm, orientation 0.000 deg
+[14:10:42] v1.3 J5 stage sweeps: J6 +-30 deg, J4 +-30 deg
+2026-10-15 14:10:42,669 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:10:42,735 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141036\config\ready_poses.yaml
+2026-10-15 14:10:42,747 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:10:42,804 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141036\config\ready_poses.yaml
+2026-10-15 14:10:42,830 [INFO] Loaded config from setting.yaml successfully.
+2026-10-15 14:10:42,907 [INFO] Loaded ready poses from C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141036\config\ready_poses.yaml
+[14:10:44] [INFO] Power (.*) is not ON. Turning power on...
+[14:10:45] [INFO] Required servos are not fully ON. Disabling Control Manager first to turn on servos (^(?!.*wheel).*$)...
+[14:10:45] [INFO] Turning servos (^(?!.*wheel).*$) on...
+[14:10:46] [INFO] Enabling control manager with unlimited_mode_enabled=True...
+[14:10:47] [INFO] Connected robot model 'M', version string 'v1.3'
+- Loaded Setting Config from setting.yaml
+  * head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
+  * mount_to_cam: [0.0433, 0.009, 0.063, -90.0, 0.0, -90.0]
+[-6.6128743106408374e-18, 0.054, -0.04871772524581626, 90.0, -0.13886334039470388, 0.0]
+[INFO] Tf_to_marker_left is the v1.2 bracket but this robot is v1.3 (98.9 mm / 90.00 deg apart). Loading the v1.3 nominal...
+[INFO] Tf_to_marker_right is the v1.2 bracket but this robot is v1.3 (98.9 mm / 90.00 deg apart). Loading the v1.3 nominal...
+[INFO] Updated setting.yaml marker brackets for robot v1.3: Tf_to_marker_left=[0.067, 0.0, 0.0, 90.0, 0.0, -90.0], Tf_to_marker_right=[0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+[14:10:47] [Camera] Auto exposure enabled
+[14:10:47] [INFO] head joints in the model: [24, 25]
+[14:10:47] 
+##### exposure-check ready pose (right, head to zero) #####
+[14:10:52] [INFO] Moving right arm to wrist_pitch_v13 Ready Pose...
+[14:10:52] [INFO] Moving inactive arm to zero pose first...
+[14:10:56] [INFO] Moving active arm, torso, and head to ready pose...
+[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.Unknown
+2026-10-15 14:11:00,675 [ERROR] Failed to conduct movej. Finish code: FinishCode.Unknown
+[14:11:00] ##### exposure-check ready pose (right, head to zero): failed -- Ready pose failed (13 s) #####
+[14:11:00] 
+##### exposure-check ready pose (left, head to zero) #####
+[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+2026-10-15 14:11:00,696 [ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+[14:11:00] ##### exposure-check ready pose (left, head to zero): failed -- Head zero move failed (0 s) #####
+[14:11:05] [monitor] 27 summaries in 5 s; last: {}
+[14:11:05] 
+##### Full Auto ready pose #####
+[14:11:05] [INFO] Moving right arm to marker Ready Pose...
+[14:11:05] [INFO] Moving inactive arm to zero pose first...
+[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+2026-10-15 14:11:05,741 [ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+[14:11:05] [ERROR] Failed to move inactive arm to zero pose.
+[14:11:05] ##### Full Auto ready pose: failed -- Ready pose failed: right (0 s) #####
+[14:11:05] 
+##### FULL AUTO (Step 1 -> Step 1.5 -> Step 2) #####
+[14:11:05] Starting Step 1 sequential calibration...
+[14:11:05] 
+==================================================
+[14:11:05]    STARTING PASS 1/2 FOR RIGHT ARM
+[14:11:05] ==================================================
+
+[14:11:05] [INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[14:11:05] [FULL AUTO] Starting 3-Axis Bracket Sweeps for right arm (Pass 1)...
+[14:11:05] [FULL AUTO] Moving right arm to marker ready pose...
+[14:11:05] [INFO] Moving right arm to marker Ready Pose...
+[14:11:05] [INFO] Moving inactive arm to zero pose first...
+[DEBUG MOVEJ ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+2026-10-15 14:11:05,759 [ERROR] Failed to conduct movej. Finish code: FinishCode.ControlManagerIdle
+[14:11:05] [ERROR] Failed to move inactive arm to zero pose.
+[14:11:05] ##### FULL AUTO (Step 1 -> Step 1.5 -> Step 2): failed -- Failed to move to marker ready pose on right arm (0 s) #####
+[14:11:05]  step1: failed -- Failed to move to marker ready pose on right arm
+[14:11:05]  joint_offsets_store after the run: {"left": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}, "right": {"joint5": 0.0, "joint6": 0.0, "joint3": 0.0}, "head": {"pan": 0.0, "tilt": 0.0}}
+[14:11:05] 
+summary: C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_141036\summary.json

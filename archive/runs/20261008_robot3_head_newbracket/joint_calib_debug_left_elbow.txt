@@ -1,0 +1,144 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: ELBOW
+============================================================
+
+[INFO] Camera exposure for these sweeps: manual, setpoint 6000 (x 1 us), last frame 6000 us
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[DEBUG] Saved Axis 2 debug points to sweep_points_left_elbow_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_elbow_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 2.0485 deg
+  * Circle Size Error (abs: r_A - r_B)     : 1.1608 mm
+  * Estimated Circle Center Distance       : 6.3590 mm
+  * Calculated Offset Correction           : -1.539764 deg
+==================================================
+  * Angle Error (Deviation)          : 2.0485°
+  * Circle Size Error (r_A-r_B)      : 1.1608 mm
+  * Center Distance Error            : 6.3590 mm
+  * Max Fitting Error Metric         : 6.3590 mm
+[ITERATION 1/8] offset=0.0000°, residual=-1.5398° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -1.5398°
+
+[ITERATION 2/8] Sweeping physically with staged offset -1.5398°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.5398°]
+==================================================
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [147, 158]
+[FILTER] Filtered 5 IPPE flip spike frame(s) at indices: [132, 133, 141, 145, 149]
+[DEBUG] Saved Axis 2 debug points to sweep_points_left_elbow_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_elbow_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.4281 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.4482 mm
+  * Estimated Circle Center Distance       : 1.0836 mm
+  * Calculated Offset Correction           : -0.230483 deg
+==================================================
+  * Angle Error (Deviation)          : 0.4281°
+  * Circle Size Error (r_A-r_B)      : 0.4482 mm
+  * Center Distance Error            : 1.0836 mm
+  * Max Fitting Error Metric         : 1.0836 mm
+[ITERATION 2/8] offset=-1.5398°, residual=-0.2305° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -1.7702°
+
+[ITERATION 3/8] Sweeping physically with staged offset -1.7702°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.7702°]
+==================================================
+[FILTER] Filtered 10 IPPE flip spike frame(s) at indices: [29, 31, 32, 34, 37, 38, 39, 40, 55, 56]
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [130, 132]
+[DEBUG] Saved Axis 2 debug points to sweep_points_left_elbow_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_elbow_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.0627 deg
+  * Circle Size Error (abs: r_A - r_B)     : 1.0573 mm
+  * Estimated Circle Center Distance       : 1.1328 mm
+  * Calculated Offset Correction           : -0.215798 deg
+==================================================
+  * Angle Error (Deviation)          : 0.0627°
+  * Circle Size Error (r_A-r_B)      : 1.0573 mm
+  * Center Distance Error            : 1.1328 mm
+  * Max Fitting Error Metric         : 1.1328 mm
+[ITERATION 3/8] offset=-1.7702°, residual=-0.2158° -> retry (exceeds 0.06° tolerance)
+  * Mean of 2 near-target estimates: -1.8781° (std=0.1526°, std err=0.1079°) -> need more samples
+  * Updated Absolute Offset     : -1.9860°
+
+[ITERATION 4/8] Sweeping physically with staged offset -1.9860°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.9860°]
+==================================================
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [141, 147]
+[FILTER] Filtered 2 IPPE flip spike frame(s) at indices: [137, 141]
+[DEBUG] Saved Axis 2 debug points to sweep_points_left_elbow_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_elbow_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.3940 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.2559 mm
+  * Estimated Circle Center Distance       : 0.8138 mm
+  * Calculated Offset Correction           : 0.139124 deg
+==================================================
+  * Angle Error (Deviation)          : 0.3940°
+  * Circle Size Error (r_A-r_B)      : 0.2559 mm
+  * Center Distance Error            : 0.8138 mm
+  * Max Fitting Error Metric         : 0.8138 mm
+[ITERATION 4/8] offset=-1.9860°, residual=+0.1391° -> retry (exceeds 0.06° tolerance)
+  * Mean of 3 near-target estimates: -1.8677° (std=0.1094°, std err=0.0632°) -> need more samples
+  * Updated Absolute Offset     : -1.8747°
+
+[ITERATION 5/8] Sweeping physically with staged offset -1.8747°...
+
+==================================================
+   STARTING ELBOW CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -1.8747°]
+==================================================
+[FILTER] Filtered 3 IPPE flip spike frame(s) at indices: [143, 145, 157]
+[FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [151]
+[DEBUG] Saved Axis 2 debug points to sweep_points_left_elbow_joint_A_axis_2.txt
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_elbow_joint_B_axis_4.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (ELBOW)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.1769 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.0498 mm
+  * Estimated Circle Center Distance       : 0.3188 mm
+  * Calculated Offset Correction           : 0.076587 deg
+==================================================
+  * Angle Error (Deviation)          : 0.1769°
+  * Circle Size Error (r_A-r_B)      : 0.0498 mm
+  * Center Distance Error            : 0.3188 mm
+  * Max Fitting Error Metric         : 0.3188 mm
+[ITERATION 5/8] offset=-1.8747°, residual=+0.0766° -> retry (exceeds 0.06° tolerance)
+  * Mean of 4 near-target estimates: -1.8503° (std=0.0959°, std err=0.0479°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: -1.7702°, -1.9860°, -1.8469°, -1.7982°
+  * Std err 0.0479° <= 0.06°
+  * Recommended Absolute Offset (mean): -1.8503°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_left_elbow_joint_calib.png

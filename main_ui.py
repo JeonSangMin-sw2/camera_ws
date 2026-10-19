@@ -61,9 +61,11 @@ from PySide6.QtGui import (
 # =============================================================================
 # 5. Core Application Modules (설정 경로, 다국어 I18n, 테마 스타일시트, 위자드)
 # =============================================================================
-from core.storage import CONFIG_PATHS, StoragePaths
+from core.storage import CONFIG_PATHS, SessionLog, StoragePaths
 from core.language import UI_DROPDOWNS, DARK_STYLESHEET, LanguageManager, tr
 from ui.wizard_widget import CalibrationWizardWidget
+from ui.marker_monitor_panel import MarkerMonitorPanel
+from ui.busy_indicator import BusyIndicator
 
 # =============================================================================
 # 6. Computer Vision & Calibration Logic (마커 검출 및 카메라/관절 캘리브레이터)
@@ -1017,13 +1019,49 @@ class UnifiedCalibrationApp(QWidget):
         if dlg is not None:
             dlg.update_gap(info)
 
-    def _on_marker_monitor(self, info):
+    def marker_monitor_panels(self):
+        """The wizard exposure slide's panel and the Camera > Brightness panel (same core monitor)."""
         wizard = getattr(self, "wizard_widget", None)
-        if wizard is not None:
-            wizard.update_marker_monitor(info)
+        panels = (getattr(wizard, "marker_monitor_panel", None), getattr(self, "marker_monitor_panel", None))
+        return [panel for panel in panels if panel is not None]
+
+    def _on_marker_monitor(self, info):
+        for panel in self.marker_monitor_panels():
+            panel.update_monitor(info)
+
+    def reset_marker_monitor_confirmation(self):
+        """Call whenever the camera exposure changes: earlier marker confirmations no longer count,
+        and neither do the monitor's samples taken at the old exposure."""
+        window = self.core.restart_marker_monitor_window()
+        for panel in self.marker_monitor_panels():
+            panel.reset_confirmation(window)
+
+    def is_marker_monitor_view_active(self):
+        wizard = getattr(self, "wizard_widget", None)
+        if (wizard is not None and wizard.isVisible()
+                and wizard.stacked_widget.currentIndex() == wizard.SLIDE_EXPOSURE):
+            return True
+        return (self.is_camera_tab_active() and hasattr(self, 'camera_tabs')
+                and self.camera_tabs.currentIndex() == self.CAMERA_SUB_EXPOSURE)
+
+    def sync_marker_monitor(self):
+        """Run the core marker monitor exactly while a view that shows it is on screen."""
+        core = getattr(self, "core", None)
+        if core is None or not hasattr(core, "start_marker_monitor"):
+            return
+        wanted = self.is_marker_monitor_view_active() and core.observer is not None
+        try:
+            if wanted and not core.marker_monitor_running and not core.is_busy:
+                core.start_marker_monitor()
+            elif not wanted and core.marker_monitor_running:
+                core.stop_marker_monitor()
+        except Exception as error:
+            self.log_msg(f"[WARN] Marker monitor: {error}")
 
     def __init__(self, core=None, robot=None, arm_side="right", ui_only=False):
         super().__init__()
+        # The UI-only mode is for trying the screens without hardware; its log is not a run record.
+        self.save_gui_log = not ui_only
         self.log_signal_safe.connect(self._log_msg_slot)
         self.update_ui_signal_safe.connect(self._update_ui_slot)
         self.marker_problem_signal.connect(self._on_marker_problem_requested)
@@ -1058,6 +1096,8 @@ class UnifiedCalibrationApp(QWidget):
         self.monitor_enabled = False
         self.captured_images = []
         self.current_guide_idx = 0
+        self.intrinsics_busy = False
+        self._intrinsics_button_states = {}
         self.output_yaml = CONFIG_PATHS["camera_intrinsics"]
 
         # Saved Calibration Results
@@ -1232,6 +1272,7 @@ class UnifiedCalibrationApp(QWidget):
         if self.core.observer is not None and hasattr(self.core.observer, 'set_camera_exposure'):
             self.core.set_camera_exposure(exp_val, auto_exposure=auto_mode)
             self.log_msg(f"[Camera] Initialized camera exposure: auto={auto_mode}, exposure={exp_val}")
+        self.reset_marker_monitor_confirmation()
 
         # Reconnecting can bring up a different model, whose exposure option has its own range.
         self.sync_exposure_limits_from_camera()
@@ -1250,6 +1291,7 @@ class UnifiedCalibrationApp(QWidget):
         cur_exp = getattr(self, 'saved_camera_exposure_value', 6000)
         if self.core.observer is not None and hasattr(self.core.observer, 'set_camera_exposure'):
             self.core.set_camera_exposure(cur_exp, auto_exposure=True)
+        self.reset_marker_monitor_confirmation()
         self.log_msg("[Camera] Switched to AUTO exposure mode.")
 
     def on_auto_exposure_toggled(self, checked):
@@ -1363,6 +1405,7 @@ class UnifiedCalibrationApp(QWidget):
 
         if self.core.observer is not None and hasattr(self.core.observer, 'set_camera_exposure'):
             self.core.set_camera_exposure(exp_val, auto_exposure=auto_mode)
+        self.reset_marker_monitor_confirmation()
 
         if auto_mode:
             self.log_msg("[Camera] Applied AUTO exposure setting.")
@@ -1391,6 +1434,7 @@ class UnifiedCalibrationApp(QWidget):
             self.slider_exposure.blockSignals(False)
         if self.core.observer is not None and hasattr(self.core.observer, 'set_camera_exposure'):
             self.core.set_camera_exposure(self.saved_camera_exposure_value, auto_exposure=self.saved_camera_auto_exposure)
+        self.reset_marker_monitor_confirmation()
         self.refresh_measured_exposure()
         self.log_msg("[Camera] Exposure changes cancelled. Restored previous setting.")
 
@@ -1405,6 +1449,7 @@ class UnifiedCalibrationApp(QWidget):
             self.core.connect_camera()
             self.init_camera_exposure_state()
             self.refresh_camera_tab_info()
+            self.sync_marker_monitor()
             self.log_msg("[SUCCESS] RealSense Camera connected and streaming successfully!")
             if show_dialog:
                 QMessageBox.information(self, "Camera Connected", "RealSense camera successfully connected and active!")
@@ -2181,6 +2226,9 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_int_reset.clicked.connect(self.reset_intrinsics_captures)
         controls_layout.addWidget(self.btn_int_reset)
 
+        self.int_busy = BusyIndicator("main_tabs.intrinsics_calculating")
+        controls_layout.addWidget(self.int_busy)
+
         controls_box.setLayout(controls_layout)
 
         int_right = QVBoxLayout()
@@ -2270,6 +2318,12 @@ class UnifiedCalibrationApp(QWidget):
         btn_row1.addWidget(self.btn_cancel_exp)
         exp_layout.addLayout(btn_row1)
 
+        # The exposure is kept in memory only (setting.yaml is not written).
+        self.lbl_exposure_not_saved = QLabel(tr("wizard.slides.slide_exposure.not_saved_warn"))
+        self.lbl_exposure_not_saved.setStyleSheet("color: #ffb74d; font-size: 12px; font-weight: bold;")
+        self.lbl_exposure_not_saved.setWordWrap(True)
+        exp_layout.addWidget(self.lbl_exposure_not_saved)
+
         exposure_box.setLayout(exp_layout)
 
         int_right.addWidget(stats_box2)
@@ -2287,7 +2341,13 @@ class UnifiedCalibrationApp(QWidget):
         self.video_label_exposure.setAlignment(Qt.AlignCenter)
         self.video_label_exposure.setMinimumSize(480, 300)
         self.video_label_exposure.setStyleSheet("background-color: black; color: white; border: 2px solid #2d2d2d; border-radius: 8px;")
-        exposure_tab_layout.addWidget(self.video_label_exposure, 2)
+        # Same marker recognition/jitter panel as the wizard exposure slide.
+        exp_left = QVBoxLayout()
+        exp_left.addWidget(self.video_label_exposure, 1)
+        self.marker_monitor_panel = MarkerMonitorPanel()
+        self.marker_monitor_panel.restart_requested.connect(self.sync_marker_monitor)
+        exp_left.addWidget(self.marker_monitor_panel)
+        exposure_tab_layout.addLayout(exp_left, 2)
         exp_right = QVBoxLayout()
         exp_right.addWidget(exposure_box)
         exp_right.addStretch()
@@ -2300,8 +2360,10 @@ class UnifiedCalibrationApp(QWidget):
         cam_header = QHBoxLayout()
         self.lbl_camera_tab_info = QLabel("")
         self.lbl_camera_tab_info.setStyleSheet("color: #dddddd; font-weight: bold; font-size: 13px;")
-        self.lbl_camera_tab_info.setWordWrap(True)
-        cam_header.addWidget(self.lbl_camera_tab_info, 1)
+        cam_header.addWidget(self.lbl_camera_tab_info)
+        self.lbl_camera_serial_status = QLabel("")
+        self.lbl_camera_serial_status.setWordWrap(True)
+        cam_header.addWidget(self.lbl_camera_serial_status, 1)
         cam_header.addWidget(self.btn_reconnect_cam)
         camera_top_layout.addLayout(cam_header)
         self.camera_tabs = QTabWidget()
@@ -2583,7 +2645,7 @@ class UnifiedCalibrationApp(QWidget):
         self.lbl_lang_select.setStyleSheet("font-weight: bold; font-size: 14px; color: #ffeb3b;")
 
         self.combo_lang = QComboBox()
-        self.combo_lang.addItems(["English", "한국어 (Korean)"])
+        self.combo_lang.addItems(["English", "한국어"])
         self.combo_lang.setCurrentIndex(0 if LanguageManager.instance().current_lang == "en" else 1)
         self.combo_lang.setStyleSheet("font-weight: bold; font-size: 14px; padding: 4px 12px; background-color: #2b2b2b; color: #ffffff; border-radius: 4px; min-width: 140px;")
         self.combo_lang.currentIndexChanged.connect(self.on_language_combo_changed)
@@ -2646,6 +2708,12 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'camera_tabs'):
             self.camera_tabs.setTabText(self.CAMERA_SUB_INTRINSICS, tr("main_tabs.camera_intrinsics"))
             self.camera_tabs.setTabText(self.CAMERA_SUB_EXPOSURE, tr("main_tabs.camera_exposure"))
+        if hasattr(self, 'marker_monitor_panel'):
+            self.marker_monitor_panel.retranslate()
+        if hasattr(self, 'int_busy'):
+            self.int_busy.retranslate()
+        if hasattr(self, 'lbl_exposure_not_saved'):
+            self.lbl_exposure_not_saved.setText(tr("wizard.slides.slide_exposure.not_saved_warn"))
         if hasattr(self, 'advanced_tabs'):
             self.advanced_tabs.setTabText(self.ADV_SUB_STEP1, tr("main_tabs.tab_step1"))
             self.advanced_tabs.setTabText(self.ADV_SUB_STEP2, tr("main_tabs.tab_step2"))
@@ -2678,6 +2746,13 @@ class UnifiedCalibrationApp(QWidget):
 
     # --- Common Helper Functions ---
     def _log_msg_slot(self, msg):
+        if self.save_gui_log:
+            try:
+                SessionLog.append(msg)
+            except Exception as error:
+                # Say it once and stop trying, instead of failing on every later line.
+                self.save_gui_log = False
+                msg = f"{msg}\n[WARN] The GUI log is no longer being saved to {CONFIG_PATHS['log_dir']}: {error}"
         if hasattr(self, 'log_text') and self.log_text is not None:
             self.log_text.append(msg)
             self.log_text.verticalScrollBar().setValue(self.log_text.verticalScrollBar().maximum())
@@ -3252,9 +3327,22 @@ class UnifiedCalibrationApp(QWidget):
                     self.video_timer.stop()
                 if not self.ui_only and self.core.observer is not None:
                     self.poll_timer.start(200)
+        self.sync_marker_monitor()
+
+    @staticmethod
+    def camera_serial_status(info):
+        """(text, colour): whether this camera unit (S/N) has its own saved intrinsics.
+
+        Green only when the unit's own file is in use; otherwise the model's shared file, the stored
+        file or the factory values are, which is what the red line calls the default values."""
+        if not info.get("serial_number"):
+            return tr("main_tabs.camera_serial_unknown"), "#ff1744"
+        if info.get("intrinsics_serial_matched"):
+            return tr("main_tabs.camera_serial_registered"), "#00e676"
+        return tr("main_tabs.camera_serial_unregistered"), "#ff1744"
 
     def refresh_camera_tab_info(self):
-        """Camera tab header: model, S/N, intrinsics file and where it came from (serial / model / factory)."""
+        """Camera tab header: model, S/N and whether that S/N has its own saved intrinsics."""
         if not hasattr(self, 'lbl_camera_tab_info'):
             return
         observer = getattr(getattr(self, 'core', None), 'observer', None)
@@ -3267,16 +3355,16 @@ class UnifiedCalibrationApp(QWidget):
         if not info:
             self.lbl_camera_tab_info.setText(tr("main_tabs.camera_info_none"))
             self.lbl_camera_tab_info.setStyleSheet("color: #f44336; font-weight: bold; font-size: 13px;")
+            self.lbl_camera_serial_status.setText("")
             return
         unknown = tr("wizard.slides.slide_0.cam_unknown")
-        source = info.get("intrinsics_source")
         self.lbl_camera_tab_info.setText(tr(
-            "main_tabs.camera_info", model=(info.get("camera_model") or unknown).upper(),
-            serial=info.get("serial_number") or unknown, file=info.get("intrinsics_file") or unknown,
-            source=tr(f"wizard.slides.slide_0.cam_source_{source}") if source else unknown))
-        matched = info.get("intrinsics_serial_matched") or not info.get("serial_number")
-        color = "#dddddd" if matched else "#ffb74d"
-        self.lbl_camera_tab_info.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 13px;")
+            "main_tabs.camera_unit", model=(info.get("camera_model") or unknown).upper(),
+            serial=info.get("serial_number") or unknown))
+        self.lbl_camera_tab_info.setStyleSheet("color: #dddddd; font-weight: bold; font-size: 13px;")
+        status, color = self.camera_serial_status(info)
+        self.lbl_camera_serial_status.setText(status)
+        self.lbl_camera_serial_status.setStyleSheet(f"color: {color}; font-weight: bold; font-size: 13px;")
 
     def _on_workflow_tab_changed(self, index):
         """Automatically toggle Column 2 Dashboard between Arm/Marker and Head/Camera."""
@@ -3807,7 +3895,7 @@ class UnifiedCalibrationApp(QWidget):
 
     @idle_core_action
     def move_to_zero_pose(self):
-        self.log_msg("[Wizard 3-1] Move to Zero Pose requested.")
+        self.log_msg("[Wizard 3-2] Move to Zero Pose requested.")
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
             return False
@@ -3827,12 +3915,52 @@ class UnifiedCalibrationApp(QWidget):
                     self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ZERO_POSE,False, error_msg)
 
             if success:
-                self.log_msg("[Wizard 3-1] Robot moved to zero pose successfully.")
+                self.log_msg("[Wizard 3-2] Robot moved to zero pose successfully.")
             else:
-                self.log_msg(f"[Wizard 3-1] Failed to move to zero pose: {error_msg}")
+                self.log_msg(f"[Wizard 3-2] Failed to move to zero pose: {error_msg}")
         self.zero_pose_worker.finished_signal.connect(on_finished)
         self.zero_pose_worker.start()
         return True
+
+    @idle_core_action
+    def move_arm_to_exposure_pose(self, arm_side, on_finished):
+        """Wizard exposure slide: one arm to the J5 (wrist pitch) calibration ready pose so its marker
+        faces the camera. The other arm, the torso and the head go to zero first."""
+        self.log_msg(f"[Wizard 3-1] {arm_side.upper()} arm to the J5 ready pose requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return False
+        mode = "wrist_pitch_v13" if self.get_robot_version() == "1.3" else "wrist_pitch"
+        self.exposure_pose_worker = MoveToReadyWorker(self._sync_core_state(), arm_side, mode, head_zero=True)
+        self.exposure_pose_worker.log_signal.connect(self.log_msg)
+        self.exposure_pose_worker.finished_signal.connect(on_finished)
+        self.exposure_pose_worker.start()
+        return True
+
+    @idle_core_action
+    def move_to_zero_for_exposure(self, on_finished):
+        """Wizard exposure slide: back to zero after the markers were shown to the camera. The
+        zero-pose slide (3-2) is completed by its own button, not by this one."""
+        self.log_msg("[Wizard 3-1] Move to Zero Pose requested.")
+        if not self.robot:
+            self.log_msg("[ERROR] Robot is not connected!")
+            return False
+        self.exposure_pose_worker = Step2ZeroPoseCheckWorker(self._sync_core_state(), "both", self.include_head_motion)
+        self.exposure_pose_worker.log_signal.connect(self.log_msg)
+        self.exposure_pose_worker.finished_signal.connect(on_finished)
+        self.exposure_pose_worker.start()
+        return True
+
+    @idle_core_action
+    def power_off_tool_flanges(self):
+        """Wizard bracket slide: gripper power (tool flange output) off before the gripper is removed.
+        Returns the voltage read back per side; raises when the robot refuses or it stays on."""
+        if not self.robot:
+            raise RuntimeError("Robot is not connected")
+        voltages = self._sync_core_state().power_off_tool_flanges()
+        self.log_msg("[Wizard 3] Tool flange output off: "
+                     + ", ".join(f"{side} {value:.0f} V" for side, value in voltages.items()))
+        return voltages
 
     def step2_stop_auto_motion(self):
         self.log_msg("[Step2] Stop Auto Motion requested.")
@@ -5335,9 +5463,9 @@ class UnifiedCalibrationApp(QWidget):
             r4_str = f", R4: {res['radius_4']:.2f} mm" if res.get('radius_4', 0.0) > 0.0 else ""
             self.log_msg(f"       * (L_5_ee: {res['L_5_ee']:.1f} mm, R6: {res['radius_6']:.2f} mm, R5: {res['radius_5']:.2f} mm{r4_str})")
             if 'opt_delta_5' in res:
-                self.log_msg(f"    - Opt Delta 5 (5축 오프셋): {res['opt_delta_5']:.3f} deg")
-                self.log_msg(f"    - Opt Delta 6 (6축 오프셋): {res['opt_delta_6']:.3f} deg")
-                self.log_msg(f"    - Min Circle Fitting Radius (최소 원 피팅 반지름): {res['min_radius']:.2f} mm")
+                self.log_msg(f"    - Opt Delta 5 (joint 5 offset): {res['opt_delta_5']:.3f} deg")
+                self.log_msg(f"    - Opt Delta 6 (joint 6 offset): {res['opt_delta_6']:.3f} deg")
+                self.log_msg(f"    - Min Circle Fitting Radius: {res['min_radius']:.2f} mm")
 
             self.log_msg("\n[2] Angular Misalignment (EE Link Frame)")
             self.log_msg(f"    - Roll : {res['roll_e']:.2f} deg")
@@ -5625,6 +5753,9 @@ class UnifiedCalibrationApp(QWidget):
         super().keyPressEvent(event)
 
     def capture_intrinsics_frame(self):
+        # The C key reaches here even while the buttons are locked.
+        if self.intrinsics_busy:
+            return
         if hasattr(self, 'current_frame'):
             self.captured_images.append(self.current_frame.copy())
             frames = len(self.captured_images)
@@ -5673,8 +5804,31 @@ class UnifiedCalibrationApp(QWidget):
             "images": [image.copy() for image in self.captured_images]})
         self.intrinsics_worker.finished_result.connect(self._on_intrinsics_finished)
         self.intrinsics_worker.start()
+        self.set_intrinsics_busy(True)
+
+    def set_intrinsics_busy(self, busy):
+        """Lock the intrinsics buttons and show the busy indicators while the solve runs in its worker.
+
+        The buttons get back the state they had before the run, so Save stays off until a run succeeded."""
+        panels = [self]
+        if getattr(self, 'wizard_widget', None) is not None:
+            panels.append(self.wizard_widget)
+            self.wizard_widget.lbl_step1_status.setVisible(not busy)
+        if busy:
+            self._intrinsics_button_states = {}
+        for panel in panels:
+            panel.int_busy.setVisible(busy)
+            for name in ("btn_int_capture", "btn_int_calibrate", "btn_int_save", "btn_int_reset"):
+                button = getattr(panel, name)
+                if busy:
+                    self._intrinsics_button_states[button] = button.isEnabled()
+                    button.setEnabled(False)
+                else:
+                    button.setEnabled(self._intrinsics_button_states.get(button, button.isEnabled()))
+        self.intrinsics_busy = busy
 
     def _on_intrinsics_finished(self, result):
+        self.set_intrinsics_busy(False)
         success = result.success
         if success:
             self.log_msg(f"[SUCCESS] Calibration complete! RMS Error: {self.intrinsics_calibrator.rms_error:.4f}")
@@ -5736,21 +5890,14 @@ class UnifiedCalibrationApp(QWidget):
             FileStorage.ensure_dir(os.path.dirname(self.output_yaml), exist_ok=True)
             for path in save_camera_intrinsics(data, family=camera_model or None, serial=serial):
                 self.log_msg(f"[SUCCESS] Intrinsic parameters saved to: {path}")
-            observer = self.core.observer
-            if observer is not None and camera_model:
-                observer.active_intrinsics_path = self.output_yaml
-                observer.calib_device_name = camera_model
-                observer.intrinsics_missing = False
-                observer.intrinsics_mismatch = False
-                observer.intrinsics_serial_matched = bool(serial)
-                observer.intrinsics_source = "serial" if serial else "model"
-            self.refresh_camera_tab_info()
 
             # Load what was just saved into the running detector. It used to take effect only on
             # the next start, so calibrating, saving and carrying straight on in the same session
             # ran every sweep on the old intrinsics while the file already held the new ones.
+            # The core re-reads the files as a reconnect does: the status used to be written onto
+            # core.observer, a wrapper, so the engine went on reporting "not registered" (2026-10-08).
             try:
-                if self.core.apply_camera_intrinsics(self.output_yaml):
+                if self.core.reload_camera_intrinsics():
                     self.log_msg("[SUCCESS] New intrinsics are now in use by the camera (no restart needed).")
                 else:
                     self.log_msg("[WARNING] Intrinsics saved, but not applied to a running camera "
@@ -5758,6 +5905,7 @@ class UnifiedCalibrationApp(QWidget):
             except Exception as e:
                 self.log_msg(f"[WARNING] Intrinsics saved, but could not be applied now ({e}). "
                              f"Reconnect the camera or restart before calibrating.")
+            self.refresh_camera_tab_info()
 
             # Show save success message box
             self.show_message_box(

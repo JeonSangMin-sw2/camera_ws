@@ -93,11 +93,18 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
             core.robot, core.robot.get_dynamics(), core.auto_config, ["right", "left"],
             include_head_motion=core.include_head_motion, wrist_diversity=wrist_diversity,
         )
+    # 2026-10-15: a simulator run ended with "No valid calibration samples collected" and nothing in
+    # the log said whether the plan was empty or every capture failed.
+    core.log_msg(f"[INFO] Step 2 plan: {len(plan)} poses (starting at {start_index + 1}).")
+    if len(plan) <= start_index:
+        raise RuntimeError(f"Step 2 pose plan is empty ({len(plan)} poses, start {start_index + 1}). The plan is "
+                           f"built only while the right hand starts within max_x = {core.auto_config.max_x} m.")
     arm = get_both_arm_config(core.model, version=core.get_robot_version())
     head = get_head_config(core.model)["head_idx"] if core.include_head_motion else None
     samples = []
     context.result.partial["samples"] = samples
     failures = 0
+    missed = 0
     for index, motion in enumerate(plan[start_index:], start=start_index):
         context.check_cancelled()
         # Optional steps (wrist-diversity poses) are skipped, not counted as failures, when a joint
@@ -126,6 +133,7 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
                 core.log_msg(f"[INFO] Step 2 pose {index + 1} skipped (marker not in view): {motion.get('desc', '')}")
         else:
             failures += 1
+            missed += 1
         context.checkpoint("next_motion_index", index + 1)
         # Tell the UI after every pose. Without this the sample counter sat at 0 for the whole
         # run and only jumped to 64 at the end, so there was no way to watch it progress.
@@ -138,6 +146,7 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
         if max_samples is not None and len(samples) >= max_samples:
             break
     if not samples:
-        raise RuntimeError("No valid calibration samples collected")
+        raise RuntimeError(f"No valid calibration samples collected ({len(plan) - start_index} poses in the plan, "
+                           f"markers missed at {missed})")
     context.complete("samples", samples)
     return samples

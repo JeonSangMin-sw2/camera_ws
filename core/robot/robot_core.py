@@ -7,6 +7,11 @@ from threading import local
 
 _execution = local()
 
+# Tool flange output (gripper power): the state read-back follows the command with a short delay.
+TOOL_FLANGE_SIDES = ("right", "left")
+TOOL_FLANGE_OFF_TIMEOUT_S = 2.0
+TOOL_FLANGE_POLL_S = 0.1
+
 
 class RobotOperationCancelled(RuntimeError):
     def __init__(self, partial=None):
@@ -199,6 +204,27 @@ class RobotOperations:
                 logging.error(f"Failed to disconnect robot: {e}")
         return False
 
+
+    @staticmethod
+    def tool_flange_output_voltages(robot, sides=TOOL_FLANGE_SIDES):
+        state = robot.get_state()
+        return {side: float(getattr(state, f"tool_flange_{side}").output_voltage) for side in sides}
+
+    @staticmethod
+    def power_off_tool_flanges(robot, sides=TOOL_FLANGE_SIDES):
+        """Set the tool flange output (gripper power) to 0 V and return the voltage read back per
+        side. Raises when the robot rejects the command or the output is still on afterwards."""
+        for side in sides:
+            if not robot.set_tool_flange_output_voltage(side, 0):
+                raise RuntimeError(f"Tool flange {side}: the robot rejected the 0 V output command")
+        deadline = time.monotonic() + TOOL_FLANGE_OFF_TIMEOUT_S
+        while True:
+            voltages = RobotOperations.tool_flange_output_voltages(robot, sides)
+            if all(value == 0 for value in voltages.values()):
+                return voltages
+            if time.monotonic() >= deadline:
+                raise RuntimeError(f"Tool flange output is still on after the 0 V command: {voltages}")
+            time.sleep(TOOL_FLANGE_POLL_S)
 
     @staticmethod
     def compute_fk(robot, dyn_model, q, ee_link, base_link="link_torso_5"):

@@ -9,9 +9,13 @@ is used before the per-model store, and Save always (re)writes it -- the serial 
 start, so leaving an old one would undo a recalibration. Offline, no camera or robot.
 """
 import os
+import re
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
+import numpy as np
 from PySide6.QtWidgets import QApplication
 
 import core.storage as storage
@@ -20,6 +24,7 @@ from core.marker_detection import Marker_Transform
 from test_camera_model_config import CameraModelConfigCase
 
 SERIAL = "123456789012"
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class TestSerialIntrinsics(CameraModelConfigCase):
@@ -96,6 +101,34 @@ class TestSerialIntrinsics(CameraModelConfigCase):
         self.assertEqual(str(ConfigStorage.load(paths[-1])["serial_number"]), SERIAL)
         self.assertEqual(len(save_camera_intrinsics(data, family="D405", serial=None)), 2)
 
+    def test_a_save_while_connected_is_recognized_without_a_reconnect(self):
+        # 2026-10-08: after Save the camera still read "not registered" until it was reconnected.
+        # The UI wrote the status onto core.observer, a wrapper; the flags live on its engine.
+        from core.calibration import CalibrationCore
+        from core.calibration.observation import ObservationSource
+        from core.marker_detection import Marker_Detection
+        engine = self.resolve_unit("Intel RealSense D405", SERIAL)
+        self.assertFalse(engine.intrinsics_serial_matched)
+        engine.camera = None
+        engine.marker_detection = Marker_Detection()
+        engine.width, engine.height = 1280, 720
+        engine._factory_intrinsics, engine._factory_dist_coeffs = [640.0, 360.0, 900.0, 900.0], [0.0] * 5
+        core = CalibrationCore()
+        self.addCleanup(core.close)
+        core.observer = ObservationSource(engine, core.stop_event)
+
+        save_camera_intrinsics({"camera_matrix": [[600.0, 0.0, 640.0], [0.0, 600.0, 360.0], [0.0, 0.0, 1.0]],
+                                "dist_coeffs": [0.0] * 5, "rms_error": 0.2, "width": 1280, "height": 720},
+                               family="D405", serial=SERIAL)
+        with patch("core.marker_detection.calib_intrinsics_mode", "full"):
+            self.assertTrue(core.reload_camera_intrinsics())
+
+        self.assertTrue(engine.intrinsics_serial_matched)
+        self.assertEqual(engine.intrinsics_source, "serial")
+        self.assertAlmostEqual(engine.marker_detection.fx, 600.0)
+        # Nothing may sit on the wrapper, where it would hide the engine's value.
+        self.assertNotIn("intrinsics_serial_matched", vars(core.observer))
+
 
 class TestTopTabs(unittest.TestCase):
     @classmethod
@@ -144,6 +177,178 @@ class TestTopTabs(unittest.TestCase):
         from core.language import tr
         self.window.refresh_camera_tab_info()
         self.assertEqual(self.window.lbl_camera_tab_info.text(), tr("main_tabs.camera_info_none"))
+        self.assertEqual(self.window.lbl_camera_serial_status.text(), "")
+
+    def test_camera_header_says_whether_the_serial_is_registered(self):
+        # 2026-10-08: the header named the intrinsics yaml; the operator wants to see at a glance
+        # whether this unit already has its own calibration (green) or runs on the defaults (red).
+        from core.language import tr
+        w = self.window
+        base = {"camera_model": "d405", "serial_number": SERIAL, "intrinsics_file": "camera_intrinsics.yaml"}
+        cases = (({**base, "intrinsics_serial_matched": True, "intrinsics_source": "serial"},
+                  "main_tabs.camera_serial_registered", "#00e676"),
+                 ({**base, "intrinsics_serial_matched": False, "intrinsics_source": "model"},
+                  "main_tabs.camera_serial_unregistered", "#ff1744"),
+                 ({**base, "serial_number": None, "intrinsics_serial_matched": False, "intrinsics_source": "file"},
+                  "main_tabs.camera_serial_unknown", "#ff1744"))
+        self.addCleanup(w.refresh_camera_tab_info)
+        for info, key, color in cases:
+            with patch.object(w.core, "observer", SimpleNamespace(get_camera_info=lambda info=info: info)):
+                w.refresh_camera_tab_info()
+                w.wizard_widget.refresh_intrinsics_serial_status()
+            for label in (w.lbl_camera_serial_status, w.wizard_widget.lbl_int_serial_status):
+                self.assertEqual(label.text(), tr(key), key)
+                self.assertIn(color, label.styleSheet(), key)
+            self.assertIn("D405", w.lbl_camera_tab_info.text())
+            self.assertNotIn(".yaml", w.lbl_camera_tab_info.text() + w.lbl_camera_serial_status.text())
+        for key in ("camera_serial_registered", "camera_serial_unregistered", "camera_serial_unknown"):
+            self.assertNotEqual(tr(f"main_tabs.{key}", lang="en"), tr(f"main_tabs.{key}", lang="ko"))
+
+
+class TestIntrinsicsBusy(unittest.TestCase):
+    """2026-10-08: nothing showed that the intrinsics solve was running (RUN CALIBRATION, or the
+    automatic run after the 16th capture). Both intrinsics screens now show a busy indicator and
+    lock their buttons until the worker's result arrives."""
+    BUTTONS = ("btn_int_capture", "btn_int_calibrate", "btn_int_save", "btn_int_reset")
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        from main_ui import UnifiedCalibrationApp
+        cls.window = UnifiedCalibrationApp(ui_only=True)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.window.close()
+
+    def setUp(self):
+        self.window.captured_images.clear()
+        self.addCleanup(self.window.captured_images.clear)
+        self.addCleanup(self.window.set_intrinsics_busy, False)
+
+    def panels(self):
+        return (self.window, self.window.wizard_widget)
+
+    def test_busy_shows_the_indicator_and_locks_the_buttons(self):
+        w = self.window
+        before = {(panel, name): getattr(panel, name).isEnabled() for panel in self.panels() for name in self.BUTTONS}
+        self.assertFalse(before[w, "btn_int_save"])
+        self.assertTrue(all(panel.int_busy.isHidden() for panel in self.panels()))
+
+        w.set_intrinsics_busy(True)
+
+        for panel in self.panels():
+            self.assertFalse(panel.int_busy.isHidden())
+            self.assertEqual((panel.int_busy.bar.minimum(), panel.int_busy.bar.maximum()), (0, 0))
+            for name in self.BUTTONS:
+                self.assertFalse(getattr(panel, name).isEnabled(), name)
+        self.assertTrue(w.wizard_widget.lbl_step1_status.isHidden())
+
+        w.set_intrinsics_busy(False)
+
+        after = {(panel, name): getattr(panel, name).isEnabled() for panel in self.panels() for name in self.BUTTONS}
+        self.assertEqual(after, before)
+        self.assertTrue(all(panel.int_busy.isHidden() for panel in self.panels()))
+        self.assertFalse(w.wizard_widget.lbl_step1_status.isHidden())
+
+    def test_capture_is_ignored_while_busy(self):
+        w = self.window
+        with patch.object(w, "current_frame", np.zeros((4, 4, 3), np.uint8), create=True):
+            w.set_intrinsics_busy(True)
+            w.capture_intrinsics_frame()
+            self.assertEqual(len(w.captured_images), 0)
+            w.set_intrinsics_busy(False)
+            w.capture_intrinsics_frame()
+            self.assertEqual(len(w.captured_images), 1)
+
+    def test_the_run_is_busy_from_start_until_its_result(self):
+        import main_ui
+        w = self.window
+        started = []
+
+        class FakeWorker:
+            def __init__(self, core, name, options=None):
+                self.finished_result = SimpleNamespace(connect=lambda slot: None)
+
+            def start(self):
+                started.append(w.intrinsics_busy)
+
+        w.captured_images.extend(np.zeros((4, 4, 3), np.uint8) for _ in range(16))
+        with patch.object(main_ui, "SequenceWorker", FakeWorker):
+            w.run_intrinsics_calibration()
+        self.assertEqual(started, [False])
+        self.assertTrue(w.intrinsics_busy)
+        self.assertFalse(w.int_busy.isHidden())
+
+        with patch.object(main_ui.QMessageBox, "critical"):
+            w._on_intrinsics_finished(SimpleNamespace(success=False))
+        self.assertFalse(w.intrinsics_busy)
+        self.assertTrue(w.int_busy.isHidden())
+        self.assertTrue(w.btn_int_calibrate.isEnabled())
+        self.assertFalse(w.btn_int_save.isEnabled())
+
+    def test_too_few_frames_never_turn_busy(self):
+        import main_ui
+        with patch.object(main_ui.QMessageBox, "warning"):
+            self.window.run_intrinsics_calibration()
+        self.assertFalse(self.window.intrinsics_busy)
+        self.assertTrue(self.window.int_busy.isHidden())
+
+    def test_the_wizard_capture_that_starts_the_run_leaves_the_status_to_the_result(self):
+        w, wiz = self.window, self.window.wizard_widget
+        wiz.lbl_step1_status.setText("before")
+
+        def capture():
+            w.intrinsics_busy = True
+
+        with patch.object(w, "capture_intrinsics_frame", capture):
+            wiz.step1_capture()
+        self.assertEqual(wiz.lbl_step1_status.text(), "before")
+
+
+class TestLanguagesAreNotMixed(unittest.TestCase):
+    """2026-10-08: some texts showed both languages whatever was selected ("확인 (Close)",
+    "... (적용 완료했습니다)"). Each text now holds its own language only."""
+    HANGUL = re.compile(r"[가-힣]")
+    # English left inside a Korean text on purpose: a file name, or a state whose button reads the same.
+    KEPT = re.compile(r"\.yaml|Baseline|Optimized")
+
+    def leaves(self, node, path=()):
+        if isinstance(node, dict) and {"en", "ko"} <= set(node):
+            yield ".".join(path), node["en"], node["ko"]
+        elif isinstance(node, dict):
+            for key, value in node.items():
+                yield from self.leaves(value, path + (str(key),))
+
+    def setUp(self):
+        self.texts = list(self.leaves(ConfigStorage.load(ROOT / "config" / "ui_config" / "i18n.yaml")))
+        self.assertGreater(len(self.texts), 200)
+
+    def test_english_texts_hold_no_korean(self):
+        self.assertEqual([key for key, en, _ko in self.texts if self.HANGUL.search(en)], [])
+
+    def test_korean_texts_do_not_repeat_themselves_in_english(self):
+        mixed = []
+        for key, _en, ko in self.texts:
+            for inner in re.findall(r"\(([^()]*)\)", re.sub(r"\{[^}]*\}", "", ko)):
+                if re.search(r"[A-Za-z]{3,}", inner) and not self.HANGUL.search(inner) and not self.KEPT.search(inner):
+                    mixed.append((key, inner))
+        self.assertEqual(mixed, [])
+
+    def test_ui_source_texts_hold_no_korean(self):
+        import ast
+        found = []
+        for source in (ROOT / "main_ui.py", *sorted((ROOT / "ui").glob("*.py"))):
+            tree = ast.parse(source.read_text(encoding="utf-8"))
+            docstrings = {id(node.body[0].value) for node in ast.walk(tree)
+                          if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef)) and node.body
+                          and isinstance(node.body[0], ast.Expr) and isinstance(node.body[0].value, ast.Constant)}
+            for node in ast.walk(tree):
+                if (isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+                        and self.HANGUL.search(node.value)):
+                    found.append((source.name, node.lineno, node.value))
+        # The language picker shows each language in its own name.
+        self.assertEqual([text for _name, _line, text in found], ["한국어"], found)
 
 
 if __name__ == "__main__":

@@ -202,6 +202,67 @@ def load_step2_wrist_diversity(robot_version, setting_path=SETTING_PATH, ready_p
     return steps, True
 
 
+def load_camera_mount_constraint(setting_path=None, camera_info_path=None):
+    """The connected camera model's design mount pose and how far its position may differ from it,
+    or None when that model's camera_info.yaml entry has no `mount_to_cam_position_range_m`.
+
+    For a bracket made to its drawing (2026-10-08): with the camera position free by +-25 mm, a
+    Step 1 J6 off by about 1 deg was absorbed by J4 and the camera height (71 mm against a design
+    67 mm) and both J0 followed the camera's fore-aft position by 0.33 deg per mm.
+    Returns {"model", "mount_to_cam": [x, y, z (m), roll, pitch, yaw (deg)], "position_range_m":
+    (3, 2) array of [low, high] per link_head_2 axis}. With a constraint the camera angles are held
+    at mount_to_cam and Step 2 solves J6 itself instead of taking Step 1's value.
+    """
+    setting_path = Path(setting_path or CONFIG_PATHS["setting_yaml"])
+    camera_info_path = Path(camera_info_path or CONFIG_PATHS["camera_info"])
+    if not setting_path.exists() or not camera_info_path.exists():
+        return None
+    model = ((ConfigStorage.load(setting_path) or {}).get("camera") or {}).get("device_name")
+    entry = (ConfigStorage.load(camera_info_path) or {}).get(model) if model else None
+    if not isinstance(entry, dict) or entry.get("mount_to_cam_position_range_m") is None:
+        return None
+    where = f"{camera_info_path} {model}.mount_to_cam_position_range_m"
+    try:
+        position_range = np.array(entry["mount_to_cam_position_range_m"], dtype=np.float64)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{where} must be three [low, high] pairs in meters: {error}") from error
+    if position_range.shape != (3, 2) or not np.all(np.isfinite(position_range)) \
+            or np.any(position_range[:, 0] > 0.0) or np.any(position_range[:, 1] < 0.0):
+        raise ValueError(f"{where} must be three [low, high] pairs in meters with low <= 0 <= high "
+                         f"(x, y, z of link_head_2), got {entry['mount_to_cam_position_range_m']}")
+    mount = entry.get("mount_to_cam")
+    if mount is None or len(mount) != 6:
+        raise ValueError(f"{camera_info_path} {model}.mount_to_cam must be [x, y, z, roll, pitch, yaw] to use {where}")
+    return {"model": str(model), "mount_to_cam": [float(v) for v in mount], "position_range_m": position_range}
+
+
+def format_mount_constraint(constraint):
+    """One log line for a camera mount constraint: the design position and its allowed range per axis."""
+    mount = constraint["mount_to_cam"]
+    spans = ", ".join(f"{axis} {mount[i] * 1000:.1f} mm [{low * 1000:+.1f}, {high * 1000:+.1f}]"
+                      for i, (axis, (low, high)) in enumerate(zip("xyz", constraint["position_range_m"])))
+    return f"position {spans}; camera angles fixed; J6 is solved in Step 2"
+
+
+# How close to an end of its range a camera axis counts as being at that end.
+MOUNT_RANGE_END_TOLERANCE_M = 2e-5
+
+
+def mount_range_ends(position_delta_m, position_range_m):
+    """Axes of a camera position delta that ended at an end of their allowed range, as text such as
+    "x at the upper end (+1.0 mm)": there the data want the camera further than the range allows.
+    An axis with no room (low == high) is fixed, not at an end."""
+    ends = []
+    for axis, delta, (low, high) in zip("xyz", position_delta_m, position_range_m):
+        if high - low <= MOUNT_RANGE_END_TOLERANCE_M:
+            continue
+        if delta - low <= MOUNT_RANGE_END_TOLERANCE_M:
+            ends.append(f"{axis} at the lower end ({low * 1000:+.1f} mm)")
+        elif high - delta <= MOUNT_RANGE_END_TOLERANCE_M:
+            ends.append(f"{axis} at the upper end ({high * 1000:+.1f} mm)")
+    return ends
+
+
 def marker_x_gap_m(T_right, T_left):
     """Distance between the two marker origins along the camera x axis (image horizontal).
 

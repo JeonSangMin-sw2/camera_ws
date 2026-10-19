@@ -19,6 +19,8 @@ from core.calibration.sequences.marker_monitor import MarkerMonitor
 from core.calibration.sequences.result import SequenceCancelled
 from core.storage import ConfigStorage
 from core.language import tr
+from core.robot.robot_core import RobotOperations
+from ui.marker_monitor_panel import MarkerMonitorPanel
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -141,6 +143,17 @@ class TestMarkerMonitor(unittest.TestCase):
         last = [e for e in self.monitor_events() if e.get("running")][-1]
         self.assertTrue(last["all_stable"], last)
 
+    def test_exposure_change_drops_the_samples_taken_before_it(self):
+        self.core.start_marker_monitor()
+        self.assertTrue(wait_for(lambda: any(e.get("running") and e["sides"]["right"]["samples"] >= 5
+                                             for e in self.monitor_events())))
+        window = self.core.restart_marker_monitor_window()
+        self.assertTrue(wait_for(lambda: any(e.get("window") == window for e in self.monitor_events())))
+        self.core.stop_marker_monitor()
+        running = [e for e in self.monitor_events() if e.get("running")]
+        first_new = next(e for e in running if e["window"] == window)
+        self.assertEqual(first_new["sides"]["right"]["samples"], 1)
+
     def test_sequence_start_stops_it(self):
         self.core.start_marker_monitor()
         self.assertTrue(wait_for(lambda: self.monitor_events()))
@@ -195,6 +208,8 @@ class TestWizardSlides(unittest.TestCase):
         self.wiz.setVisible(True)
         self.wiz.step_completed = [True] * self.W.SLIDE_COUNT
         self.wiz.stacked_widget.setCurrentIndex(0)
+        self.window.left_tabs.setCurrentIndex(self.window.TAB_WIZARD)
+        self.window.reset_marker_monitor_confirmation()
         self.addCleanup(self.window.core.stop_marker_monitor)
 
     def test_order_skips_the_optional_calibration_both_ways(self):
@@ -217,11 +232,16 @@ class TestWizardSlides(unittest.TestCase):
         # 2026-09-30: gripper removal + marker bracket are one slide. 2026-10-01: it comes right after
         # the robot connection, because its photo depends on the robot version.
         self.assertEqual(W.SLIDE_MARKER_BRACKET, W.SLIDE_ROBOT_CONNECT + 1)
-        self.assertEqual(W.SLIDE_ZERO_POSE, W.SLIDE_MARKER_BRACKET + 1)
+        # 2026-10-01: exposure (3-1) -> zero pose (3-2) -> home offset reset (3-3).
+        self.assertEqual(W.SLIDE_EXPOSURE, W.SLIDE_MARKER_BRACKET + 1)
+        self.assertEqual(W.SLIDE_ZERO_POSE, W.SLIDE_EXPOSURE + 1)
+        self.assertEqual(W.SLIDE_HOME_OFFSET, W.SLIDE_ZERO_POSE + 1)
+        self.assertEqual(W.SLIDE_CALIBRATION, W.SLIDE_HOME_OFFSET + 1)
         numbers = [tr(W.TITLE_KEYS[i]).split(".")[0] for i in range(W.SLIDE_COUNT)]
         self.assertEqual(numbers, ["1-1", "1-2", "2", "3", "3-1", "3-2", "3-3", "4", "5"])
-        self.assertEqual(W.SLIDE_EXPOSURE, W.SLIDE_HOME_OFFSET + 1)
-        self.assertEqual(W.SLIDE_CALIBRATION, W.SLIDE_EXPOSURE + 1)
+        for index, word in ((W.SLIDE_EXPOSURE, "Exposure"), (W.SLIDE_ZERO_POSE, "Zero"),
+                            (W.SLIDE_HOME_OFFSET, "Home Offset")):
+            self.assertIn(word, tr(W.TITLE_KEYS[index], lang="en"))
         self.assertIn(W.SLIDE_EXPOSURE, W.VIDEO_SLIDES)
         self.assertFalse(hasattr(W, "SLIDE_GRIPPER") or hasattr(W, "SLIDE_INTRINSICS_CHECK"))
 
@@ -268,20 +288,21 @@ class TestWizardSlides(unittest.TestCase):
     def test_marker_monitor_runs_only_on_the_exposure_slide(self):
         core = self.window.core
         core.observer = FakeObserver()
+        panel = self.wiz.marker_monitor_panel
         try:
             self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_CALIBRATION)
             self.assertFalse(core.marker_monitor_running)
             self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_EXPOSURE)
             self.assertTrue(core.marker_monitor_running)
-            self.assertTrue(wait_for(lambda: "%" in self.wiz.marker_mon_labels["right"].text()))
+            self.assertTrue(wait_for(lambda: "%" in panel.labels["right"].text()))
             # Right marker jumps ~0.9 mm RMS: recognized but not stable -> orange, overall not OK.
-            self.assertEqual(self.wiz.marker_mon_labels["right"].styleSheet(), self.W.MONITOR_WARN_STYLE)
-            self.assertEqual(self.wiz.lbl_marker_mon_overall.styleSheet(), self.W.MONITOR_WARN_STYLE)
+            self.assertEqual(panel.labels["right"].styleSheet(), panel.WARN_STYLE)
+            self.assertEqual(panel.lbl_overall.styleSheet(), panel.WARN_STYLE)
             core.stop_marker_monitor()
             core.observer = FakeObserver(right_noise_m=0.00002, left_always=True)
             self.wiz.sync_marker_monitor()
-            self.assertTrue(wait_for(lambda: self.wiz.lbl_marker_mon_overall.styleSheet() == self.W.MONITOR_OK_STYLE))
-            self.assertEqual(self.wiz.marker_mon_labels["left"].styleSheet(), self.W.MONITOR_OK_STYLE)
+            self.assertTrue(wait_for(lambda: panel.lbl_overall.styleSheet() == panel.OK_STYLE))
+            self.assertEqual(panel.labels["left"].styleSheet(), panel.OK_STYLE)
             self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_CALIBRATION)
             self.assertFalse(core.marker_monitor_running)
             self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_EXPOSURE)
@@ -290,6 +311,89 @@ class TestWizardSlides(unittest.TestCase):
         finally:
             core.stop_marker_monitor()
             core.observer = None
+
+    def test_camera_brightness_tab_has_the_same_monitor(self):
+        window, core = self.window, self.window.core
+        self.assertIsInstance(window.marker_monitor_panel, MarkerMonitorPanel)
+        self.assertIsNot(window.marker_monitor_panel, self.wiz.marker_monitor_panel)
+        core.observer = FakeObserver(right_noise_m=0.00002, left_always=True)
+        try:
+            window.left_tabs.setCurrentIndex(window.TAB_CAMERA)
+            window.camera_tabs.setCurrentIndex(window.CAMERA_SUB_INTRINSICS)
+            self.assertFalse(core.marker_monitor_running)
+            window.camera_tabs.setCurrentIndex(window.CAMERA_SUB_EXPOSURE)
+            self.assertTrue(core.marker_monitor_running)
+            panel = window.marker_monitor_panel
+            self.assertTrue(wait_for(lambda: panel.lbl_overall.styleSheet() == panel.OK_STYLE))
+            window.left_tabs.setCurrentIndex(window.TAB_ADVANCED)
+            self.assertFalse(core.marker_monitor_running)
+        finally:
+            core.stop_marker_monitor()
+            core.observer = None
+            window.left_tabs.setCurrentIndex(window.TAB_WIZARD)
+
+    def test_exposure_is_flagged_as_not_saved_in_both_places(self):
+        warning = tr("wizard.slides.slide_exposure.not_saved_warn")
+        self.assertIn("not saved", tr("wizard.slides.slide_exposure.not_saved_warn", lang="en"))
+        self.assertEqual(self.wiz.lbl_wiz_exp_not_saved.text(), warning)
+        self.assertEqual(self.window.lbl_exposure_not_saved.text(), warning)
+
+    def test_exposure_slide_buttons_move_one_arm_then_zero(self):
+        window, wiz, W = self.window, self.wiz, self.W
+        wiz.stacked_widget.setCurrentIndex(W.SLIDE_EXPOSURE)
+        wiz.step_completed[W.SLIDE_ZERO_POSE] = False
+        calls, finish = [], {}
+
+        def fake_ready(arm_side, on_finished):
+            calls.append(("ready", arm_side))
+            finish["cb"] = on_finished
+            return True
+
+        def fake_zero(on_finished):
+            calls.append(("zero",))
+            finish["cb"] = on_finished
+            return True
+
+        with patch.object(window, "move_arm_to_exposure_pose", side_effect=fake_ready), \
+                patch.object(window, "move_to_zero_for_exposure", side_effect=fake_zero):
+            for side in ("right", "left"):
+                wiz.btn_exp_ready[side].click()
+                self.assertEqual(wiz.exposure_motion_status[:2], ("moving", f"ready_{side}"))
+                self.assertFalse(wiz.btn_exp_zero.isEnabled() or wiz.btn_prev.isEnabled())
+                self.assertTrue(wiz.btn_exp_stop.isEnabled())  # Stop stays usable while moving
+                finish["cb"](True, "")
+                self.assertEqual(wiz.exposure_motion_status[:2], ("done", f"ready_{side}"))
+                self.assertTrue(wiz.btn_exp_zero.isEnabled() and wiz.btn_prev.isEnabled())
+            wiz.btn_exp_zero.click()
+            finish["cb"](False, "cancelled")
+            self.assertEqual(wiz.exposure_motion_status, ("failed", "zero", "cancelled"))
+        self.assertEqual(calls, [("ready", "right"), ("ready", "left"), ("zero",)])
+        # The zero button here does not complete the zero-pose slide (3-2).
+        self.assertFalse(wiz.step_completed[W.SLIDE_ZERO_POSE])
+
+    def test_exposure_ready_pose_is_the_j5_pose_of_the_robot_version(self):
+        window = self.window
+        version, robot = window.robot_version, window.robot
+        try:
+            window.robot = object()
+            for robot_version, mode in (("1.2", "wrist_pitch"), ("1.3", "wrist_pitch_v13")):
+                window.robot_version = robot_version
+                with patch("main_ui.MoveToReadyWorker") as worker, \
+                        patch.object(window, "_sync_core_state", return_value=window.core):
+                    self.assertTrue(window.move_arm_to_exposure_pose("left", lambda *_: None))
+                worker.assert_called_once_with(window.core, "left", mode, head_zero=True)
+        finally:
+            window.robot_version, window.robot = version, robot
+
+    def test_gripper_power_button_reports_the_result(self):
+        wiz = self.wiz
+        with patch.object(self.window, "power_off_tool_flanges", return_value={"right": 0.0, "left": 0.0}):
+            wiz.btn_tool_power_off.click()
+        self.assertEqual(wiz.tool_power_status[0], "off")
+        self.assertIn("right 0 V", wiz.lbl_tool_power_status.text())
+        with patch.object(self.window, "power_off_tool_flanges", side_effect=RuntimeError("still on")):
+            wiz.btn_tool_power_off.click()
+        self.assertEqual(wiz.tool_power_status, ("failed", "still on"))
 
     def test_every_referenced_image_exists(self):
         # A line listing several paths is a fallback list (first existing one is used): one must exist.
@@ -305,16 +409,196 @@ class TestWizardSlides(unittest.TestCase):
             "slide_0": ("title", "cap_head", "cap_nohead", "inst1", "btn_intrinsics", "cam_warn_serial", "cam_source",
                         "cam_source_serial", "cam_source_model", "cam_source_factory", "cam_source_file"),
             "slide_1": ("box_title", "inst1"),
-            "slide_marker_bracket": ("title", "box_title", "cap_assemble", "cap_overview", "inst1", "inst2", "inst3"),
+            "slide_marker_bracket": ("title", "box_title", "cap_assemble", "cap_overview", "inst1", "inst2", "inst3",
+                                     "tool_power_note", "btn_tool_power_off", "tool_power_idle", "tool_power_off",
+                                     "tool_power_failed"),
             "slide_6": ("inst1", "inst2", "shoulder_warn"),
             "slide_exposure": ("title", "inst", "monitor_title", "monitor_right", "monitor_left", "monitor_idle",
                                "monitor_stable", "monitor_unstable", "monitor_hidden", "monitor_all_ok",
-                               "monitor_not_ok", "monitor_jitter", "monitor_note", "monitor_restart"),
+                               "monitor_not_ok", "monitor_jitter", "monitor_note", "monitor_restart",
+                               "monitor_confirmed", "not_saved_warn", "motion_title", "motion_note",
+                               "btn_ready_right", "btn_ready_left", "btn_zero", "target_ready_right",
+                               "target_ready_left", "target_zero", "motion_status_idle", "motion_status_moving",
+                               "motion_status_done", "motion_status_failed"),
         }
         for slide, keys in needed.items():
             for key in keys:
                 for lang in ("en", "ko"):
                     self.assertTrue(slides[slide][key][lang].strip(), (slide, key, lang))
+
+
+def monitor_info(right=None, left=None, limit=0.2):
+    """A core marker_monitor event; a side is (visible, stable) or None for 'not sampled'."""
+    def side(state):
+        visible, stable = state
+        return {"visible": visible, "stable": stable, "rate": 1.0 if visible else 0.0, "samples": 30,
+                "jitter": {"rms_mm": 0.05 if stable else 0.9, "max_mm": 1.0} if visible else None}
+    sides = {name: side(state) for name, state in (("right", right), ("left", left)) if state is not None}
+    return {"running": True, "sides": sides, "max_jitter_mm": limit,
+            "all_stable": all(s["stable"] for s in sides.values())}
+
+
+class TestMarkerMonitorPanel(unittest.TestCase):
+    """One arm at a time is shown to the camera, so a marker stays confirmed once it was stable at the
+    current exposure, and an exposure change clears that."""
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        self.panel = MarkerMonitorPanel()
+
+    def test_markers_confirmed_one_at_a_time(self):
+        panel = self.panel
+        panel.update_monitor(monitor_info(right=(True, True), left=(False, False)))
+        self.assertEqual(panel.confirmed, {"right": True, "left": False})
+        self.assertEqual(panel.labels["left"].styleSheet(), panel.BAD_STYLE)
+        self.assertEqual(panel.lbl_overall.styleSheet(), panel.WARN_STYLE)
+        # The right arm went back to zero and the left arm came into view.
+        panel.update_monitor(monitor_info(right=(False, False), left=(True, True)))
+        self.assertTrue(panel.all_confirmed)
+        self.assertEqual(panel.labels["right"].text(),
+                         tr("wizard.slides.slide_exposure.monitor_confirmed",
+                            marker=tr("wizard.slides.slide_exposure.monitor_right")))
+        self.assertEqual(panel.labels["right"].styleSheet(), panel.OK_STYLE)
+        self.assertEqual(panel.lbl_overall.styleSheet(), panel.OK_STYLE)
+
+    def test_jumping_marker_is_not_confirmed(self):
+        self.panel.update_monitor(monitor_info(right=(True, False), left=(True, False)))
+        self.assertEqual(self.panel.confirmed, {"right": False, "left": False})
+        self.assertEqual(self.panel.labels["right"].styleSheet(), self.panel.WARN_STYLE)
+
+    def test_confirmation_survives_a_monitor_stop_but_not_an_exposure_change(self):
+        panel = self.panel
+        panel.update_monitor(monitor_info(right=(True, True), left=(True, True)))
+        panel.update_monitor({"running": False})  # a robot move stops the monitor
+        self.assertTrue(panel.all_confirmed)
+        self.assertEqual(panel.lbl_overall.styleSheet(), panel.OK_STYLE)
+        panel.reset_confirmation()
+        self.assertEqual(panel.confirmed, {"right": False, "left": False})
+        self.assertEqual(panel.labels["right"].styleSheet(), panel.IDLE_STYLE)
+
+    def test_summary_from_before_the_exposure_change_does_not_confirm(self):
+        panel = self.panel
+        panel.reset_confirmation(3)
+        stable = monitor_info(right=(True, True), left=(True, True))
+        panel.update_monitor(dict(stable, window=2))  # still on its way when the exposure changed
+        self.assertEqual(panel.confirmed, {"right": False, "left": False})
+        self.assertEqual(panel.lbl_overall.styleSheet(), panel.WARN_STYLE)
+        panel.update_monitor(dict(stable, window=3))
+        self.assertTrue(panel.all_confirmed)
+
+    def test_exposure_change_restarts_the_monitor_window(self):
+        from main_ui import UnifiedCalibrationApp
+        window = UnifiedCalibrationApp(ui_only=True)
+        self.addCleanup(window.close)
+        before = window.core.restart_marker_monitor_window()
+        window.apply_camera_exposure()
+        stable = monitor_info(right=(True, True), left=(True, True))
+        window._on_marker_monitor(dict(stable, window=before))
+        self.assertFalse(any(any(panel.confirmed.values()) for panel in window.marker_monitor_panels()))
+        window._on_marker_monitor(dict(stable, window=before + 1))
+        self.assertTrue(all(panel.all_confirmed for panel in window.marker_monitor_panels()))
+
+    def test_every_exposure_change_clears_the_confirmation(self):
+        from main_ui import UnifiedCalibrationApp
+        window = UnifiedCalibrationApp(ui_only=True)
+        self.addCleanup(window.close)
+        panels = window.marker_monitor_panels()
+        self.assertEqual(len(panels), 2)
+        for change in (window.apply_camera_exposure, window.cancel_camera_exposure,
+                       window.set_camera_auto_mode, window.init_camera_exposure_state,
+                       window.wizard_widget.on_wiz_apply_exp_clicked):
+            window._on_marker_monitor(monitor_info(right=(True, True), left=(True, True)))
+            self.assertTrue(all(panel.all_confirmed for panel in panels), change.__name__)
+            change()
+            self.assertFalse(any(any(panel.confirmed.values()) for panel in panels), change.__name__)
+
+
+class FakeFlangeRobot:
+    """Tool flange outputs start at 12 V; `lag` state reads pass before a 0 V command shows up."""
+    def __init__(self, accept=True, lag=0, stuck=False):
+        self.voltage = {"right": 12, "left": 12}
+        self.commands, self.accept, self.lag, self.stuck = [], accept, lag, stuck
+
+    def set_tool_flange_output_voltage(self, name, voltage):
+        self.commands.append((name, voltage))
+        return self.accept
+
+    def get_state(self):
+        if self.lag > 0:
+            self.lag -= 1
+        elif not self.stuck:
+            self.voltage.update({name: voltage for name, voltage in self.commands})
+        return MagicMock(tool_flange_right=MagicMock(output_voltage=self.voltage["right"]),
+                         tool_flange_left=MagicMock(output_voltage=self.voltage["left"]))
+
+
+class TestToolFlangePowerOff(unittest.TestCase):
+    def test_both_sides_are_set_to_zero_and_read_back(self):
+        robot = FakeFlangeRobot(lag=2)
+        with patch("core.robot.robot_core.TOOL_FLANGE_POLL_S", 0.0):
+            voltages = RobotOperations.power_off_tool_flanges(robot)
+        self.assertEqual(robot.commands, [("right", 0), ("left", 0)])
+        self.assertEqual(voltages, {"right": 0.0, "left": 0.0})
+
+    def test_a_refused_command_or_an_output_that_stays_on_is_an_error(self):
+        with self.assertRaisesRegex(RuntimeError, "rejected"):
+            RobotOperations.power_off_tool_flanges(FakeFlangeRobot(accept=False))
+        with patch("core.robot.robot_core.TOOL_FLANGE_OFF_TIMEOUT_S", 0.05), \
+                patch("core.robot.robot_core.TOOL_FLANGE_POLL_S", 0.01):
+            with self.assertRaisesRegex(RuntimeError, "still on"):
+                RobotOperations.power_off_tool_flanges(FakeFlangeRobot(stuck=True))
+
+    def test_core_refuses_without_a_robot_or_during_a_sequence(self):
+        core = CalibrationCore()
+        with self.assertRaisesRegex(RuntimeError, "not connected"):
+            core.power_off_tool_flanges()
+        core.robot = FakeFlangeRobot()
+        core.prepare_run()
+        try:
+            with self.assertRaisesRegex(RuntimeError, "during a calibration sequence"):
+                core.power_off_tool_flanges()
+        finally:
+            core._prepared = False
+            core._run_lock.release()
+        self.assertEqual(core.power_off_tool_flanges(), {"right": 0.0, "left": 0.0})
+
+
+class TestReadyPoseHeadZero(unittest.TestCase):
+    """The exposure slide comes before the zero-pose slide, so its arm ready pose also zeroes the head."""
+    def setUp(self):
+        self.core = CalibrationCore()
+        self.core.robot = object()
+        self.order = []
+        calibrator = self.core.joint_calibrator
+        calibrator.movej = MagicMock(side_effect=lambda *a, **k: self.order.append("head") or True)
+        calibrator.perform_move_to_ready_pose = MagicMock(
+            side_effect=lambda *a, **k: self.order.append("ready") or True)
+
+    def test_head_goes_to_zero_before_the_arm_pose(self):
+        self.core.include_head_motion = True
+        result = self.core.run("ready", kind="joint", arm_side="right", mode="wrist_pitch", head_zero=True)
+        self.assertTrue(result.success, result.error)
+        self.assertEqual(self.order, ["head", "ready"])
+        kwargs = self.core.joint_calibrator.movej.call_args.kwargs
+        self.assertEqual(kwargs["head"], [0.0, 0.0])
+        self.assertFalse(kwargs["apply_offsets"])
+        self.assertEqual(self.core.joint_calibrator.perform_move_to_ready_pose.call_args.kwargs["mode"], "wrist_pitch")
+
+    def test_head_is_left_alone_by_default_and_without_head_motion(self):
+        self.core.include_head_motion = True
+        self.assertTrue(self.core.run("ready", kind="joint", arm_side="right", mode="wrist_pitch").success)
+        self.core.include_head_motion = False
+        self.assertTrue(self.core.run("ready", kind="joint", arm_side="left", mode="wrist_pitch", head_zero=True).success)
+        self.assertEqual(self.order, ["ready", "ready"])
+
+    def test_a_failed_head_move_stops_before_the_arm_moves(self):
+        self.core.include_head_motion = True
+        self.core.joint_calibrator.movej = MagicMock(return_value=False)
+        result = self.core.run("ready", kind="joint", arm_side="right", mode="wrist_pitch", head_zero=True)
+        self.assertFalse(result.success)
+        self.assertEqual(self.order, [])
 
 
 if __name__ == "__main__":

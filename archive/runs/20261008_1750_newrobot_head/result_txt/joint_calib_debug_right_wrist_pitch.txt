@@ -1,0 +1,66 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: RIGHT | Joint Target: WRIST_PITCH
+============================================================
+
+[INFO] Camera exposure for these sweeps: manual, setpoint 6000 (x 1 us), last frame 6000 us
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[FILTER] Filtered 3 IPPE flip spike frame(s) at indices: [74, 78, 111]
+[FILTER] Filtered 14 IPPE flip spike frame(s) at indices: [70, 71, 74, 75, 77, 81, 90, 91, 93, 99, 100, 102, 105, 109]
+[DEBUG] Saved Axis 4 debug points to sweep_points_right_wrist_pitch_joint_A_axis_4.txt
+[DEBUG] Saved Axis 6 debug points to sweep_points_right_wrist_pitch_joint_B_axis_6.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.5872 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.1566 mm
+  * Estimated Circle Center Distance       : 0.3310 mm
+  * Calculated Offset Correction           : 0.056284 deg
+==================================================
+  * Angle Error (Deviation)          : 0.5872°
+  * Circle Size Error (r_A-r_B)      : 0.1566 mm
+  * Center Distance Error            : 0.3310 mm
+  * Max Fitting Error Metric         : 0.3310 mm
+[ITERATION 1/8] offset=0.0000°, residual=+0.0563° -> OK (within 0.06°)
+  * Updated Absolute Offset     : 0.0563°
+
+[ITERATION 2/8] Sweeping physically with staged offset 0.0563°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): 0.0563°]
+==================================================
+[FILTER] Filtered 6 IPPE flip spike frame(s) at indices: [88, 106, 110, 111, 115, 118]
+[FILTER] Filtered 8 IPPE flip spike frame(s) at indices: [79, 82, 87, 99, 110, 112, 116, 120]
+[DEBUG] Saved Axis 4 debug points to sweep_points_right_wrist_pitch_joint_A_axis_4.txt
+[DEBUG] Saved Axis 6 debug points to sweep_points_right_wrist_pitch_joint_B_axis_6.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.5466 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.1756 mm
+  * Estimated Circle Center Distance       : 0.1851 mm
+  * Calculated Offset Correction           : -0.025363 deg
+==================================================
+  * Angle Error (Deviation)          : 0.5466°
+  * Circle Size Error (r_A-r_B)      : 0.1756 mm
+  * Center Distance Error            : 0.1851 mm
+  * Max Fitting Error Metric         : 0.1851 mm
+[ITERATION 2/8] offset=0.0563°, residual=-0.0254° -> OK (within 0.06°)
+  * Mean of 2 near-target estimates: 0.0436° (std=0.0300°, std err=0.0212°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: 0.0563°, 0.0309°
+  * Std err 0.0212° <= 0.06°
+  * Recommended Absolute Offset (mean): 0.0436°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_right_wrist_pitch_joint_calib.png

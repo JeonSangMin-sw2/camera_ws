@@ -1,0 +1,77 @@
+[SWEEP COMMAND] right J4: 75.0211° -> 105.0211°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.003   -45.0022   25.0018 -127.012    90.0211    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.003   -45.0022   25.0018 -127.012    90.0211    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.003   -45.0022   25.0018 -127.012    90.0211    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0211° -> 105.0211°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.003   -45.0022   25.0018 -127.012    90.0211   -0.262     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.003   -45.0022   25.0018 -127.012    90.0211   -0.262     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2620° -> -0.2620°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.003   -45.0022   25.0018 -127.012    90.0211   -0.262     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 74.9982° -> 104.9982°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01  0.0000e+00
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0004° -> 14.9996°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01  0.0000e+00
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01  0.0000e+00
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 74.9982° -> 104.9982°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01 -2.1765e-01
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0004° -> 14.9996°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01 -2.1765e-01
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2176° -> -0.2176°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01 -2.1765e-01
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 74.9982° -> 104.9982°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01 -3.0221e-01
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0004° -> 14.9996°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01 -3.0221e-01
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.3022° -> -0.3022°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5000e+01  2.5001e+01 -1.2700e+02  8.9998e+01 -3.0221e-01
+ -4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0163° -> 105.0163°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0013   25.0014 -127.0087   90.0163    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0013   25.0014 -127.0087   90.0163    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0013   25.0014 -127.0087   90.0163    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0163° -> 105.0163°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0013   25.0014 -127.0087   90.0163   -0.2828    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0013   25.0014 -127.0087   90.0163   -0.2828    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2828° -> -0.2828°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0013   25.0014 -127.0087   90.0163   -0.2828    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -20.0000° -> 20.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0008  -45.0011   25.001  -126.9991   89.9965   -0.283     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2830° -> 14.7170°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0008  -45.0011   25.001  -126.9991   89.9965   -0.283     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -20.0000° -> 20.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0006  -45.0002   25.0005 -126.9991   89.9978   -0.2885    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2885° -> 14.7115°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0006  -45.0002   25.0005 -126.9991   89.9978   -0.2885    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0152° -> 105.0152°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0011   25.001  -127.0078   90.0152    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0011   25.001  -127.0078   90.0152    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0011   25.001  -127.0078   90.0152    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0152° -> 105.0152°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0011   25.001  -127.0078   90.0152   -0.2839    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0011   25.001  -127.0078   90.0152   -0.2839    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2839° -> -0.2839°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[ -55.0017  -45.0011   25.001  -127.0078   90.0152   -0.2839    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0008  -45.0009   25.0007 -126.9993   89.9969   -0.283     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.2830° -> 9.7170°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0008  -45.0009   25.0007 -126.9993   89.9969   -0.283     0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -49.3025  -44.8449   26.8317 -126.9732   90.0591    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -49.3025  -44.8449   26.8317 -126.9732   90.0591    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -49.3025  -44.8449   26.8317 -126.9732   90.0591    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -49.3025  -44.8449   26.8317 -126.9732   90.0591    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0158° -> 105.0158°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5001e+01  2.5001e+01 -1.2701e+02  9.0016e+01  0.0000e+00
+  4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -14.9996° -> 15.0004°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5001e+01  2.5001e+01 -1.2701e+02  9.0016e+01  0.0000e+00
+  4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.0000° -> 0.0000°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5001e+01  2.5001e+01 -1.2701e+02  9.0016e+01  0.0000e+00
+  4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J4: 75.0158° -> 105.0158°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5001e+01  2.5001e+01 -1.2701e+02  9.0016e+01 -2.7913e-01
+  4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -14.9996° -> 15.0004°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5001e+01  2.5001e+01 -1.2701e+02  9.0016e+01 -2.7913e-01
+  4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -15.2791° -> -0.2791°; minimum_time=15.0000s, start_move=1.2000s; center_deg=[-5.5001e+01 -4.5001e+01  2.5001e+01 -1.2701e+02  9.0016e+01 -2.7913e-01
+  4.3945e-04]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0008  -45.0009   25.0007 -126.9991   89.9965   -0.2782    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.2782° -> 9.7218°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -55.0008  -45.0009   25.0007 -126.9991   89.9965   -0.2782    0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -12.8533° -> 17.1467°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        2.1467]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        2.1467]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -16.4275° -> 13.5725°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.       -1.4275]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.       -1.4275]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0100° -> 14.9900°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[-4.7435e+01 -4.4919e+01  2.4999e+01 -1.2577e+02  9.0027e+01  0.0000e+00
+ -1.0040e-02]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[-4.7435e+01 -4.4919e+01  2.4999e+01 -1.2577e+02  9.0027e+01  0.0000e+00
+ -1.0040e-02]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -13.8588° -> 16.1412°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        1.1412]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        1.1412]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -12.0414° -> 17.9586°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        2.9586]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        2.9586]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -15.0000° -> 15.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J5: -10.0000° -> 10.0000°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        0.    ]; command already includes staged correction (apply_offsets=False)
+[SWEEP COMMAND] right J6: -12.8635° -> 17.1365°; minimum_time=20.0000s, start_move=1.2000s; center_deg=[ -47.4348  -44.9191   24.9988 -125.771    90.0268    0.        2.1365]; command already includes staged correction (apply_offsets=False)

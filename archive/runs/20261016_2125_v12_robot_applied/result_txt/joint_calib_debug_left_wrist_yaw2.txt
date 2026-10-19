@@ -1,0 +1,30 @@
+
+=== NEW ITERATION ===
+[INFO] wrist_yaw2: J7 nominal ready pose=10.04°, raw_diff=-10.18°, optimal_offset=-0.14°
+  * Position-based J6: 16 frames near the sweep ends, spread 0.113° -> offset -0.1795°
+[INFO] wrist_yaw2 J6 estimates: orientation -0.143°, position -0.179° (difference -0.036°); using the orientation method.
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 88.9161 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.4992 mm
+  * Estimated Circle Center Distance       : 55.9963 mm
+  * Calculated Offset Correction           : -0.143384 deg
+==================================================
+[INFO] left J6 (wrist_yaw2) from the bracket sweeps: -0.1434° (J6 sweep 411 frames, r 54.1 mm; J5 sweep 309 frames, r 174.6 mm; orientation -0.1434°, position -0.1795°, method orientation)
+
+=== NEW ITERATION ===
+[INFO] wrist_yaw2: J7 nominal ready pose=10.04°, raw_diff=-10.01°, optimal_offset=-0.11°
+  * Position-based J6: 16 frames near the sweep ends, spread 0.170° -> offset -0.0311°
+[INFO] wrist_yaw2 J6 estimates: orientation -0.112°, position -0.031° (difference +0.081°); using the orientation method.
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_YAW2)
+==================================================
+  * Camera Circle Normals Angle (Reference): 89.1508 deg
+  * Circle Size Error (abs: r_A - r_B)     : 120.4151 mm
+  * Estimated Circle Center Distance       : 55.3650 mm
+  * Calculated Offset Correction           : -0.111963 deg
+==================================================
+[INFO] left J6 (wrist_yaw2) from the bracket sweeps: -0.1120° (J6 sweep 414 frames, r 54.2 mm; J5 sweep 309 frames, r 174.6 mm; orientation -0.1120°, position -0.0311°, method orientation)

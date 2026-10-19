@@ -226,6 +226,11 @@ def _execute_step1_sequence(
                 bracket_res = marker_calibrator.compute_marker_bracket_from_orthogonal_sweeps(
                     res_4, res_5, res_6, arm_side
                 )
+                log(f"[INFO] {arm_side} bracket position x {bracket_res['x_e']:.2f}, y {bracket_res['y_e']:.2f}, "
+                    f"z {bracket_res['z_e']:.2f} mm ({bracket_res['position_source']}).")
+                if bracket_res['position_at_limit']:
+                    log(f"[WARN] {arm_side} bracket x/z reached the +-{marker_calibrator.bracket_offset_tolerance_mm():g} mm "
+                        f"limit around the design value; check the bracket mounting.")
                 bracket_res['res_5'] = res_5
                 bracket_res['res_6'] = res_6
                 bracket_res['res_4'] = res_4
@@ -680,6 +685,17 @@ def _execute_step1_sequence(
             else:
                 now_bracket_pos = prev_bracket_pos
                 now_bracket_rot = prev_bracket_rot
+
+            if is_v13 and pass_idx == 1 and tf_vec_now is not None:
+                # Pass 1 solved the bracket position before J6 was known (x 0.46 mm short at a 3.6 deg J6 offset,
+                # 2026-10-16); re-solve it with the J6 offset staged since, so pass 2 is compared with like.
+                solved = marker_calibrator.v13_bracket_position_from_radii(
+                    res_5, res_6, arm_side, tuple(np.array(nominal_vec[:3]) * 1000.0))
+                if solved is not None:
+                    log(f"[INFO] {arm_side} pass 1 bracket position with the J6 offset found in pass 1: "
+                        f"x {solved[0][0]:.2f}, z {solved[0][2]:.2f} mm (solved before J6: "
+                        f"x {now_bracket_pos[0]:.2f}, z {now_bracket_pos[2]:.2f} mm).")
+                    now_bracket_pos = np.array(solved[0])
 
             pos_change = np.linalg.norm(now_bracket_pos - prev_bracket_pos)
 

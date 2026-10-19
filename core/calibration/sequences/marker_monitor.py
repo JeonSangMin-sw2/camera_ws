@@ -25,10 +25,17 @@ class MarkerMonitor:
         self.core = core
         self._stop = threading.Event()
         self._thread = None
+        self._window = 0
 
     @property
     def running(self):
         return self._thread is not None and self._thread.is_alive()
+
+    def restart_window(self):
+        """The exposure changed: drop the samples taken so far. Returns the new window number;
+        every summary carries the number of the window its samples belong to."""
+        self._window += 1
+        return self._window
 
     def start(self):
         if self.running:
@@ -53,19 +60,24 @@ class MarkerMonitor:
 
     def _run(self):
         history = {side: deque(maxlen=MONITOR_WINDOW) for side in SIDES}
+        window = self._window
         try:
             max_jitter, from_config = load_max_marker_jitter_mm()
             if not from_config:
                 self.core.log_msg(f"[WARN] exposure_check.max_marker_jitter_rms_mm is missing from setting.yaml; "
                                   f"using the default {max_jitter} mm.")
             while not self._stop.is_set():
+                if window != self._window:
+                    window = self._window
+                    for samples in history.values():
+                        samples.clear()
                 for side in SIDES:
                     history[side].append(self._sample(side))
                 if self._stop.is_set():
                     break
                 sides = marker_monitor_summary(history, max_jitter)
                 self.core.emit("marker_monitor", {
-                    "running": True, "sides": sides, "max_jitter_mm": max_jitter,
+                    "running": True, "window": window, "sides": sides, "max_jitter_mm": max_jitter,
                     "all_stable": all(sides[side]["stable"] for side in SIDES)})
                 self._stop.wait(MONITOR_PERIOD_S)
         except SequenceCancelled:

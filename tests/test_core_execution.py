@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch, create_autospec
 import numpy as np
 from core.calibration import CalibrationCore, SequenceResult
+from core.calibration.simulation import SimulationModel
 import core.calibration.data  # noqa: F401  binds its SETTING_PATH before setUp redirects setting_yaml
 from core.robot.robot_core import motion_cancellation, check_motion_cancelled, RobotOperationCancelled
 
@@ -210,7 +211,8 @@ class TestCoreExecution(unittest.TestCase):
         engine.camera = None
         with patch("core.marker_detection.Marker_Transform", return_value=engine) as factory:
             core.connect_camera(serial_number="test")
-        factory.assert_called_once_with(serial_number="test", camera_factory=backend)
+        factory.assert_called_once_with(serial_number="test", camera_factory=backend,
+                                        simulation_factory=SimulationModel.create)
         self.assertTrue(all(c.marker_st is core.observer for c in core.calibrators))
         core.close()
 
@@ -236,3 +238,52 @@ class TestCoreExecution(unittest.TestCase):
         self.assertFalse(constructor.call_args_list[1].kwargs["optimize_arm"])
         np.testing.assert_allclose(optimizers[1].optimize.call_args.kwargs["q_arm_offset_init"], .01)
         self.assertIn("optimizer_pass1", result.partial)
+
+    def test_step2_result_keeps_the_state_it_was_solved_in(self):
+        from core.calibration.calibration_optimizer import QPCalibrationOptimizer
+        from core.storage import ConfigStorage, ResultStorage
+        self.core.model = SimpleNamespace(right_arm_idx=list(range(7)), left_arm_idx=list(range(7, 14)), head_idx=[])
+        self.core.include_head_motion = False
+        constructor = create_autospec(QPCalibrationOptimizer)
+        optimizers = [MagicMock(), MagicMock()]
+        for optimizer in optimizers:
+            optimizer.optimize.return_value = (np.full(14, .01), None, np.zeros(6), [0.] * 6, [0.] * 6)
+            optimizer.noise_estimator.as_dict.return_value = {"test": True}
+        constructor.side_effect = optimizers
+        samples = [{"q_arm": np.zeros(14), "q_head": None, "marker": np.tile(np.eye(4), (2, 1, 1))}]
+        baseline = {"right_arm_joint_offset_deg": [0.1] * 7, "metadata": {"type": "home_reset_baseline", "created_at": "2026-10-06T21:24:54"}}
+        with tempfile.TemporaryDirectory() as folder, patch("core.calibration.sequences.step2.QPCalibrationOptimizer", constructor):
+            path = Path(folder) / "result.json"
+            ResultStorage.save(Path(folder) / "baseline.json", baseline)
+            self.core.last_home_reset_path = str(Path(folder) / "baseline.json")
+            first = self.core.run("step2", samples=samples, optimization={"result_path": str(path)})
+            self.assertTrue(first.success, first.error)
+            saved = ResultStorage.load(path)
+        # No real camera in this core: the exposure is recorded as unknown, not as a default.
+        self.assertIsNone(saved["camera_exposure"])
+        self.assertEqual(saved["setting_snapshot"], ConfigStorage.load(self.setting_yaml))
+        self.assertEqual(saved["home_reset_baseline"], baseline)
+
+    def test_step2_result_records_the_camera_exposure(self):
+        from core.calibration.calibration_optimizer import QPCalibrationOptimizer
+        from core.storage import ResultStorage
+        self.core.model = SimpleNamespace(right_arm_idx=list(range(7)), left_arm_idx=list(range(7, 14)), head_idx=[])
+        self.core.include_head_motion = False
+        self.core.marker_calibrator.marker_st = SimpleNamespace(
+            sim=False, camera=object(), get_camera_exposure=lambda: (False, 5000.0),
+            get_camera_exposure_unit_us=lambda: 1.0, get_actual_exposure=lambda: 4980.0)
+        constructor = create_autospec(QPCalibrationOptimizer)
+        optimizers = [MagicMock(), MagicMock()]
+        for optimizer in optimizers:
+            optimizer.optimize.return_value = (np.full(14, .01), None, np.zeros(6), [0.] * 6, [0.] * 6)
+            optimizer.noise_estimator.as_dict.return_value = {"test": True}
+        constructor.side_effect = optimizers
+        samples = [{"q_arm": np.zeros(14), "q_head": None, "marker": np.tile(np.eye(4), (2, 1, 1))}]
+        with tempfile.TemporaryDirectory() as folder, patch("core.calibration.sequences.step2.QPCalibrationOptimizer", constructor):
+            path = Path(folder) / "result.json"
+            result = self.core.run("step2", samples=samples, optimization={"result_path": str(path)})
+            self.assertTrue(result.success, result.error)
+            saved = ResultStorage.load(path)
+        self.assertEqual(saved["camera_exposure"],
+                         {"auto": False, "setpoint": 5000.0, "setpoint_unit_us": 1.0, "last_frame_us": 4980.0})
+        self.assertNotIn("home_reset_baseline", saved)

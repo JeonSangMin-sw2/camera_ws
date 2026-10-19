@@ -35,6 +35,13 @@ class TestModuleBoundaries(unittest.TestCase):
             path = ROOT / "core" / name
             self.assertFalse(any(m.startswith(("rby1_sdk", "core.robot")) for m in all_imported_modules(path)), path)
 
+    def test_comm_modules_do_not_import_calibration(self):
+        # 2026-10-14: the simulated pose sensor pulled the optimizer's maths into marker_detection;
+        # it now lives in core/calibration/simulation.py and is passed in by CalibrationCore.
+        for name in ("camera_processing.py", "marker_detection.py"):
+            path = ROOT / "core" / name
+            self.assertFalse(any(m.startswith(("core.calibration", "calibration")) for m in all_imported_modules(path)), path)
+
     def test_language_is_the_only_i18n_entrypoint(self):
         self.assertIn("core.language", imported_modules(ROOT / "main_ui.py"))
         self.assertFalse((ROOT / "core/i18n.py").exists())
@@ -70,7 +77,8 @@ class TestModuleBoundaries(unittest.TestCase):
             return {n.name for n in ast.parse((ROOT / path).read_text()).body if isinstance(n, ast.ClassDef)}
         self.assertIn("RealSenseCamera", classes("core/camera_processing.py"))
         self.assertNotIn("RealSenseCamera", classes("core/marker_detection.py"))
-        self.assertTrue({"Marker_Detection", "Marker_Transform", "SimulationModel"} <= classes("core/marker_detection.py"))
+        self.assertTrue({"Marker_Detection", "Marker_Transform"} <= classes("core/marker_detection.py"))
+        self.assertIn("SimulationModel", classes("core/calibration/simulation.py"))
 
     def test_home_offset_lives_under_robot(self):
         self.assertTrue((ROOT / "core/robot/home_offset.py").exists())

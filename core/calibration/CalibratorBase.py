@@ -19,9 +19,11 @@ from scipy.spatial.transform import Rotation as R_scipy
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 
 class BaseCalibrator(RobotOperations):
+    # v1.3 (2026-10-14/15): wrist_pitch_v13 +-15/+-15 -> +-30/+-30 (J5 scatter 0.43 -> ~0.10 deg per pair);
+    # wrist_roll_v13 +-20/+-15 -> +-30/+-25 once its axes came from the circle fits (0.12 -> 0.04 deg).
     JOINT_CONFIGS = {
-        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
-        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 6, "sweep_joint_B": 4, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
+        "wrist_roll_v13":  {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_roll",  "offset_range": (-30.0, 30.0), "sweep_range_A": 30.0, "sweep_range_B": 25.0},
+        "wrist_pitch_v13": {"cand_joint": 5, "sweep_joint_A": 6, "sweep_joint_B": 4, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 30.0, "sweep_range_B": 30.0},
         "wrist_yaw2":      {"cand_joint": 6, "sweep_joint_A": 6, "sweep_joint_B": 5, "offset_key": "wrist_yaw2",  "offset_range": (-30.0, 30.0), "sweep_range_A": 20.0, "sweep_range_B": 15.0},
         "wrist_pitch":     {"cand_joint": 5, "sweep_joint_A": 4, "sweep_joint_B": 6, "offset_key": "wrist_pitch", "offset_range": (-30.0, 30.0), "sweep_range_A": 15.0, "sweep_range_B": 15.0},
         "elbow":           {"cand_joint": 3, "sweep_joint_A": 2, "sweep_joint_B": 4, "offset_key": "elbow",       "offset_range": (-5.0, 0.0),   "sweep_range_A": 20.0, "sweep_range_B": 20.0},
@@ -198,7 +200,18 @@ class BaseCalibrator(RobotOperations):
             logging.error(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
             raise RuntimeError(f"[CRITICAL ERROR] Failed to load setting.yaml: {e}")
 
-    def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None):
+    def camera_exposure_record(self):
+        """Exposure the camera is set to right now, for the debug logs and the Step 2 result.
+        None without a real camera (simulation, tests): no value is made up."""
+        source = self.marker_st
+        if source is None or getattr(source, "sim", False) or getattr(source, "camera", None) is None:
+            return None
+        auto, setpoint = source.get_camera_exposure()
+        return {"auto": bool(auto), "setpoint": float(setpoint),
+                "setpoint_unit_us": float(source.get_camera_exposure_unit_us()),
+                "last_frame_us": float(source.get_actual_exposure())}
+
+    def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None, note=None, file_tag=None):
         try:
             if T_mount_to_cam is None:
                 if self.is_head_active():
@@ -214,8 +227,8 @@ class BaseCalibrator(RobotOperations):
                 raise RuntimeError("Robot instance is not initialized")
             arm_idx = self.robot.model().left_arm_idx if arm_side == "left" else self.robot.model().right_arm_idx
             
-            filename = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{type_key}_axis_{axis_num}.txt")
-            
+            filename = os.path.join(result_txt_dir, f"sweep_points_{arm_side}_{file_tag or type_key}_axis_{axis_num}.txt")
+
             # Determine prefix for header
             if type_key == "joint_A":
                 angle_header_name = "Joint_A"
@@ -229,6 +242,8 @@ class BaseCalibrator(RobotOperations):
                     f.write("\n=== NEW ITERATION ===\n")
                 f.write(f"# {angle_header_name}_Angle(deg), Cam_X(mm), Cam_Y(mm), Cam_Z(mm), Torso_X(mm), Torso_Y(mm), Torso_Z(mm), EE_X(mm), EE_Y(mm), EE_Z(mm), "
                         "T_cam2marker_flat(16), T_torso2marker_flat(16), T_ee2marker_flat(16)\n")
+                if note:
+                    f.write(f"# {note}\n")
                 for q_full, pose in dataset:
                     q_val = q_full[arm_idx[axis_num]]
                     s_deg = np.degrees(q_val - initial_joint_pos[axis_num])

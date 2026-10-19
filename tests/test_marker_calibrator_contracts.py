@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
@@ -282,6 +283,107 @@ class BracketRadiiFromEncoderFits(unittest.TestCase):
         out, logs, _, _ = self.solve(55.5)
         self.assertEqual(out["y_e"], 54.0)                # still held at the design value
         self.assertTrue(any("[WARN]" in l and "y at 55.50" in l for l in logs), logs)
+
+
+class V13BracketPositionFromRadii(unittest.TestCase):
+    """2026-10-15: the v1.3 bracket position always came back as the design value (a median of FK
+    points sat > 40 mm away and fell back silently). It is now solved from the bracket sweeps' radii,
+    y held at the design value, as on v1.2. 2026-10-16: only the J5 and J6 radii are used (the J4 one
+    carries the J5 offset, not calibrated yet) and the known J6 offset is removed before FK."""
+    WRIST_MM = np.array([0.0, 0.0, 125.0])
+
+    def calibrator(self, wrist_roll_offset_deg=0.0):
+        mc = MarkerCalibrator.__new__(MarkerCalibrator)
+        mc.robot = MagicMock()
+        mc.robot.model.return_value = SimpleNamespace(right_arm_idx=list(range(7)), left_arm_idx=list(range(7, 14)))
+        mc.markers_config = {}
+        mc.joint_offsets = {"right": {"wrist_roll": wrist_roll_offset_deg}}
+
+        def fk(robot, dyn, q, link):
+            # Links sit at the wrist centre with J5 = y, J6 = x; the ee turns about x by J6 around it.
+            T = np.eye(4)
+            T[:3, 3] = self.WRIST_MM / 1000.0
+            if link.startswith("ee_"):
+                T[:3, :3] = R_scipy.from_rotvec([q[6], 0.0, 0.0]).as_matrix()
+                T[:3, 3] -= T[:3, :3] @ self.WRIST_MM / 1000.0
+            return T
+        mc.compute_fk = fk
+        return mc
+
+    def sweeps(self, p_mm, j6_physical_deg=0.0, j6_encoder_deg=0.0):
+        """The J5 and J6 sweeps as the radii the marker at p draws, J6 physically at j6_physical_deg."""
+        d = np.asarray(p_mm, dtype=float) - self.WRIST_MM
+        j5_axis = R_scipy.from_rotvec([np.radians(j6_physical_deg), 0.0, 0.0]).as_matrix().T @ [0.0, 1.0, 0.0]
+        q = np.zeros(26)
+        q[6] = np.radians(j6_encoder_deg)
+        return [{"captured_q_full": [q], "radius": float(np.linalg.norm(np.cross(d, axis)))}
+                for axis in (j5_axis, np.array([1.0, 0.0, 0.0]))]
+
+    def test_x_and_z_come_from_the_radii_and_y_stays_at_design(self):
+        (x, y, z), at_limit = self.calibrator().v13_bracket_position_from_radii(
+            *self.sweeps([67.6, 0.4, 1.2]), "right", (67.0, 0.0, 0.0))
+        self.assertAlmostEqual(x, 67.6, places=2)
+        self.assertAlmostEqual(z, 1.2, places=2)
+        self.assertEqual(y, 0.0)
+        self.assertFalse(at_limit)
+
+    def test_beyond_the_tolerance_stops_at_the_limit_and_says_so(self):
+        (x, _, z), at_limit = self.calibrator().v13_bracket_position_from_radii(
+            *self.sweeps([67.0, 0.0, 3.5]), "right", (67.0, 0.0, 0.0))
+        self.assertAlmostEqual(z, 2.0, places=3)
+        self.assertTrue(at_limit)
+
+    def test_the_known_j6_offset_is_removed_before_fk(self):
+        # Pass 2 commands J6 with its offset, so the encoder reads 3 deg while the wrist is straight.
+        sweeps = self.sweeps([67.5, 0.0, 2.0], j6_physical_deg=0.0, j6_encoder_deg=3.0)
+        (x, _, z), _ = self.calibrator(wrist_roll_offset_deg=3.0).v13_bracket_position_from_radii(
+            *sweeps, "right", (67.0, 0.0, 0.0))
+        self.assertAlmostEqual(x, 67.5, places=3)
+        self.assertAlmostEqual(z, 2.0, places=3)
+        (x_ignored, _, _), _ = self.calibrator().v13_bracket_position_from_radii(*sweeps, "right", (67.0, 0.0, 0.0))
+        self.assertGreater(abs(x_ignored - 67.5), 0.2)
+
+    def test_a_sweep_without_frames_returns_nothing_instead_of_the_design_value(self):
+        sweeps = self.sweeps([67.0, 0.0, 0.0])
+        sweeps[1]["captured_q_full"] = []
+        self.assertIsNone(self.calibrator().v13_bracket_position_from_radii(*sweeps, "right", (67.0, 0.0, 0.0)))
+
+
+class V13BracketYawFromCircleFitAxes(unittest.TestCase):
+    """2026-10-16: the v1.3 bracket yaw took its J6/J5 axes from rotations relative to the middle frame,
+    so that frame's orientation noise moved the yaw up to 0.48 deg at 0.37 deg noise (simulator). The
+    axes now come from the circle fit mapped with every frame, as on v1.2."""
+    YAW_OFFSET_DEG = 0.05
+
+    def sweeps(self, side):
+        nominal = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES["1.3"][side]
+        rpy = np.array(nominal[3:6], dtype=float) + [0.0, 0.0, self.YAW_OFFSET_DEG]
+        R_ee_m = R_scipy.from_euler('ZYX', rpy[::-1], degrees=True).as_matrix()
+        R_cam_ee = R_scipy.from_euler('xyz', [170.0, 10.0, 35.0], degrees=True).as_matrix()
+        out = []
+        for local in ([1.0, 0.0, 0.0], [0.0, 1.0, 0.0]):     # J6 then J5 axis in the ee frame
+            a_cam = R_cam_ee @ local
+            poses = []
+            for angle in np.radians(np.linspace(-20.0, 20.0, 41)):
+                T = np.eye(4)
+                T[:3, :3] = R_scipy.from_rotvec(angle * a_cam).as_matrix() @ R_cam_ee @ R_ee_m
+                T[:3, 3] = [0.0, 0.0, 0.25]
+                poses.append(T)
+            # One bad orientation in the middle frame, the reference of the rotation-only extraction.
+            poses[20][:3, :3] = R_scipy.from_rotvec(np.radians([2.0, -1.5, 1.0])).as_matrix() @ poses[20][:3, :3]
+            out.append({"captured_poses": poses, "axis_opt": a_cam})
+        return out
+
+    def test_one_bad_middle_frame_does_not_move_the_yaw(self):
+        mc = MarkerCalibrator.__new__(MarkerCalibrator)
+        mc.robot = None
+        mc.is_v13 = MagicMock(return_value=True)
+        for side in ("right", "left"):
+            res_6, res_5 = self.sweeps(side)
+            res = mc.compute_marker_bracket_from_orthogonal_sweeps(None, res_5, res_6, side)
+            design_yaw = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES["1.3"][side][5]
+            yaw_offset = (res["yaw_e"] - design_yaw + 180.0) % 360.0 - 180.0
+            self.assertAlmostEqual(yaw_offset, self.YAW_OFFSET_DEG, delta=0.02, msg=side)
 
 
 class RefitDropsOffCircleFrames(unittest.TestCase):

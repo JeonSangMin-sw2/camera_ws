@@ -1,6 +1,5 @@
 from core.storage import camera_intrinsics_path, camera_intrinsics_serial_path
 from core.storage import ConfigStorage
-from core.storage import FileStorage
 from core.camera_processing import RealSenseCamera, CameraUnavailableError
 import pyrealsense2 as rs
 import numpy as np
@@ -12,7 +11,7 @@ import time
 import threading
 import sys
 import os
-import re, yaml
+import re
 
 #debugging flag : must be all false in production
 imshow_when_detect = False
@@ -339,7 +338,11 @@ class Marker_Detection:
 
 
 class Marker_Transform:
-    def __init__(self, serial_number=None, *, sim=False, robot=None, robot_version='1.2', camera_factory=RealSenseCamera):
+    def __init__(self, serial_number=None, *, sim=False, robot=None, robot_version='1.2', camera_factory=RealSenseCamera,
+                 simulation_factory=None):
+        # simulation_factory(version) -> the simulated pose sensor (core.calibration.simulation
+        # SimulationModel.create). Passed in so this comm module does not import the calibration maths.
+        self.simulation_factory = simulation_factory
         self.sim = bool(sim)
         self.camera = None
         self.robot = robot
@@ -377,7 +380,7 @@ class Marker_Transform:
         self.fps = self.camera_config.get("fps", 30)
 
         if self.sim:
-            self.simulation_model = SimulationModel.create(self.robot_version)
+            self.simulation_model = self._create_simulation_model(self.robot_version)
 
         if self.camera is not None:
             print("Initializing Camera...")
@@ -487,11 +490,17 @@ class Marker_Transform:
     def bind_robot(self, robot, robot_version):
         version = str(robot_version).removeprefix('v')
         if self.sim and (getattr(self, 'simulation_model', None) is None or self.simulation_model.version != version):
-            self.simulation_model = SimulationModel.create(version)
+            self.simulation_model = self._create_simulation_model(version)
             self.rng = np.random.default_rng(self.simulation_model.config.get('seed', 42))
         self.robot, self.robot_version = robot, version
         if robot is not None:
             self._apply_marker_bracket_version(version)
+
+    def _create_simulation_model(self, version):
+        if self.simulation_factory is None:
+            raise RuntimeError("Simulation mode (or no camera) needs simulation_factory; "
+                               "CalibrationCore.connect_camera passes SimulationModel.create.")
+        return self.simulation_factory(version)
 
     def _apply_marker_bracket_version(self, version):
         """Make the live `Tf_to_marker_<side>` belong to this robot version's bracket.
@@ -903,6 +912,19 @@ class Marker_Transform:
         print(f"[INFO] Loaded the intrinsics calibrated for camera S/N {serial} ({self.camera_model}).")
         return True
 
+    def reload_saved_intrinsics(self):
+        """Re-read the intrinsics files and apply them to the detector, as a reconnect would.
+
+        For a save made while the camera is open: the unit's new S/N file was otherwise not
+        recognized (source, registered or not) until the camera was reconnected.
+        Returns True when a calibration file was applied."""
+        self.intrinsics_missing = False
+        self.intrinsics_mismatch = False
+        self.intrinsics_serial_matched = False
+        self.intrinsics_source = None
+        self._resolve_camera_intrinsics()
+        return self.apply_calibrated_intrinsics(self.active_intrinsics_path)
+
     def set_marker_type(self, marker_type="plate"):
         self.marker_detection.set_marker_type(marker_type)
     def make_transform(self, data):
@@ -1094,12 +1116,6 @@ class Marker_Transform:
             return None
 
 
-from dataclasses import dataclass
-import hashlib
-import json
-from pathlib import Path
-
-
 def camera_model_family(name):
     """'Intel RealSense D435i' -> 'D435'. Variants of one model (D435i has an IMU, D435f an IR
     filter) share the housing and optics, so they share the mount-to-camera extrinsics; only the
@@ -1234,93 +1250,3 @@ def resolve_marker_brackets(markers_config, version, log=print):
             f"({distance * 1000:.1f} mm / {angle:.2f} deg apart). Loading the v{version} nominal...")
         changes[side] = list(target)
     return changes
-
-
-def load_truth_config():
-    from core.storage import CONFIG_PATHS
-    sim_path = CONFIG_PATHS.get('simulation_yaml')
-    if not sim_path or not os.path.exists(sim_path):
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        sim_path = os.path.join(base_dir, 'config', 'simulation.yaml')
-        if not os.path.exists(sim_path):
-            sim_path = os.path.join(os.path.dirname(base_dir), 'config', 'simulation.yaml')
-    with FileStorage.open(sim_path, encoding='utf-8') as stream:
-        return yaml.safe_load(stream)
-
-
-def uses_head_camera(camera_config, model):
-    mode = camera_config.get('camera_mount_mode', 'head')
-    if mode not in ('head', 'fixed'):
-        raise ValueError('camera_mount_mode must be head or fixed')
-    return mode == 'head' and len(getattr(model, 'head_idx', [])) >= 2
-
-
-@dataclass(frozen=True)
-class SimulationModel:
-    version: str
-    config_json: str
-
-    @classmethod
-    def create(cls, version='1.2', config=None):
-        config = load_truth_config() if config is None else config
-        version = str(version).removeprefix('v')
-        if version not in config['brackets']:
-            raise ValueError(f'No simulation geometry for robot v{version}')
-        return cls(version, json.dumps(config, sort_keys=True, allow_nan=False))
-
-    @property
-    def config(self):
-        return json.loads(self.config_json)
-
-    def arm_offsets(self, side):
-        values = self.config['offsets'][side]
-        return np.deg2rad([values[f'joint{i}' if i != 5 else
-                                 ('joint5_v13' if self.version == '1.3' else 'joint5_v12')]
-                          for i in range(7)])
-
-    def bracket_transform(self, side):
-        try:
-            from core.calibration.calibration_optimizer import make_transform
-        except ImportError:
-            from calibration.calibration_optimizer import make_transform
-        cfg = self.config
-        nominal = make_transform(cfg['brackets'][self.version][side])
-        error = cfg['offsets'][side]
-        nominal[:3, 3] += np.asarray(error['bracket_pos'])
-        nominal[:3, :3] = make_transform([0, 0, 0] + error['bracket_rpy'])[:3, :3] @ nominal[:3, :3]
-        return nominal
-
-    def marker_pose(self, robot, q_encoder, side, rng=None, noisy=True):
-        try:
-            from core.calibration.calibration_optimizer import compute_fk, make_transform, so3_exp
-        except ImportError:
-            from calibration.calibration_optimizer import compute_fk, make_transform, so3_exp
-        cfg, model = self.config, robot.model() if robot else None
-        q = np.array(q_encoder, dtype=float, copy=True)
-        if model:
-            q[getattr(model, f'{side}_arm_idx')] += self.arm_offsets(side)
-            head = uses_head_camera(cfg, model)
-            if head:
-                offsets = cfg['offsets']['head']
-                q[model.head_idx] += np.deg2rad([offsets['pan'], offsets['tilt']])
-        base = 'link_head_2' if (model and uses_head_camera(cfg, model)) else 'link_head_0'
-        camera = make_transform(cfg['mount_to_cam' if (model and uses_head_camera(cfg, model)) else 'head_base_to_cam'])
-        if robot:
-            _, fk = compute_fk(robot, robot.get_dynamics(), q, f'ee_{side}', base_link=base)
-            result = np.linalg.inv(camera) @ fk @ self.bracket_transform(side)
-        else:
-            result = np.eye(4)
-        if noisy:
-            if rng is None:
-                raise ValueError('A session RNG is required for reproducible sensor noise')
-            result[:3, 3] += rng.normal(0, cfg['position_noise_std_m'], 3)
-            result[:3, :3] = so3_exp(np.deg2rad(rng.normal(0, cfg['orientation_noise_std_deg'], 3))) @ result[:3, :3]
-        return result
-
-    def metadata(self, urdf_path=None):
-        return {'schema_version': 1, 'source': 'simulation_pose_sensor',
-                'robot_version': self.version, 'truth': self.config,
-                'truth_sha256': hashlib.sha256(self.config_json.encode()).hexdigest(),
-                'urdf_sha256': hashlib.sha256(Path(urdf_path).read_bytes()).hexdigest() if urdf_path else None,
-                'offset_convention': 'q_physical = q_encoder + delta; correction = -delta',
-                'image_detection_verified': False}

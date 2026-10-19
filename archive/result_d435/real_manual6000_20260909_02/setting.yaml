@@ -1,0 +1,103 @@
+camera:
+  auto_exposure: false
+  camera_mount_link: link_head_2
+  camera_mount_mode: head
+  device_name: D405
+  exposure: 6000
+  extrinsic_source: sweep_effective_initialization
+  fps: 30
+  head_base_to_cam:
+  - 0.098
+  - 0.009
+  - 0.012
+  - -90.0
+  - 0.0
+  - -90.0
+  head_base_to_cam_nominal:
+  - 0.098
+  - 0.009
+  - 0.012
+  - -90.0
+  - 0.0
+  - -90.0
+  head_tilt_mode: effective_zero_gauge
+  head_tilt_reference_deg: null
+  head_zero_convention: camera_forward
+  height: 720
+  intrinsics_source: calibrated
+  mount_to_cam:
+  - 0.04438861706837579
+  - 0.009559746763929344
+  - 0.05784478458328852
+  - -88.49243748335554
+  - -0.02023061127060614
+  - -89.94255720158007
+  mount_to_cam_nominal:
+  - 0.047
+  - 0.009
+  - 0.057
+  - -90.0
+  - 0.0
+  - -90.0
+  width: 1280
+joint_offset:
+  left:
+    joint3: -0.7003351291816905
+    joint5: -3.6313839961010683
+    joint6: -3.6551588549859684
+  right:
+    joint3: -0.4855205674943063
+    joint5: 2.1285070807232103
+    joint6: -2.22438995900781
+  head:
+    pan: 0.0
+    tilt: 0.0
+marker:
+  Tf_to_marker_left:
+  - 0.06786682648606542
+  - 0.0001711626267641142
+  - -0.0019559018007354045
+  - 90.11518547047163
+  - -0.047399579498174596
+  - -90.00679787117366
+  Tf_to_marker_left_v12:
+  - 0.0
+  - 0.054
+  - -0.048
+  - 90.0
+  - 0.0
+  - 0.0
+  Tf_to_marker_left_v13:
+  - 0.067
+  - 0.0
+  - 0.0
+  - 90.0
+  - 0.0
+  - -90.0
+  Tf_to_marker_right:
+  - 0.06794522332553418
+  - 0.00015555163239868488
+  - 0.0020837034412803795
+  - 90.2393099635357
+  - -0.025984984974856268
+  - -89.95576402508023
+  Tf_to_marker_right_v12:
+  - 0.0
+  - -0.054
+  - -0.048
+  - 90.0
+  - 0.0
+  - 180.0
+  Tf_to_marker_right_v13:
+  - 0.067
+  - 0.0
+  - 0.0
+  - 90.0
+  - 0.0
+  - -90.0
+  plate:
+    left_ids:
+    - 7
+    plate_size_mm: 80.0
+    right_ids:
+    - 8

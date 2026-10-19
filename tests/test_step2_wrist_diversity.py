@@ -166,6 +166,22 @@ class TestCollectionSkipsOptionalFailures(unittest.TestCase):
         self.assertEqual(result.status, "failed")
         self.assertIn("three consecutive", result.error)
 
+    def test_an_empty_plan_says_so(self):
+        # 2026-10-15: a simulator run failed with only "No valid calibration samples collected".
+        result, capture = self.collect([], [], [])
+        self.assertEqual(result.status, "failed")
+        self.assertIn("plan is empty", result.error)
+        self.assertIn("max_x", result.error)
+        capture.assert_not_called()
+        self.assertTrue(any("Step 2 plan: 0 poses" in line for line in self.logs))
+
+    def test_no_samples_reports_how_many_poses_and_misses(self):
+        missed = (None, None, None)
+        plan = [{}, {}]
+        result, _ = self.collect(plan, plan, [missed] * 2)
+        self.assertEqual(result.status, "failed")
+        self.assertIn("2 poses in the plan, markers missed at 2", result.error)
+
 
 if __name__ == "__main__":
     unittest.main()

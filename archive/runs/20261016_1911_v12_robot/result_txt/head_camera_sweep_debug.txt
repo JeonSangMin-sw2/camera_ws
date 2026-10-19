@@ -1,0 +1,1828 @@
+  Tilt=-10.001° t=53252.2420 side=right -> Marker Cam Pos: [ +89.43,  +32.52, +199.99] mm
+  Tilt=-10.001° t=53252.2575 side=left -> Marker Cam Pos: [ -71.18,  +26.54, +200.32] mm
+  Tilt=-10.001° t=53252.2810 side=right -> Marker Cam Pos: [ +89.40,  +32.50, +199.93] mm
+  Tilt=-10.001° t=53252.2965 side=left -> Marker Cam Pos: [ -71.18,  +26.55, +200.32] mm
+  Tilt= -9.949° t=53252.3510 side=right -> Marker Cam Pos: [ +89.39,  +32.46, +199.91] mm
+  Tilt= -9.949° t=53252.3745 side=left -> Marker Cam Pos: [ -71.21,  +26.42, +200.47] mm
+  Tilt= -9.869° t=53252.4135 side=right -> Marker Cam Pos: [ +89.41,  +32.16, +199.88] mm
+  Tilt= -9.869° t=53252.4370 side=left -> Marker Cam Pos: [ -71.18,  +26.05, +200.30] mm
+  Tilt= -9.776° t=53252.4760 side=right -> Marker Cam Pos: [ +89.44,  +31.82, +199.95] mm
+  Tilt= -9.776° t=53252.4995 side=left -> Marker Cam Pos: [ -71.16,  +25.66, +200.14] mm
+  Tilt= -9.680° t=53252.5460 side=right -> Marker Cam Pos: [ +89.37,  +31.39, +199.75] mm
+  Tilt= -9.680° t=53252.5620 side=left -> Marker Cam Pos: [ -71.19,  +25.28, +200.19] mm
+  Tilt= -9.598° t=53252.6010 side=right -> Marker Cam Pos: [ +89.36,  +31.04, +199.73] mm
+  Tilt= -9.598° t=53252.6245 side=left -> Marker Cam Pos: [ -71.22,  +24.93, +200.27] mm
+  Tilt= -9.513° t=53252.6715 side=right -> Marker Cam Pos: [ +89.40,  +30.63, +199.75] mm
+  Tilt= -9.513° t=53252.7025 side=left -> Marker Cam Pos: [ -71.15,  +24.50, +200.01] mm
+  Tilt= -9.400° t=53252.7500 side=right -> Marker Cam Pos: [ +89.32,  +30.19, +199.54] mm
+  Tilt= -9.400° t=53252.7730 side=left -> Marker Cam Pos: [ -71.17,  +24.10, +200.03] mm
+  Tilt= -9.330° t=53252.8040 side=right -> Marker Cam Pos: [ +89.37,  +29.85, +199.53] mm
+  Tilt= -9.330° t=53252.8275 side=left -> Marker Cam Pos: [ -71.19,  +23.78, +200.05] mm
+  Tilt= -9.231° t=53252.8750 side=right -> Marker Cam Pos: [ +89.39,  +29.46, +199.52] mm
+  Tilt= -9.231° t=53252.8905 side=left -> Marker Cam Pos: [ -71.18,  +23.38, +199.99] mm
+  Tilt= -9.147° t=53252.9450 side=right -> Marker Cam Pos: [ +89.39,  +29.06, +199.47] mm
+  Tilt= -9.147° t=53252.9685 side=left -> Marker Cam Pos: [ -71.11,  +22.92, +199.70] mm
+  Tilt= -9.059° t=53253.0155 side=right -> Marker Cam Pos: [ +89.44,  +28.69, +199.51] mm
+  Tilt= -9.059° t=53253.0385 side=left -> Marker Cam Pos: [ -71.12,  +22.58, +199.70] mm
+  Tilt= -8.969° t=53253.0700 side=right -> Marker Cam Pos: [ +89.39,  +28.30, +199.31] mm
+  Tilt= -8.969° t=53253.0935 side=left -> Marker Cam Pos: [ -71.14,  +22.21, +199.73] mm
+  Tilt= -8.878° t=53253.1480 side=right -> Marker Cam Pos: [ +89.43,  +27.95, +199.35] mm
+  Tilt= -8.878° t=53253.1715 side=left -> Marker Cam Pos: [ -71.17,  +21.85, +199.76] mm
+  Tilt= -8.786° t=53253.2105 side=right -> Marker Cam Pos: [ +89.41,  +27.53, +199.24] mm
+  Tilt= -8.786° t=53253.2340 side=left -> Marker Cam Pos: [ -71.13,  +21.44, +199.57] mm
+  Tilt= -8.695° t=53253.2810 side=right -> Marker Cam Pos: [ +89.42,  +27.16, +199.21] mm
+  Tilt= -8.695° t=53253.2965 side=left -> Marker Cam Pos: [ -71.12,  +21.08, +199.51] mm
+  Tilt= -8.573° t=53253.3670 side=right -> Marker Cam Pos: [ +89.41,  +26.78, +199.09] mm
+  Tilt= -8.573° t=53253.3825 side=left -> Marker Cam Pos: [ -71.13,  +20.71, +199.49] mm
+  Tilt= -8.521° t=53253.4135 side=right -> Marker Cam Pos: [ +89.46,  +26.42, +199.10] mm
+  Tilt= -8.521° t=53253.4370 side=left -> Marker Cam Pos: [ -71.14,  +20.30, +199.46] mm
+  Tilt= -8.427° t=53253.4760 side=right -> Marker Cam Pos: [ +89.45,  +26.05, +199.04] mm
+  Tilt= -8.427° t=53253.4995 side=left -> Marker Cam Pos: [ -71.12,  +19.92, +199.33] mm
+  Tilt= -8.342° t=53253.5460 side=right -> Marker Cam Pos: [ +89.46,  +25.66, +199.03] mm
+  Tilt= -8.342° t=53253.5775 side=left -> Marker Cam Pos: [ -71.12,  +19.52, +199.26] mm
+  Tilt= -8.247° t=53253.6170 side=right -> Marker Cam Pos: [ +89.45,  +25.24, +198.88] mm
+  Tilt= -8.247° t=53253.6325 side=left -> Marker Cam Pos: [ -71.16,  +19.17, +199.36] mm
+  Tilt= -8.162° t=53253.6790 side=right -> Marker Cam Pos: [ +89.47,  +24.89, +198.90] mm
+  Tilt= -8.162° t=53253.7025 side=left -> Marker Cam Pos: [ -71.15,  +18.79, +199.27] mm
+  Tilt= -8.069° t=53253.7420 side=right -> Marker Cam Pos: [ +89.48,  +24.54, +198.86] mm
+  Tilt= -8.069° t=53253.7730 side=left -> Marker Cam Pos: [ -71.13,  +18.38, +199.09] mm
+  Tilt= -7.974° t=53253.8120 side=right -> Marker Cam Pos: [ +89.41,  +24.08, +198.66] mm
+  Tilt= -7.974° t=53253.8275 side=left -> Marker Cam Pos: [ -71.12,  +17.98, +199.02] mm
+  Tilt= -7.888° t=53253.8745 side=right -> Marker Cam Pos: [ +89.42,  +23.71, +198.64] mm
+  Tilt= -7.888° t=53253.9055 side=left -> Marker Cam Pos: [ -71.13,  +17.64, +199.04] mm
+  Tilt= -7.795° t=53253.9450 side=right -> Marker Cam Pos: [ +89.44,  +23.36, +198.64] mm
+  Tilt= -7.795° t=53253.9685 side=left -> Marker Cam Pos: [ -71.12,  +17.25, +198.94] mm
+  Tilt= -7.712° t=53254.0075 side=right -> Marker Cam Pos: [ +89.43,  +22.98, +198.52] mm
+  Tilt= -7.712° t=53254.0305 side=left -> Marker Cam Pos: [ -71.10,  +16.83, +198.79] mm
+  Tilt= -7.610° t=53254.0855 side=right -> Marker Cam Pos: [ +89.44,  +22.55, +198.51] mm
+  Tilt= -7.610° t=53254.1010 side=left -> Marker Cam Pos: [ -71.11,  +16.48, +198.84] mm
+  Tilt= -7.536° t=53254.1400 side=right -> Marker Cam Pos: [ +89.44,  +22.19, +198.42] mm
+  Tilt= -7.536° t=53254.1715 side=left -> Marker Cam Pos: [ -71.13,  +16.11, +198.79] mm
+  Tilt= -7.439° t=53254.2105 side=right -> Marker Cam Pos: [ +89.50,  +21.83, +198.49] mm
+  Tilt= -7.439° t=53254.2340 side=left -> Marker Cam Pos: [ -71.07,  +15.72, +198.52] mm
+  Tilt= -7.334° t=53254.2885 side=right -> Marker Cam Pos: [ +89.47,  +21.45, +198.32] mm
+  Tilt= -7.334° t=53254.3120 side=left -> Marker Cam Pos: [ -71.11,  +15.33, +198.59] mm
+  Tilt= -7.265° t=53254.3510 side=right -> Marker Cam Pos: [ +89.48,  +21.05, +198.26] mm
+  Tilt= -7.265° t=53254.3745 side=left -> Marker Cam Pos: [ -71.11,  +14.98, +198.51] mm
+  Tilt= -7.185° t=53254.4135 side=right -> Marker Cam Pos: [ +89.53,  +20.69, +198.31] mm
+  Tilt= -7.185° t=53254.4370 side=left -> Marker Cam Pos: [ -71.13,  +14.62, +198.55] mm
+  Tilt= -7.081° t=53254.4920 side=right -> Marker Cam Pos: [ +89.50,  +20.31, +198.16] mm
+  Tilt= -7.081° t=53254.5075 side=left -> Marker Cam Pos: [ -71.07,  +14.22, +198.36] mm
+  Tilt= -7.001° t=53254.5385 side=right -> Marker Cam Pos: [ +89.54,  +19.92, +198.18] mm
+  Tilt= -7.001° t=53254.5620 side=left -> Marker Cam Pos: [ -71.03,  +13.82, +198.15] mm
+  Tilt= -6.912° t=53254.6010 side=right -> Marker Cam Pos: [ +89.48,  +19.57, +197.89] mm
+  Tilt= -6.912° t=53254.6405 side=left -> Marker Cam Pos: [ -71.04,  +13.49, +198.19] mm
+  Tilt= -6.820° t=53254.6790 side=right -> Marker Cam Pos: [ +89.55,  +19.16, +197.94] mm
+  Tilt= -6.820° t=53254.7025 side=left -> Marker Cam Pos: [ -71.06,  +13.10, +198.18] mm
+  Tilt= -6.729° t=53254.7420 side=right -> Marker Cam Pos: [ +89.52,  +18.80, +197.86] mm
+  Tilt= -6.729° t=53254.7655 side=left -> Marker Cam Pos: [ -71.04,  +12.70, +198.03] mm
+  Tilt= -6.642° t=53254.8120 side=right -> Marker Cam Pos: [ +89.58,  +18.45, +197.88] mm
+  Tilt= -6.642° t=53254.8275 side=left -> Marker Cam Pos: [ -71.05,  +12.35, +198.02] mm
+  Tilt= -6.554° t=53254.8980 side=right -> Marker Cam Pos: [ +89.56,  +18.06, +197.74] mm
+  Tilt= -6.554° t=53254.9135 side=left -> Marker Cam Pos: [ -71.04,  +11.97, +197.96] mm
+  Tilt= -6.460° t=53254.9450 side=right -> Marker Cam Pos: [ +89.52,  +17.69, +197.55] mm
+  Tilt= -6.460° t=53254.9685 side=left -> Marker Cam Pos: [ -71.04,  +11.60, +197.88] mm
+  Tilt= -6.374° t=53255.0075 side=right -> Marker Cam Pos: [ +89.55,  +17.31, +197.66] mm
+  Tilt= -6.374° t=53255.0305 side=left -> Marker Cam Pos: [ -71.01,  +11.21, +197.71] mm
+  Tilt= -6.285° t=53255.0700 side=right -> Marker Cam Pos: [ +89.57,  +16.94, +197.57] mm
+  Tilt= -6.285° t=53255.0935 side=left -> Marker Cam Pos: [ -71.02,  +10.84, +197.72] mm
+  Tilt= -6.199° t=53255.1405 side=right -> Marker Cam Pos: [ +89.53,  +16.53, +197.34] mm
+  Tilt= -6.199° t=53255.1715 side=left -> Marker Cam Pos: [ -71.03,  +10.46, +197.70] mm
+  Tilt= -6.101° t=53255.2105 side=right -> Marker Cam Pos: [ +89.54,  +16.17, +197.33] mm
+  Tilt= -6.101° t=53255.2340 side=left -> Marker Cam Pos: [ -70.99,  +10.07, +197.46] mm
+  Tilt= -6.019° t=53255.2730 side=right -> Marker Cam Pos: [ +89.54,  +15.81, +197.23] mm
+  Tilt= -6.019° t=53255.3045 side=left -> Marker Cam Pos: [ -71.01,   +9.69, +197.40] mm
+  Tilt= -5.919° t=53255.3510 side=right -> Marker Cam Pos: [ +89.53,  +15.39, +197.16] mm
+  Tilt= -5.919° t=53255.3745 side=left -> Marker Cam Pos: [ -71.02,   +9.33, +197.41] mm
+  Tilt= -5.828° t=53255.4135 side=right -> Marker Cam Pos: [ +89.53,  +15.00, +197.05] mm
+  Tilt= -5.828° t=53255.4370 side=left -> Marker Cam Pos: [ -71.03,   +8.93, +197.37] mm
+  Tilt= -5.748° t=53255.4760 side=right -> Marker Cam Pos: [ +89.61,  +14.68, +197.14] mm
+  Tilt= -5.748° t=53255.4995 side=left -> Marker Cam Pos: [ -71.01,   +8.57, +197.24] mm
+  Tilt= -5.660° t=53255.5385 side=right -> Marker Cam Pos: [ +89.54,  +14.29, +196.95] mm
+  Tilt= -5.660° t=53255.5620 side=left -> Marker Cam Pos: [ -71.00,   +8.21, +197.10] mm
+  Tilt= -5.554° t=53255.6170 side=right -> Marker Cam Pos: [ +89.51,  +13.89, +196.76] mm
+  Tilt= -5.554° t=53255.6405 side=left -> Marker Cam Pos: [ -71.03,   +7.83, +197.12] mm
+  Tilt= -5.484° t=53255.6790 side=right -> Marker Cam Pos: [ +89.57,  +13.49, +196.81] mm
+  Tilt= -5.484° t=53255.7025 side=left -> Marker Cam Pos: [ -70.99,   +7.43, +196.98] mm
+  Tilt= -5.390° t=53255.7420 side=right -> Marker Cam Pos: [ +89.58,  +13.15, +196.73] mm
+  Tilt= -5.390° t=53255.7655 side=left -> Marker Cam Pos: [ -71.00,   +7.07, +196.92] mm
+  Tilt= -5.306° t=53255.8040 side=right -> Marker Cam Pos: [ +89.62,  +12.78, +196.75] mm
+  Tilt= -5.306° t=53255.8355 side=left -> Marker Cam Pos: [ -70.99,   +6.71, +196.84] mm
+  Tilt= -5.215° t=53255.8745 side=right -> Marker Cam Pos: [ +89.59,  +12.40, +196.56] mm
+  Tilt= -5.215° t=53255.9055 side=left -> Marker Cam Pos: [ -70.97,   +6.34, +196.74] mm
+  Tilt= -5.130° t=53255.9450 side=right -> Marker Cam Pos: [ +89.60,  +12.02, +196.50] mm
+  Tilt= -5.130° t=53255.9685 side=left -> Marker Cam Pos: [ -70.99,   +5.97, +196.75] mm
+  Tilt= -5.035° t=53256.0150 side=right -> Marker Cam Pos: [ +89.68,  +11.67, +196.63] mm
+  Tilt= -5.035° t=53256.0305 side=left -> Marker Cam Pos: [ -70.96,   +5.57, +196.60] mm
+  Tilt= -4.948° t=53256.0700 side=right -> Marker Cam Pos: [ +89.63,  +11.31, +196.46] mm
+  Tilt= -4.948° t=53256.0935 side=left -> Marker Cam Pos: [ -70.97,   +5.21, +196.61] mm
+  Tilt= -4.859° t=53256.1480 side=right -> Marker Cam Pos: [ +89.60,  +10.91, +196.23] mm
+  Tilt= -4.859° t=53256.1715 side=left -> Marker Cam Pos: [ -70.93,   +4.83, +196.41] mm
+  Tilt= -4.767° t=53256.2105 side=right -> Marker Cam Pos: [ +89.61,  +10.56, +196.18] mm
+  Tilt= -4.767° t=53256.2340 side=left -> Marker Cam Pos: [ -70.93,   +4.47, +196.22] mm
+  Tilt= -4.676° t=53256.2810 side=right -> Marker Cam Pos: [ +89.63,  +10.17, +196.18] mm
+  Tilt= -4.676° t=53256.2965 side=left -> Marker Cam Pos: [ -70.97,   +4.09, +196.34] mm
+  Tilt= -4.596° t=53256.3355 side=right -> Marker Cam Pos: [ +89.64,   +9.80, +196.11] mm
+  Tilt= -4.596° t=53256.3745 side=left -> Marker Cam Pos: [ -70.95,   +3.71, +196.15] mm
+  Tilt= -4.503° t=53256.4135 side=right -> Marker Cam Pos: [ +89.61,   +9.42, +195.93] mm
+  Tilt= -4.503° t=53256.4370 side=left -> Marker Cam Pos: [ -70.96,   +3.34, +195.99] mm
+  Tilt= -4.411° t=53256.4760 side=right -> Marker Cam Pos: [ +89.64,   +9.03, +195.87] mm
+  Tilt= -4.411° t=53256.4995 side=left -> Marker Cam Pos: [ -70.98,   +2.96, +196.06] mm
+  Tilt= -4.326° t=53256.5460 side=right -> Marker Cam Pos: [ +89.64,   +8.68, +195.86] mm
+  Tilt= -4.326° t=53256.5620 side=left -> Marker Cam Pos: [ -70.95,   +2.60, +195.76] mm
+  Tilt= -4.241° t=53256.6010 side=right -> Marker Cam Pos: [ +89.63,   +8.28, +195.74] mm
+  Tilt= -4.241° t=53256.6325 side=left -> Marker Cam Pos: [ -70.94,   +2.21, +195.63] mm
+  Tilt= -4.143° t=53256.6790 side=right -> Marker Cam Pos: [ +89.57,   +7.89, +195.55] mm
+  Tilt= -4.143° t=53256.7025 side=left -> Marker Cam Pos: [ -71.00,   +1.83, +195.81] mm
+  Tilt= -4.055° t=53256.7420 side=right -> Marker Cam Pos: [ +89.67,   +7.52, +195.64] mm
+  Tilt= -4.055° t=53256.7655 side=left -> Marker Cam Pos: [ -70.98,   +1.48, +195.62] mm
+  Tilt= -3.973° t=53256.8040 side=right -> Marker Cam Pos: [ +89.59,   +7.13, +195.31] mm
+  Tilt= -3.973° t=53256.8355 side=left -> Marker Cam Pos: [ -70.95,   +1.08, +195.48] mm
+  Tilt= -3.878° t=53256.8745 side=right -> Marker Cam Pos: [ +89.59,   +6.78, +195.23] mm
+  Tilt= -3.878° t=53256.9055 side=left -> Marker Cam Pos: [ -70.94,   +0.74, +195.30] mm
+  Tilt= -3.781° t=53256.9450 side=right -> Marker Cam Pos: [ +89.66,   +6.40, +195.35] mm
+  Tilt= -3.781° t=53256.9685 side=left -> Marker Cam Pos: [ -70.95,   +0.36, +195.38] mm
+  Tilt= -3.699° t=53257.0075 side=right -> Marker Cam Pos: [ +89.64,   +6.02, +195.18] mm
+  Tilt= -3.699° t=53257.0305 side=left -> Marker Cam Pos: [ -70.93,   -0.05, +195.26] mm
+  Tilt= -3.619° t=53257.0700 side=right -> Marker Cam Pos: [ +89.66,   +5.66, +195.16] mm
+  Tilt= -3.619° t=53257.0935 side=left -> Marker Cam Pos: [ -70.92,   -0.38, +195.05] mm
+  Tilt= -3.530° t=53257.1480 side=right -> Marker Cam Pos: [ +89.65,   +5.30, +195.01] mm
+  Tilt= -3.530° t=53257.1635 side=left -> Marker Cam Pos: [ -70.93,   -0.75, +195.12] mm
+  Tilt= -3.439° t=53257.2105 side=right -> Marker Cam Pos: [ +89.74,   +4.91, +195.07] mm
+  Tilt= -3.439° t=53257.2340 side=left -> Marker Cam Pos: [ -70.90,   -1.11, +194.90] mm
+  Tilt= -3.345° t=53257.2730 side=right -> Marker Cam Pos: [ +89.69,   +4.54, +194.85] mm
+  Tilt= -3.345° t=53257.2965 side=left -> Marker Cam Pos: [ -70.85,   -1.50, +194.69] mm
+  Tilt= -3.260° t=53257.3590 side=right -> Marker Cam Pos: [ +89.71,   +4.18, +194.82] mm
+  Tilt= -3.260° t=53257.3745 side=left -> Marker Cam Pos: [ -70.92,   -1.88, +194.83] mm
+  Tilt= -3.138° t=53257.4605 side=right -> Marker Cam Pos: [ +89.73,   +3.64, +194.68] mm
+  Tilt= -3.138° t=53257.4760 side=left -> Marker Cam Pos: [ -70.90,   -2.43, +194.63] mm
+  Tilt= -3.034° t=53257.5620 side=right -> Marker Cam Pos: [ +89.70,   +3.08, +194.50] mm
+  Tilt= -3.034° t=53257.5700 side=left -> Marker Cam Pos: [ -70.87,   -2.97, +194.40] mm
+  Tilt= -2.904° t=53257.6170 side=right -> Marker Cam Pos: [ +89.72,   +2.71, +194.36] mm
+  Tilt= -2.904° t=53257.6325 side=left -> Marker Cam Pos: [ -70.89,   -3.36, +194.43] mm
+  Tilt= -2.816° t=53257.6790 side=right -> Marker Cam Pos: [ +89.70,   +2.33, +194.20] mm
+  Tilt= -2.816° t=53257.7025 side=left -> Marker Cam Pos: [ -70.87,   -3.74, +194.26] mm
+  Tilt= -2.717° t=53257.7500 side=right -> Marker Cam Pos: [ +89.72,   +1.96, +194.18] mm
+  Tilt= -2.717° t=53257.7655 side=left -> Marker Cam Pos: [ -70.85,   -4.09, +194.07] mm
+  Tilt= -2.636° t=53257.8040 side=right -> Marker Cam Pos: [ +89.72,   +1.62, +194.06] mm
+  Tilt= -2.636° t=53257.8275 side=left -> Marker Cam Pos: [ -70.85,   -4.47, +194.03] mm
+  Tilt= -2.543° t=53257.8670 side=right -> Marker Cam Pos: [ +89.75,   +1.23, +194.06] mm
+  Tilt= -2.543° t=53257.8905 side=left -> Marker Cam Pos: [ -70.83,   -4.86, +193.84] mm
+  Tilt= -2.461° t=53257.9450 side=right -> Marker Cam Pos: [ +89.71,   +0.83, +193.89] mm
+  Tilt= -2.461° t=53257.9685 side=left -> Marker Cam Pos: [ -70.90,   -5.23, +193.88] mm
+  Tilt= -2.367° t=53258.0075 side=right -> Marker Cam Pos: [ +89.73,   +0.48, +193.85] mm
+  Tilt= -2.367° t=53258.0305 side=left -> Marker Cam Pos: [ -70.90,   -5.59, +193.82] mm
+  Tilt= -2.279° t=53258.0780 side=right -> Marker Cam Pos: [ +89.76,   +0.10, +193.77] mm
+  Tilt= -2.279° t=53258.0935 side=left -> Marker Cam Pos: [ -70.86,   -5.95, +193.57] mm
+  Tilt= -2.194° t=53258.1480 side=right -> Marker Cam Pos: [ +89.67,   -0.28, +193.45] mm
+  Tilt= -2.194° t=53258.1715 side=left -> Marker Cam Pos: [ -70.85,   -6.31, +193.43] mm
+  Tilt= -2.103° t=53258.2105 side=right -> Marker Cam Pos: [ +89.72,   -0.64, +193.51] mm
+  Tilt= -2.103° t=53258.2340 side=left -> Marker Cam Pos: [ -70.90,   -6.65, +193.49] mm
+  Tilt= -2.001° t=53258.2810 side=right -> Marker Cam Pos: [ +89.77,   -1.01, +193.55] mm
+  Tilt= -2.001° t=53258.3045 side=left -> Marker Cam Pos: [ -70.87,   -7.08, +193.36] mm
+  Tilt= -1.922° t=53258.3510 side=right -> Marker Cam Pos: [ +89.73,   -1.40, +193.32] mm
+  Tilt= -1.922° t=53258.3745 side=left -> Marker Cam Pos: [ -70.83,   -7.44, +193.19] mm
+  Tilt= -1.835° t=53258.4135 side=right -> Marker Cam Pos: [ +89.70,   -1.76, +193.15] mm
+  Tilt= -1.835° t=53258.4370 side=left -> Marker Cam Pos: [ -70.83,   -7.75, +193.06] mm
+  Tilt= -1.753° t=53258.4840 side=right -> Marker Cam Pos: [ +89.75,   -2.10, +193.16] mm
+  Tilt= -1.753° t=53258.4995 side=left -> Marker Cam Pos: [ -70.83,   -8.15, +192.98] mm
+  Tilt= -1.658° t=53258.5385 side=right -> Marker Cam Pos: [ +89.81,   -2.50, +193.14] mm
+  Tilt= -1.658° t=53258.5695 side=left -> Marker Cam Pos: [ -70.82,   -8.54, +192.88] mm
+  Tilt= -1.573° t=53258.6010 side=right -> Marker Cam Pos: [ +89.77,   -2.87, +192.97] mm
+  Tilt= -1.573° t=53258.6405 side=left -> Marker Cam Pos: [ -70.83,   -8.90, +192.86] mm
+  Tilt= -1.484° t=53258.6710 side=right -> Marker Cam Pos: [ +89.81,   -3.19, +192.86] mm
+  Tilt= -1.484° t=53258.7025 side=left -> Marker Cam Pos: [ -70.83,   -9.27, +192.74] mm
+  Tilt= -1.393° t=53258.7420 side=right -> Marker Cam Pos: [ +89.79,   -3.57, +192.72] mm
+  Tilt= -1.393° t=53258.7655 side=left -> Marker Cam Pos: [ -70.82,   -9.60, +192.54] mm
+  Tilt= -1.304° t=53258.8040 side=right -> Marker Cam Pos: [ +89.72,   -3.94, +192.50] mm
+  Tilt= -1.304° t=53258.8275 side=left -> Marker Cam Pos: [ -70.83,   -9.99, +192.54] mm
+  Tilt= -1.220° t=53258.8750 side=right -> Marker Cam Pos: [ +89.82,   -4.32, +192.56] mm
+  Tilt= -1.220° t=53258.9055 side=left -> Marker Cam Pos: [ -70.81,  -10.38, +192.35] mm
+  Tilt= -1.130° t=53258.9450 side=right -> Marker Cam Pos: [ +89.78,   -4.70, +192.38] mm
+  Tilt= -1.130° t=53258.9605 side=left -> Marker Cam Pos: [ -70.81,  -10.73, +192.31] mm
+  Tilt= -1.034° t=53259.0075 side=right -> Marker Cam Pos: [ +89.76,   -5.06, +192.25] mm
+  Tilt= -1.034° t=53259.0305 side=left -> Marker Cam Pos: [ -70.85,  -11.09, +192.25] mm
+  Tilt= -0.951° t=53259.0855 side=right -> Marker Cam Pos: [ +89.82,   -5.41, +192.30] mm
+  Tilt= -0.951° t=53259.1090 side=left -> Marker Cam Pos: [ -70.81,  -11.44, +192.02] mm
+  Tilt= -0.852° t=53259.1480 side=right -> Marker Cam Pos: [ +89.81,   -5.80, +192.17] mm
+  Tilt= -0.852° t=53259.1715 side=left -> Marker Cam Pos: [ -70.77,  -11.85, +191.87] mm
+  Tilt= -0.769° t=53259.2105 side=right -> Marker Cam Pos: [ +89.78,   -6.17, +192.01] mm
+  Tilt= -0.769° t=53259.2340 side=left -> Marker Cam Pos: [ -70.80,  -12.24, +191.73] mm
+  Tilt= -0.680° t=53259.2810 side=right -> Marker Cam Pos: [ +89.78,   -6.56, +191.97] mm
+  Tilt= -0.680° t=53259.2965 side=left -> Marker Cam Pos: [ -70.83,  -12.59, +191.74] mm
+  Tilt= -0.591° t=53259.3435 side=right -> Marker Cam Pos: [ +89.80,   -6.90, +191.87] mm
+  Tilt= -0.591° t=53259.3745 side=left -> Marker Cam Pos: [ -70.83,  -12.93, +191.56] mm
+  Tilt= -0.495° t=53259.4135 side=right -> Marker Cam Pos: [ +89.80,   -7.31, +191.70] mm
+  Tilt= -0.495° t=53259.4370 side=left -> Marker Cam Pos: [ -70.79,  -13.28, +191.33] mm
+  Tilt= -0.410° t=53259.4760 side=right -> Marker Cam Pos: [ +89.80,   -7.66, +191.64] mm
+  Tilt= -0.410° t=53259.4995 side=left -> Marker Cam Pos: [ -70.84,  -13.69, +191.42] mm
+  Tilt= -0.324° t=53259.5460 side=right -> Marker Cam Pos: [ +89.80,   -8.04, +191.48] mm
+  Tilt= -0.324° t=53259.5620 side=left -> Marker Cam Pos: [ -70.82,  -14.02, +191.26] mm
+  Tilt= -0.228° t=53259.6090 side=right -> Marker Cam Pos: [ +89.82,   -8.40, +191.42] mm
+  Tilt= -0.228° t=53259.6325 side=left -> Marker Cam Pos: [ -70.78,  -14.40, +191.02] mm
+  Tilt= -0.147° t=53259.6790 side=right -> Marker Cam Pos: [ +89.78,   -8.74, +191.20] mm
+  Tilt= -0.147° t=53259.7025 side=left -> Marker Cam Pos: [ -70.82,  -14.74, +191.02] mm
+  Tilt= -0.055° t=53259.7420 side=right -> Marker Cam Pos: [ +89.80,   -9.15, +191.07] mm
+  Tilt= -0.055° t=53259.7655 side=left -> Marker Cam Pos: [ -70.78,  -15.10, +190.88] mm
+  Tilt= +0.044° t=53259.8120 side=right -> Marker Cam Pos: [ +89.80,   -9.48, +190.97] mm
+  Tilt= +0.044° t=53259.8275 side=left -> Marker Cam Pos: [ -70.78,  -15.51, +190.76] mm
+  Tilt= +0.121° t=53259.8750 side=right -> Marker Cam Pos: [ +89.84,   -9.86, +190.92] mm
+  Tilt= +0.121° t=53259.8980 side=left -> Marker Cam Pos: [ -70.78,  -15.87, +190.66] mm
+  Tilt= +0.206° t=53259.9450 side=right -> Marker Cam Pos: [ +89.84,  -10.25, +190.79] mm
+  Tilt= +0.206° t=53259.9685 side=left -> Marker Cam Pos: [ -70.73,  -16.22, +190.49] mm
+  Tilt= +0.295° t=53260.0230 side=right -> Marker Cam Pos: [ +89.85,  -10.58, +190.66] mm
+  Tilt= +0.295° t=53260.0385 side=left -> Marker Cam Pos: [ -70.76,  -16.56, +190.41] mm
+  Tilt= +0.384° t=53260.0700 side=right -> Marker Cam Pos: [ +89.82,  -10.94, +190.48] mm
+  Tilt= +0.384° t=53260.1015 side=left -> Marker Cam Pos: [ -70.75,  -16.94, +190.30] mm
+  Tilt= +0.476° t=53260.1480 side=right -> Marker Cam Pos: [ +89.83,  -11.31, +190.40] mm
+  Tilt= +0.476° t=53260.1715 side=left -> Marker Cam Pos: [ -70.73,  -17.31, +190.09] mm
+  Tilt= +0.564° t=53260.2105 side=right -> Marker Cam Pos: [ +89.89,  -11.68, +190.39] mm
+  Tilt= +0.564° t=53260.2340 side=left -> Marker Cam Pos: [ -70.79,  -17.68, +190.16] mm
+  Tilt= +0.654° t=53260.2730 side=right -> Marker Cam Pos: [ +89.88,  -12.05, +190.25] mm
+  Tilt= +0.654° t=53260.2965 side=left -> Marker Cam Pos: [ -70.73,  -18.03, +189.94] mm
+  Tilt= +0.744° t=53260.3355 side=right -> Marker Cam Pos: [ +89.88,  -12.40, +190.12] mm
+  Tilt= +0.744° t=53260.3665 side=left -> Marker Cam Pos: [ -70.73,  -18.40, +189.83] mm
+  Tilt= +0.832° t=53260.4135 side=right -> Marker Cam Pos: [ +89.91,  -12.77, +190.07] mm
+  Tilt= +0.832° t=53260.4370 side=left -> Marker Cam Pos: [ -70.73,  -18.76, +189.74] mm
+  Tilt= +0.928° t=53260.4760 side=right -> Marker Cam Pos: [ +89.88,  -13.10, +189.86] mm
+  Tilt= +0.928° t=53260.4995 side=left -> Marker Cam Pos: [ -70.72,  -19.15, +189.57] mm
+  Tilt= +1.015° t=53260.5460 side=right -> Marker Cam Pos: [ +89.87,  -13.47, +189.71] mm
+  Tilt= +1.015° t=53260.5620 side=left -> Marker Cam Pos: [ -70.72,  -19.50, +189.55] mm
+  Tilt= +1.096° t=53260.6090 side=right -> Marker Cam Pos: [ +89.85,  -13.86, +189.60] mm
+  Tilt= +1.096° t=53260.6245 side=left -> Marker Cam Pos: [ -70.70,  -19.87, +189.35] mm
+  Tilt= +1.186° t=53260.6710 side=right -> Marker Cam Pos: [ +89.87,  -14.21, +189.51] mm
+  Tilt= +1.186° t=53260.6945 side=left -> Marker Cam Pos: [ -70.72,  -20.22, +189.16] mm
+  Tilt= +1.276° t=53260.7420 side=right -> Marker Cam Pos: [ +89.86,  -14.60, +189.41] mm
+  Tilt= +1.276° t=53260.7655 side=left -> Marker Cam Pos: [ -70.71,  -20.59, +189.13] mm
+  Tilt= +1.365° t=53260.8040 side=right -> Marker Cam Pos: [ +89.89,  -14.97, +189.34] mm
+  Tilt= +1.365° t=53260.8275 side=left -> Marker Cam Pos: [ -70.72,  -20.94, +188.91] mm
+  Tilt= +1.451° t=53260.8745 side=right -> Marker Cam Pos: [ +89.82,  -15.30, +189.03] mm
+  Tilt= +1.451° t=53260.9055 side=left -> Marker Cam Pos: [ -70.74,  -21.31, +188.92] mm
+  Tilt= +1.547° t=53260.9450 side=right -> Marker Cam Pos: [ +89.89,  -15.68, +189.08] mm
+  Tilt= +1.547° t=53260.9685 side=left -> Marker Cam Pos: [ -70.72,  -21.68, +188.68] mm
+  Tilt= +1.632° t=53261.0075 side=right -> Marker Cam Pos: [ +89.90,  -16.05, +188.99] mm
+  Tilt= +1.632° t=53261.0385 side=left -> Marker Cam Pos: [ -70.72,  -22.02, +188.50] mm
+  Tilt= +1.724° t=53261.0855 side=right -> Marker Cam Pos: [ +89.88,  -16.43, +188.83] mm
+  Tilt= +1.724° t=53261.1090 side=left -> Marker Cam Pos: [ -70.77,  -22.40, +188.61] mm
+  Tilt= +1.818° t=53261.1480 side=right -> Marker Cam Pos: [ +89.89,  -16.77, +188.69] mm
+  Tilt= +1.818° t=53261.1715 side=left -> Marker Cam Pos: [ -70.68,  -22.72, +188.17] mm
+  Tilt= +1.903° t=53261.2105 side=right -> Marker Cam Pos: [ +89.89,  -17.13, +188.48] mm
+  Tilt= +1.903° t=53261.2340 side=left -> Marker Cam Pos: [ -70.73,  -23.11, +188.25] mm
+  Tilt= +1.987° t=53261.2730 side=right -> Marker Cam Pos: [ +89.93,  -17.52, +188.46] mm
+  Tilt= +1.987° t=53261.2965 side=left -> Marker Cam Pos: [ -70.70,  -23.47, +188.05] mm
+  Tilt= +2.093° t=53261.3510 side=right -> Marker Cam Pos: [ +89.92,  -17.84, +188.29] mm
+  Tilt= +2.093° t=53261.3745 side=left -> Marker Cam Pos: [ -70.67,  -23.79, +187.82] mm
+  Tilt= +2.165° t=53261.4135 side=right -> Marker Cam Pos: [ +89.94,  -18.21, +188.22] mm
+  Tilt= +2.165° t=53261.4370 side=left -> Marker Cam Pos: [ -70.73,  -24.19, +187.90] mm
+  Tilt= +2.257° t=53261.4760 side=right -> Marker Cam Pos: [ +89.95,  -18.58, +188.14] mm
+  Tilt= +2.257° t=53261.4995 side=left -> Marker Cam Pos: [ -70.71,  -24.56, +187.64] mm
+  Tilt= +2.344° t=53261.5465 side=right -> Marker Cam Pos: [ +89.95,  -18.94, +187.94] mm
+  Tilt= +2.344° t=53261.5775 side=left -> Marker Cam Pos: [ -70.71,  -24.91, +187.59] mm
+  Tilt= +2.435° t=53261.6090 side=right -> Marker Cam Pos: [ +89.92,  -19.30, +187.80] mm
+  Tilt= +2.435° t=53261.6405 side=left -> Marker Cam Pos: [ -70.63,  -25.26, +187.24] mm
+  Tilt= +2.524° t=53261.6790 side=right -> Marker Cam Pos: [ +89.94,  -19.65, +187.71] mm
+  Tilt= +2.524° t=53261.7025 side=left -> Marker Cam Pos: [ -70.73,  -25.62, +187.37] mm
+  Tilt= +2.613° t=53261.7420 side=right -> Marker Cam Pos: [ +89.93,  -20.03, +187.60] mm
+  Tilt= +2.613° t=53261.7655 side=left -> Marker Cam Pos: [ -70.67,  -26.00, +187.14] mm
+  Tilt= +2.693° t=53261.8120 side=right -> Marker Cam Pos: [ +89.94,  -20.38, +187.48] mm
+  Tilt= +2.693° t=53261.8355 side=left -> Marker Cam Pos: [ -70.66,  -26.34, +186.99] mm
+  Tilt= +2.785° t=53261.8745 side=right -> Marker Cam Pos: [ +89.93,  -20.76, +187.29] mm
+  Tilt= +2.785° t=53261.9055 side=left -> Marker Cam Pos: [ -70.68,  -26.73, +186.82] mm
+  Tilt= +2.881° t=53261.9450 side=right -> Marker Cam Pos: [ +89.96,  -21.13, +187.24] mm
+  Tilt= +2.881° t=53261.9685 side=left -> Marker Cam Pos: [ -70.70,  -27.09, +186.74] mm
+  Tilt= +2.961° t=53262.0075 side=right -> Marker Cam Pos: [ +89.88,  -21.45, +186.95] mm
+  Tilt= +2.961° t=53262.0305 side=left -> Marker Cam Pos: [ -70.69,  -27.40, +186.61] mm
+  Tilt= +3.056° t=53262.0700 side=right -> Marker Cam Pos: [ +89.96,  -21.83, +186.98] mm
+  Tilt= +3.056° t=53262.1015 side=left -> Marker Cam Pos: [ -70.68,  -27.82, +186.47] mm
+  Tilt= +3.146° t=53262.1480 side=right -> Marker Cam Pos: [ +89.92,  -22.20, +186.79] mm
+  Tilt= +3.146° t=53262.1715 side=left -> Marker Cam Pos: [ -70.71,  -28.14, +186.35] mm
+  Tilt= +3.228° t=53262.2105 side=right -> Marker Cam Pos: [ +89.94,  -22.59, +186.70] mm
+  Tilt= +3.228° t=53262.2340 side=left -> Marker Cam Pos: [ -70.63,  -28.47, +186.04] mm
+  Tilt= +3.326° t=53262.2730 side=right -> Marker Cam Pos: [ +89.90,  -22.92, +186.45] mm
+  Tilt= +3.326° t=53262.2965 side=left -> Marker Cam Pos: [ -70.71,  -28.87, +186.15] mm
+  Tilt= +3.410° t=53262.3355 side=right -> Marker Cam Pos: [ +89.96,  -23.30, +186.44] mm
+  Tilt= +3.410° t=53262.3665 side=left -> Marker Cam Pos: [ -70.70,  -29.25, +185.93] mm
+  Tilt= +3.497° t=53262.4135 side=right -> Marker Cam Pos: [ +89.96,  -23.66, +186.34] mm
+  Tilt= +3.497° t=53262.4370 side=left -> Marker Cam Pos: [ -70.70,  -29.58, +185.80] mm
+  Tilt= +3.591° t=53262.4920 side=right -> Marker Cam Pos: [ +89.95,  -24.00, +186.16] mm
+  Tilt= +3.591° t=53262.5075 side=left -> Marker Cam Pos: [ -70.66,  -29.89, +185.56] mm
+  Tilt= +3.672° t=53262.5385 side=right -> Marker Cam Pos: [ +90.00,  -24.35, +186.04] mm
+  Tilt= +3.672° t=53262.5620 side=left -> Marker Cam Pos: [ -70.67,  -30.26, +185.48] mm
+  Tilt= +3.765° t=53262.6010 side=right -> Marker Cam Pos: [ +90.00,  -24.70, +185.83] mm
+  Tilt= +3.765° t=53262.6325 side=left -> Marker Cam Pos: [ -70.67,  -30.66, +185.46] mm
+  Tilt= +3.868° t=53262.6870 side=right -> Marker Cam Pos: [ +89.99,  -25.06, +185.71] mm
+  Tilt= +3.868° t=53262.7025 side=left -> Marker Cam Pos: [ -70.64,  -30.99, +185.25] mm
+  Tilt= +3.945° t=53262.7420 side=right -> Marker Cam Pos: [ +89.99,  -25.41, +185.59] mm
+  Tilt= +3.945° t=53262.7730 side=left -> Marker Cam Pos: [ -70.62,  -31.34, +185.09] mm
+  Tilt= +4.036° t=53262.8200 side=right -> Marker Cam Pos: [ +90.06,  -25.80, +185.59] mm
+  Tilt= +4.036° t=53262.8435 side=left -> Marker Cam Pos: [ -70.57,  -31.68, +184.76] mm
+  Tilt= +4.120° t=53262.8825 side=right -> Marker Cam Pos: [ +90.03,  -26.14, +185.36] mm
+  Tilt= +4.120° t=53262.9055 side=left -> Marker Cam Pos: [ -70.64,  -32.08, +184.90] mm
+  Tilt= +4.214° t=53262.9450 side=right -> Marker Cam Pos: [ +90.03,  -26.48, +185.21] mm
+  Tilt= +4.214° t=53262.9685 side=left -> Marker Cam Pos: [ -70.61,  -32.43, +184.66] mm
+  Tilt= +4.297° t=53263.0075 side=right -> Marker Cam Pos: [ +90.03,  -26.84, +185.06] mm
+  Tilt= +4.297° t=53263.0305 side=left -> Marker Cam Pos: [ -70.61,  -32.77, +184.50] mm
+  Tilt= +4.385° t=53263.0700 side=right -> Marker Cam Pos: [ +90.02,  -27.19, +184.90] mm
+  Tilt= +4.385° t=53263.1090 side=left -> Marker Cam Pos: [ -70.59,  -33.11, +184.28] mm
+  Tilt= +4.473° t=53263.1480 side=right -> Marker Cam Pos: [ +90.02,  -27.54, +184.71] mm
+  Tilt= +4.473° t=53263.1715 side=left -> Marker Cam Pos: [ -70.64,  -33.51, +184.37] mm
+  Tilt= +4.565° t=53263.2105 side=right -> Marker Cam Pos: [ +90.04,  -27.93, +184.62] mm
+  Tilt= +4.565° t=53263.2340 side=left -> Marker Cam Pos: [ -70.60,  -33.88, +184.07] mm
+  Tilt= +4.658° t=53263.2730 side=right -> Marker Cam Pos: [ +90.07,  -28.29, +184.58] mm
+  Tilt= +4.658° t=53263.2965 side=left -> Marker Cam Pos: [ -70.60,  -34.18, +183.93] mm
+  Tilt= +4.743° t=53263.3355 side=right -> Marker Cam Pos: [ +90.03,  -28.62, +184.35] mm
+  Tilt= +4.743° t=53263.3590 side=left -> Marker Cam Pos: [ -70.57,  -34.52, +183.71] mm
+  Tilt= +4.834° t=53263.4060 side=right -> Marker Cam Pos: [ +90.00,  -28.97, +184.17] mm
+  Tilt= +4.834° t=53263.4295 side=left -> Marker Cam Pos: [ -70.63,  -34.94, +183.76] mm
+  Tilt= +4.920° t=53263.4840 side=right -> Marker Cam Pos: [ +89.98,  -29.33, +183.96] mm
+  Tilt= +4.920° t=53263.4995 side=left -> Marker Cam Pos: [ -70.63,  -35.26, +183.51] mm
+  Tilt= +5.013° t=53263.5460 side=right -> Marker Cam Pos: [ +90.10,  -29.73, +184.08] mm
+  Tilt= +5.013° t=53263.5620 side=left -> Marker Cam Pos: [ -70.59,  -35.60, +183.32] mm
+  Tilt= +5.094° t=53263.6170 side=right -> Marker Cam Pos: [ +90.04,  -30.05, +183.84] mm
+  Tilt= +5.094° t=53263.6405 side=left -> Marker Cam Pos: [ -70.61,  -35.95, +183.13] mm
+  Tilt= +5.186° t=53263.6710 side=right -> Marker Cam Pos: [ +90.01,  -30.39, +183.66] mm
+  Tilt= +5.186° t=53263.6945 side=left -> Marker Cam Pos: [ -70.60,  -36.32, +183.02] mm
+  Tilt= +5.274° t=53263.7420 side=right -> Marker Cam Pos: [ +90.02,  -30.76, +183.45] mm
+  Tilt= +5.274° t=53263.7730 side=left -> Marker Cam Pos: [ -70.62,  -36.68, +182.93] mm
+  Tilt= +5.365° t=53263.8200 side=right -> Marker Cam Pos: [ +90.08,  -31.12, +183.41] mm
+  Tilt= +5.365° t=53263.8355 side=left -> Marker Cam Pos: [ -70.59,  -36.98, +182.72] mm
+  Tilt= +5.450° t=53263.8745 side=right -> Marker Cam Pos: [ +90.02,  -31.46, +183.15] mm
+  Tilt= +5.450° t=53263.9055 side=left -> Marker Cam Pos: [ -70.57,  -37.35, +182.52] mm
+  Tilt= +5.540° t=53263.9450 side=right -> Marker Cam Pos: [ +90.05,  -31.82, +183.07] mm
+  Tilt= +5.540° t=53263.9685 side=left -> Marker Cam Pos: [ -70.64,  -37.76, +182.55] mm
+  Tilt= +5.641° t=53264.0150 side=right -> Marker Cam Pos: [ +90.02,  -32.17, +182.82] mm
+  Tilt= +5.641° t=53264.0385 side=left -> Marker Cam Pos: [ -70.60,  -38.07, +182.29] mm
+  Tilt= +5.726° t=53264.0780 side=right -> Marker Cam Pos: [ +90.09,  -32.52, +182.82] mm
+  Tilt= +5.726° t=53264.1015 side=left -> Marker Cam Pos: [ -70.57,  -38.40, +182.10] mm
+  Tilt= +5.808° t=53264.1480 side=right -> Marker Cam Pos: [ +90.08,  -32.86, +182.67] mm
+  Tilt= +5.808° t=53264.1715 side=left -> Marker Cam Pos: [ -70.58,  -38.77, +182.00] mm
+  Tilt= +5.915° t=53264.2180 side=right -> Marker Cam Pos: [ +90.05,  -33.22, +182.45] mm
+  Tilt= +5.915° t=53264.2340 side=left -> Marker Cam Pos: [ -70.55,  -39.13, +181.80] mm
+  Tilt= +5.992° t=53264.2730 side=right -> Marker Cam Pos: [ +90.04,  -33.55, +182.23] mm
+  Tilt= +5.992° t=53264.3120 side=left -> Marker Cam Pos: [ -70.58,  -39.50, +181.77] mm
+  Tilt= +6.080° t=53264.3430 side=right -> Marker Cam Pos: [ +90.12,  -33.95, +182.22] mm
+  Tilt= +6.080° t=53264.3665 side=left -> Marker Cam Pos: [ -70.56,  -39.82, +181.49] mm
+  Tilt= +6.168° t=53264.4210 side=right -> Marker Cam Pos: [ +90.10,  -34.28, +182.08] mm
+  Tilt= +6.168° t=53264.4370 side=left -> Marker Cam Pos: [ -70.55,  -40.20, +181.37] mm
+  Tilt= +6.257° t=53264.4760 side=right -> Marker Cam Pos: [ +90.07,  -34.63, +181.85] mm
+  Tilt= +6.257° t=53264.4995 side=left -> Marker Cam Pos: [ -70.56,  -40.52, +181.15] mm
+  Tilt= +6.341° t=53264.5385 side=right -> Marker Cam Pos: [ +90.03,  -34.98, +181.67] mm
+  Tilt= +6.341° t=53264.5620 side=left -> Marker Cam Pos: [ -70.59,  -40.89, +181.11] mm
+  Tilt= +6.438° t=53264.6170 side=right -> Marker Cam Pos: [ +90.05,  -35.32, +181.54] mm
+  Tilt= +6.438° t=53264.6405 side=left -> Marker Cam Pos: [ -70.59,  -41.25, +180.92] mm
+  Tilt= +6.522° t=53264.6790 side=right -> Marker Cam Pos: [ +90.08,  -35.72, +181.46] mm
+  Tilt= +6.522° t=53264.7025 side=left -> Marker Cam Pos: [ -70.57,  -41.57, +180.70] mm
+  Tilt= +6.616° t=53264.7420 side=right -> Marker Cam Pos: [ +90.06,  -36.05, +181.29] mm
+  Tilt= +6.616° t=53264.7730 side=left -> Marker Cam Pos: [ -70.57,  -41.93, +180.51] mm
+  Tilt= +6.701° t=53264.8120 side=right -> Marker Cam Pos: [ +90.06,  -36.42, +181.13] mm
+  Tilt= +6.701° t=53264.8275 side=left -> Marker Cam Pos: [ -70.59,  -42.28, +180.40] mm
+  Tilt= +6.791° t=53264.8825 side=right -> Marker Cam Pos: [ +90.10,  -36.79, +181.03] mm
+  Tilt= +6.791° t=53264.8980 side=left -> Marker Cam Pos: [ -70.61,  -42.65, +180.33] mm
+  Tilt= +6.880° t=53264.9450 side=right -> Marker Cam Pos: [ +90.10,  -37.12, +180.84] mm
+  Tilt= +6.880° t=53264.9685 side=left -> Marker Cam Pos: [ -70.58,  -42.97, +180.06] mm
+  Tilt= +6.971° t=53265.0150 side=right -> Marker Cam Pos: [ +90.09,  -37.46, +180.64] mm
+  Tilt= +6.971° t=53265.0385 side=left -> Marker Cam Pos: [ -70.57,  -43.34, +179.96] mm
+  Tilt= +7.057° t=53265.0855 side=right -> Marker Cam Pos: [ +90.08,  -37.83, +180.47] mm
+  Tilt= +7.057° t=53265.1090 side=left -> Marker Cam Pos: [ -70.56,  -43.71, +179.80] mm
+  Tilt= +7.149° t=53265.1480 side=right -> Marker Cam Pos: [ +90.10,  -38.19, +180.38] mm
+  Tilt= +7.149° t=53265.1715 side=left -> Marker Cam Pos: [ -70.55,  -44.00, +179.61] mm
+  Tilt= +7.232° t=53265.2105 side=right -> Marker Cam Pos: [ +90.12,  -38.52, +180.21] mm
+  Tilt= +7.232° t=53265.2340 side=left -> Marker Cam Pos: [ -70.50,  -44.35, +179.40] mm
+  Tilt= +7.322° t=53265.2730 side=right -> Marker Cam Pos: [ +90.18,  -38.89, +180.17] mm
+  Tilt= +7.322° t=53265.3045 side=left -> Marker Cam Pos: [ -70.56,  -44.72, +179.41] mm
+  Tilt= +7.414° t=53265.3510 side=right -> Marker Cam Pos: [ +90.11,  -39.19, +179.78] mm
+  Tilt= +7.414° t=53265.3745 side=left -> Marker Cam Pos: [ -70.53,  -45.09, +179.18] mm
+  Tilt= +7.499° t=53265.4135 side=right -> Marker Cam Pos: [ +90.21,  -39.56, +179.82] mm
+  Tilt= +7.499° t=53265.4370 side=left -> Marker Cam Pos: [ -70.52,  -45.42, +179.04] mm
+  Tilt= +7.585° t=53265.4760 side=right -> Marker Cam Pos: [ +90.15,  -39.88, +179.57] mm
+  Tilt= +7.585° t=53265.4995 side=left -> Marker Cam Pos: [ -70.47,  -45.70, +178.76] mm
+  Tilt= +7.694° t=53265.5460 side=right -> Marker Cam Pos: [ +90.13,  -40.24, +179.38] mm
+  Tilt= +7.694° t=53265.5620 side=left -> Marker Cam Pos: [ -70.48,  -46.12, +178.66] mm
+  Tilt= +7.762° t=53265.6010 side=right -> Marker Cam Pos: [ +90.17,  -40.61, +179.31] mm
+  Tilt= +7.762° t=53265.6405 side=left -> Marker Cam Pos: [ -70.53,  -46.47, +178.59] mm
+  Tilt= +7.855° t=53265.6790 side=right -> Marker Cam Pos: [ +90.14,  -40.96, +179.04] mm
+  Tilt= +7.855° t=53265.6950 side=left -> Marker Cam Pos: [ -70.46,  -46.76, +178.16] mm
+  Tilt= +7.943° t=53265.7420 side=right -> Marker Cam Pos: [ +90.17,  -41.28, +178.96] mm
+  Tilt= +7.943° t=53265.7730 side=left -> Marker Cam Pos: [ -70.51,  -47.13, +178.13] mm
+  Tilt= +8.030° t=53265.8200 side=right -> Marker Cam Pos: [ +90.17,  -41.62, +178.79] mm
+  Tilt= +8.030° t=53265.8435 side=left -> Marker Cam Pos: [ -70.52,  -47.50, +178.04] mm
+  Tilt= +8.126° t=53265.8825 side=right -> Marker Cam Pos: [ +90.14,  -41.96, +178.56] mm
+  Tilt= +8.126° t=53265.9055 side=left -> Marker Cam Pos: [ -70.47,  -47.81, +177.72] mm
+  Tilt= +8.216° t=53265.9450 side=right -> Marker Cam Pos: [ +90.20,  -42.34, +178.49] mm
+  Tilt= +8.216° t=53265.9685 side=left -> Marker Cam Pos: [ -70.48,  -48.16, +177.65] mm
+  Tilt= +8.295° t=53266.0075 side=right -> Marker Cam Pos: [ +90.15,  -42.65, +178.26] mm
+  Tilt= +8.295° t=53266.0385 side=left -> Marker Cam Pos: [ -70.49,  -48.53, +177.49] mm
+  Tilt= +8.396° t=53266.0780 side=right -> Marker Cam Pos: [ +90.18,  -43.02, +178.20] mm
+  Tilt= +8.396° t=53266.1015 side=left -> Marker Cam Pos: [ -70.49,  -48.87, +177.30] mm
+  Tilt= +8.476° t=53266.1480 side=right -> Marker Cam Pos: [ +90.15,  -43.37, +177.96] mm
+  Tilt= +8.476° t=53266.1715 side=left -> Marker Cam Pos: [ -70.50,  -49.21, +177.18] mm
+  Tilt= +8.563° t=53266.2105 side=right -> Marker Cam Pos: [ +90.20,  -43.74, +177.87] mm
+  Tilt= +8.563° t=53266.2340 side=left -> Marker Cam Pos: [ -70.49,  -49.52, +176.94] mm
+  Tilt= +8.654° t=53266.2810 side=right -> Marker Cam Pos: [ +90.16,  -44.07, +177.67] mm
+  Tilt= +8.654° t=53266.2965 side=left -> Marker Cam Pos: [ -70.50,  -49.91, +176.85] mm
+  Tilt= +8.742° t=53266.3510 side=right -> Marker Cam Pos: [ +90.15,  -44.39, +177.44] mm
+  Tilt= +8.742° t=53266.3745 side=left -> Marker Cam Pos: [ -70.51,  -50.24, +176.63] mm
+  Tilt= +8.838° t=53266.4135 side=right -> Marker Cam Pos: [ +90.17,  -44.74, +177.33] mm
+  Tilt= +8.838° t=53266.4370 side=left -> Marker Cam Pos: [ -70.47,  -50.54, +176.36] mm
+  Tilt= +8.933° t=53266.4840 side=right -> Marker Cam Pos: [ +90.16,  -45.09, +177.08] mm
+  Tilt= +8.933° t=53266.4995 side=left -> Marker Cam Pos: [ -70.51,  -50.91, +176.32] mm
+  Tilt= +9.013° t=53266.5540 side=right -> Marker Cam Pos: [ +90.20,  -45.44, +177.03] mm
+  Tilt= +9.013° t=53266.5775 side=left -> Marker Cam Pos: [ -70.52,  -51.27, +176.16] mm
+  Tilt= +9.101° t=53266.6170 side=right -> Marker Cam Pos: [ +90.13,  -45.77, +176.74] mm
+  Tilt= +9.101° t=53266.6325 side=left -> Marker Cam Pos: [ -70.46,  -51.56, +175.89] mm
+  Tilt= +9.193° t=53266.6790 side=right -> Marker Cam Pos: [ +90.17,  -46.14, +176.61] mm
+  Tilt= +9.193° t=53266.7025 side=left -> Marker Cam Pos: [ -70.49,  -51.96, +175.81] mm
+  Tilt= +9.275° t=53266.7420 side=right -> Marker Cam Pos: [ +90.23,  -46.46, +176.53] mm
+  Tilt= +9.275° t=53266.7655 side=left -> Marker Cam Pos: [ -70.46,  -52.30, +175.62] mm
+  Tilt= +9.361° t=53266.8040 side=right -> Marker Cam Pos: [ +90.19,  -46.79, +176.26] mm
+  Tilt= +9.361° t=53266.8355 side=left -> Marker Cam Pos: [ -70.45,  -52.60, +175.36] mm
+  Tilt= +9.468° t=53266.8825 side=right -> Marker Cam Pos: [ +90.23,  -47.14, +176.17] mm
+  Tilt= +9.468° t=53266.9055 side=left -> Marker Cam Pos: [ -70.49,  -52.99, +175.31] mm
+  Tilt= +9.544° t=53266.9450 side=right -> Marker Cam Pos: [ +90.19,  -47.47, +175.91] mm
+  Tilt= +9.544° t=53266.9685 side=left -> Marker Cam Pos: [ -70.46,  -53.35, +175.11] mm
+  Tilt= +9.636° t=53267.0075 side=right -> Marker Cam Pos: [ +90.19,  -47.84, +175.77] mm
+  Tilt= +9.636° t=53267.0385 side=left -> Marker Cam Pos: [ -70.47,  -53.65, +174.94] mm
+  Tilt= +9.717° t=53267.0700 side=right -> Marker Cam Pos: [ +90.24,  -48.19, +175.69] mm
+  Tilt= +9.717° t=53267.1090 side=left -> Marker Cam Pos: [ -70.42,  -53.96, +174.66] mm
+  Tilt= +9.817° t=53267.1635 side=right -> Marker Cam Pos: [ +90.19,  -48.49, +175.41] mm
+  Tilt= +9.817° t=53267.1790 side=left -> Marker Cam Pos: [ -70.44,  -54.36, +174.57] mm
+  Tilt= +9.900° t=53267.2105 side=right -> Marker Cam Pos: [ +90.24,  -48.88, +175.33] mm
+  Tilt= +9.900° t=53267.2340 side=left -> Marker Cam Pos: [ -70.49,  -54.68, +174.37] mm
+  Tilt= +9.980° t=53267.2730 side=right -> Marker Cam Pos: [ +90.23,  -49.22, +175.15] mm
+  Tilt= +9.980° t=53267.2965 side=left -> Marker Cam Pos: [ -70.46,  -54.98, +174.12] mm
+  Tilt= +9.999° t=53267.3355 side=right -> Marker Cam Pos: [ +90.25,  -49.46, +175.07] mm
+  Tilt= +9.999° t=53267.3745 side=left -> Marker Cam Pos: [ -70.47,  -55.11, +174.12] mm
+  Tilt=+10.001° t=53267.4135 side=right -> Marker Cam Pos: [ +90.23,  -49.49, +175.01] mm
+  Tilt=+10.001° t=53267.4370 side=left -> Marker Cam Pos: [ -70.48,  -55.13, +174.13] mm
+  Tilt=+10.002° t=53267.4760 side=right -> Marker Cam Pos: [ +90.22,  -49.49, +174.99] mm
+  Tilt=+10.002° t=53267.5075 side=left -> Marker Cam Pos: [ -70.48,  -55.13, +174.14] mm
+  Tilt=+10.002° t=53267.5465 side=right -> Marker Cam Pos: [ +90.24,  -49.49, +175.02] mm
+  Tilt=+10.002° t=53267.5700 side=left -> Marker Cam Pos: [ -70.48,  -55.12, +174.15] mm
+  Tilt= +9.989° t=53267.6090 side=right -> Marker Cam Pos: [ +90.24,  -49.50, +175.04] mm
+  Tilt= +9.989° t=53267.6405 side=left -> Marker Cam Pos: [ -70.48,  -55.10, +174.15] mm
+  Tilt= +9.914° t=53267.6790 side=right -> Marker Cam Pos: [ +90.24,  -49.35, +175.11] mm
+  Tilt= +9.914° t=53267.7025 side=left -> Marker Cam Pos: [ -70.46,  -54.81, +174.26] mm
+  Tilt= +9.822° t=53267.7420 side=right -> Marker Cam Pos: [ +90.18,  -49.00, +175.12] mm
+  Tilt= +9.822° t=53267.7655 side=left -> Marker Cam Pos: [ -70.42,  -54.47, +174.40] mm
+  Tilt= +9.737° t=53267.8120 side=right -> Marker Cam Pos: [ +90.21,  -48.72, +175.38] mm
+  Tilt= +9.737° t=53267.8435 side=left -> Marker Cam Pos: [ -70.45,  -54.17, +174.70] mm
+  Tilt= +9.645° t=53267.8825 side=right -> Marker Cam Pos: [ +90.23,  -48.36, +175.58] mm
+  Tilt= +9.645° t=53267.9055 side=left -> Marker Cam Pos: [ -70.46,  -53.85, +174.89] mm
+  Tilt= +9.549° t=53267.9450 side=right -> Marker Cam Pos: [ +90.20,  -47.96, +175.71] mm
+  Tilt= +9.549° t=53267.9685 side=left -> Marker Cam Pos: [ -70.44,  -53.44, +174.97] mm
+  Tilt= +9.463° t=53268.0075 side=right -> Marker Cam Pos: [ +90.20,  -47.63, +175.88] mm
+  Tilt= +9.463° t=53268.0385 side=left -> Marker Cam Pos: [ -70.45,  -53.12, +175.16] mm
+  Tilt= +9.377° t=53268.0700 side=right -> Marker Cam Pos: [ +90.25,  -47.32, +176.14] mm
+  Tilt= +9.377° t=53268.0935 side=left -> Marker Cam Pos: [ -70.46,  -52.80, +175.40] mm
+  Tilt= +9.285° t=53268.1480 side=right -> Marker Cam Pos: [ +90.22,  -46.92, +176.22] mm
+  Tilt= +9.285° t=53268.1715 side=left -> Marker Cam Pos: [ -70.45,  -52.43, +175.49] mm
+  Tilt= +9.185° t=53268.2105 side=right -> Marker Cam Pos: [ +90.19,  -46.59, +176.39] mm
+  Tilt= +9.185° t=53268.2340 side=left -> Marker Cam Pos: [ -70.47,  -52.07, +175.73] mm
+  Tilt= +9.105° t=53268.2810 side=right -> Marker Cam Pos: [ +90.20,  -46.27, +176.58] mm
+  Tilt= +9.105° t=53268.3045 side=left -> Marker Cam Pos: [ -70.50,  -51.77, +175.95] mm
+  Tilt= +9.011° t=53268.3510 side=right -> Marker Cam Pos: [ +90.21,  -45.94, +176.80] mm
+  Tilt= +9.011° t=53268.3670 side=left -> Marker Cam Pos: [ -70.50,  -51.37, +175.98] mm
+  Tilt= +8.911° t=53268.4210 side=right -> Marker Cam Pos: [ +90.21,  -45.59, +176.99] mm
+  Tilt= +8.911° t=53268.4370 side=left -> Marker Cam Pos: [ -70.49,  -51.03, +176.15] mm
+  Tilt= +8.836° t=53268.4760 side=right -> Marker Cam Pos: [ +90.15,  -45.21, +177.05] mm
+  Tilt= +8.836° t=53268.4995 side=left -> Marker Cam Pos: [ -70.55,  -50.73, +176.47] mm
+  Tilt= +8.741° t=53268.5460 side=right -> Marker Cam Pos: [ +90.15,  -44.89, +177.23] mm
+  Tilt= +8.741° t=53268.5695 side=left -> Marker Cam Pos: [ -70.49,  -50.36, +176.50] mm
+  Tilt= +8.634° t=53268.6250 side=right -> Marker Cam Pos: [ +90.16,  -44.53, +177.43] mm
+  Tilt= +8.634° t=53268.6405 side=left -> Marker Cam Pos: [ -70.50,  -49.99, +176.67] mm
+  Tilt= +8.564° t=53268.6790 side=right -> Marker Cam Pos: [ +90.16,  -44.18, +177.60] mm
+  Tilt= +8.564° t=53268.7025 side=left -> Marker Cam Pos: [ -70.53,  -49.71, +176.91] mm
+  Tilt= +8.479° t=53268.7420 side=right -> Marker Cam Pos: [ +90.14,  -43.84, +177.72] mm
+  Tilt= +8.479° t=53268.7655 side=left -> Marker Cam Pos: [ -70.50,  -49.35, +177.07] mm
+  Tilt= +8.387° t=53268.8200 side=right -> Marker Cam Pos: [ +90.16,  -43.50, +177.95] mm
+  Tilt= +8.387° t=53268.8435 side=left -> Marker Cam Pos: [ -70.50,  -48.96, +177.24] mm
+  Tilt= +8.294° t=53268.8825 side=right -> Marker Cam Pos: [ +90.09,  -43.12, +177.96] mm
+  Tilt= +8.294° t=53268.9055 side=left -> Marker Cam Pos: [ -70.48,  -48.63, +177.35] mm
+  Tilt= +8.204° t=53268.9450 side=right -> Marker Cam Pos: [ +90.18,  -42.79, +178.28] mm
+  Tilt= +8.204° t=53268.9685 side=left -> Marker Cam Pos: [ -70.50,  -48.32, +177.60] mm
+  Tilt= +8.122° t=53269.0075 side=right -> Marker Cam Pos: [ +90.19,  -42.43, +178.43] mm
+  Tilt= +8.122° t=53269.0305 side=left -> Marker Cam Pos: [ -70.51,  -47.91, +177.78] mm
+  Tilt= +8.034° t=53269.0775 side=right -> Marker Cam Pos: [ +90.19,  -42.07, +178.55] mm
+  Tilt= +8.034° t=53269.1090 side=left -> Marker Cam Pos: [ -70.48,  -47.58, +177.88] mm
+  Tilt= +7.936° t=53269.1400 side=right -> Marker Cam Pos: [ +90.15,  -41.70, +178.69] mm
+  Tilt= +7.936° t=53269.1635 side=left -> Marker Cam Pos: [ -70.49,  -47.25, +178.08] mm
+  Tilt= +7.849° t=53269.2105 side=right -> Marker Cam Pos: [ +90.13,  -41.37, +178.79] mm
+  Tilt= +7.849° t=53269.2340 side=left -> Marker Cam Pos: [ -70.51,  -46.89, +178.30] mm
+  Tilt= +7.756° t=53269.2730 side=right -> Marker Cam Pos: [ +90.19,  -41.04, +179.10] mm
+  Tilt= +7.756° t=53269.2965 side=left -> Marker Cam Pos: [ -70.45,  -46.55, +178.45] mm
+  Tilt= +7.674° t=53269.3355 side=right -> Marker Cam Pos: [ +90.19,  -40.68, +179.24] mm
+  Tilt= +7.674° t=53269.3590 side=left -> Marker Cam Pos: [ -70.46,  -46.20, +178.64] mm
+  Tilt= +7.581° t=53269.4135 side=right -> Marker Cam Pos: [ +90.15,  -40.34, +179.34] mm
+  Tilt= +7.581° t=53269.4370 side=left -> Marker Cam Pos: [ -70.48,  -45.86, +178.82] mm
+  Tilt= +7.486° t=53269.4760 side=right -> Marker Cam Pos: [ +90.16,  -39.99, +179.53] mm
+  Tilt= +7.486° t=53269.4995 side=left -> Marker Cam Pos: [ -70.50,  -45.51, +178.96] mm
+  Tilt= +7.398° t=53269.5460 side=right -> Marker Cam Pos: [ +90.16,  -39.63, +179.63] mm
+  Tilt= +7.398° t=53269.5620 side=left -> Marker Cam Pos: [ -70.50,  -45.15, +179.12] mm
+  Tilt= +7.318° t=53269.6170 side=right -> Marker Cam Pos: [ +90.16,  -39.32, +179.80] mm
+  Tilt= +7.318° t=53269.6405 side=left -> Marker Cam Pos: [ -70.51,  -44.84, +179.30] mm
+  Tilt= +7.224° t=53269.6790 side=right -> Marker Cam Pos: [ +90.15,  -38.96, +180.02] mm
+  Tilt= +7.224° t=53269.7025 side=left -> Marker Cam Pos: [ -70.55,  -44.48, +179.52] mm
+  Tilt= +7.124° t=53269.7575 side=right -> Marker Cam Pos: [ +90.14,  -38.62, +180.20] mm
+  Tilt= +7.124° t=53269.7730 side=left -> Marker Cam Pos: [ -70.52,  -44.09, +179.52] mm
+  Tilt= +7.044° t=53269.8120 side=right -> Marker Cam Pos: [ +90.05,  -38.26, +180.17] mm
+  Tilt= +7.044° t=53269.8355 side=left -> Marker Cam Pos: [ -70.54,  -43.78, +179.77] mm
+  Tilt= +6.958° t=53269.8825 side=right -> Marker Cam Pos: [ +90.13,  -37.95, +180.60] mm
+  Tilt= +6.958° t=53269.9055 side=left -> Marker Cam Pos: [ -70.56,  -43.42, +179.88] mm
+  Tilt= +6.851° t=53269.9605 side=right -> Marker Cam Pos: [ +90.05,  -37.57, +180.57] mm
+  Tilt= +6.851° t=53269.9760 side=left -> Marker Cam Pos: [ -70.61,  -43.08, +180.08] mm
+  Tilt= +6.778° t=53270.0075 side=right -> Marker Cam Pos: [ +90.08,  -37.18, +180.81] mm
+  Tilt= +6.778° t=53270.0385 side=left -> Marker Cam Pos: [ -70.60,  -42.72, +180.25] mm
+  Tilt= +6.697° t=53270.0700 side=right -> Marker Cam Pos: [ +90.06,  -36.88, +180.97] mm
+  Tilt= +6.697° t=53270.1015 side=left -> Marker Cam Pos: [ -70.57,  -42.36, +180.27] mm
+  Tilt= +6.573° t=53270.1635 side=right -> Marker Cam Pos: [ +90.07,  -36.52, +181.16] mm
+  Tilt= +6.573° t=53270.1790 side=left -> Marker Cam Pos: [ -70.62,  -42.01, +180.55] mm
+  Tilt= +6.508° t=53270.2105 side=right -> Marker Cam Pos: [ +90.04,  -36.15, +181.27] mm
+  Tilt= +6.508° t=53270.2340 side=left -> Marker Cam Pos: [ -70.59,  -41.66, +180.65] mm
+  Tilt= +6.425° t=53270.2730 side=right -> Marker Cam Pos: [ +90.07,  -35.79, +181.41] mm
+  Tilt= +6.425° t=53270.2965 side=left -> Marker Cam Pos: [ -70.59,  -41.33, +180.86] mm
+  Tilt= +6.332° t=53270.3435 side=right -> Marker Cam Pos: [ +90.07,  -35.44, +181.58] mm
+  Tilt= +6.332° t=53270.3670 side=left -> Marker Cam Pos: [ -70.58,  -40.96, +181.02] mm
+  Tilt= +6.245° t=53270.4060 side=right -> Marker Cam Pos: [ +90.03,  -35.08, +181.65] mm
+  Tilt= +6.245° t=53270.4295 side=left -> Marker Cam Pos: [ -70.58,  -40.60, +181.17] mm
+  Tilt= +6.160° t=53270.4760 side=right -> Marker Cam Pos: [ +90.05,  -34.70, +181.84] mm
+  Tilt= +6.160° t=53270.4995 side=left -> Marker Cam Pos: [ -70.60,  -40.29, +181.39] mm
+  Tilt= +6.070° t=53270.5540 side=right -> Marker Cam Pos: [ +90.09,  -34.38, +182.01] mm
+  Tilt= +6.070° t=53270.5700 side=left -> Marker Cam Pos: [ -70.59,  -39.93, +181.52] mm
+  Tilt= +5.977° t=53270.6170 side=right -> Marker Cam Pos: [ +90.15,  -34.05, +182.27] mm
+  Tilt= +5.977° t=53270.6405 side=left -> Marker Cam Pos: [ -70.59,  -39.57, +181.69] mm
+  Tilt= +5.892° t=53270.6790 side=right -> Marker Cam Pos: [ +90.03,  -33.64, +182.23] mm
+  Tilt= +5.892° t=53270.7025 side=left -> Marker Cam Pos: [ -70.55,  -39.20, +181.75] mm
+  Tilt= +5.801° t=53270.7420 side=right -> Marker Cam Pos: [ +90.06,  -33.31, +182.44] mm
+  Tilt= +5.801° t=53270.7655 side=left -> Marker Cam Pos: [ -70.58,  -38.87, +182.01] mm
+  Tilt= +5.712° t=53270.8040 side=right -> Marker Cam Pos: [ +90.05,  -32.94, +182.56] mm
+  Tilt= +5.712° t=53270.8435 side=left -> Marker Cam Pos: [ -70.57,  -38.48, +182.04] mm
+  Tilt= +5.615° t=53270.8750 side=right -> Marker Cam Pos: [ +90.08,  -32.62, +182.80] mm
+  Tilt= +5.615° t=53270.9055 side=left -> Marker Cam Pos: [ -70.60,  -38.12, +182.24] mm
+  Tilt= +5.533° t=53270.9450 side=right -> Marker Cam Pos: [ +90.03,  -32.26, +182.86] mm
+  Tilt= +5.533° t=53270.9685 side=left -> Marker Cam Pos: [ -70.63,  -37.84, +182.44] mm
+  Tilt= +5.438° t=53271.0150 side=right -> Marker Cam Pos: [ +90.03,  -31.90, +183.03] mm
+  Tilt= +5.438° t=53271.0305 side=left -> Marker Cam Pos: [ -70.61,  -37.46, +182.58] mm
+  Tilt= +5.345° t=53271.0855 side=right -> Marker Cam Pos: [ +90.04,  -31.54, +183.17] mm
+  Tilt= +5.345° t=53271.1090 side=left -> Marker Cam Pos: [ -70.58,  -37.07, +182.61] mm
+  Tilt= +5.263° t=53271.1480 side=right -> Marker Cam Pos: [ +90.06,  -31.21, +183.40] mm
+  Tilt= +5.263° t=53271.1715 side=left -> Marker Cam Pos: [ -70.61,  -36.73, +182.85] mm
+  Tilt= +5.180° t=53271.2105 side=right -> Marker Cam Pos: [ +90.01,  -30.86, +183.49] mm
+  Tilt= +5.180° t=53271.2340 side=left -> Marker Cam Pos: [ -70.62,  -36.40, +182.94] mm
+  Tilt= +5.071° t=53271.2885 side=right -> Marker Cam Pos: [ +89.97,  -30.47, +183.59] mm
+  Tilt= +5.071° t=53271.3120 side=left -> Marker Cam Pos: [ -70.66,  -36.07, +183.19] mm
+  Tilt= +4.998° t=53271.3510 side=right -> Marker Cam Pos: [ +89.97,  -30.12, +183.71] mm
+  Tilt= +4.998° t=53271.3745 side=left -> Marker Cam Pos: [ -70.63,  -35.68, +183.22] mm
+  Tilt= +4.910° t=53271.4135 side=right -> Marker Cam Pos: [ +89.99,  -29.81, +183.85] mm
+  Tilt= +4.910° t=53271.4370 side=left -> Marker Cam Pos: [ -70.64,  -35.33, +183.45] mm
+  Tilt= +4.800° t=53271.4920 side=right -> Marker Cam Pos: [ +89.99,  -29.45, +184.06] mm
+  Tilt= +4.800° t=53271.5075 side=left -> Marker Cam Pos: [ -70.66,  -35.00, +183.66] mm
+  Tilt= +4.729° t=53271.5385 side=right -> Marker Cam Pos: [ +89.97,  -29.04, +184.12] mm
+  Tilt= +4.729° t=53271.5695 side=left -> Marker Cam Pos: [ -70.60,  -34.63, +183.76] mm
+  Tilt= +4.640° t=53271.6170 side=right -> Marker Cam Pos: [ +90.01,  -28.68, +184.34] mm
+  Tilt= +4.640° t=53271.6405 side=left -> Marker Cam Pos: [ -70.58,  -34.27, +183.81] mm
+  Tilt= +4.553° t=53271.6790 side=right -> Marker Cam Pos: [ +90.02,  -28.34, +184.45] mm
+  Tilt= +4.553° t=53271.7025 side=left -> Marker Cam Pos: [ -70.61,  -33.91, +184.04] mm
+  Tilt= +4.462° t=53271.7420 side=right -> Marker Cam Pos: [ +90.08,  -27.99, +184.69] mm
+  Tilt= +4.462° t=53271.7730 side=left -> Marker Cam Pos: [ -70.61,  -33.56, +184.20] mm
+  Tilt= +4.372° t=53271.8040 side=right -> Marker Cam Pos: [ +90.02,  -27.62, +184.68] mm
+  Tilt= +4.372° t=53271.8355 side=left -> Marker Cam Pos: [ -70.62,  -33.24, +184.39] mm
+  Tilt= +4.284° t=53271.8825 side=right -> Marker Cam Pos: [ +90.03,  -27.25, +184.85] mm
+  Tilt= +4.284° t=53271.9055 side=left -> Marker Cam Pos: [ -70.58,  -32.81, +184.38] mm
+  Tilt= +4.191° t=53271.9450 side=right -> Marker Cam Pos: [ +90.01,  -26.91, +184.99] mm
+  Tilt= +4.191° t=53271.9685 side=left -> Marker Cam Pos: [ -70.61,  -32.48, +184.62] mm
+  Tilt= +4.105° t=53272.0150 side=right -> Marker Cam Pos: [ +90.06,  -26.56, +185.23] mm
+  Tilt= +4.105° t=53272.0305 side=left -> Marker Cam Pos: [ -70.58,  -32.15, +184.71] mm
+  Tilt= +4.021° t=53272.0780 side=right -> Marker Cam Pos: [ +90.03,  -26.22, +185.28] mm
+  Tilt= +4.021° t=53272.1090 side=left -> Marker Cam Pos: [ -70.63,  -31.82, +184.96] mm
+  Tilt= +3.927° t=53272.1480 side=right -> Marker Cam Pos: [ +89.97,  -25.85, +185.32] mm
+  Tilt= +3.927° t=53272.1715 side=left -> Marker Cam Pos: [ -70.62,  -31.40, +185.07] mm
+  Tilt= +3.840° t=53272.2105 side=right -> Marker Cam Pos: [ +89.96,  -25.49, +185.45] mm
+  Tilt= +3.840° t=53272.2340 side=left -> Marker Cam Pos: [ -70.61,  -31.03, +185.17] mm
+  Tilt= +3.754° t=53272.2810 side=right -> Marker Cam Pos: [ +90.02,  -25.15, +185.75] mm
+  Tilt= +3.754° t=53272.2965 side=left -> Marker Cam Pos: [ -70.62,  -30.72, +185.28] mm
+  Tilt= +3.666° t=53272.3435 side=right -> Marker Cam Pos: [ +90.05,  -24.80, +185.92] mm
+  Tilt= +3.666° t=53272.3745 side=left -> Marker Cam Pos: [ -70.68,  -30.38, +185.58] mm
+  Tilt= +3.566° t=53272.4135 side=right -> Marker Cam Pos: [ +89.99,  -24.45, +185.95] mm
+  Tilt= +3.566° t=53272.4370 side=left -> Marker Cam Pos: [ -70.67,  -30.00, +185.59] mm
+  Tilt= +3.482° t=53272.4760 side=right -> Marker Cam Pos: [ +89.94,  -24.05, +186.02] mm
+  Tilt= +3.482° t=53272.4995 side=left -> Marker Cam Pos: [ -70.70,  -29.63, +185.74] mm
+  Tilt= +3.400° t=53272.5385 side=right -> Marker Cam Pos: [ +89.93,  -23.73, +186.23] mm
+  Tilt= +3.400° t=53272.5695 side=left -> Marker Cam Pos: [ -70.69,  -29.30, +185.81] mm
+  Tilt= +3.284° t=53272.6325 side=right -> Marker Cam Pos: [ +89.94,  -23.38, +186.41] mm
+  Tilt= +3.284° t=53272.6480 side=left -> Marker Cam Pos: [ -70.74,  -28.96, +186.08] mm
+  Tilt= +3.222° t=53272.6790 side=right -> Marker Cam Pos: [ +89.91,  -23.00, +186.49] mm
+  Tilt= +3.222° t=53272.7025 side=left -> Marker Cam Pos: [ -70.71,  -28.56, +186.12] mm
+  Tilt= +3.136° t=53272.7420 side=right -> Marker Cam Pos: [ +89.92,  -22.66, +186.67] mm
+  Tilt= +3.136° t=53272.7730 side=left -> Marker Cam Pos: [ -70.67,  -28.20, +186.13] mm
+  Tilt= +3.048° t=53272.8120 side=right -> Marker Cam Pos: [ +89.93,  -22.28, +186.84] mm
+  Tilt= +3.048° t=53272.8355 side=left -> Marker Cam Pos: [ -70.73,  -27.86, +186.47] mm
+  Tilt= +2.956° t=53272.8825 side=right -> Marker Cam Pos: [ +89.93,  -21.94, +186.96] mm
+  Tilt= +2.956° t=53272.9055 side=left -> Marker Cam Pos: [ -70.71,  -27.51, +186.55] mm
+  Tilt= +2.863° t=53272.9450 side=right -> Marker Cam Pos: [ +89.86,  -21.52, +186.94] mm
+  Tilt= +2.863° t=53272.9685 side=left -> Marker Cam Pos: [ -70.73,  -27.17, +186.76] mm
+  Tilt= +2.770° t=53273.0155 side=right -> Marker Cam Pos: [ +89.91,  -21.19, +187.12] mm
+  Tilt= +2.770° t=53273.0385 side=left -> Marker Cam Pos: [ -70.70,  -26.79, +186.76] mm
+  Tilt= +2.688° t=53273.0775 side=right -> Marker Cam Pos: [ +89.90,  -20.81, +187.28] mm
+  Tilt= +2.688° t=53273.1090 side=left -> Marker Cam Pos: [ -70.70,  -26.41, +186.98] mm
+  Tilt= +2.593° t=53273.1480 side=right -> Marker Cam Pos: [ +89.88,  -20.46, +187.37] mm
+  Tilt= +2.593° t=53273.1715 side=left -> Marker Cam Pos: [ -70.66,  -26.08, +187.06] mm
+  Tilt= +2.509° t=53273.2105 side=right -> Marker Cam Pos: [ +89.94,  -20.10, +187.62] mm
+  Tilt= +2.509° t=53273.2340 side=left -> Marker Cam Pos: [ -70.71,  -25.70, +187.27] mm
+  Tilt= +2.417° t=53273.2730 side=right -> Marker Cam Pos: [ +89.91,  -19.71, +187.62] mm
+  Tilt= +2.417° t=53273.3045 side=left -> Marker Cam Pos: [ -70.66,  -25.33, +187.29] mm
+  Tilt= +2.326° t=53273.3510 side=right -> Marker Cam Pos: [ +89.89,  -19.36, +187.73] mm
+  Tilt= +2.326° t=53273.3745 side=left -> Marker Cam Pos: [ -70.70,  -24.96, +187.47] mm
+  Tilt= +2.238° t=53273.4135 side=right -> Marker Cam Pos: [ +89.91,  -19.00, +187.91] mm
+  Tilt= +2.238° t=53273.4370 side=left -> Marker Cam Pos: [ -70.73,  -24.63, +187.73] mm
+  Tilt= +2.151° t=53273.4920 side=right -> Marker Cam Pos: [ +89.92,  -18.66, +188.07] mm
+  Tilt= +2.151° t=53273.5075 side=left -> Marker Cam Pos: [ -70.72,  -24.26, +187.72] mm
+  Tilt= +2.053° t=53273.5780 side=right -> Marker Cam Pos: [ +89.92,  -18.27, +188.18] mm
+  Tilt= +2.053° t=53273.5855 side=left -> Marker Cam Pos: [ -70.72,  -23.87, +187.90] mm
+  Tilt= +1.966° t=53273.6170 side=right -> Marker Cam Pos: [ +89.92,  -17.92, +188.30] mm
+  Tilt= +1.966° t=53273.6405 side=left -> Marker Cam Pos: [ -70.71,  -23.53, +187.96] mm
+  Tilt= +1.886° t=53273.6790 side=right -> Marker Cam Pos: [ +89.89,  -17.60, +188.37] mm
+  Tilt= +1.886° t=53273.7025 side=left -> Marker Cam Pos: [ -70.73,  -23.17, +188.14] mm
+  Tilt= +1.787° t=53273.7500 side=right -> Marker Cam Pos: [ +89.90,  -17.23, +188.59] mm
+  Tilt= +1.787° t=53273.7655 side=left -> Marker Cam Pos: [ -70.73,  -22.82, +188.30] mm
+  Tilt= +1.708° t=53273.8040 side=right -> Marker Cam Pos: [ +89.87,  -16.87, +188.71] mm
+  Tilt= +1.708° t=53273.8275 side=left -> Marker Cam Pos: [ -70.74,  -22.45, +188.41] mm
+  Tilt= +1.623° t=53273.8745 side=right -> Marker Cam Pos: [ +89.90,  -16.48, +188.91] mm
+  Tilt= +1.623° t=53273.9055 side=left -> Marker Cam Pos: [ -70.79,  -22.09, +188.61] mm
+  Tilt= +1.521° t=53273.9450 side=right -> Marker Cam Pos: [ +89.80,  -16.13, +188.85] mm
+  Tilt= +1.521° t=53273.9685 side=left -> Marker Cam Pos: [ -70.75,  -21.76, +188.62] mm
+  Tilt= +1.436° t=53274.0075 side=right -> Marker Cam Pos: [ +89.82,  -15.77, +188.97] mm
+  Tilt= +1.436° t=53274.0385 side=left -> Marker Cam Pos: [ -70.80,  -21.39, +188.86] mm
+  Tilt= +1.356° t=53274.0855 side=right -> Marker Cam Pos: [ +89.84,  -15.41, +189.17] mm
+  Tilt= +1.356° t=53274.1090 side=left -> Marker Cam Pos: [ -70.79,  -21.02, +188.98] mm
+  Tilt= +1.249° t=53274.1480 side=right -> Marker Cam Pos: [ +89.83,  -15.05, +189.28] mm
+  Tilt= +1.249° t=53274.1715 side=left -> Marker Cam Pos: [ -70.76,  -20.69, +189.04] mm
+  Tilt= +1.172° t=53274.2105 side=right -> Marker Cam Pos: [ +89.86,  -14.68, +189.43] mm
+  Tilt= +1.172° t=53274.2340 side=left -> Marker Cam Pos: [ -70.78,  -20.29, +189.26] mm
+  Tilt= +1.083° t=53274.2730 side=right -> Marker Cam Pos: [ +89.85,  -14.31, +189.50] mm
+  Tilt= +1.083° t=53274.3040 side=left -> Marker Cam Pos: [ -70.70,  -19.93, +189.27] mm
+  Tilt= +0.972° t=53274.3590 side=right -> Marker Cam Pos: [ +89.84,  -13.94, +189.58] mm
+  Tilt= +0.972° t=53274.3745 side=left -> Marker Cam Pos: [ -70.73,  -19.56, +189.45] mm
+  Tilt= +0.909° t=53274.4135 side=right -> Marker Cam Pos: [ +89.87,  -13.55, +189.73] mm
+  Tilt= +0.909° t=53274.4370 side=left -> Marker Cam Pos: [ -70.73,  -19.21, +189.55] mm
+  Tilt= +0.815° t=53274.4760 side=right -> Marker Cam Pos: [ +89.85,  -13.19, +189.77] mm
+  Tilt= +0.815° t=53274.4995 side=left -> Marker Cam Pos: [ -70.76,  -18.85, +189.77] mm
+  Tilt= +0.728° t=53274.5385 side=right -> Marker Cam Pos: [ +89.87,  -12.86, +189.97] mm
+  Tilt= +0.728° t=53274.5695 side=left -> Marker Cam Pos: [ -70.75,  -18.48, +189.89] mm
+  Tilt= +0.637° t=53274.6170 side=right -> Marker Cam Pos: [ +89.87,  -12.46, +190.11] mm
+  Tilt= +0.637° t=53274.6405 side=left -> Marker Cam Pos: [ -70.71,  -18.12, +189.84] mm
+  Tilt= +0.541° t=53274.6790 side=right -> Marker Cam Pos: [ +89.89,  -12.12, +190.23] mm
+  Tilt= +0.541° t=53274.7025 side=left -> Marker Cam Pos: [ -70.76,  -17.74, +190.07] mm
+  Tilt= +0.466° t=53274.7420 side=right -> Marker Cam Pos: [ +89.89,  -11.73, +190.36] mm
+  Tilt= +0.466° t=53274.7730 side=left -> Marker Cam Pos: [ -70.75,  -17.38, +190.17] mm
+  Tilt= +0.370° t=53274.8120 side=right -> Marker Cam Pos: [ +89.85,  -11.40, +190.41] mm
+  Tilt= +0.370° t=53274.8435 side=left -> Marker Cam Pos: [ -70.76,  -17.04, +190.28] mm
+  Tilt= +0.276° t=53274.8825 side=right -> Marker Cam Pos: [ +89.81,  -11.04, +190.42] mm
+  Tilt= +0.276° t=53274.9055 side=left -> Marker Cam Pos: [ -70.76,  -16.65, +190.48] mm
+  Tilt= +0.194° t=53274.9450 side=right -> Marker Cam Pos: [ +89.86,  -10.65, +190.69] mm
+  Tilt= +0.194° t=53274.9685 side=left -> Marker Cam Pos: [ -70.76,  -16.28, +190.49] mm
+  Tilt= +0.105° t=53275.0075 side=right -> Marker Cam Pos: [ +89.90,  -10.32, +190.91] mm
+  Tilt= +0.105° t=53275.0385 side=left -> Marker Cam Pos: [ -70.76,  -15.95, +190.58] mm
+  Tilt= +0.019° t=53275.0700 side=right -> Marker Cam Pos: [ +89.79,   -9.94, +190.73] mm
+  Tilt= +0.019° t=53275.1090 side=left -> Marker Cam Pos: [ -70.78,  -15.56, +190.74] mm
+  Tilt= -0.075° t=53275.1480 side=right -> Marker Cam Pos: [ +89.85,   -9.58, +191.08] mm
+  Tilt= -0.075° t=53275.1715 side=left -> Marker Cam Pos: [ -70.80,  -15.21, +190.83] mm
+  Tilt= -0.158° t=53275.2105 side=right -> Marker Cam Pos: [ +89.77,   -9.21, +191.08] mm
+  Tilt= -0.158° t=53275.2340 side=left -> Marker Cam Pos: [ -70.83,  -14.84, +190.99] mm
+  Tilt= -0.254° t=53275.2810 side=right -> Marker Cam Pos: [ +89.72,   -8.87, +191.13] mm
+  Tilt= -0.254° t=53275.2965 side=left -> Marker Cam Pos: [ -70.82,  -14.45, +191.03] mm
+  Tilt= -0.336° t=53275.3355 side=right -> Marker Cam Pos: [ +89.79,   -8.49, +191.41] mm
+  Tilt= -0.336° t=53275.3745 side=left -> Marker Cam Pos: [ -70.86,  -14.10, +191.20] mm
+  Tilt= -0.425° t=53275.4135 side=right -> Marker Cam Pos: [ +89.73,   -8.11, +191.41] mm
+  Tilt= -0.425° t=53275.4370 side=left -> Marker Cam Pos: [ -70.87,  -13.75, +191.35] mm
+  Tilt= -0.526° t=53275.4840 side=right -> Marker Cam Pos: [ +89.75,   -7.79, +191.56] mm
+  Tilt= -0.526° t=53275.5075 side=left -> Marker Cam Pos: [ -70.84,  -13.38, +191.35] mm
+  Tilt= -0.601° t=53275.5385 side=right -> Marker Cam Pos: [ +89.76,   -7.38, +191.70] mm
+  Tilt= -0.601° t=53275.5620 side=left -> Marker Cam Pos: [ -70.87,  -13.03, +191.54] mm
+  Tilt= -0.691° t=53275.6170 side=right -> Marker Cam Pos: [ +89.71,   -7.00, +191.77] mm
+  Tilt= -0.691° t=53275.6405 side=left -> Marker Cam Pos: [ -70.85,  -12.63, +191.67] mm
+  Tilt= -0.780° t=53275.6870 side=right -> Marker Cam Pos: [ +89.72,   -6.66, +191.86] mm
+  Tilt= -0.780° t=53275.7025 side=left -> Marker Cam Pos: [ -70.84,  -12.31, +191.74] mm
+  Tilt= -0.869° t=53275.7420 side=right -> Marker Cam Pos: [ +89.79,   -6.25, +192.07] mm
+  Tilt= -0.869° t=53275.7730 side=left -> Marker Cam Pos: [ -70.84,  -11.93, +191.94] mm
+  Tilt= -0.963° t=53275.8120 side=right -> Marker Cam Pos: [ +89.78,   -5.91, +192.15] mm
+  Tilt= -0.963° t=53275.8355 side=left -> Marker Cam Pos: [ -70.81,  -11.52, +191.95] mm
+  Tilt= -1.043° t=53275.8825 side=right -> Marker Cam Pos: [ +89.78,   -5.53, +192.23] mm
+  Tilt= -1.043° t=53275.9055 side=left -> Marker Cam Pos: [ -70.79,  -11.19, +191.99] mm
+  Tilt= -1.134° t=53275.9450 side=right -> Marker Cam Pos: [ +89.75,   -5.13, +192.25] mm
+  Tilt= -1.134° t=53275.9685 side=left -> Marker Cam Pos: [ -70.86,  -10.78, +192.31] mm
+  Tilt= -1.226° t=53276.0075 side=right -> Marker Cam Pos: [ +89.78,   -4.80, +192.38] mm
+  Tilt= -1.226° t=53276.0305 side=left -> Marker Cam Pos: [ -70.84,  -10.45, +192.33] mm
+  Tilt= -1.312° t=53276.0700 side=right -> Marker Cam Pos: [ +89.73,   -4.42, +192.47] mm
+  Tilt= -1.312° t=53276.0935 side=left -> Marker Cam Pos: [ -70.83,  -10.10, +192.45] mm
+  Tilt= -1.406° t=53276.1480 side=right -> Marker Cam Pos: [ +89.76,   -4.04, +192.66] mm
+  Tilt= -1.406° t=53276.1715 side=left -> Marker Cam Pos: [ -70.85,   -9.69, +192.57] mm
+  Tilt= -1.494° t=53276.2105 side=right -> Marker Cam Pos: [ +89.74,   -3.66, +192.68] mm
+  Tilt= -1.494° t=53276.2340 side=left -> Marker Cam Pos: [ -70.83,   -9.33, +192.59] mm
+  Tilt= -1.583° t=53276.2810 side=right -> Marker Cam Pos: [ +89.67,   -3.30, +192.65] mm
+  Tilt= -1.583° t=53276.2965 side=left -> Marker Cam Pos: [ -70.83,   -8.98, +192.73] mm
+  Tilt= -1.671° t=53276.3355 side=right -> Marker Cam Pos: [ +89.77,   -2.94, +192.97] mm
+  Tilt= -1.671° t=53276.3665 side=left -> Marker Cam Pos: [ -70.86,   -8.61, +192.95] mm
+  Tilt= -1.762° t=53276.4135 side=right -> Marker Cam Pos: [ +89.76,   -2.59, +193.06] mm
+  Tilt= -1.762° t=53276.4370 side=left -> Marker Cam Pos: [ -70.86,   -8.26, +192.99] mm
+  Tilt= -1.848° t=53276.4760 side=right -> Marker Cam Pos: [ +89.61,   -2.23, +192.91] mm
+  Tilt= -1.848° t=53276.4995 side=left -> Marker Cam Pos: [ -70.84,   -7.83, +192.95] mm
+  Tilt= -1.938° t=53276.5460 side=right -> Marker Cam Pos: [ +89.71,   -1.84, +193.28] mm
+  Tilt= -1.938° t=53276.5620 side=left -> Marker Cam Pos: [ -70.92,   -7.50, +193.30] mm
+  Tilt= -2.037° t=53276.6480 side=right -> Marker Cam Pos: [ +89.68,   -1.32, +193.35] mm
+  Tilt= -2.037° t=53276.6715 side=left -> Marker Cam Pos: [ -70.93,   -6.94, +193.51] mm
+  Tilt= -2.170° t=53276.7180 side=right -> Marker Cam Pos: [ +89.70,   -0.92, +193.49] mm
+  Tilt= -2.170° t=53276.7340 side=left -> Marker Cam Pos: [ -70.88,   -6.54, +193.35] mm
+  Tilt= -2.247° t=53276.7810 side=right -> Marker Cam Pos: [ +89.67,   -0.56, +193.53] mm
+  Tilt= -2.247° t=53276.7965 side=left -> Marker Cam Pos: [ -70.89,   -6.24, +193.45] mm
+  Tilt= -2.333° t=53276.8510 side=right -> Marker Cam Pos: [ +89.68,   -0.17, +193.63] mm
+  Tilt= -2.333° t=53276.8745 side=left -> Marker Cam Pos: [ -70.94,   -5.84, +193.77] mm
+  Tilt= -2.442° t=53276.9210 side=right -> Marker Cam Pos: [ +89.72,   +0.18, +193.82] mm
+  Tilt= -2.442° t=53276.9370 side=left -> Marker Cam Pos: [ -70.90,   -5.47, +193.74] mm
+  Tilt= -2.514° t=53276.9760 side=right -> Marker Cam Pos: [ +89.67,   +0.56, +193.78] mm
+  Tilt= -2.514° t=53276.9995 side=left -> Marker Cam Pos: [ -70.86,   -5.10, +193.70] mm
+  Tilt= -2.603° t=53277.0385 side=right -> Marker Cam Pos: [ +89.69,   +0.96, +193.89] mm
+  Tilt= -2.603° t=53277.0775 side=left -> Marker Cam Pos: [ -70.86,   -4.72, +193.91] mm
+  Tilt= -2.713° t=53277.1250 side=right -> Marker Cam Pos: [ +89.74,   +1.32, +194.08] mm
+  Tilt= -2.713° t=53277.1405 side=left -> Marker Cam Pos: [ -70.85,   -4.39, +194.04] mm
+  Tilt= -2.780° t=53277.1790 side=right -> Marker Cam Pos: [ +89.67,   +1.68, +193.98] mm
+  Tilt= -2.780° t=53277.2025 side=left -> Marker Cam Pos: [ -70.87,   -3.98, +194.19] mm
+  Tilt= -2.875° t=53277.2420 side=right -> Marker Cam Pos: [ +89.74,   +2.08, +194.25] mm
+  Tilt= -2.875° t=53277.2655 side=left -> Marker Cam Pos: [ -70.89,   -3.58, +194.31] mm
+  Tilt= -2.959° t=53277.3040 side=right -> Marker Cam Pos: [ +89.75,   +2.45, +194.37] mm
+  Tilt= -2.959° t=53277.3355 side=left -> Marker Cam Pos: [ -70.85,   -3.23, +194.29] mm
+  Tilt= -3.048° t=53277.3745 side=right -> Marker Cam Pos: [ +89.65,   +2.82, +194.24] mm
+  Tilt= -3.048° t=53277.4055 side=left -> Marker Cam Pos: [ -70.85,   -2.87, +194.37] mm
+  Tilt= -3.132° t=53277.4450 side=right -> Marker Cam Pos: [ +89.70,   +3.19, +194.53] mm
+  Tilt= -3.132° t=53277.4685 side=left -> Marker Cam Pos: [ -70.91,   -2.50, +194.64] mm
+  Tilt= -3.228° t=53277.5075 side=right -> Marker Cam Pos: [ +89.72,   +3.55, +194.68] mm
+  Tilt= -3.228° t=53277.5305 side=left -> Marker Cam Pos: [ -70.92,   -2.14, +194.72] mm
+  Tilt= -3.320° t=53277.5775 side=right -> Marker Cam Pos: [ +89.69,   +3.91, +194.70] mm
+  Tilt= -3.320° t=53277.6090 side=left -> Marker Cam Pos: [ -70.87,   -1.75, +194.64] mm
+  Tilt= -3.402° t=53277.6480 side=right -> Marker Cam Pos: [ +89.68,   +4.27, +194.73] mm
+  Tilt= -3.402° t=53277.6715 side=left -> Marker Cam Pos: [ -70.89,   -1.37, +194.84] mm
+  Tilt= -3.492° t=53277.7180 side=right -> Marker Cam Pos: [ +89.68,   +4.64, +194.84] mm
+  Tilt= -3.492° t=53277.7340 side=left -> Marker Cam Pos: [ -70.91,   -1.02, +194.87] mm
+  Tilt= -3.582° t=53277.7730 side=right -> Marker Cam Pos: [ +89.65,   +4.98, +194.91] mm
+  Tilt= -3.582° t=53277.7965 side=left -> Marker Cam Pos: [ -70.91,   -0.68, +194.96] mm
+  Tilt= -3.671° t=53277.8510 side=right -> Marker Cam Pos: [ +89.62,   +5.37, +194.98] mm
+  Tilt= -3.671° t=53277.8745 side=left -> Marker Cam Pos: [ -70.98,   -0.27, +195.20] mm
+  Tilt= -3.755° t=53277.9135 side=right -> Marker Cam Pos: [ +89.64,   +5.72, +195.15] mm
+  Tilt= -3.755° t=53277.9370 side=left -> Marker Cam Pos: [ -71.00,   +0.09, +195.24] mm
+  Tilt= -3.849° t=53277.9840 side=right -> Marker Cam Pos: [ +89.61,   +6.13, +195.21] mm
+  Tilt= -3.849° t=53277.9995 side=left -> Marker Cam Pos: [ -70.96,   +0.45, +195.30] mm
+  Tilt= -3.942° t=53278.0540 side=right -> Marker Cam Pos: [ +89.59,   +6.48, +195.27] mm
+  Tilt= -3.942° t=53278.0775 side=left -> Marker Cam Pos: [ -70.96,   +0.82, +195.32] mm
+  Tilt= -4.022° t=53278.1170 side=right -> Marker Cam Pos: [ +89.60,   +6.86, +195.41] mm
+  Tilt= -4.022° t=53278.1405 side=left -> Marker Cam Pos: [ -71.03,   +1.19, +195.64] mm
+  Tilt= -4.115° t=53278.1790 side=right -> Marker Cam Pos: [ +89.57,   +7.22, +195.48] mm
+  Tilt= -4.115° t=53278.2025 side=left -> Marker Cam Pos: [ -71.02,   +1.55, +195.66] mm
+  Tilt= -4.213° t=53278.2500 side=right -> Marker Cam Pos: [ +89.55,   +7.59, +195.54] mm
+  Tilt= -4.213° t=53278.2655 side=left -> Marker Cam Pos: [ -70.98,   +1.93, +195.56] mm
+  Tilt= -4.288° t=53278.3120 side=right -> Marker Cam Pos: [ +89.54,   +7.98, +195.56] mm
+  Tilt= -4.288° t=53278.3355 side=left -> Marker Cam Pos: [ -71.03,   +2.32, +195.86] mm
+  Tilt= -4.377° t=53278.3745 side=right -> Marker Cam Pos: [ +89.60,   +8.37, +195.72] mm
+  Tilt= -4.377° t=53278.4055 side=left -> Marker Cam Pos: [ -70.99,   +2.69, +195.86] mm
+  Tilt= -4.485° t=53278.4450 side=right -> Marker Cam Pos: [ +89.62,   +8.76, +195.89] mm
+  Tilt= -4.485° t=53278.4685 side=left -> Marker Cam Pos: [ -71.00,   +3.05, +196.02] mm
+  Tilt= -4.561° t=53278.5075 side=right -> Marker Cam Pos: [ +89.58,   +9.13, +195.90] mm
+  Tilt= -4.561° t=53278.5385 side=left -> Marker Cam Pos: [ -71.00,   +3.45, +196.11] mm
+  Tilt= -4.647° t=53278.5700 side=right -> Marker Cam Pos: [ +89.58,   +9.50, +195.93] mm
+  Tilt= -4.647° t=53278.6090 side=left -> Marker Cam Pos: [ -70.98,   +3.83, +196.14] mm
+  Tilt= -4.738° t=53278.6480 side=right -> Marker Cam Pos: [ +89.60,   +9.90, +196.10] mm
+  Tilt= -4.738° t=53278.6715 side=left -> Marker Cam Pos: [ -70.95,   +4.17, +196.25] mm
+  Tilt= -4.827° t=53278.7105 side=right -> Marker Cam Pos: [ +89.54,  +10.26, +196.04] mm
+  Tilt= -4.827° t=53278.7340 side=left -> Marker Cam Pos: [ -70.94,   +4.57, +196.26] mm
+  Tilt= -4.912° t=53278.7805 side=right -> Marker Cam Pos: [ +89.58,  +10.63, +196.21] mm
+  Tilt= -4.912° t=53278.8040 side=left -> Marker Cam Pos: [ -70.97,   +4.93, +196.50] mm
+  Tilt= -5.003° t=53278.8510 side=right -> Marker Cam Pos: [ +89.62,  +11.00, +196.41] mm
+  Tilt= -5.003° t=53278.8745 side=left -> Marker Cam Pos: [ -70.97,   +5.30, +196.59] mm
+  Tilt= -5.092° t=53278.9135 side=right -> Marker Cam Pos: [ +89.58,  +11.40, +196.35] mm
+  Tilt= -5.092° t=53278.9370 side=left -> Marker Cam Pos: [ -70.92,   +5.68, +196.38] mm
+  Tilt= -5.181° t=53278.9760 side=right -> Marker Cam Pos: [ +89.59,  +11.77, +196.45] mm
+  Tilt= -5.181° t=53278.9995 side=left -> Marker Cam Pos: [ -70.98,   +6.06, +196.71] mm
+  Tilt= -5.266° t=53279.0385 side=right -> Marker Cam Pos: [ +89.55,  +12.09, +196.46] mm
+  Tilt= -5.266° t=53279.0620 side=left -> Marker Cam Pos: [ -71.02,   +6.44, +196.85] mm
+  Tilt= -5.355° t=53279.1090 side=right -> Marker Cam Pos: [ +89.58,  +12.49, +196.62] mm
+  Tilt= -5.355° t=53279.1405 side=left -> Marker Cam Pos: [ -71.03,   +6.78, +196.92] mm
+  Tilt= -5.456° t=53279.1790 side=right -> Marker Cam Pos: [ +89.58,  +12.85, +196.78] mm
+  Tilt= -5.456° t=53279.2025 side=left -> Marker Cam Pos: [ -71.03,   +7.19, +197.00] mm
+  Tilt= -5.538° t=53279.2500 side=right -> Marker Cam Pos: [ +89.48,  +13.24, +196.69] mm
+  Tilt= -5.538° t=53279.2655 side=left -> Marker Cam Pos: [ -71.00,   +7.57, +196.94] mm
+  Tilt= -5.631° t=53279.3200 side=right -> Marker Cam Pos: [ +89.51,  +13.60, +196.81] mm
+  Tilt= -5.631° t=53279.3355 side=left -> Marker Cam Pos: [ -71.04,   +7.91, +197.08] mm
+  Tilt= -5.718° t=53279.3745 side=right -> Marker Cam Pos: [ +89.52,  +14.01, +196.94] mm
+  Tilt= -5.718° t=53279.4055 side=left -> Marker Cam Pos: [ -71.05,   +8.28, +197.11] mm
+  Tilt= -5.807° t=53279.4450 side=right -> Marker Cam Pos: [ +89.52,  +14.36, +197.03] mm
+  Tilt= -5.807° t=53279.4685 side=left -> Marker Cam Pos: [ -71.08,   +8.69, +197.31] mm
+  Tilt= -5.899° t=53279.5150 side=right -> Marker Cam Pos: [ +89.54,  +14.73, +197.12] mm
+  Tilt= -5.899° t=53279.5305 side=left -> Marker Cam Pos: [ -71.04,   +9.03, +197.34] mm
+  Tilt= -5.987° t=53279.5855 side=right -> Marker Cam Pos: [ +89.57,  +15.15, +197.25] mm
+  Tilt= -5.987° t=53279.6010 side=left -> Marker Cam Pos: [ -71.04,   +9.41, +197.36] mm
+  Tilt= -6.069° t=53279.6480 side=right -> Marker Cam Pos: [ +89.54,  +15.51, +197.25] mm
+  Tilt= -6.069° t=53279.6715 side=left -> Marker Cam Pos: [ -71.02,   +9.80, +197.47] mm
+  Tilt= -6.161° t=53279.7105 side=right -> Marker Cam Pos: [ +89.52,  +15.90, +197.25] mm
+  Tilt= -6.161° t=53279.7340 side=left -> Marker Cam Pos: [ -71.01,  +10.18, +197.59] mm
+  Tilt= -6.263° t=53279.7885 side=right -> Marker Cam Pos: [ +89.56,  +16.26, +197.41] mm
+  Tilt= -6.263° t=53279.8040 side=left -> Marker Cam Pos: [ -71.02,  +10.57, +197.67] mm
+  Tilt= -6.339° t=53279.8430 side=right -> Marker Cam Pos: [ +89.56,  +16.65, +197.50] mm
+  Tilt= -6.339° t=53279.8745 side=left -> Marker Cam Pos: [ -71.00,  +10.92, +197.64] mm
+  Tilt= -6.425° t=53279.9135 side=right -> Marker Cam Pos: [ +89.49,  +17.03, +197.38] mm
+  Tilt= -6.425° t=53279.9370 side=left -> Marker Cam Pos: [ -71.01,  +11.32, +197.81] mm
+  Tilt= -6.518° t=53279.9840 side=right -> Marker Cam Pos: [ +89.52,  +17.37, +197.56] mm
+  Tilt= -6.518° t=53280.0075 side=left -> Marker Cam Pos: [ -71.02,  +11.69, +197.87] mm
+  Tilt= -6.607° t=53280.0385 side=right -> Marker Cam Pos: [ +89.55,  +17.78, +197.67] mm
+  Tilt= -6.607° t=53280.0620 side=left -> Marker Cam Pos: [ -71.01,  +12.05, +197.85] mm
+  Tilt= -6.695° t=53280.1170 side=right -> Marker Cam Pos: [ +89.60,  +18.16, +197.84] mm
+  Tilt= -6.695° t=53280.1405 side=left -> Marker Cam Pos: [ -71.05,  +12.45, +198.07] mm
+  Tilt= -6.782° t=53280.1870 side=right -> Marker Cam Pos: [ +89.53,  +18.51, +197.77] mm
+  Tilt= -6.782° t=53280.2025 side=left -> Marker Cam Pos: [ -71.07,  +12.83, +198.16] mm
+  Tilt= -6.874° t=53280.2500 side=right -> Marker Cam Pos: [ +89.52,  +18.89, +197.79] mm
+  Tilt= -6.874° t=53280.2655 side=left -> Marker Cam Pos: [ -71.00,  +13.18, +198.03] mm
+  Tilt= -6.961° t=53280.3040 side=right -> Marker Cam Pos: [ +89.51,  +19.26, +197.87] mm
+  Tilt= -6.961° t=53280.3275 side=left -> Marker Cam Pos: [ -71.04,  +13.57, +198.20] mm
+  Tilt= -7.046° t=53280.3825 side=right -> Marker Cam Pos: [ +89.51,  +19.64, +197.97] mm
+  Tilt= -7.046° t=53280.4055 side=left -> Marker Cam Pos: [ -71.04,  +13.92, +198.21] mm
+  Tilt= -7.139° t=53280.4450 side=right -> Marker Cam Pos: [ +89.50,  +19.99, +198.10] mm
+  Tilt= -7.139° t=53280.4685 side=left -> Marker Cam Pos: [ -71.11,  +14.32, +198.43] mm
+  Tilt= -7.232° t=53280.5150 side=right -> Marker Cam Pos: [ +89.45,  +20.35, +198.04] mm
+  Tilt= -7.232° t=53280.5305 side=left -> Marker Cam Pos: [ -71.11,  +14.69, +198.46] mm
+  Tilt= -7.315° t=53280.5780 side=right -> Marker Cam Pos: [ +89.45,  +20.76, +198.13] mm
+  Tilt= -7.315° t=53280.6015 side=left -> Marker Cam Pos: [ -71.08,  +15.04, +198.38] mm
+  Tilt= -7.402° t=53280.6480 side=right -> Marker Cam Pos: [ +89.48,  +21.15, +198.34] mm
+  Tilt= -7.402° t=53280.6715 side=left -> Marker Cam Pos: [ -71.15,  +15.43, +198.68] mm
+  Tilt= -7.492° t=53280.7105 side=right -> Marker Cam Pos: [ +89.46,  +21.52, +198.39] mm
+  Tilt= -7.492° t=53280.7340 side=left -> Marker Cam Pos: [ -71.15,  +15.81, +198.69] mm
+  Tilt= -7.583° t=53280.7730 side=right -> Marker Cam Pos: [ +89.46,  +21.88, +198.46] mm
+  Tilt= -7.583° t=53280.7965 side=left -> Marker Cam Pos: [ -71.13,  +16.18, +198.64] mm
+  Tilt= -7.666° t=53280.8435 side=right -> Marker Cam Pos: [ +89.38,  +22.25, +198.38] mm
+  Tilt= -7.666° t=53280.8745 side=left -> Marker Cam Pos: [ -71.11,  +16.54, +198.72] mm
+  Tilt= -7.765° t=53280.9135 side=right -> Marker Cam Pos: [ +89.42,  +22.65, +198.55] mm
+  Tilt= -7.765° t=53280.9370 side=left -> Marker Cam Pos: [ -71.13,  +16.94, +198.82] mm
+  Tilt= -7.851° t=53280.9760 side=right -> Marker Cam Pos: [ +89.42,  +23.02, +198.60] mm
+  Tilt= -7.851° t=53280.9995 side=left -> Marker Cam Pos: [ -71.16,  +17.34, +199.01] mm
+  Tilt= -7.939° t=53281.0385 side=right -> Marker Cam Pos: [ +89.42,  +23.41, +198.66] mm
+  Tilt= -7.939° t=53281.0695 side=left -> Marker Cam Pos: [ -71.15,  +17.71, +199.03] mm
+  Tilt= -8.040° t=53281.1170 side=right -> Marker Cam Pos: [ +89.46,  +23.78, +198.77] mm
+  Tilt= -8.040° t=53281.1405 side=left -> Marker Cam Pos: [ -71.09,  +18.04, +198.89] mm
+  Tilt= -8.121° t=53281.1790 side=right -> Marker Cam Pos: [ +89.48,  +24.21, +198.80] mm
+  Tilt= -8.121° t=53281.2025 side=left -> Marker Cam Pos: [ -71.14,  +18.45, +199.12] mm
+  Tilt= -8.210° t=53281.2420 side=right -> Marker Cam Pos: [ +89.41,  +24.57, +198.74] mm
+  Tilt= -8.210° t=53281.2730 side=left -> Marker Cam Pos: [ -71.15,  +18.87, +199.25] mm
+  Tilt= -8.313° t=53281.3120 side=right -> Marker Cam Pos: [ +89.45,  +24.93, +198.88] mm
+  Tilt= -8.313° t=53281.3355 side=left -> Marker Cam Pos: [ -71.12,  +19.20, +199.21] mm
+  Tilt= -8.396° t=53281.4135 side=right -> Marker Cam Pos: [ +89.41,  +25.29, +198.85] mm
+  Tilt= -8.396° t=53281.4210 side=left -> Marker Cam Pos: [ -71.12,  +19.58, +199.19] mm
+  Tilt= -8.481° t=53281.4605 side=right -> Marker Cam Pos: [ +89.45,  +25.72, +199.03] mm
+  Tilt= -8.481° t=53281.4760 side=left -> Marker Cam Pos: [ -71.15,  +20.00, +199.40] mm
+  Tilt= -8.561° t=53281.5150 side=right -> Marker Cam Pos: [ +89.40,  +26.09, +198.98] mm
+  Tilt= -8.561° t=53281.5385 side=left -> Marker Cam Pos: [ -71.14,  +20.37, +199.48] mm
+  Tilt= -8.654° t=53281.5855 side=right -> Marker Cam Pos: [ +89.40,  +26.45, +199.05] mm
+  Tilt= -8.654° t=53281.6090 side=left -> Marker Cam Pos: [ -71.11,  +20.74, +199.41] mm
+  Tilt= -8.738° t=53281.6480 side=right -> Marker Cam Pos: [ +89.36,  +26.81, +199.03] mm
+  Tilt= -8.738° t=53281.6715 side=left -> Marker Cam Pos: [ -71.15,  +21.10, +199.53] mm
+  Tilt= -8.828° t=53281.7105 side=right -> Marker Cam Pos: [ +89.38,  +27.22, +199.18] mm
+  Tilt= -8.828° t=53281.7340 side=left -> Marker Cam Pos: [ -71.19,  +21.50, +199.68] mm
+  Tilt= -8.918° t=53281.7805 side=right -> Marker Cam Pos: [ +89.36,  +27.57, +199.18] mm
+  Tilt= -8.918° t=53281.8040 side=left -> Marker Cam Pos: [ -71.20,  +21.90, +199.77] mm
+  Tilt= -9.011° t=53281.8435 side=right -> Marker Cam Pos: [ +89.41,  +27.99, +199.36] mm
+  Tilt= -9.011° t=53281.8745 side=left -> Marker Cam Pos: [ -71.16,  +22.23, +199.67] mm
+  Tilt= -9.093° t=53281.9135 side=right -> Marker Cam Pos: [ +89.32,  +28.33, +199.27] mm
+  Tilt= -9.093° t=53281.9370 side=left -> Marker Cam Pos: [ -71.16,  +22.61, +199.68] mm
+  Tilt= -9.178° t=53281.9760 side=right -> Marker Cam Pos: [ +89.31,  +28.68, +199.30] mm
+  Tilt= -9.178° t=53281.9995 side=left -> Marker Cam Pos: [ -71.13,  +22.95, +199.63] mm
+  Tilt= -9.266° t=53282.0385 side=right -> Marker Cam Pos: [ +89.38,  +29.08, +199.59] mm
+  Tilt= -9.266° t=53282.0700 side=left -> Marker Cam Pos: [ -71.21,  +23.39, +199.96] mm
+  Tilt= -9.365° t=53282.1170 side=right -> Marker Cam Pos: [ +89.31,  +29.49, +199.45] mm
+  Tilt= -9.365° t=53282.1405 side=left -> Marker Cam Pos: [ -71.19,  +23.77, +199.95] mm
+  Tilt= -9.450° t=53282.1790 side=right -> Marker Cam Pos: [ +89.33,  +29.87, +199.56] mm
+  Tilt= -9.450° t=53282.2025 side=left -> Marker Cam Pos: [ -71.18,  +24.11, +200.03] mm
+  Tilt= -9.542° t=53282.2495 side=right -> Marker Cam Pos: [ +89.34,  +30.22, +199.61] mm
+  Tilt= -9.542° t=53282.2730 side=left -> Marker Cam Pos: [ -71.19,  +24.52, +200.10] mm
+  Tilt= -9.629° t=53282.3200 side=right -> Marker Cam Pos: [ +89.35,  +30.63, +199.69] mm
+  Tilt= -9.629° t=53282.3435 side=left -> Marker Cam Pos: [ -71.21,  +24.93, +200.21] mm
+  Tilt= -9.719° t=53282.3825 side=right -> Marker Cam Pos: [ +89.36,  +31.03, +199.73] mm
+  Tilt= -9.719° t=53282.4055 side=left -> Marker Cam Pos: [ -71.22,  +25.30, +200.27] mm
+  Tilt= -9.816° t=53282.4530 side=right -> Marker Cam Pos: [ +89.34,  +31.39, +199.71] mm
+  Tilt= -9.816° t=53282.4685 side=left -> Marker Cam Pos: [ -71.16,  +25.66, +200.17] mm
+  Tilt= -9.889° t=53282.5155 side=right -> Marker Cam Pos: [ +89.41,  +31.79, +199.89] mm
+  Tilt= -9.889° t=53282.5385 side=left -> Marker Cam Pos: [ -71.18,  +26.04, +200.27] mm
+  Tilt= -9.977° t=53282.5700 side=right -> Marker Cam Pos: [ +89.39,  +32.16, +199.91] mm
+  Tilt= -9.977° t=53282.6015 side=left -> Marker Cam Pos: [ -71.20,  +26.44, +200.39] mm
+  Tilt= -9.998° t=53282.6480 side=right -> Marker Cam Pos: [ +89.42,  +32.46, +199.99] mm
+  Tilt= -9.998° t=53282.6715 side=left -> Marker Cam Pos: [ -71.18,  +26.54, +200.33] mm
+  Tilt=-10.001° t=53282.7105 side=right -> Marker Cam Pos: [ +89.39,  +32.50, +199.93] mm
+  Tilt=-10.001° t=53282.7420 side=left -> Marker Cam Pos: [ -71.18,  +26.56, +200.34] mm
+  Tilt=-10.001° t=53282.7730 side=right -> Marker Cam Pos: [ +89.43,  +32.53, +200.01] mm
+  Tilt=-10.001° t=53282.8045 side=left -> Marker Cam Pos: [ -71.19,  +26.56, +200.37] mm
+  Pan=-10.000° t=53288.7105 side=right -> Marker Cam Pos: [ +47.73,  -10.14, +201.29] mm
+  Pan=-10.000° t=53288.7180 side=left -> Marker Cam Pos: [-110.36,  -15.82, +173.23] mm
+  Pan= -9.999° t=53288.7500 side=right -> Marker Cam Pos: [ +47.72,  -10.13, +201.28] mm
+  Pan= -9.999° t=53288.7655 side=left -> Marker Cam Pos: [-110.33,  -15.82, +173.19] mm
+  Pan= -9.945° t=53288.8040 side=right -> Marker Cam Pos: [ +47.81,  -10.12, +201.27] mm
+  Pan= -9.945° t=53288.8355 side=left -> Marker Cam Pos: [-110.20,  -15.85, +173.27] mm
+  Pan= -9.856° t=53288.8750 side=right -> Marker Cam Pos: [ +48.12,  -10.13, +201.21] mm
+  Pan= -9.856° t=53288.8980 side=left -> Marker Cam Pos: [-109.98,  -15.84, +173.67] mm
+  Pan= -9.762° t=53288.9450 side=right -> Marker Cam Pos: [ +48.46,  -10.13, +201.09] mm
+  Pan= -9.762° t=53288.9685 side=left -> Marker Cam Pos: [-109.59,  -15.82, +173.67] mm
+  Pan= -9.680° t=53289.0150 side=right -> Marker Cam Pos: [ +48.85,  -10.14, +201.13] mm
+  Pan= -9.680° t=53289.0305 side=left -> Marker Cam Pos: [-109.27,  -15.84, +173.87] mm
+  Pan= -9.589° t=53289.0855 side=right -> Marker Cam Pos: [ +49.20,  -10.14, +201.05] mm
+  Pan= -9.589° t=53289.1090 side=left -> Marker Cam Pos: [-108.87,  -15.83, +174.00] mm
+  Pan= -9.493° t=53289.1480 side=right -> Marker Cam Pos: [ +49.65,  -10.11, +201.00] mm
+  Pan= -9.493° t=53289.1715 side=left -> Marker Cam Pos: [-108.54,  -15.83, +174.23] mm
+  Pan= -9.402° t=53289.2105 side=right -> Marker Cam Pos: [ +50.03,  -10.11, +200.96] mm
+  Pan= -9.402° t=53289.2340 side=left -> Marker Cam Pos: [-108.19,  -15.84, +174.39] mm
+  Pan= -9.318° t=53289.2730 side=right -> Marker Cam Pos: [ +50.40,  -10.13, +200.86] mm
+  Pan= -9.318° t=53289.2965 side=left -> Marker Cam Pos: [-107.84,  -15.84, +174.61] mm
+  Pan= -9.221° t=53289.3510 side=right -> Marker Cam Pos: [ +50.79,  -10.12, +200.79] mm
+  Pan= -9.221° t=53289.3745 side=left -> Marker Cam Pos: [-107.48,  -15.83, +174.78] mm
+  Pan= -9.128° t=53289.4135 side=right -> Marker Cam Pos: [ +51.21,  -10.12, +200.78] mm
+  Pan= -9.128° t=53289.4370 side=left -> Marker Cam Pos: [-107.13,  -15.82, +174.96] mm
+  Pan= -9.049° t=53289.4760 side=right -> Marker Cam Pos: [ +51.61,  -10.13, +200.71] mm
+  Pan= -9.049° t=53289.5075 side=left -> Marker Cam Pos: [-106.80,  -15.84, +175.18] mm
+  Pan= -8.951° t=53289.5385 side=right -> Marker Cam Pos: [ +51.95,  -10.11, +200.60] mm
+  Pan= -8.951° t=53289.5620 side=left -> Marker Cam Pos: [-106.43,  -15.83, +175.32] mm
+  Pan= -8.856° t=53289.6170 side=right -> Marker Cam Pos: [ +52.36,  -10.11, +200.58] mm
+  Pan= -8.856° t=53289.6405 side=left -> Marker Cam Pos: [-106.10,  -15.83, +175.56] mm
+  Pan= -8.774° t=53289.6790 side=right -> Marker Cam Pos: [ +52.76,  -10.09, +200.47] mm
+  Pan= -8.774° t=53289.7025 side=left -> Marker Cam Pos: [-105.73,  -15.81, +175.62] mm
+  Pan= -8.691° t=53289.7420 side=right -> Marker Cam Pos: [ +53.11,  -10.08, +200.37] mm
+  Pan= -8.691° t=53289.7655 side=left -> Marker Cam Pos: [-105.41,  -15.81, +175.86] mm
+  Pan= -8.584° t=53289.8120 side=right -> Marker Cam Pos: [ +53.51,  -10.09, +200.44] mm
+  Pan= -8.584° t=53289.8355 side=left -> Marker Cam Pos: [-105.09,  -15.80, +176.09] mm
+  Pan= -8.508° t=53289.8825 side=right -> Marker Cam Pos: [ +53.88,  -10.07, +200.27] mm
+  Pan= -8.508° t=53289.9055 side=left -> Marker Cam Pos: [-104.75,  -15.79, +176.28] mm
+  Pan= -8.412° t=53289.9450 side=right -> Marker Cam Pos: [ +54.25,  -10.07, +200.20] mm
+  Pan= -8.412° t=53289.9685 side=left -> Marker Cam Pos: [-104.46,  -15.77, +176.52] mm
+  Pan= -8.302° t=53290.0310 side=right -> Marker Cam Pos: [ +54.66,  -10.07, +200.17] mm
+  Pan= -8.302° t=53290.0465 side=left -> Marker Cam Pos: [-104.10,  -15.80, +176.70] mm
+  Pan= -8.231° t=53290.0855 side=right -> Marker Cam Pos: [ +55.00,  -10.07, +200.10] mm
+  Pan= -8.231° t=53290.1090 side=left -> Marker Cam Pos: [-103.71,  -15.79, +176.81] mm
+  Pan= -8.147° t=53290.1480 side=right -> Marker Cam Pos: [ +55.37,  -10.07, +200.03] mm
+  Pan= -8.147° t=53290.1715 side=left -> Marker Cam Pos: [-103.38,  -15.78, +176.91] mm
+  Pan= -8.059° t=53290.2105 side=right -> Marker Cam Pos: [ +55.80,  -10.06, +200.04] mm
+  Pan= -8.059° t=53290.2420 side=left -> Marker Cam Pos: [-103.05,  -15.78, +177.20] mm
+  Pan= -7.970° t=53290.2730 side=right -> Marker Cam Pos: [ +56.15,  -10.05, +199.85] mm
+  Pan= -7.970° t=53290.3045 side=left -> Marker Cam Pos: [-102.73,  -15.79, +177.44] mm
+  Pan= -7.875° t=53290.3430 side=right -> Marker Cam Pos: [ +56.55,  -10.06, +199.89] mm
+  Pan= -7.875° t=53290.3665 side=left -> Marker Cam Pos: [-102.37,  -15.78, +177.56] mm
+  Pan= -7.788° t=53290.4135 side=right -> Marker Cam Pos: [ +56.90,  -10.05, +199.76] mm
+  Pan= -7.788° t=53290.4370 side=left -> Marker Cam Pos: [-102.02,  -15.76, +177.74] mm
+  Pan= -7.694° t=53290.4760 side=right -> Marker Cam Pos: [ +57.30,  -10.05, +199.64] mm
+  Pan= -7.694° t=53290.4995 side=left -> Marker Cam Pos: [-101.67,  -15.76, +177.91] mm
+  Pan= -7.611° t=53290.5385 side=right -> Marker Cam Pos: [ +57.73,  -10.05, +199.71] mm
+  Pan= -7.611° t=53290.5695 side=left -> Marker Cam Pos: [-101.28,  -15.76, +178.02] mm
+  Pan= -7.524° t=53290.6090 side=right -> Marker Cam Pos: [ +58.04,  -10.04, +199.48] mm
+  Pan= -7.524° t=53290.6325 side=left -> Marker Cam Pos: [-100.94,  -15.76, +178.18] mm
+  Pan= -7.434° t=53290.6790 side=right -> Marker Cam Pos: [ +58.46,  -10.03, +199.51] mm
+  Pan= -7.434° t=53290.7025 side=left -> Marker Cam Pos: [-100.56,  -15.76, +178.30] mm
+  Pan= -7.340° t=53290.7420 side=right -> Marker Cam Pos: [ +58.86,  -10.03, +199.34] mm
+  Pan= -7.340° t=53290.7655 side=left -> Marker Cam Pos: [-100.27,  -15.76, +178.63] mm
+  Pan= -7.242° t=53290.8200 side=right -> Marker Cam Pos: [ +59.23,  -10.01, +199.26] mm
+  Pan= -7.242° t=53290.8355 side=left -> Marker Cam Pos: [ -99.88,  -15.76, +178.71] mm
+  Pan= -7.161° t=53290.8980 side=right -> Marker Cam Pos: [ +59.60,  -10.04, +199.24] mm
+  Pan= -7.161° t=53290.9135 side=left -> Marker Cam Pos: [ -99.51,  -15.76, +178.83] mm
+  Pan= -7.067° t=53290.9530 side=right -> Marker Cam Pos: [ +60.01,  -10.01, +199.08] mm
+  Pan= -7.067° t=53290.9685 side=left -> Marker Cam Pos: [ -99.13,  -15.74, +178.96] mm
+  Pan= -6.984° t=53291.0230 side=right -> Marker Cam Pos: [ +60.39,  -10.00, +199.05] mm
+  Pan= -6.984° t=53291.0385 side=left -> Marker Cam Pos: [ -98.83,  -15.75, +179.21] mm
+  Pan= -6.896° t=53291.0700 side=right -> Marker Cam Pos: [ +60.75,  -10.03, +199.04] mm
+  Pan= -6.896° t=53291.1090 side=left -> Marker Cam Pos: [ -98.52,  -15.73, +179.43] mm
+  Pan= -6.794° t=53291.1480 side=right -> Marker Cam Pos: [ +61.10,  -10.00, +198.87] mm
+  Pan= -6.794° t=53291.1715 side=left -> Marker Cam Pos: [ -98.18,  -15.75, +179.61] mm
+  Pan= -6.722° t=53291.2105 side=right -> Marker Cam Pos: [ +61.51,  -10.00, +198.77] mm
+  Pan= -6.722° t=53291.2340 side=left -> Marker Cam Pos: [ -97.83,  -15.76, +179.75] mm
+  Pan= -6.632° t=53291.2730 side=right -> Marker Cam Pos: [ +61.85,  -10.01, +198.63] mm
+  Pan= -6.632° t=53291.3045 side=left -> Marker Cam Pos: [ -97.48,  -15.75, +179.92] mm
+  Pan= -6.520° t=53291.3510 side=right -> Marker Cam Pos: [ +62.24,   -9.99, +198.61] mm
+  Pan= -6.520° t=53291.3745 side=left -> Marker Cam Pos: [ -97.07,  -15.74, +179.96] mm
+  Pan= -6.448° t=53291.4135 side=right -> Marker Cam Pos: [ +62.62,  -10.01, +198.63] mm
+  Pan= -6.448° t=53291.4370 side=left -> Marker Cam Pos: [ -96.83,  -15.72, +180.36] mm
+  Pan= -6.359° t=53291.4760 side=right -> Marker Cam Pos: [ +62.96,   -9.99, +198.40] mm
+  Pan= -6.359° t=53291.4995 side=left -> Marker Cam Pos: [ -96.46,  -15.72, +180.41] mm
+  Pan= -6.268° t=53291.5465 side=right -> Marker Cam Pos: [ +63.38,   -9.98, +198.41] mm
+  Pan= -6.268° t=53291.5700 side=left -> Marker Cam Pos: [ -96.07,  -15.70, +180.52] mm
+  Pan= -6.182° t=53291.6090 side=right -> Marker Cam Pos: [ +63.75,   -9.99, +198.35] mm
+  Pan= -6.182° t=53291.6405 side=left -> Marker Cam Pos: [ -95.72,  -15.71, +180.75] mm
+  Pan= -6.097° t=53291.6790 side=right -> Marker Cam Pos: [ +64.14,   -9.98, +198.30] mm
+  Pan= -6.097° t=53291.7025 side=left -> Marker Cam Pos: [ -95.37,  -15.70, +180.84] mm
+  Pan= -6.006° t=53291.7420 side=right -> Marker Cam Pos: [ +64.48,   -9.96, +198.16] mm
+  Pan= -6.006° t=53291.7655 side=left -> Marker Cam Pos: [ -95.04,  -15.68, +181.02] mm
+  Pan= -5.912° t=53291.8040 side=right -> Marker Cam Pos: [ +64.87,   -9.97, +198.01] mm
+  Pan= -5.912° t=53291.8355 side=left -> Marker Cam Pos: [ -94.64,  -15.71, +181.16] mm
+  Pan= -5.825° t=53291.8825 side=right -> Marker Cam Pos: [ +65.30,   -9.97, +198.07] mm
+  Pan= -5.825° t=53291.9055 side=left -> Marker Cam Pos: [ -94.21,  -15.69, +181.14] mm
+  Pan= -5.739° t=53291.9530 side=right -> Marker Cam Pos: [ +65.61,   -9.92, +197.85] mm
+  Pan= -5.739° t=53291.9685 side=left -> Marker Cam Pos: [ -93.94,  -15.66, +181.40] mm
+  Pan= -5.649° t=53292.0075 side=right -> Marker Cam Pos: [ +66.06,   -9.94, +197.84] mm
+  Pan= -5.649° t=53292.0385 side=left -> Marker Cam Pos: [ -93.62,  -15.67, +181.70] mm
+  Pan= -5.549° t=53292.0855 side=right -> Marker Cam Pos: [ +66.42,   -9.94, +197.71] mm
+  Pan= -5.549° t=53292.1090 side=left -> Marker Cam Pos: [ -93.26,  -15.67, +181.86] mm
+  Pan= -5.467° t=53292.1560 side=right -> Marker Cam Pos: [ +66.77,   -9.92, +197.63] mm
+  Pan= -5.467° t=53292.1715 side=left -> Marker Cam Pos: [ -92.91,  -15.68, +182.02] mm
+  Pan= -5.383° t=53292.2105 side=right -> Marker Cam Pos: [ +67.18,   -9.92, +197.60] mm
+  Pan= -5.383° t=53292.2340 side=left -> Marker Cam Pos: [ -92.56,  -15.69, +182.20] mm
+  Pan= -5.288° t=53292.2805 side=right -> Marker Cam Pos: [ +67.54,   -9.91, +197.36] mm
+  Pan= -5.288° t=53292.3040 side=left -> Marker Cam Pos: [ -92.20,  -15.67, +182.35] mm
+  Pan= -5.208° t=53292.3510 side=right -> Marker Cam Pos: [ +67.89,   -9.91, +197.26] mm
+  Pan= -5.208° t=53292.3745 side=left -> Marker Cam Pos: [ -91.87,  -15.67, +182.53] mm
+  Pan= -5.116° t=53292.4135 side=right -> Marker Cam Pos: [ +68.26,   -9.90, +197.27] mm
+  Pan= -5.116° t=53292.4370 side=left -> Marker Cam Pos: [ -91.49,  -15.67, +182.61] mm
+  Pan= -5.015° t=53292.4840 side=right -> Marker Cam Pos: [ +68.65,   -9.92, +197.18] mm
+  Pan= -5.015° t=53292.5075 side=left -> Marker Cam Pos: [ -91.14,  -15.65, +182.83] mm
+  Pan= -4.936° t=53292.5460 side=right -> Marker Cam Pos: [ +69.04,   -9.91, +197.06] mm
+  Pan= -4.936° t=53292.5775 side=left -> Marker Cam Pos: [ -90.81,  -15.64, +183.01] mm
+  Pan= -4.840° t=53292.6250 side=right -> Marker Cam Pos: [ +69.39,   -9.89, +196.98] mm
+  Pan= -4.840° t=53292.6405 side=left -> Marker Cam Pos: [ -90.47,  -15.63, +183.14] mm
+  Pan= -4.744° t=53292.6790 side=right -> Marker Cam Pos: [ +69.75,   -9.90, +196.91] mm
+  Pan= -4.744° t=53292.7105 side=left -> Marker Cam Pos: [ -90.12,  -15.62, +183.31] mm
+  Pan= -4.669° t=53292.7420 side=right -> Marker Cam Pos: [ +70.14,   -9.89, +196.87] mm
+  Pan= -4.669° t=53292.7730 side=left -> Marker Cam Pos: [ -89.77,  -15.63, +183.47] mm
+  Pan= -4.584° t=53292.8200 side=right -> Marker Cam Pos: [ +70.51,   -9.87, +196.67] mm
+  Pan= -4.584° t=53292.8435 side=left -> Marker Cam Pos: [ -89.43,  -15.62, +183.61] mm
+  Pan= -4.490° t=53292.8900 side=right -> Marker Cam Pos: [ +70.86,   -9.87, +196.60] mm
+  Pan= -4.490° t=53292.9055 side=left -> Marker Cam Pos: [ -89.06,  -15.62, +183.75] mm
+  Pan= -4.406° t=53292.9450 side=right -> Marker Cam Pos: [ +71.27,   -9.87, +196.64] mm
+  Pan= -4.406° t=53292.9685 side=left -> Marker Cam Pos: [ -88.66,  -15.61, +183.82] mm
+  Pan= -4.310° t=53293.0075 side=right -> Marker Cam Pos: [ +71.59,   -9.85, +196.37] mm
+  Pan= -4.310° t=53293.0305 side=left -> Marker Cam Pos: [ -88.33,  -15.62, +183.98] mm
+  Pan= -4.222° t=53293.0780 side=right -> Marker Cam Pos: [ +72.01,   -9.85, +196.34] mm
+  Pan= -4.222° t=53293.1090 side=left -> Marker Cam Pos: [ -87.95,  -15.59, +184.10] mm
+  Pan= -4.133° t=53293.1480 side=right -> Marker Cam Pos: [ +72.37,   -9.85, +196.27] mm
+  Pan= -4.133° t=53293.1715 side=left -> Marker Cam Pos: [ -87.57,  -15.59, +184.23] mm
+  Pan= -4.047° t=53293.2105 side=right -> Marker Cam Pos: [ +72.74,   -9.84, +196.13] mm
+  Pan= -4.047° t=53293.2420 side=left -> Marker Cam Pos: [ -87.25,  -15.58, +184.43] mm
+  Pan= -3.961° t=53293.2885 side=right -> Marker Cam Pos: [ +73.13,   -9.83, +195.99] mm
+  Pan= -3.961° t=53293.3120 side=left -> Marker Cam Pos: [ -86.93,  -15.59, +184.72] mm
+  Pan= -3.863° t=53293.3510 side=right -> Marker Cam Pos: [ +73.49,   -9.83, +195.90] mm
+  Pan= -3.863° t=53293.3745 side=left -> Marker Cam Pos: [ -86.55,  -15.58, +184.81] mm
+  Pan= -3.771° t=53293.4135 side=right -> Marker Cam Pos: [ +73.84,   -9.81, +195.77] mm
+  Pan= -3.771° t=53293.4370 side=left -> Marker Cam Pos: [ -86.20,  -15.59, +184.99] mm
+  Pan= -3.685° t=53293.4840 side=right -> Marker Cam Pos: [ +74.25,   -9.82, +195.66] mm
+  Pan= -3.685° t=53293.4995 side=left -> Marker Cam Pos: [ -85.87,  -15.59, +185.24] mm
+  Pan= -3.600° t=53293.5385 side=right -> Marker Cam Pos: [ +74.60,   -9.85, +195.56] mm
+  Pan= -3.600° t=53293.5695 side=left -> Marker Cam Pos: [ -85.42,  -15.59, +185.20] mm
+  Pan= -3.514° t=53293.6090 side=right -> Marker Cam Pos: [ +75.02,   -9.81, +195.57] mm
+  Pan= -3.514° t=53293.6405 side=left -> Marker Cam Pos: [ -85.11,  -15.60, +185.39] mm
+  Pan= -3.425° t=53293.6790 side=right -> Marker Cam Pos: [ +75.34,   -9.83, +195.33] mm
+  Pan= -3.425° t=53293.7025 side=left -> Marker Cam Pos: [ -84.76,  -15.60, +185.56] mm
+  Pan= -3.336° t=53293.7500 side=right -> Marker Cam Pos: [ +75.71,   -9.83, +195.19] mm
+  Pan= -3.336° t=53293.7730 side=left -> Marker Cam Pos: [ -84.41,  -15.59, +185.71] mm
+  Pan= -3.240° t=53293.8120 side=right -> Marker Cam Pos: [ +76.12,   -9.83, +195.17] mm
+  Pan= -3.240° t=53293.8435 side=left -> Marker Cam Pos: [ -84.00,  -15.56, +185.72] mm
+  Pan= -3.159° t=53293.8825 side=right -> Marker Cam Pos: [ +76.50,   -9.81, +195.11] mm
+  Pan= -3.159° t=53293.9055 side=left -> Marker Cam Pos: [ -83.68,  -15.57, +185.89] mm
+  Pan= -3.073° t=53293.9450 side=right -> Marker Cam Pos: [ +76.86,   -9.81, +195.02] mm
+  Pan= -3.073° t=53293.9685 side=left -> Marker Cam Pos: [ -83.34,  -15.57, +186.13] mm
+  Pan= -2.969° t=53294.0150 side=right -> Marker Cam Pos: [ +77.18,   -9.81, +194.75] mm
+  Pan= -2.969° t=53294.0385 side=left -> Marker Cam Pos: [ -82.99,  -15.55, +186.27] mm
+  Pan= -2.889° t=53294.0780 side=right -> Marker Cam Pos: [ +77.58,   -9.81, +194.69] mm
+  Pan= -2.889° t=53294.1015 side=left -> Marker Cam Pos: [ -82.63,  -15.53, +186.42] mm
+  Pan= -2.800° t=53294.1480 side=right -> Marker Cam Pos: [ +77.92,   -9.81, +194.58] mm
+  Pan= -2.800° t=53294.1715 side=left -> Marker Cam Pos: [ -82.29,  -15.55, +186.59] mm
+  Pan= -2.716° t=53294.2105 side=right -> Marker Cam Pos: [ +78.25,   -9.78, +194.43] mm
+  Pan= -2.716° t=53294.2340 side=left -> Marker Cam Pos: [ -81.95,  -15.54, +186.75] mm
+  Pan= -2.626° t=53294.2730 side=right -> Marker Cam Pos: [ +78.63,   -9.79, +194.27] mm
+  Pan= -2.626° t=53294.3045 side=left -> Marker Cam Pos: [ -81.55,  -15.53, +186.78] mm
+  Pan= -2.532° t=53294.3355 side=right -> Marker Cam Pos: [ +79.04,   -9.78, +194.25] mm
+  Pan= -2.532° t=53294.3665 side=left -> Marker Cam Pos: [ -81.16,  -15.55, +186.88] mm
+  Pan= -2.447° t=53294.4135 side=right -> Marker Cam Pos: [ +79.38,   -9.77, +194.19] mm
+  Pan= -2.447° t=53294.4370 side=left -> Marker Cam Pos: [ -80.86,  -15.53, +187.11] mm
+  Pan= -2.356° t=53294.4760 side=right -> Marker Cam Pos: [ +79.80,   -9.78, +194.15] mm
+  Pan= -2.356° t=53294.4995 side=left -> Marker Cam Pos: [ -80.44,  -15.52, +187.17] mm
+  Pan= -2.265° t=53294.5385 side=right -> Marker Cam Pos: [ +80.17,   -9.77, +193.98] mm
+  Pan= -2.265° t=53294.5620 side=left -> Marker Cam Pos: [ -80.07,  -15.52, +187.25] mm
+  Pan= -2.182° t=53294.6090 side=right -> Marker Cam Pos: [ +80.55,   -9.75, +193.89] mm
+  Pan= -2.182° t=53294.6405 side=left -> Marker Cam Pos: [ -79.73,  -15.52, +187.45] mm
+  Pan= -2.089° t=53294.6790 side=right -> Marker Cam Pos: [ +80.91,   -9.75, +193.81] mm
+  Pan= -2.089° t=53294.7025 side=left -> Marker Cam Pos: [ -79.36,  -15.52, +187.63] mm
+  Pan= -2.000° t=53294.7500 side=right -> Marker Cam Pos: [ +81.32,   -9.75, +193.68] mm
+  Pan= -2.000° t=53294.7655 side=left -> Marker Cam Pos: [ -79.00,  -15.50, +187.76] mm
+  Pan= -1.914° t=53294.8120 side=right -> Marker Cam Pos: [ +81.66,   -9.74, +193.56] mm
+  Pan= -1.914° t=53294.8355 side=left -> Marker Cam Pos: [ -78.63,  -15.49, +187.90] mm
+  Pan= -1.827° t=53294.8825 side=right -> Marker Cam Pos: [ +82.03,   -9.74, +193.48] mm
+  Pan= -1.827° t=53294.9055 side=left -> Marker Cam Pos: [ -78.29,  -15.50, +188.10] mm
+  Pan= -1.734° t=53294.9450 side=right -> Marker Cam Pos: [ +82.36,   -9.72, +193.20] mm
+  Pan= -1.734° t=53294.9685 side=left -> Marker Cam Pos: [ -77.95,  -15.49, +188.29] mm
+  Pan= -1.651° t=53295.0155 side=right -> Marker Cam Pos: [ +82.74,   -9.73, +193.12] mm
+  Pan= -1.651° t=53295.0385 side=left -> Marker Cam Pos: [ -77.55,  -15.49, +188.32] mm
+  Pan= -1.566° t=53295.0775 side=right -> Marker Cam Pos: [ +83.11,   -9.71, +193.07] mm
+  Pan= -1.566° t=53295.1090 side=left -> Marker Cam Pos: [ -77.18,  -15.47, +188.41] mm
+  Pan= -1.465° t=53295.1480 side=right -> Marker Cam Pos: [ +83.47,   -9.71, +193.02] mm
+  Pan= -1.465° t=53295.1715 side=left -> Marker Cam Pos: [ -76.85,  -15.48, +188.57] mm
+  Pan= -1.382° t=53295.2105 side=right -> Marker Cam Pos: [ +83.86,   -9.70, +192.84] mm
+  Pan= -1.382° t=53295.2340 side=left -> Marker Cam Pos: [ -76.49,  -15.49, +188.73] mm
+  Pan= -1.296° t=53295.2805 side=right -> Marker Cam Pos: [ +84.22,   -9.71, +192.75] mm
+  Pan= -1.296° t=53295.3120 side=left -> Marker Cam Pos: [ -76.15,  -15.47, +188.89] mm
+  Pan= -1.195° t=53295.3510 side=right -> Marker Cam Pos: [ +84.56,   -9.69, +192.69] mm
+  Pan= -1.195° t=53295.3745 side=left -> Marker Cam Pos: [ -75.80,  -15.47, +189.03] mm
+  Pan= -1.110° t=53295.4135 side=right -> Marker Cam Pos: [ +84.95,   -9.70, +192.55] mm
+  Pan= -1.110° t=53295.4370 side=left -> Marker Cam Pos: [ -75.43,  -15.47, +189.18] mm
+  Pan= -1.023° t=53295.4760 side=right -> Marker Cam Pos: [ +85.36,   -9.68, +192.55] mm
+  Pan= -1.023° t=53295.4995 side=left -> Marker Cam Pos: [ -75.07,  -15.47, +189.34] mm
+  Pan= -0.922° t=53295.5540 side=right -> Marker Cam Pos: [ +85.71,   -9.68, +192.45] mm
+  Pan= -0.922° t=53295.5775 side=left -> Marker Cam Pos: [ -74.73,  -15.43, +189.45] mm
+  Pan= -0.842° t=53295.6170 side=right -> Marker Cam Pos: [ +86.06,   -9.68, +192.26] mm
+  Pan= -0.842° t=53295.6405 side=left -> Marker Cam Pos: [ -74.38,  -15.44, +189.66] mm
+  Pan= -0.758° t=53295.6790 side=right -> Marker Cam Pos: [ +86.44,   -9.68, +192.14] mm
+  Pan= -0.758° t=53295.7025 side=left -> Marker Cam Pos: [ -74.03,  -15.45, +189.82] mm
+  Pan= -0.673° t=53295.7495 side=right -> Marker Cam Pos: [ +86.82,   -9.67, +192.10] mm
+  Pan= -0.673° t=53295.7730 side=left -> Marker Cam Pos: [ -73.66,  -15.43, +189.90] mm
+  Pan= -0.580° t=53295.8120 side=right -> Marker Cam Pos: [ +87.18,   -9.65, +192.00] mm
+  Pan= -0.580° t=53295.8355 side=left -> Marker Cam Pos: [ -73.26,  -15.43, +189.95] mm
+  Pan= -0.491° t=53295.8745 side=right -> Marker Cam Pos: [ +87.56,   -9.65, +191.83] mm
+  Pan= -0.491° t=53295.9055 side=left -> Marker Cam Pos: [ -72.88,  -15.44, +190.08] mm
+  Pan= -0.401° t=53295.9450 side=right -> Marker Cam Pos: [ +87.92,   -9.64, +191.68] mm
+  Pan= -0.401° t=53295.9685 side=left -> Marker Cam Pos: [ -72.49,  -15.44, +190.13] mm
+  Pan= -0.313° t=53296.0155 side=right -> Marker Cam Pos: [ +88.25,   -9.65, +191.53] mm
+  Pan= -0.313° t=53296.0465 side=left -> Marker Cam Pos: [ -72.14,  -15.42, +190.30] mm
+  Pan= -0.216° t=53296.0855 side=right -> Marker Cam Pos: [ +88.62,   -9.64, +191.35] mm
+  Pan= -0.216° t=53296.1090 side=left -> Marker Cam Pos: [ -71.77,  -15.44, +190.39] mm
+  Pan= -0.129° t=53296.1480 side=right -> Marker Cam Pos: [ +89.04,   -9.62, +191.28] mm
+  Pan= -0.129° t=53296.1715 side=left -> Marker Cam Pos: [ -71.39,  -15.41, +190.54] mm
+  Pan= -0.040° t=53296.2185 side=right -> Marker Cam Pos: [ +89.37,   -9.66, +191.13] mm
+  Pan= -0.040° t=53296.2420 side=left -> Marker Cam Pos: [ -71.02,  -15.42, +190.59] mm
+  Pan= +0.041° t=53296.2805 side=right -> Marker Cam Pos: [ +89.74,   -9.63, +190.97] mm
+  Pan= +0.041° t=53296.3120 side=left -> Marker Cam Pos: [ -70.67,  -15.43, +190.84] mm
+  Pan= +0.140° t=53296.3510 side=right -> Marker Cam Pos: [ +90.11,   -9.63, +190.85] mm
+  Pan= +0.140° t=53296.3745 side=left -> Marker Cam Pos: [ -70.30,  -15.41, +190.95] mm
+  Pan= +0.222° t=53296.4135 side=right -> Marker Cam Pos: [ +90.45,   -9.63, +190.72] mm
+  Pan= +0.222° t=53296.4370 side=left -> Marker Cam Pos: [ -69.93,  -15.40, +191.07] mm
+  Pan= +0.313° t=53296.4760 side=right -> Marker Cam Pos: [ +90.79,   -9.64, +190.55] mm
+  Pan= +0.313° t=53296.5075 side=left -> Marker Cam Pos: [ -69.57,  -15.39, +191.22] mm
+  Pan= +0.403° t=53296.5465 side=right -> Marker Cam Pos: [ +91.19,   -9.64, +190.44] mm
+  Pan= +0.403° t=53296.5775 side=left -> Marker Cam Pos: [ -69.24,  -15.39, +191.45] mm
+  Pan= +0.491° t=53296.6170 side=right -> Marker Cam Pos: [ +91.58,   -9.62, +190.41] mm
+  Pan= +0.491° t=53296.6325 side=left -> Marker Cam Pos: [ -68.88,  -15.41, +191.60] mm
+  Pan= +0.585° t=53296.6870 side=right -> Marker Cam Pos: [ +91.88,   -9.61, +190.23] mm
+  Pan= +0.585° t=53296.7025 side=left -> Marker Cam Pos: [ -68.53,  -15.40, +191.68] mm
+  Pan= +0.667° t=53296.7420 side=right -> Marker Cam Pos: [ +92.26,   -9.61, +190.10] mm
+  Pan= +0.667° t=53296.7730 side=left -> Marker Cam Pos: [ -68.13,  -15.37, +191.64] mm
+  Pan= +0.749° t=53296.8120 side=right -> Marker Cam Pos: [ +92.65,   -9.60, +190.00] mm
+  Pan= +0.749° t=53296.8435 side=left -> Marker Cam Pos: [ -67.74,  -15.37, +191.77] mm
+  Pan= +0.854° t=53296.8825 side=right -> Marker Cam Pos: [ +92.97,   -9.59, +189.84] mm
+  Pan= +0.854° t=53296.9055 side=left -> Marker Cam Pos: [ -67.41,  -15.38, +191.86] mm
+  Pan= +0.934° t=53296.9450 side=right -> Marker Cam Pos: [ +93.34,   -9.59, +189.74] mm
+  Pan= +0.934° t=53296.9685 side=left -> Marker Cam Pos: [ -67.07,  -15.38, +192.10] mm
+  Pan= +1.030° t=53297.0150 side=right -> Marker Cam Pos: [ +93.75,   -9.59, +189.65] mm
+  Pan= +1.030° t=53297.0305 side=left -> Marker Cam Pos: [ -66.66,  -15.38, +192.19] mm
+  Pan= +1.107° t=53297.0775 side=right -> Marker Cam Pos: [ +94.08,   -9.58, +189.49] mm
+  Pan= +1.107° t=53297.1090 side=left -> Marker Cam Pos: [ -66.30,  -15.36, +192.24] mm
+  Pan= +1.207° t=53297.1480 side=right -> Marker Cam Pos: [ +94.47,   -9.58, +189.45] mm
+  Pan= +1.207° t=53297.1715 side=left -> Marker Cam Pos: [ -65.97,  -15.36, +192.49] mm
+  Pan= +1.288° t=53297.2105 side=right -> Marker Cam Pos: [ +94.84,   -9.57, +189.24] mm
+  Pan= +1.288° t=53297.2340 side=left -> Marker Cam Pos: [ -65.54,  -15.35, +192.48] mm
+  Pan= +1.373° t=53297.2805 side=right -> Marker Cam Pos: [ +95.21,   -9.56, +189.19] mm
+  Pan= +1.373° t=53297.3120 side=left -> Marker Cam Pos: [ -65.21,  -15.35, +192.73] mm
+  Pan= +1.469° t=53297.3510 side=right -> Marker Cam Pos: [ +95.57,   -9.56, +189.04] mm
+  Pan= +1.469° t=53297.3745 side=left -> Marker Cam Pos: [ -64.84,  -15.36, +192.85] mm
+  Pan= +1.560° t=53297.4135 side=right -> Marker Cam Pos: [ +95.91,   -9.52, +188.81] mm
+  Pan= +1.560° t=53297.4370 side=left -> Marker Cam Pos: [ -64.47,  -15.35, +192.95] mm
+  Pan= +1.648° t=53297.4760 side=right -> Marker Cam Pos: [ +96.28,   -9.52, +188.72] mm
+  Pan= +1.648° t=53297.5075 side=left -> Marker Cam Pos: [ -64.08,  -15.34, +193.06] mm
+  Pan= +1.732° t=53297.5465 side=right -> Marker Cam Pos: [ +96.59,   -9.54, +188.48] mm
+  Pan= +1.732° t=53297.5775 side=left -> Marker Cam Pos: [ -63.73,  -15.35, +193.19] mm
+  Pan= +1.822° t=53297.6170 side=right -> Marker Cam Pos: [ +96.99,   -9.54, +188.41] mm
+  Pan= +1.822° t=53297.6405 side=left -> Marker Cam Pos: [ -63.36,  -15.34, +193.34] mm
+  Pan= +1.906° t=53297.6790 side=right -> Marker Cam Pos: [ +97.34,   -9.52, +188.28] mm
+  Pan= +1.906° t=53297.7025 side=left -> Marker Cam Pos: [ -62.95,  -15.34, +193.34] mm
+  Pan= +1.998° t=53297.7420 side=right -> Marker Cam Pos: [ +97.71,   -9.54, +188.10] mm
+  Pan= +1.998° t=53297.7655 side=left -> Marker Cam Pos: [ -62.60,  -15.33, +193.47] mm
+  Pan= +2.083° t=53297.8040 side=right -> Marker Cam Pos: [ +98.09,   -9.51, +188.03] mm
+  Pan= +2.083° t=53297.8275 side=left -> Marker Cam Pos: [ -62.22,  -15.32, +193.47] mm
+  Pan= +2.172° t=53297.8745 side=right -> Marker Cam Pos: [ +98.46,   -9.51, +187.94] mm
+  Pan= +2.172° t=53297.9055 side=left -> Marker Cam Pos: [ -61.86,  -15.30, +193.60] mm
+  Pan= +2.274° t=53297.9530 side=right -> Marker Cam Pos: [ +98.76,   -9.52, +187.64] mm
+  Pan= +2.274° t=53297.9685 side=left -> Marker Cam Pos: [ -61.49,  -15.32, +193.75] mm
+  Pan= +2.356° t=53298.0155 side=right -> Marker Cam Pos: [ +99.13,   -9.48, +187.56] mm
+  Pan= +2.356° t=53298.0385 side=left -> Marker Cam Pos: [ -61.15,  -15.30, +193.91] mm
+  Pan= +2.442° t=53298.0775 side=right -> Marker Cam Pos: [ +99.46,   -9.49, +187.40] mm
+  Pan= +2.442° t=53298.1090 side=left -> Marker Cam Pos: [ -60.76,  -15.30, +194.02] mm
+  Pan= +2.536° t=53298.1480 side=right -> Marker Cam Pos: [ +99.79,   -9.49, +187.20] mm
+  Pan= +2.536° t=53298.1715 side=left -> Marker Cam Pos: [ -60.40,  -15.27, +194.06] mm
+  Pan= +2.629° t=53298.2180 side=right -> Marker Cam Pos: [+100.18,   -9.47, +187.13] mm
+  Pan= +2.629° t=53298.2340 side=left -> Marker Cam Pos: [ -60.04,  -15.27, +194.23] mm
+  Pan= +2.708° t=53298.2805 side=right -> Marker Cam Pos: [+100.52,   -9.48, +186.99] mm
+  Pan= +2.708° t=53298.3120 side=left -> Marker Cam Pos: [ -59.69,  -15.26, +194.39] mm
+  Pan= +2.806° t=53298.3510 side=right -> Marker Cam Pos: [+100.88,   -9.48, +186.83] mm
+  Pan= +2.806° t=53298.3745 side=left -> Marker Cam Pos: [ -59.29,  -15.26, +194.49] mm
+  Pan= +2.905° t=53298.4135 side=right -> Marker Cam Pos: [+101.28,   -9.46, +186.78] mm
+  Pan= +2.905° t=53298.4370 side=left -> Marker Cam Pos: [ -58.94,  -15.24, +194.60] mm
+  Pan= +2.975° t=53298.4760 side=right -> Marker Cam Pos: [+101.65,   -9.46, +186.68] mm
+  Pan= +2.975° t=53298.5075 side=left -> Marker Cam Pos: [ -58.59,  -15.24, +194.80] mm
+  Pan= +3.102° t=53298.6090 side=right -> Marker Cam Pos: [+102.22,   -9.45, +186.49] mm
+  Pan= +3.102° t=53298.6170 side=left -> Marker Cam Pos: [ -57.98,  -15.23, +194.84] mm
+  Pan= +3.212° t=53298.6635 side=right -> Marker Cam Pos: [+102.51,   -9.47, +186.19] mm
+  Pan= +3.212° t=53298.6790 side=left -> Marker Cam Pos: [ -57.63,  -15.23, +194.96] mm
+  Pan= +3.292° t=53298.7105 side=right -> Marker Cam Pos: [+102.93,   -9.47, +186.20] mm
+  Pan= +3.292° t=53298.7340 side=left -> Marker Cam Pos: [ -57.22,  -15.24, +195.01] mm
+  Pan= +3.377° t=53298.7810 side=right -> Marker Cam Pos: [+103.24,   -9.45, +185.96] mm
+  Pan= +3.377° t=53298.7965 side=left -> Marker Cam Pos: [ -56.86,  -15.24, +195.09] mm
+  Pan= +3.469° t=53298.8510 side=right -> Marker Cam Pos: [+103.64,   -9.45, +185.82] mm
+  Pan= +3.469° t=53298.8745 side=left -> Marker Cam Pos: [ -56.46,  -15.22, +195.16] mm
+  Pan= +3.556° t=53298.9135 side=right -> Marker Cam Pos: [+103.96,   -9.44, +185.66] mm
+  Pan= +3.556° t=53298.9370 side=left -> Marker Cam Pos: [ -56.08,  -15.22, +195.20] mm
+  Pan= +3.647° t=53298.9760 side=right -> Marker Cam Pos: [+104.34,   -9.44, +185.58] mm
+  Pan= +3.647° t=53299.0075 side=left -> Marker Cam Pos: [ -55.73,  -15.22, +195.39] mm
+  Pan= +3.735° t=53299.0460 side=right -> Marker Cam Pos: [+104.78,   -9.43, +185.52] mm
+  Pan= +3.735° t=53299.0620 side=left -> Marker Cam Pos: [ -55.32,  -15.22, +195.45] mm
+  Pan= +3.818° t=53299.1170 side=right -> Marker Cam Pos: [+105.09,   -9.44, +185.30] mm
+  Pan= +3.818° t=53299.1405 side=left -> Marker Cam Pos: [ -54.99,  -15.23, +195.65] mm
+  Pan= +3.913° t=53299.1790 side=right -> Marker Cam Pos: [+105.45,   -9.43, +185.24] mm
+  Pan= +3.913° t=53299.2025 side=left -> Marker Cam Pos: [ -54.62,  -15.21, +195.70] mm
+  Pan= +3.999° t=53299.2420 side=right -> Marker Cam Pos: [+105.82,   -9.43, +185.04] mm
+  Pan= +3.999° t=53299.2655 side=left -> Marker Cam Pos: [ -54.25,  -15.20, +195.84] mm
+  Pan= +4.087° t=53299.3200 side=right -> Marker Cam Pos: [+106.12,   -9.43, +184.80] mm
+  Pan= +4.087° t=53299.3435 side=left -> Marker Cam Pos: [ -53.90,  -15.21, +196.04] mm
+  Pan= +4.175° t=53299.3825 side=right -> Marker Cam Pos: [+106.44,   -9.43, +184.61] mm
+  Pan= +4.175° t=53299.4055 side=left -> Marker Cam Pos: [ -53.52,  -15.19, +196.08] mm
+  Pan= +4.270° t=53299.4450 side=right -> Marker Cam Pos: [+106.84,   -9.42, +184.54] mm
+  Pan= +4.270° t=53299.4685 side=left -> Marker Cam Pos: [ -53.15,  -15.19, +196.19] mm
+  Pan= +4.360° t=53299.5230 side=right -> Marker Cam Pos: [+107.18,   -9.39, +184.39] mm
+  Pan= +4.360° t=53299.5385 side=left -> Marker Cam Pos: [ -52.78,  -15.19, +196.30] mm
+  Pan= +4.441° t=53299.5855 side=right -> Marker Cam Pos: [+107.49,   -9.39, +184.14] mm
+  Pan= +4.441° t=53299.6010 side=left -> Marker Cam Pos: [ -52.44,  -15.19, +196.43] mm
+  Pan= +4.540° t=53299.6480 side=right -> Marker Cam Pos: [+107.82,   -9.39, +184.00] mm
+  Pan= +4.540° t=53299.6715 side=left -> Marker Cam Pos: [ -52.05,  -15.15, +196.54] mm
+  Pan= +4.623° t=53299.7105 side=right -> Marker Cam Pos: [+108.18,   -9.39, +183.88] mm
+  Pan= +4.623° t=53299.7340 side=left -> Marker Cam Pos: [ -51.67,  -15.18, +196.63] mm
+  Pan= +4.707° t=53299.7730 side=right -> Marker Cam Pos: [+108.62,   -9.38, +183.81] mm
+  Pan= +4.707° t=53299.8045 side=left -> Marker Cam Pos: [ -51.30,  -15.15, +196.67] mm
+  Pan= +4.818° t=53299.8510 side=right -> Marker Cam Pos: [+108.97,   -9.39, +183.70] mm
+  Pan= +4.818° t=53299.8670 side=left -> Marker Cam Pos: [ -50.91,  -15.14, +196.71] mm
+  Pan= +4.892° t=53299.9135 side=right -> Marker Cam Pos: [+109.33,   -9.37, +183.53] mm
+  Pan= +4.892° t=53299.9370 side=left -> Marker Cam Pos: [ -50.54,  -15.18, +196.85] mm
+  Pan= +4.980° t=53299.9840 side=right -> Marker Cam Pos: [+109.64,   -9.35, +183.28] mm
+  Pan= +4.980° t=53300.0075 side=left -> Marker Cam Pos: [ -50.16,  -15.17, +196.92] mm
+  Pan= +5.064° t=53300.0385 side=right -> Marker Cam Pos: [+109.99,   -9.35, +183.18] mm
+  Pan= +5.064° t=53300.0620 side=left -> Marker Cam Pos: [ -49.80,  -15.16, +196.98] mm
+  Pan= +5.154° t=53300.1090 side=right -> Marker Cam Pos: [+110.37,   -9.36, +183.00] mm
+  Pan= +5.154° t=53300.1325 side=left -> Marker Cam Pos: [ -49.40,  -15.16, +197.13] mm
+  Pan= +5.242° t=53300.1790 side=right -> Marker Cam Pos: [+110.74,   -9.34, +182.88] mm
+  Pan= +5.242° t=53300.2025 side=left -> Marker Cam Pos: [ -49.02,  -15.17, +197.20] mm
+  Pan= +5.333° t=53300.2575 side=right -> Marker Cam Pos: [+111.11,   -9.34, +182.75] mm
+  Pan= +5.333° t=53300.2730 side=left -> Marker Cam Pos: [ -48.67,  -15.14, +197.23] mm
+  Pan= +5.419° t=53300.3120 side=right -> Marker Cam Pos: [+111.39,   -9.35, +182.46] mm
+  Pan= +5.419° t=53300.3435 side=left -> Marker Cam Pos: [ -48.25,  -15.14, +197.36] mm
+  Pan= +5.507° t=53300.3825 side=right -> Marker Cam Pos: [+111.76,   -9.34, +182.35] mm
+  Pan= +5.507° t=53300.4055 side=left -> Marker Cam Pos: [ -47.90,  -15.15, +197.43] mm
+  Pan= +5.601° t=53300.4450 side=right -> Marker Cam Pos: [+112.11,   -9.32, +182.16] mm
+  Pan= +5.601° t=53300.4685 side=left -> Marker Cam Pos: [ -47.52,  -15.13, +197.48] mm
+  Pan= +5.685° t=53300.5155 side=right -> Marker Cam Pos: [+112.48,   -9.32, +182.05] mm
+  Pan= +5.685° t=53300.5465 side=left -> Marker Cam Pos: [ -47.13,  -15.13, +197.55] mm
+  Pan= +5.780° t=53300.5855 side=right -> Marker Cam Pos: [+112.75,   -9.33, +181.79] mm
+  Pan= +5.780° t=53300.6090 side=left -> Marker Cam Pos: [ -46.77,  -15.12, +197.63] mm
+  Pan= +5.869° t=53300.6480 side=right -> Marker Cam Pos: [+113.15,   -9.31, +181.65] mm
+  Pan= +5.869° t=53300.6715 side=left -> Marker Cam Pos: [ -46.39,  -15.08, +197.92] mm
+  Pan= +5.952° t=53300.7105 side=right -> Marker Cam Pos: [+113.43,   -9.30, +181.47] mm
+  Pan= +5.952° t=53300.7340 side=left -> Marker Cam Pos: [ -46.05,  -15.09, +197.90] mm
+  Pan= +6.046° t=53300.7810 side=right -> Marker Cam Pos: [+113.78,   -9.30, +181.28] mm
+  Pan= +6.046° t=53300.8045 side=left -> Marker Cam Pos: [ -45.68,  -15.10, +198.09] mm
+  Pan= +6.137° t=53300.8510 side=right -> Marker Cam Pos: [+114.18,   -9.29, +181.21] mm
+  Pan= +6.137° t=53300.8745 side=left -> Marker Cam Pos: [ -45.28,  -15.06, +198.14] mm
+  Pan= +6.217° t=53300.9135 side=right -> Marker Cam Pos: [+114.55,   -9.29, +181.12] mm
+  Pan= +6.217° t=53300.9370 side=left -> Marker Cam Pos: [ -44.94,  -15.06, +198.22] mm
+  Pan= +6.320° t=53300.9840 side=right -> Marker Cam Pos: [+114.89,   -9.29, +180.95] mm
+  Pan= +6.320° t=53301.0075 side=left -> Marker Cam Pos: [ -44.55,  -15.07, +198.41] mm
+  Pan= +6.406° t=53301.0385 side=right -> Marker Cam Pos: [+115.23,   -9.28, +180.76] mm
+  Pan= +6.406° t=53301.0695 side=left -> Marker Cam Pos: [ -44.17,  -15.05, +198.36] mm
+  Pan= +6.488° t=53301.1090 side=right -> Marker Cam Pos: [+115.59,   -9.26, +180.61] mm
+  Pan= +6.488° t=53301.1405 side=left -> Marker Cam Pos: [ -43.80,  -15.04, +198.41] mm
+  Pan= +6.592° t=53301.1790 side=right -> Marker Cam Pos: [+115.96,   -9.26, +180.51] mm
+  Pan= +6.592° t=53301.2025 side=left -> Marker Cam Pos: [ -43.40,  -15.06, +198.65] mm
+  Pan= +6.673° t=53301.2420 side=right -> Marker Cam Pos: [+116.33,   -9.28, +180.39] mm
+  Pan= +6.673° t=53301.2655 side=left -> Marker Cam Pos: [ -43.03,  -15.05, +198.65] mm
+  Pan= +6.761° t=53301.3200 side=right -> Marker Cam Pos: [+116.67,   -9.26, +180.12] mm
+  Pan= +6.761° t=53301.3435 side=left -> Marker Cam Pos: [ -42.66,  -15.02, +198.66] mm
+  Pan= +6.866° t=53301.3825 side=right -> Marker Cam Pos: [+116.95,   -9.28, +179.89] mm
+  Pan= +6.866° t=53301.4135 side=left -> Marker Cam Pos: [ -42.26,  -15.05, +198.76] mm
+  Pan= +6.931° t=53301.4450 side=right -> Marker Cam Pos: [+117.28,   -9.26, +179.66] mm
+  Pan= +6.931° t=53301.4685 side=left -> Marker Cam Pos: [ -41.90,  -15.05, +198.85] mm
+  Pan= +7.026° t=53301.5075 side=right -> Marker Cam Pos: [+117.65,   -9.25, +179.55] mm
+  Pan= +7.026° t=53301.5385 side=left -> Marker Cam Pos: [ -41.50,  -15.03, +198.87] mm
+  Pan= +7.113° t=53301.5855 side=right -> Marker Cam Pos: [+118.05,   -9.24, +179.41] mm
+  Pan= +7.113° t=53301.6090 side=left -> Marker Cam Pos: [ -41.12,  -15.03, +198.92] mm
+  Pan= +7.199° t=53301.6480 side=right -> Marker Cam Pos: [+118.41,   -9.24, +179.28] mm
+  Pan= +7.199° t=53301.6715 side=left -> Marker Cam Pos: [ -40.74,  -15.03, +198.96] mm
+  Pan= +7.287° t=53301.7105 side=right -> Marker Cam Pos: [+118.78,   -9.25, +179.15] mm
+  Pan= +7.287° t=53301.7340 side=left -> Marker Cam Pos: [ -40.31,  -15.03, +199.04] mm
+  Pan= +7.376° t=53301.7805 side=right -> Marker Cam Pos: [+119.13,   -9.24, +179.00] mm
+  Pan= +7.376° t=53301.8120 side=left -> Marker Cam Pos: [ -39.97,  -15.03, +199.12] mm
+  Pan= +7.472° t=53301.8510 side=right -> Marker Cam Pos: [+119.35,   -9.22, +178.63] mm
+  Pan= +7.472° t=53301.8745 side=left -> Marker Cam Pos: [ -39.61,  -15.04, +199.14] mm
+  Pan= +7.558° t=53301.9135 side=right -> Marker Cam Pos: [+119.78,   -9.21, +178.57] mm
+  Pan= +7.558° t=53301.9370 side=left -> Marker Cam Pos: [ -39.17,  -15.01, +199.22] mm
+  Pan= +7.643° t=53301.9840 side=right -> Marker Cam Pos: [+120.11,   -9.22, +178.41] mm
+  Pan= +7.643° t=53302.0075 side=left -> Marker Cam Pos: [ -38.84,  -15.01, +199.38] mm
+  Pan= +7.732° t=53302.0385 side=right -> Marker Cam Pos: [+120.49,   -9.21, +178.31] mm
+  Pan= +7.732° t=53302.0775 side=left -> Marker Cam Pos: [ -38.48,  -15.04, +199.46] mm
+  Pan= +7.825° t=53302.1170 side=right -> Marker Cam Pos: [+120.78,   -9.22, +178.06] mm
+  Pan= +7.825° t=53302.1405 side=left -> Marker Cam Pos: [ -38.09,  -14.99, +199.46] mm
+  Pan= +7.908° t=53302.1790 side=right -> Marker Cam Pos: [+121.16,   -9.22, +177.94] mm
+  Pan= +7.908° t=53302.2105 side=left -> Marker Cam Pos: [ -37.72,  -15.00, +199.56] mm
+  Pan= +8.005° t=53302.2500 side=right -> Marker Cam Pos: [+121.44,   -9.21, +177.69] mm
+  Pan= +8.005° t=53302.2655 side=left -> Marker Cam Pos: [ -37.36,  -15.01, +199.70] mm
+  Pan= +8.092° t=53302.3120 side=right -> Marker Cam Pos: [+121.80,   -9.22, +177.59] mm
+  Pan= +8.092° t=53302.3435 side=left -> Marker Cam Pos: [ -36.97,  -14.98, +199.75] mm
+  Pan= +8.182° t=53302.3825 side=right -> Marker Cam Pos: [+122.17,   -9.21, +177.39] mm
+  Pan= +8.182° t=53302.4055 side=left -> Marker Cam Pos: [ -36.60,  -14.99, +199.80] mm
+  Pan= +8.267° t=53302.4450 side=right -> Marker Cam Pos: [+122.46,   -9.19, +177.15] mm
+  Pan= +8.267° t=53302.4685 side=left -> Marker Cam Pos: [ -36.23,  -14.99, +199.99] mm
+  Pan= +8.366° t=53302.5150 side=right -> Marker Cam Pos: [+122.82,   -9.17, +177.03] mm
+  Pan= +8.366° t=53302.5385 side=left -> Marker Cam Pos: [ -35.84,  -14.94, +199.97] mm
+  Pan= +8.451° t=53302.5855 side=right -> Marker Cam Pos: [+123.23,   -9.18, +176.91] mm
+  Pan= +8.451° t=53302.6090 side=left -> Marker Cam Pos: [ -35.43,  -14.98, +200.16] mm
+  Pan= +8.539° t=53302.6480 side=right -> Marker Cam Pos: [+123.57,   -9.15, +176.72] mm
+  Pan= +8.539° t=53302.6715 side=left -> Marker Cam Pos: [ -35.09,  -14.98, +200.31] mm
+  Pan= +8.636° t=53302.7260 side=right -> Marker Cam Pos: [+123.89,   -9.15, +176.51] mm
+  Pan= +8.636° t=53302.7420 side=left -> Marker Cam Pos: [ -34.70,  -14.92, +200.20] mm
+  Pan= +8.714° t=53302.7730 side=right -> Marker Cam Pos: [+124.21,   -9.14, +176.34] mm
+  Pan= +8.714° t=53302.7965 side=left -> Marker Cam Pos: [ -34.29,  -14.98, +200.42] mm
+  Pan= +8.803° t=53302.8510 side=right -> Marker Cam Pos: [+124.59,   -9.15, +176.19] mm
+  Pan= +8.803° t=53302.8745 side=left -> Marker Cam Pos: [ -33.92,  -14.96, +200.49] mm
+  Pan= +8.888° t=53302.9290 side=right -> Marker Cam Pos: [+124.94,   -9.13, +176.02] mm
+  Pan= +8.888° t=53302.9450 side=left -> Marker Cam Pos: [ -33.54,  -14.94, +200.46] mm
+  Pan= +8.979° t=53302.9760 side=right -> Marker Cam Pos: [+125.25,   -9.14, +175.79] mm
+  Pan= +8.979° t=53303.0075 side=left -> Marker Cam Pos: [ -33.17,  -14.96, +200.58] mm
+  Pan= +9.070° t=53303.0465 side=right -> Marker Cam Pos: [+125.58,   -9.15, +175.59] mm
+  Pan= +9.070° t=53303.0700 side=left -> Marker Cam Pos: [ -32.78,  -14.95, +200.67] mm
+  Pan= +9.153° t=53303.1170 side=right -> Marker Cam Pos: [+125.95,   -9.14, +175.44] mm
+  Pan= +9.153° t=53303.1405 side=left -> Marker Cam Pos: [ -32.37,  -14.94, +200.69] mm
+  Pan= +9.240° t=53303.1790 side=right -> Marker Cam Pos: [+126.28,   -9.13, +175.27] mm
+  Pan= +9.240° t=53303.2025 side=left -> Marker Cam Pos: [ -32.03,  -14.95, +200.75] mm
+  Pan= +9.328° t=53303.2500 side=right -> Marker Cam Pos: [+126.62,   -9.11, +175.08] mm
+  Pan= +9.328° t=53303.2730 side=left -> Marker Cam Pos: [ -31.66,  -14.92, +200.80] mm
+  Pan= +9.425° t=53303.3200 side=right -> Marker Cam Pos: [+126.92,   -9.12, +174.84] mm
+  Pan= +9.425° t=53303.3355 side=left -> Marker Cam Pos: [ -31.23,  -14.93, +200.82] mm
+  Pan= +9.508° t=53303.3825 side=right -> Marker Cam Pos: [+127.28,   -9.09, +174.72] mm
+  Pan= +9.508° t=53303.4055 side=left -> Marker Cam Pos: [ -30.87,  -14.92, +200.93] mm
+  Pan= +9.599° t=53303.4450 side=right -> Marker Cam Pos: [+127.64,   -9.12, +174.59] mm
+  Pan= +9.599° t=53303.4685 side=left -> Marker Cam Pos: [ -30.51,  -14.93, +201.03] mm
+  Pan= +9.687° t=53303.5075 side=right -> Marker Cam Pos: [+128.03,   -9.11, +174.48] mm
+  Pan= +9.687° t=53303.5305 side=left -> Marker Cam Pos: [ -30.15,  -14.90, +201.01] mm
+  Pan= +9.779° t=53303.5855 side=right -> Marker Cam Pos: [+128.36,   -9.10, +174.24] mm
+  Pan= +9.779° t=53303.6090 side=left -> Marker Cam Pos: [ -29.77,  -14.91, +201.12] mm
+  Pan= +9.867° t=53303.6480 side=right -> Marker Cam Pos: [+128.64,   -9.10, +174.05] mm
+  Pan= +9.867° t=53303.6715 side=left -> Marker Cam Pos: [ -29.37,  -14.92, +201.14] mm
+  Pan= +9.955° t=53303.7105 side=right -> Marker Cam Pos: [+128.95,   -9.08, +173.79] mm
+  Pan= +9.955° t=53303.7340 side=left -> Marker Cam Pos: [ -29.01,  -14.89, +201.29] mm
+  Pan= +9.998° t=53303.7730 side=right -> Marker Cam Pos: [+129.26,   -9.08, +173.64] mm
+  Pan= +9.998° t=53303.7965 side=left -> Marker Cam Pos: [ -28.74,  -14.91, +201.26] mm
+  Pan=+10.003° t=53303.8510 side=right -> Marker Cam Pos: [+129.28,   -9.08, +173.52] mm
+  Pan=+10.003° t=53303.8670 side=left -> Marker Cam Pos: [ -28.71,  -14.91, +201.26] mm
+  Pan=+10.004° t=53303.9135 side=right -> Marker Cam Pos: [+129.34,   -9.08, +173.60] mm
+  Pan=+10.004° t=53303.9370 side=left -> Marker Cam Pos: [ -28.71,  -14.91, +201.28] mm
+  Pan=+10.004° t=53303.9760 side=right -> Marker Cam Pos: [+129.32,   -9.08, +173.57] mm
+  Pan=+10.004° t=53303.9995 side=left -> Marker Cam Pos: [ -28.71,  -14.90, +201.30] mm
+  Pan= +9.979° t=53304.0540 side=right -> Marker Cam Pos: [+129.29,   -9.07, +173.50] mm
+  Pan= +9.979° t=53304.0700 side=left -> Marker Cam Pos: [ -28.74,  -14.91, +201.24] mm
+  Pan= +9.913° t=53304.1010 side=right -> Marker Cam Pos: [+129.17,   -9.06, +173.64] mm
+  Pan= +9.913° t=53304.1325 side=left -> Marker Cam Pos: [ -29.08,  -14.90, +201.26] mm
+  Pan= +9.826° t=53304.1790 side=right -> Marker Cam Pos: [+128.96,   -9.09, +173.93] mm
+  Pan= +9.826° t=53304.2025 side=left -> Marker Cam Pos: [ -29.42,  -14.90, +201.09] mm
+  Pan= +9.739° t=53304.2495 side=right -> Marker Cam Pos: [+128.55,   -9.10, +174.02] mm
+  Pan= +9.739° t=53304.2730 side=left -> Marker Cam Pos: [ -29.83,  -14.90, +201.14] mm
+  Pan= +9.647° t=53304.3200 side=right -> Marker Cam Pos: [+128.25,   -9.08, +174.21] mm
+  Pan= +9.647° t=53304.3355 side=left -> Marker Cam Pos: [ -30.21,  -14.89, +201.09] mm
+  Pan= +9.548° t=53304.3825 side=right -> Marker Cam Pos: [+127.94,   -9.10, +174.45] mm
+  Pan= +9.548° t=53304.4055 side=left -> Marker Cam Pos: [ -30.55,  -14.92, +200.98] mm
+  Pan= +9.459° t=53304.4450 side=right -> Marker Cam Pos: [+127.56,   -9.08, +174.58] mm
+  Pan= +9.459° t=53304.4685 side=left -> Marker Cam Pos: [ -30.97,  -14.91, +200.90] mm
+  Pan= +9.369° t=53304.5230 side=right -> Marker Cam Pos: [+127.20,   -9.09, +174.75] mm
+  Pan= +9.369° t=53304.5465 side=left -> Marker Cam Pos: [ -31.36,  -14.90, +200.77] mm
+  Pan= +9.278° t=53304.5855 side=right -> Marker Cam Pos: [+126.79,   -9.11, +174.80] mm
+  Pan= +9.278° t=53304.6090 side=left -> Marker Cam Pos: [ -31.72,  -14.91, +200.70] mm
+  Pan= +9.178° t=53304.6635 side=right -> Marker Cam Pos: [+126.55,   -9.12, +175.16] mm
+  Pan= +9.178° t=53304.6790 side=left -> Marker Cam Pos: [ -32.09,  -14.92, +200.76] mm
+  Pan= +9.100° t=53304.7105 side=right -> Marker Cam Pos: [+126.20,   -9.12, +175.31] mm
+  Pan= +9.100° t=53304.7340 side=left -> Marker Cam Pos: [ -32.47,  -14.93, +200.63] mm
+  Pan= +9.011° t=53304.7810 side=right -> Marker Cam Pos: [+125.86,   -9.13, +175.50] mm
+  Pan= +9.011° t=53304.7965 side=left -> Marker Cam Pos: [ -32.89,  -14.92, +200.62] mm
+  Pan= +8.920° t=53304.8510 side=right -> Marker Cam Pos: [+125.52,   -9.13, +175.68] mm
+  Pan= +8.920° t=53304.8745 side=left -> Marker Cam Pos: [ -33.28,  -14.94, +200.61] mm
+  Pan= +8.835° t=53304.9135 side=right -> Marker Cam Pos: [+125.09,   -9.13, +175.79] mm
+  Pan= +8.835° t=53304.9370 side=left -> Marker Cam Pos: [ -33.62,  -14.93, +200.49] mm
+  Pan= +8.743° t=53304.9840 side=right -> Marker Cam Pos: [+124.82,   -9.11, +176.04] mm
+  Pan= +8.743° t=53304.9995 side=left -> Marker Cam Pos: [ -34.02,  -14.92, +200.37] mm
+  Pan= +8.649° t=53305.0465 side=right -> Marker Cam Pos: [+124.44,   -9.12, +176.17] mm
+  Pan= +8.649° t=53305.0775 side=left -> Marker Cam Pos: [ -34.44,  -14.94, +200.42] mm
+  Pan= +8.557° t=53305.1170 side=right -> Marker Cam Pos: [+124.09,   -9.13, +176.38] mm
+  Pan= +8.557° t=53305.1405 side=left -> Marker Cam Pos: [ -34.82,  -14.94, +200.28] mm
+  Pan= +8.468° t=53305.1790 side=right -> Marker Cam Pos: [+123.75,   -9.13, +176.56] mm
+  Pan= +8.468° t=53305.2025 side=left -> Marker Cam Pos: [ -35.19,  -14.93, +200.21] mm
+  Pan= +8.377° t=53305.2495 side=right -> Marker Cam Pos: [+123.40,   -9.12, +176.71] mm
+  Pan= +8.377° t=53305.2730 side=left -> Marker Cam Pos: [ -35.55,  -14.95, +200.03] mm
+  Pan= +8.289° t=53305.3120 side=right -> Marker Cam Pos: [+123.05,   -9.14, +176.94] mm
+  Pan= +8.289° t=53305.3435 side=left -> Marker Cam Pos: [ -35.98,  -14.94, +200.02] mm
+  Pan= +8.197° t=53305.3825 side=right -> Marker Cam Pos: [+122.67,   -9.14, +177.04] mm
+  Pan= +8.197° t=53305.4055 side=left -> Marker Cam Pos: [ -36.34,  -14.96, +199.99] mm
+  Pan= +8.112° t=53305.4450 side=right -> Marker Cam Pos: [+122.38,   -9.15, +177.31] mm
+  Pan= +8.112° t=53305.4765 side=left -> Marker Cam Pos: [ -36.71,  -14.98, +199.94] mm
+  Pan= +8.018° t=53305.5150 side=right -> Marker Cam Pos: [+121.95,   -9.15, +177.36] mm
+  Pan= +8.018° t=53305.5305 side=left -> Marker Cam Pos: [ -37.11,  -14.96, +199.72] mm
+  Pan= +7.937° t=53305.5855 side=right -> Marker Cam Pos: [+121.63,   -9.18, +177.55] mm
+  Pan= +7.937° t=53305.6090 side=left -> Marker Cam Pos: [ -37.48,  -14.96, +199.71] mm
+  Pan= +7.841° t=53305.6480 side=right -> Marker Cam Pos: [+121.39,   -9.19, +177.87] mm
+  Pan= +7.841° t=53305.6715 side=left -> Marker Cam Pos: [ -37.86,  -14.98, +199.63] mm
+  Pan= +7.754° t=53305.7105 side=right -> Marker Cam Pos: [+121.01,   -9.17, +177.97] mm
+  Pan= +7.754° t=53305.7340 side=left -> Marker Cam Pos: [ -38.26,  -14.99, +199.50] mm
+  Pan= +7.667° t=53305.7730 side=right -> Marker Cam Pos: [+120.69,   -9.20, +178.26] mm
+  Pan= +7.667° t=53305.8045 side=left -> Marker Cam Pos: [ -38.59,  -14.99, +199.33] mm
+  Pan= +7.574° t=53305.8430 side=right -> Marker Cam Pos: [+120.33,   -9.21, +178.36] mm
+  Pan= +7.574° t=53305.8590 side=left -> Marker Cam Pos: [ -39.02,  -15.01, +199.35] mm
+  Pan= +7.489° t=53305.9135 side=right -> Marker Cam Pos: [+119.95,   -9.22, +178.48] mm
+  Pan= +7.489° t=53305.9370 side=left -> Marker Cam Pos: [ -39.39,  -15.01, +199.25] mm
+  Pan= +7.395° t=53305.9760 side=right -> Marker Cam Pos: [+119.56,   -9.22, +178.60] mm
+  Pan= +7.395° t=53305.9995 side=left -> Marker Cam Pos: [ -39.73,  -15.02, +199.12] mm
+  Pan= +7.305° t=53306.0460 side=right -> Marker Cam Pos: [+119.29,   -9.21, +178.83] mm
+  Pan= +7.305° t=53306.0700 side=left -> Marker Cam Pos: [ -40.15,  -15.02, +199.04] mm
+  Pan= +7.218° t=53306.1170 side=right -> Marker Cam Pos: [+118.91,   -9.24, +178.98] mm
+  Pan= +7.218° t=53306.1405 side=left -> Marker Cam Pos: [ -40.54,  -15.03, +199.04] mm
+  Pan= +7.129° t=53306.1790 side=right -> Marker Cam Pos: [+118.61,   -9.23, +179.21] mm
+  Pan= +7.129° t=53306.2025 side=left -> Marker Cam Pos: [ -40.91,  -15.03, +199.02] mm
+  Pan= +7.039° t=53306.2420 side=right -> Marker Cam Pos: [+118.24,   -9.23, +179.39] mm
+  Pan= +7.039° t=53306.2655 side=left -> Marker Cam Pos: [ -41.30,  -15.04, +198.88] mm
+  Pan= +6.939° t=53306.3430 side=right -> Marker Cam Pos: [+117.89,   -9.24, +179.50] mm
+  Pan= +6.939° t=53306.3510 side=left -> Marker Cam Pos: [ -41.66,  -15.05, +198.91] mm
+  Pan= +6.856° t=53306.3900 side=right -> Marker Cam Pos: [+117.57,   -9.26, +179.74] mm
+  Pan= +6.856° t=53306.4055 side=left -> Marker Cam Pos: [ -42.07,  -15.04, +198.80] mm
+  Pan= +6.770° t=53306.4450 side=right -> Marker Cam Pos: [+117.20,   -9.25, +179.90] mm
+  Pan= +6.770° t=53306.4685 side=left -> Marker Cam Pos: [ -42.44,  -15.05, +198.81] mm
+  Pan= +6.682° t=53306.5230 side=right -> Marker Cam Pos: [+116.78,   -9.23, +179.93] mm
+  Pan= +6.682° t=53306.5385 side=left -> Marker Cam Pos: [ -42.79,  -15.05, +198.65] mm
+  Pan= +6.598° t=53306.5855 side=right -> Marker Cam Pos: [+116.43,   -9.25, +180.13] mm
+  Pan= +6.598° t=53306.6090 side=left -> Marker Cam Pos: [ -43.21,  -15.04, +198.55] mm
+  Pan= +6.507° t=53306.6480 side=right -> Marker Cam Pos: [+116.09,   -9.24, +180.31] mm
+  Pan= +6.507° t=53306.6715 side=left -> Marker Cam Pos: [ -43.58,  -15.05, +198.43] mm
+  Pan= +6.410° t=53306.7180 side=right -> Marker Cam Pos: [+115.75,   -9.25, +180.51] mm
+  Pan= +6.410° t=53306.7340 side=left -> Marker Cam Pos: [ -43.94,  -15.06, +198.42] mm
+  Pan= +6.329° t=53306.7730 side=right -> Marker Cam Pos: [+115.44,   -9.25, +180.71] mm
+  Pan= +6.329° t=53306.8040 side=left -> Marker Cam Pos: [ -44.36,  -15.05, +198.35] mm
+  Pan= +6.238° t=53306.8435 side=right -> Marker Cam Pos: [+115.09,   -9.28, +180.86] mm
+  Pan= +6.238° t=53306.8745 side=left -> Marker Cam Pos: [ -44.70,  -15.07, +198.24] mm
+  Pan= +6.136° t=53306.9135 side=right -> Marker Cam Pos: [+114.79,   -9.29, +181.14] mm
+  Pan= +6.136° t=53306.9370 side=left -> Marker Cam Pos: [ -45.11,  -15.08, +198.24] mm
+  Pan= +6.056° t=53306.9760 side=right -> Marker Cam Pos: [+114.41,   -9.29, +181.18] mm
+  Pan= +6.056° t=53306.9995 side=left -> Marker Cam Pos: [ -45.47,  -15.07, +198.09] mm
+  Pan= +5.970° t=53307.0460 side=right -> Marker Cam Pos: [+113.98,   -9.27, +181.23] mm
+  Pan= +5.970° t=53307.0620 side=left -> Marker Cam Pos: [ -45.81,  -15.07, +198.03] mm
+  Pan= +5.883° t=53307.1170 side=right -> Marker Cam Pos: [+113.61,   -9.26, +181.37] mm
+  Pan= +5.883° t=53307.1405 side=left -> Marker Cam Pos: [ -46.21,  -15.08, +197.89] mm
+  Pan= +5.795° t=53307.1790 side=right -> Marker Cam Pos: [+113.28,   -9.29, +181.52] mm
+  Pan= +5.795° t=53307.2025 side=left -> Marker Cam Pos: [ -46.57,  -15.10, +197.71] mm
+  Pan= +5.704° t=53307.2420 side=right -> Marker Cam Pos: [+112.96,   -9.29, +181.73] mm
+  Pan= +5.704° t=53307.2655 side=left -> Marker Cam Pos: [ -46.93,  -15.11, +197.65] mm
+  Pan= +5.617° t=53307.3120 side=right -> Marker Cam Pos: [+112.68,   -9.30, +181.98] mm
+  Pan= +5.617° t=53307.3435 side=left -> Marker Cam Pos: [ -47.33,  -15.12, +197.50] mm
+  Pan= +5.527° t=53307.3825 side=right -> Marker Cam Pos: [+112.28,   -9.32, +182.08] mm
+  Pan= +5.527° t=53307.4055 side=left -> Marker Cam Pos: [ -47.68,  -15.11, +197.45] mm
+  Pan= +5.438° t=53307.4450 side=right -> Marker Cam Pos: [+111.94,   -9.31, +182.26] mm
+  Pan= +5.438° t=53307.4685 side=left -> Marker Cam Pos: [ -48.07,  -15.14, +197.44] mm
+  Pan= +5.345° t=53307.5075 side=right -> Marker Cam Pos: [+111.61,   -9.30, +182.43] mm
+  Pan= +5.345° t=53307.5385 side=left -> Marker Cam Pos: [ -48.44,  -15.14, +197.28] mm
+  Pan= +5.257° t=53307.5855 side=right -> Marker Cam Pos: [+111.22,   -9.31, +182.55] mm
+  Pan= +5.257° t=53307.6090 side=left -> Marker Cam Pos: [ -48.80,  -15.14, +197.22] mm
+  Pan= +5.167° t=53307.6400 side=right -> Marker Cam Pos: [+110.91,   -9.31, +182.75] mm
+  Pan= +5.167° t=53307.6715 side=left -> Marker Cam Pos: [ -49.20,  -15.13, +197.07] mm
+  Pan= +5.082° t=53307.7105 side=right -> Marker Cam Pos: [+110.54,   -9.30, +182.93] mm
+  Pan= +5.082° t=53307.7340 side=left -> Marker Cam Pos: [ -49.57,  -15.15, +197.00] mm
+  Pan= +4.990° t=53307.7810 side=right -> Marker Cam Pos: [+110.23,   -9.31, +183.14] mm
+  Pan= +4.990° t=53307.8045 side=left -> Marker Cam Pos: [ -49.96,  -15.15, +197.00] mm
+  Pan= +4.903° t=53307.8510 side=right -> Marker Cam Pos: [+109.82,   -9.31, +183.18] mm
+  Pan= +4.903° t=53307.8745 side=left -> Marker Cam Pos: [ -50.32,  -15.15, +196.86] mm
+  Pan= +4.808° t=53307.9210 side=right -> Marker Cam Pos: [+109.48,   -9.33, +183.40] mm
+  Pan= +4.808° t=53307.9370 side=left -> Marker Cam Pos: [ -50.69,  -15.14, +196.73] mm
+  Pan= +4.720° t=53307.9840 side=right -> Marker Cam Pos: [+109.14,   -9.33, +183.55] mm
+  Pan= +4.720° t=53308.0075 side=left -> Marker Cam Pos: [ -51.11,  -15.16, +196.70] mm
+  Pan= +4.631° t=53308.0540 side=right -> Marker Cam Pos: [+108.75,   -9.36, +183.73] mm
+  Pan= +4.631° t=53308.0700 side=left -> Marker Cam Pos: [ -51.45,  -15.15, +196.66] mm
+  Pan= +4.553° t=53308.1170 side=right -> Marker Cam Pos: [+108.41,   -9.34, +183.85] mm
+  Pan= +4.553° t=53308.1405 side=left -> Marker Cam Pos: [ -51.85,  -15.16, +196.58] mm
+  Pan= +4.460° t=53308.1790 side=right -> Marker Cam Pos: [+108.02,   -9.37, +183.93] mm
+  Pan= +4.460° t=53308.2025 side=left -> Marker Cam Pos: [ -52.24,  -15.17, +196.53] mm
+  Pan= +4.357° t=53308.2575 side=right -> Marker Cam Pos: [+107.70,   -9.37, +184.16] mm
+  Pan= +4.357° t=53308.2730 side=left -> Marker Cam Pos: [ -52.61,  -15.17, +196.41] mm
+  Pan= +4.283° t=53308.3120 side=right -> Marker Cam Pos: [+107.34,   -9.37, +184.27] mm
+  Pan= +4.283° t=53308.3435 side=left -> Marker Cam Pos: [ -52.96,  -15.18, +196.31] mm
+  Pan= +4.194° t=53308.3825 side=right -> Marker Cam Pos: [+106.98,   -9.38, +184.35] mm
+  Pan= +4.194° t=53308.4055 side=left -> Marker Cam Pos: [ -53.32,  -15.19, +196.17] mm
+  Pan= +4.105° t=53308.4450 side=right -> Marker Cam Pos: [+106.61,   -9.38, +184.54] mm
+  Pan= +4.105° t=53308.4685 side=left -> Marker Cam Pos: [ -53.69,  -15.18, +195.97] mm
+  Pan= +4.008° t=53308.5075 side=right -> Marker Cam Pos: [+106.31,   -9.39, +184.76] mm
+  Pan= +4.008° t=53308.5385 side=left -> Marker Cam Pos: [ -54.03,  -15.19, +195.72] mm
+  Pan= +3.923° t=53308.5700 side=right -> Marker Cam Pos: [+105.92,   -9.43, +184.82] mm
+  Pan= +3.923° t=53308.6015 side=left -> Marker Cam Pos: [ -54.44,  -15.22, +195.82] mm
+  Pan= +3.829° t=53308.6480 side=right -> Marker Cam Pos: [+105.61,   -9.43, +185.09] mm
+  Pan= +3.829° t=53308.6715 side=left -> Marker Cam Pos: [ -54.81,  -15.22, +195.60] mm
+  Pan= +3.744° t=53308.7105 side=right -> Marker Cam Pos: [+105.21,   -9.39, +185.14] mm
+  Pan= +3.744° t=53308.7420 side=left -> Marker Cam Pos: [ -55.16,  -15.22, +195.50] mm
+  Pan= +3.657° t=53308.7730 side=right -> Marker Cam Pos: [+104.89,   -9.41, +185.31] mm
+  Pan= +3.657° t=53308.8045 side=left -> Marker Cam Pos: [ -55.54,  -15.24, +195.45] mm
+  Pan= +3.553° t=53308.8510 side=right -> Marker Cam Pos: [+104.56,   -9.43, +185.55] mm
+  Pan= +3.553° t=53308.8745 side=left -> Marker Cam Pos: [ -55.92,  -15.22, +195.37] mm
+  Pan= +3.478° t=53308.9060 side=right -> Marker Cam Pos: [+104.18,   -9.42, +185.65] mm
+  Pan= +3.478° t=53308.9295 side=left -> Marker Cam Pos: [ -56.29,  -15.23, +195.17] mm
+  Pan= +3.391° t=53308.9840 side=right -> Marker Cam Pos: [+103.81,   -9.43, +185.82] mm
+  Pan= +3.391° t=53308.9995 side=left -> Marker Cam Pos: [ -56.64,  -15.23, +195.07] mm
+  Pan= +3.304° t=53309.0460 side=right -> Marker Cam Pos: [+103.40,   -9.43, +185.82] mm
+  Pan= +3.304° t=53309.0695 side=left -> Marker Cam Pos: [ -57.05,  -15.23, +195.09] mm
+  Pan= +3.209° t=53309.1635 side=right -> Marker Cam Pos: [+102.93,   -9.43, +186.15] mm
+  Pan= +3.209° t=53309.1790 side=left -> Marker Cam Pos: [ -57.63,  -15.24, +194.95] mm
+  Pan= +3.077° t=53309.2105 side=right -> Marker Cam Pos: [+102.54,   -9.44, +186.22] mm
+  Pan= +3.077° t=53309.2415 side=left -> Marker Cam Pos: [ -57.98,  -15.22, +194.82] mm
+  Pan= +2.985° t=53309.2885 side=right -> Marker Cam Pos: [+102.20,   -9.44, +186.46] mm
+  Pan= +2.985° t=53309.3040 side=left -> Marker Cam Pos: [ -58.35,  -15.21, +194.73] mm
+  Pan= +2.904° t=53309.3510 side=right -> Marker Cam Pos: [+101.85,   -9.44, +186.60] mm
+  Pan= +2.904° t=53309.3745 side=left -> Marker Cam Pos: [ -58.76,  -15.23, +194.66] mm
+  Pan= +2.816° t=53309.4135 side=right -> Marker Cam Pos: [+101.42,   -9.46, +186.64] mm
+  Pan= +2.816° t=53309.4370 side=left -> Marker Cam Pos: [ -59.13,  -15.24, +194.64] mm
+  Pan= +2.722° t=53309.4760 side=right -> Marker Cam Pos: [+101.07,   -9.45, +186.79] mm
+  Pan= +2.722° t=53309.4995 side=left -> Marker Cam Pos: [ -59.47,  -15.25, +194.40] mm
+  Pan= +2.631° t=53309.5540 side=right -> Marker Cam Pos: [+100.73,   -9.45, +186.95] mm
+  Pan= +2.631° t=53309.5700 side=left -> Marker Cam Pos: [ -59.86,  -15.26, +194.31] mm
+  Pan= +2.551° t=53309.6090 side=right -> Marker Cam Pos: [+100.32,   -9.47, +187.02] mm
+  Pan= +2.551° t=53309.6405 side=left -> Marker Cam Pos: [ -60.21,  -15.27, +194.21] mm
+  Pan= +2.444° t=53309.6870 side=right -> Marker Cam Pos: [ +99.98,   -9.47, +187.15] mm
+  Pan= +2.444° t=53309.7025 side=left -> Marker Cam Pos: [ -60.55,  -15.27, +194.10] mm
+  Pan= +2.362° t=53309.7495 side=right -> Marker Cam Pos: [ +99.74,   -9.48, +187.49] mm
+  Pan= +2.362° t=53309.7805 side=left -> Marker Cam Pos: [ -60.94,  -15.29, +193.90] mm
+  Pan= +2.272° t=53309.8120 side=right -> Marker Cam Pos: [ +99.30,   -9.48, +187.50] mm
+  Pan= +2.272° t=53309.8355 side=left -> Marker Cam Pos: [ -61.30,  -15.30, +193.82] mm
+  Pan= +2.170° t=53309.8900 side=right -> Marker Cam Pos: [ +99.01,   -9.49, +187.73] mm
+  Pan= +2.170° t=53309.9055 side=left -> Marker Cam Pos: [ -61.68,  -15.29, +193.71] mm
+  Pan= +2.104° t=53309.9450 side=right -> Marker Cam Pos: [ +98.70,   -9.49, +187.93] mm
+  Pan= +2.104° t=53309.9685 side=left -> Marker Cam Pos: [ -62.03,  -15.30, +193.55] mm
+  Pan= +2.009° t=53310.0075 side=right -> Marker Cam Pos: [ +98.23,   -9.50, +187.92] mm
+  Pan= +2.009° t=53310.0385 side=left -> Marker Cam Pos: [ -62.40,  -15.30, +193.42] mm
+  Pan= +1.925° t=53310.0855 side=right -> Marker Cam Pos: [ +97.90,   -9.51, +188.08] mm
+  Pan= +1.925° t=53310.1090 side=left -> Marker Cam Pos: [ -62.78,  -15.33, +193.42] mm
+  Pan= +1.836° t=53310.1480 side=right -> Marker Cam Pos: [ +97.58,   -9.49, +188.25] mm
+  Pan= +1.836° t=53310.1715 side=left -> Marker Cam Pos: [ -63.17,  -15.32, +193.38] mm
+  Pan= +1.745° t=53310.2105 side=right -> Marker Cam Pos: [ +97.21,   -9.49, +188.38] mm
+  Pan= +1.745° t=53310.2340 side=left -> Marker Cam Pos: [ -63.52,  -15.32, +193.21] mm
+  Pan= +1.660° t=53310.2730 side=right -> Marker Cam Pos: [ +96.80,   -9.50, +188.49] mm
+  Pan= +1.660° t=53310.2965 side=left -> Marker Cam Pos: [ -63.91,  -15.32, +193.20] mm
+  Pan= +1.564° t=53310.3510 side=right -> Marker Cam Pos: [ +96.50,   -9.48, +188.66] mm
+  Pan= +1.564° t=53310.3670 side=left -> Marker Cam Pos: [ -64.27,  -15.33, +193.01] mm
+  Pan= +1.480° t=53310.4135 side=right -> Marker Cam Pos: [ +96.08,   -9.49, +188.72] mm
+  Pan= +1.480° t=53310.4370 side=left -> Marker Cam Pos: [ -64.64,  -15.32, +192.92] mm
+  Pan= +1.393° t=53310.4840 side=right -> Marker Cam Pos: [ +95.72,   -9.49, +188.89] mm
+  Pan= +1.393° t=53310.5075 side=left -> Marker Cam Pos: [ -65.01,  -15.34, +192.74] mm
+  Pan= +1.296° t=53310.5460 side=right -> Marker Cam Pos: [ +95.42,   -9.50, +189.11] mm
+  Pan= +1.296° t=53310.5620 side=left -> Marker Cam Pos: [ -65.37,  -15.33, +192.70] mm
+  Pan= +1.212° t=53310.6090 side=right -> Marker Cam Pos: [ +95.04,   -9.53, +189.21] mm
+  Pan= +1.212° t=53310.6405 side=left -> Marker Cam Pos: [ -65.75,  -15.34, +192.51] mm
+  Pan= +1.124° t=53310.6790 side=right -> Marker Cam Pos: [ +94.62,   -9.54, +189.31] mm
+  Pan= +1.124° t=53310.7105 side=left -> Marker Cam Pos: [ -66.14,  -15.33, +192.45] mm
+  Pan= +1.031° t=53310.7500 side=right -> Marker Cam Pos: [ +94.25,   -9.53, +189.35] mm
+  Pan= +1.031° t=53310.7730 side=left -> Marker Cam Pos: [ -66.49,  -15.35, +192.24] mm
+  Pan= +0.943° t=53310.8200 side=right -> Marker Cam Pos: [ +93.93,   -9.56, +189.56] mm
+  Pan= +0.943° t=53310.8435 side=left -> Marker Cam Pos: [ -66.84,  -15.36, +192.12] mm
+  Pan= +0.859° t=53310.8825 side=right -> Marker Cam Pos: [ +93.53,   -9.55, +189.67] mm
+  Pan= +0.859° t=53310.9055 side=left -> Marker Cam Pos: [ -67.21,  -15.37, +191.98] mm
+  Pan= +0.766° t=53310.9450 side=right -> Marker Cam Pos: [ +93.18,   -9.56, +189.78] mm
+  Pan= +0.766° t=53310.9685 side=left -> Marker Cam Pos: [ -67.55,  -15.35, +191.83] mm
+  Pan= +0.670° t=53311.0150 side=right -> Marker Cam Pos: [ +92.84,   -9.58, +189.94] mm
+  Pan= +0.670° t=53311.0385 side=left -> Marker Cam Pos: [ -67.92,  -15.37, +191.75] mm
+  Pan= +0.572° t=53311.0930 side=right -> Marker Cam Pos: [ +92.39,   -9.55, +189.97] mm
+  Pan= +0.572° t=53311.1010 side=left -> Marker Cam Pos: [ -68.28,  -15.37, +191.66] mm
+  Pan= +0.501° t=53311.1480 side=right -> Marker Cam Pos: [ +92.06,   -9.58, +190.11] mm
+  Pan= +0.501° t=53311.1715 side=left -> Marker Cam Pos: [ -68.69,  -15.37, +191.52] mm
+  Pan= +0.393° t=53311.2260 side=right -> Marker Cam Pos: [ +91.73,   -9.61, +190.25] mm
+  Pan= +0.393° t=53311.2420 side=left -> Marker Cam Pos: [ -69.07,  -15.38, +191.45] mm
+  Pan= +0.319° t=53311.2885 side=right -> Marker Cam Pos: [ +91.36,   -9.61, +190.40] mm
+  Pan= +0.319° t=53311.3120 side=left -> Marker Cam Pos: [ -69.39,  -15.38, +191.31] mm
+  Pan= +0.225° t=53311.3430 side=right -> Marker Cam Pos: [ +90.99,   -9.62, +190.51] mm
+  Pan= +0.225° t=53311.3745 side=left -> Marker Cam Pos: [ -69.77,  -15.38, +191.16] mm
+  Pan= +0.145° t=53311.4135 side=right -> Marker Cam Pos: [ +90.64,   -9.62, +190.64] mm
+  Pan= +0.145° t=53311.4445 side=left -> Marker Cam Pos: [ -70.11,  -15.40, +190.94] mm
+  Pan= +0.046° t=53311.4840 side=right -> Marker Cam Pos: [ +90.25,   -9.64, +190.65] mm
+  Pan= +0.046° t=53311.4995 side=left -> Marker Cam Pos: [ -70.47,  -15.39, +190.87] mm
+  Pan= -0.037° t=53311.5385 side=right -> Marker Cam Pos: [ +89.90,   -9.62, +190.90] mm
+  Pan= -0.037° t=53311.5700 side=left -> Marker Cam Pos: [ -70.85,  -15.43, +190.78] mm
+  Pan= -0.123° t=53311.6170 side=right -> Marker Cam Pos: [ +89.57,   -9.60, +191.10] mm
+  Pan= -0.123° t=53311.6405 side=left -> Marker Cam Pos: [ -71.23,  -15.43, +190.64] mm
+  Pan= -0.210° t=53311.6790 side=right -> Marker Cam Pos: [ +89.18,   -9.62, +191.17] mm
+  Pan= -0.210° t=53311.7025 side=left -> Marker Cam Pos: [ -71.56,  -15.43, +190.44] mm
+  Pan= -0.299° t=53311.7495 side=right -> Marker Cam Pos: [ +88.81,   -9.62, +191.34] mm
+  Pan= -0.299° t=53311.7805 side=left -> Marker Cam Pos: [ -71.95,  -15.42, +190.34] mm
+  Pan= -0.392° t=53311.8200 side=right -> Marker Cam Pos: [ +88.47,   -9.63, +191.49] mm
+  Pan= -0.392° t=53311.8435 side=left -> Marker Cam Pos: [ -72.33,  -15.45, +190.23] mm
+  Pan= -0.472° t=53311.8825 side=right -> Marker Cam Pos: [ +88.08,   -9.63, +191.54] mm
+  Pan= -0.472° t=53311.9055 side=left -> Marker Cam Pos: [ -72.68,  -15.44, +190.15] mm
+  Pan= -0.569° t=53311.9530 side=right -> Marker Cam Pos: [ +87.72,   -9.62, +191.69] mm
+  Pan= -0.569° t=53311.9685 side=left -> Marker Cam Pos: [ -73.06,  -15.44, +190.02] mm
+  Pan= -0.655° t=53312.0230 side=right -> Marker Cam Pos: [ +87.34,   -9.64, +191.80] mm
+  Pan= -0.655° t=53312.0465 side=left -> Marker Cam Pos: [ -73.43,  -15.44, +189.87] mm
+  Pan= -0.745° t=53312.0855 side=right -> Marker Cam Pos: [ +86.98,   -9.63, +191.92] mm
+  Pan= -0.745° t=53312.1090 side=left -> Marker Cam Pos: [ -73.84,  -15.44, +189.88] mm
+  Pan= -0.833° t=53312.1480 side=right -> Marker Cam Pos: [ +86.58,   -9.64, +192.01] mm
+  Pan= -0.833° t=53312.1715 side=left -> Marker Cam Pos: [ -74.17,  -15.44, +189.70] mm
+  Pan= -0.923° t=53312.2105 side=right -> Marker Cam Pos: [ +86.26,   -9.65, +192.25] mm
+  Pan= -0.923° t=53312.2415 side=left -> Marker Cam Pos: [ -74.54,  -15.44, +189.58] mm
+  Pan= -1.016° t=53312.2810 side=right -> Marker Cam Pos: [ +85.89,   -9.67, +192.31] mm
+  Pan= -1.016° t=53312.2965 side=left -> Marker Cam Pos: [ -74.90,  -15.45, +189.47] mm
+  Pan= -1.108° t=53312.3980 side=right -> Marker Cam Pos: [ +85.38,   -9.68, +192.55] mm
+  Pan= -1.108° t=53312.4135 side=left -> Marker Cam Pos: [ -75.44,  -15.45, +189.30] mm
+  Pan= -1.245° t=53312.4530 side=right -> Marker Cam Pos: [ +84.98,   -9.68, +192.54] mm
+  Pan= -1.245° t=53312.4685 side=left -> Marker Cam Pos: [ -75.77,  -15.46, +189.02] mm
+  Pan= -1.321° t=53312.5150 side=right -> Marker Cam Pos: [ +84.59,   -9.67, +192.70] mm
+  Pan= -1.321° t=53312.5385 side=left -> Marker Cam Pos: [ -76.14,  -15.48, +188.92] mm
+  Pan= -1.411° t=53312.5775 side=right -> Marker Cam Pos: [ +84.23,   -9.69, +192.76] mm
+  Pan= -1.411° t=53312.6090 side=left -> Marker Cam Pos: [ -76.49,  -15.48, +188.77] mm
+  Pan= -1.517° t=53312.6480 side=right -> Marker Cam Pos: [ +83.88,   -9.68, +192.88] mm
+  Pan= -1.517° t=53312.6715 side=left -> Marker Cam Pos: [ -76.85,  -15.47, +188.64] mm
+  Pan= -1.595° t=53312.7180 side=right -> Marker Cam Pos: [ +83.51,   -9.68, +193.04] mm
+  Pan= -1.595° t=53312.7415 side=left -> Marker Cam Pos: [ -77.20,  -15.47, +188.47] mm
+  Pan= -1.680° t=53312.7730 side=right -> Marker Cam Pos: [ +83.10,   -9.69, +193.06] mm
+  Pan= -1.680° t=53312.8120 side=left -> Marker Cam Pos: [ -77.52,  -15.47, +188.28] mm
+  Pan= -1.769° t=53312.8590 side=right -> Marker Cam Pos: [ +82.72,   -9.70, +193.05] mm
+  Pan= -1.769° t=53312.8745 side=left -> Marker Cam Pos: [ -77.94,  -15.48, +188.29] mm
+  Pan= -1.866° t=53312.9135 side=right -> Marker Cam Pos: [ +82.45,   -9.69, +193.41] mm
+  Pan= -1.866° t=53312.9370 side=left -> Marker Cam Pos: [ -78.27,  -15.49, +188.07] mm
+  Pan= -1.943° t=53312.9760 side=right -> Marker Cam Pos: [ +82.03,   -9.72, +193.49] mm
+  Pan= -1.943° t=53313.0075 side=left -> Marker Cam Pos: [ -78.63,  -15.48, +187.97] mm
+  Pan= -2.033° t=53313.0465 side=right -> Marker Cam Pos: [ +81.67,   -9.70, +193.56] mm
+  Pan= -2.033° t=53313.0775 side=left -> Marker Cam Pos: [ -78.99,  -15.48, +187.80] mm
+  Pan= -2.122° t=53313.1170 side=right -> Marker Cam Pos: [ +81.32,   -9.72, +193.71] mm
+  Pan= -2.122° t=53313.1405 side=left -> Marker Cam Pos: [ -79.36,  -15.49, +187.67] mm
+  Pan= -2.207° t=53313.1790 side=right -> Marker Cam Pos: [ +80.90,   -9.73, +193.76] mm
+  Pan= -2.207° t=53313.2025 side=left -> Marker Cam Pos: [ -79.71,  -15.50, +187.49] mm
+  Pan= -2.299° t=53313.2575 side=right -> Marker Cam Pos: [ +80.56,   -9.73, +193.88] mm
+  Pan= -2.299° t=53313.2730 side=left -> Marker Cam Pos: [ -80.02,  -15.51, +187.22] mm
+  Pan= -2.386° t=53313.3120 side=right -> Marker Cam Pos: [ +80.19,   -9.72, +194.01] mm
+  Pan= -2.386° t=53313.3355 side=left -> Marker Cam Pos: [ -80.41,  -15.50, +187.14] mm
+  Pan= -2.476° t=53313.3825 side=right -> Marker Cam Pos: [ +79.79,   -9.74, +194.03] mm
+  Pan= -2.476° t=53313.4055 side=left -> Marker Cam Pos: [ -80.84,  -15.52, +187.10] mm
+  Pan= -2.561° t=53313.4450 side=right -> Marker Cam Pos: [ +79.42,   -9.73, +194.23] mm
+  Pan= -2.561° t=53313.4685 side=left -> Marker Cam Pos: [ -81.14,  -15.52, +186.85] mm
+  Pan= -2.650° t=53313.5075 side=right -> Marker Cam Pos: [ +79.04,   -9.76, +194.25] mm
+  Pan= -2.650° t=53313.5465 side=left -> Marker Cam Pos: [ -81.51,  -15.51, +186.73] mm
+  Pan= -2.751° t=53313.5855 side=right -> Marker Cam Pos: [ +78.66,   -9.75, +194.32] mm
+  Pan= -2.751° t=53313.6090 side=left -> Marker Cam Pos: [ -81.90,  -15.51, +186.67] mm
+  Pan= -2.834° t=53313.6480 side=right -> Marker Cam Pos: [ +78.32,   -9.75, +194.48] mm
+  Pan= -2.834° t=53313.6715 side=left -> Marker Cam Pos: [ -82.27,  -15.52, +186.57] mm
+  Pan= -2.917° t=53313.7105 side=right -> Marker Cam Pos: [ +77.89,   -9.77, +194.46] mm
+  Pan= -2.917° t=53313.7420 side=left -> Marker Cam Pos: [ -82.64,  -15.54, +186.51] mm
+  Pan= -3.018° t=53313.7885 side=right -> Marker Cam Pos: [ +77.57,   -9.79, +194.63] mm
+  Pan= -3.018° t=53313.8120 side=left -> Marker Cam Pos: [ -82.98,  -15.54, +186.29] mm
+  Pan= -3.107° t=53313.8510 side=right -> Marker Cam Pos: [ +77.21,   -9.77, +194.79] mm
+  Pan= -3.107° t=53313.8745 side=left -> Marker Cam Pos: [ -83.33,  -15.57, +186.14] mm
+  Pan= -3.192° t=53313.9135 side=right -> Marker Cam Pos: [ +76.83,   -9.79, +194.90] mm
+  Pan= -3.192° t=53313.9370 side=left -> Marker Cam Pos: [ -83.67,  -15.56, +185.96] mm
+  Pan= -3.289° t=53313.9840 side=right -> Marker Cam Pos: [ +76.51,   -9.80, +195.14] mm
+  Pan= -3.289° t=53314.0075 side=left -> Marker Cam Pos: [ -83.99,  -15.56, +185.70] mm
+  Pan= -3.372° t=53314.0385 side=right -> Marker Cam Pos: [ +76.13,   -9.81, +195.19] mm
+  Pan= -3.372° t=53314.0695 side=left -> Marker Cam Pos: [ -84.38,  -15.59, +185.68] mm
+  Pan= -3.458° t=53314.1170 side=right -> Marker Cam Pos: [ +75.74,   -9.82, +195.23] mm
+  Pan= -3.458° t=53314.1405 side=left -> Marker Cam Pos: [ -84.77,  -15.59, +185.60] mm
+  Pan= -3.565° t=53314.1870 side=right -> Marker Cam Pos: [ +75.34,   -9.81, +195.31] mm
+  Pan= -3.565° t=53314.2025 side=left -> Marker Cam Pos: [ -85.11,  -15.58, +185.37] mm
+  Pan= -3.631° t=53314.2500 side=right -> Marker Cam Pos: [ +75.00,   -9.80, +195.49] mm
+  Pan= -3.631° t=53314.2805 side=left -> Marker Cam Pos: [ -85.40,  -15.57, +185.16] mm
+  Pan= -3.734° t=53314.3200 side=right -> Marker Cam Pos: [ +74.64,   -9.82, +195.59] mm
+  Pan= -3.734° t=53314.3355 side=left -> Marker Cam Pos: [ -85.83,  -15.60, +185.14] mm
+  Pan= -3.813° t=53314.3825 side=right -> Marker Cam Pos: [ +74.23,   -9.80, +195.58] mm
+  Pan= -3.813° t=53314.4055 side=left -> Marker Cam Pos: [ -86.19,  -15.58, +184.93] mm
+  Pan= -3.905° t=53314.4530 side=right -> Marker Cam Pos: [ +73.87,   -9.83, +195.84] mm
+  Pan= -3.905° t=53314.4685 side=left -> Marker Cam Pos: [ -86.55,  -15.59, +184.84] mm
+  Pan= -3.987° t=53314.5075 side=right -> Marker Cam Pos: [ +73.49,   -9.81, +195.85] mm
+  Pan= -3.987° t=53314.5385 side=left -> Marker Cam Pos: [ -86.91,  -15.60, +184.71] mm
+  Pan= -4.073° t=53314.5775 side=right -> Marker Cam Pos: [ +73.14,   -9.81, +195.99] mm
+  Pan= -4.073° t=53314.6090 side=left -> Marker Cam Pos: [ -87.18,  -15.59, +184.31] mm
+  Pan= -4.168° t=53314.6480 side=right -> Marker Cam Pos: [ +72.76,   -9.81, +196.12] mm
+  Pan= -4.168° t=53314.6715 side=left -> Marker Cam Pos: [ -87.54,  -15.59, +184.20] mm
+  Pan= -4.259° t=53314.7180 side=right -> Marker Cam Pos: [ +72.38,   -9.81, +196.25] mm
+  Pan= -4.259° t=53314.7340 side=left -> Marker Cam Pos: [ -87.93,  -15.59, +184.07] mm
+  Pan= -4.343° t=53314.7885 side=right -> Marker Cam Pos: [ +72.04,   -9.83, +196.39] mm
+  Pan= -4.343° t=53314.8120 side=left -> Marker Cam Pos: [ -88.32,  -15.61, +184.00] mm
+  Pan= -4.433° t=53314.8510 side=right -> Marker Cam Pos: [ +71.63,   -9.83, +196.41] mm
+  Pan= -4.433° t=53314.8745 side=left -> Marker Cam Pos: [ -88.65,  -15.61, +183.83] mm
+  Pan= -4.526° t=53314.9135 side=right -> Marker Cam Pos: [ +71.29,   -9.85, +196.64] mm
+  Pan= -4.526° t=53314.9450 side=left -> Marker Cam Pos: [ -89.05,  -15.62, +183.78] mm
+  Pan= -4.609° t=53314.9760 side=right -> Marker Cam Pos: [ +70.88,   -9.85, +196.60] mm
+  Pan= -4.609° t=53314.9995 side=left -> Marker Cam Pos: [ -89.39,  -15.61, +183.55] mm
+  Pan= -4.695° t=53315.0465 side=right -> Marker Cam Pos: [ +70.53,   -9.86, +196.72] mm
+  Pan= -4.695° t=53315.0700 side=left -> Marker Cam Pos: [ -89.73,  -15.62, +183.45] mm
+  Pan= -4.793° t=53315.1170 side=right -> Marker Cam Pos: [ +70.17,   -9.86, +196.78] mm
+  Pan= -4.793° t=53315.1405 side=left -> Marker Cam Pos: [ -90.12,  -15.64, +183.39] mm
+  Pan= -4.886° t=53315.1790 side=right -> Marker Cam Pos: [ +69.78,   -9.87, +196.94] mm
+  Pan= -4.886° t=53315.2025 side=left -> Marker Cam Pos: [ -90.48,  -15.63, +183.21] mm
+  Pan= -4.972° t=53315.2420 side=right -> Marker Cam Pos: [ +69.42,   -9.87, +197.04] mm
+  Pan= -4.972° t=53315.2805 side=left -> Marker Cam Pos: [ -90.77,  -15.64, +182.99] mm
+  Pan= -5.068° t=53315.3200 side=right -> Marker Cam Pos: [ +69.05,   -9.88, +197.07] mm
+  Pan= -5.068° t=53315.3435 side=left -> Marker Cam Pos: [ -91.11,  -15.66, +182.82] mm
+  Pan= -5.147° t=53315.3825 side=right -> Marker Cam Pos: [ +68.70,   -9.89, +197.17] mm
+  Pan= -5.147° t=53315.4055 side=left -> Marker Cam Pos: [ -91.48,  -15.67, +182.65] mm
+  Pan= -5.231° t=53315.4450 side=right -> Marker Cam Pos: [ +68.29,   -9.88, +197.28] mm
+  Pan= -5.231° t=53315.4765 side=left -> Marker Cam Pos: [ -91.84,  -15.66, +182.54] mm
+  Pan= -5.340° t=53315.5230 side=right -> Marker Cam Pos: [ +67.97,   -9.89, +197.43] mm
+  Pan= -5.340° t=53315.5465 side=left -> Marker Cam Pos: [ -92.19,  -15.67, +182.40] mm
+  Pan= -5.415° t=53315.5855 side=right -> Marker Cam Pos: [ +67.56,   -9.86, +197.39] mm
+  Pan= -5.415° t=53315.6090 side=left -> Marker Cam Pos: [ -92.49,  -15.65, +182.12] mm
+  Pan= -5.508° t=53315.6480 side=right -> Marker Cam Pos: [ +67.19,   -9.90, +197.56] mm
+  Pan= -5.508° t=53315.6715 side=left -> Marker Cam Pos: [ -92.90,  -15.67, +182.05] mm
+  Pan= -5.586° t=53315.7105 side=right -> Marker Cam Pos: [ +66.79,   -9.88, +197.59] mm
+  Pan= -5.586° t=53315.7340 side=left -> Marker Cam Pos: [ -93.21,  -15.65, +181.84] mm
+  Pan= -5.674° t=53315.7805 side=right -> Marker Cam Pos: [ +66.43,   -9.89, +197.70] mm
+  Pan= -5.674° t=53315.8040 side=left -> Marker Cam Pos: [ -93.56,  -15.65, +181.67] mm
+  Pan= -5.767° t=53315.8355 side=right -> Marker Cam Pos: [ +66.06,   -9.90, +197.79] mm
+  Pan= -5.767° t=53315.8665 side=left -> Marker Cam Pos: [ -93.91,  -15.65, +181.48] mm
+  Pan= -5.851° t=53315.9135 side=right -> Marker Cam Pos: [ +65.65,   -9.90, +197.91] mm
+  Pan= -5.851° t=53315.9370 side=left -> Marker Cam Pos: [ -94.25,  -15.68, +181.33] mm
+  Pan= -5.943° t=53315.9760 side=right -> Marker Cam Pos: [ +65.29,   -9.92, +197.97] mm
+  Pan= -5.943° t=53315.9995 side=left -> Marker Cam Pos: [ -94.61,  -15.69, +181.19] mm
+  Pan= -6.034° t=53316.0465 side=right -> Marker Cam Pos: [ +64.90,   -9.91, +198.04] mm
+  Pan= -6.034° t=53316.0775 side=left -> Marker Cam Pos: [ -94.99,  -15.68, +180.98] mm
+  Pan= -6.127° t=53316.1170 side=right -> Marker Cam Pos: [ +64.50,   -9.91, +198.05] mm
+  Pan= -6.127° t=53316.1405 side=left -> Marker Cam Pos: [ -95.34,  -15.69, +180.89] mm
+  Pan= -6.206° t=53316.1790 side=right -> Marker Cam Pos: [ +64.16,   -9.95, +198.27] mm
+  Pan= -6.206° t=53316.2025 side=left -> Marker Cam Pos: [ -95.68,  -15.70, +180.71] mm
+  Pan= -6.299° t=53316.2420 side=right -> Marker Cam Pos: [ +63.78,   -9.96, +198.39] mm
+  Pan= -6.299° t=53316.2730 side=left -> Marker Cam Pos: [ -96.08,  -15.71, +180.61] mm
+  Pan= -6.392° t=53316.3120 side=right -> Marker Cam Pos: [ +63.40,   -9.97, +198.37] mm
+  Pan= -6.392° t=53316.3355 side=left -> Marker Cam Pos: [ -96.40,  -15.70, +180.41] mm
+  Pan= -6.477° t=53316.3825 side=right -> Marker Cam Pos: [ +63.00,   -9.96, +198.37] mm
+  Pan= -6.477° t=53316.4055 side=left -> Marker Cam Pos: [ -96.75,  -15.72, +180.34] mm
+  Pan= -6.569° t=53316.4450 side=right -> Marker Cam Pos: [ +62.65,   -9.97, +198.58] mm
+  Pan= -6.569° t=53316.4765 side=left -> Marker Cam Pos: [ -97.11,  -15.73, +180.15] mm
+  Pan= -6.663° t=53316.5155 side=right -> Marker Cam Pos: [ +62.27,   -9.98, +198.63] mm
+  Pan= -6.663° t=53316.5385 side=left -> Marker Cam Pos: [ -97.43,  -15.76, +179.89] mm
+  Pan= -6.744° t=53316.5855 side=right -> Marker Cam Pos: [ +61.88,   -9.99, +198.67] mm
+  Pan= -6.744° t=53316.6090 side=left -> Marker Cam Pos: [ -97.80,  -15.76, +179.79] mm
+  Pan= -6.842° t=53316.6480 side=right -> Marker Cam Pos: [ +61.53,   -9.98, +198.74] mm
+  Pan= -6.842° t=53316.6715 side=left -> Marker Cam Pos: [ -98.15,  -15.74, +179.63] mm
+  Pan= -6.925° t=53316.7105 side=right -> Marker Cam Pos: [ +61.12,  -10.00, +198.84] mm
+  Pan= -6.925° t=53316.7340 side=left -> Marker Cam Pos: [ -98.49,  -15.75, +179.44] mm
+  Pan= -7.014° t=53316.7810 side=right -> Marker Cam Pos: [ +60.75,  -10.00, +198.96] mm
+  Pan= -7.014° t=53316.8120 side=left -> Marker Cam Pos: [ -98.82,  -15.76, +179.26] mm
+  Pan= -7.116° t=53316.8510 side=right -> Marker Cam Pos: [ +60.41,  -10.00, +199.02] mm
+  Pan= -7.116° t=53316.8745 side=left -> Marker Cam Pos: [ -99.16,  -15.76, +179.06] mm
+  Pan= -7.191° t=53316.9135 side=right -> Marker Cam Pos: [ +60.01,  -10.01, +199.01] mm
+  Pan= -7.191° t=53316.9370 side=left -> Marker Cam Pos: [ -99.51,  -15.76, +178.90] mm
+  Pan= -7.283° t=53316.9760 side=right -> Marker Cam Pos: [ +59.63,  -10.01, +199.18] mm
+  Pan= -7.283° t=53317.0075 side=left -> Marker Cam Pos: [ -99.90,  -15.78, +178.81] mm
+  Pan= -7.387° t=53317.0540 side=right -> Marker Cam Pos: [ +59.24,  -10.00, +199.26] mm
+  Pan= -7.387° t=53317.0775 side=left -> Marker Cam Pos: [-100.22,  -15.77, +178.61] mm
+  Pan= -7.462° t=53317.1170 side=right -> Marker Cam Pos: [ +58.88,  -10.02, +199.31] mm
+  Pan= -7.462° t=53317.1405 side=left -> Marker Cam Pos: [-100.50,  -15.77, +178.26] mm
+  Pan= -7.543° t=53317.1790 side=right -> Marker Cam Pos: [ +58.53,  -10.03, +199.48] mm
+  Pan= -7.543° t=53317.2025 side=left -> Marker Cam Pos: [-100.86,  -15.77, +178.13] mm
+  Pan= -7.631° t=53317.2420 side=right -> Marker Cam Pos: [ +58.08,  -10.01, +199.49] mm
+  Pan= -7.631° t=53317.2655 side=left -> Marker Cam Pos: [-101.26,  -15.79, +178.11] mm
+  Pan= -7.720° t=53317.3040 side=right -> Marker Cam Pos: [ +57.73,  -10.04, +199.62] mm
+  Pan= -7.720° t=53317.3435 side=left -> Marker Cam Pos: [-101.59,  -15.77, +177.89] mm
+  Pan= -7.810° t=53317.3825 side=right -> Marker Cam Pos: [ +57.35,  -10.03, +199.62] mm
+  Pan= -7.810° t=53317.4055 side=left -> Marker Cam Pos: [-101.99,  -15.77, +177.76] mm
+  Pan= -7.902° t=53317.4450 side=right -> Marker Cam Pos: [ +56.96,  -10.03, +199.71] mm
+  Pan= -7.902° t=53317.4685 side=left -> Marker Cam Pos: [-102.30,  -15.77, +177.53] mm
+  Pan= -7.989° t=53317.5075 side=right -> Marker Cam Pos: [ +56.60,  -10.05, +199.88] mm
+  Pan= -7.989° t=53317.5385 side=left -> Marker Cam Pos: [-102.68,  -15.79, +177.48] mm
+  Pan= -8.078° t=53317.5780 side=right -> Marker Cam Pos: [ +56.19,  -10.03, +199.82] mm
+  Pan= -8.078° t=53317.6015 side=left -> Marker Cam Pos: [-103.03,  -15.78, +177.28] mm
+  Pan= -8.171° t=53317.6480 side=right -> Marker Cam Pos: [ +55.84,  -10.06, +199.90] mm
+  Pan= -8.171° t=53317.6715 side=left -> Marker Cam Pos: [-103.35,  -15.79, +177.05] mm
+  Pan= -8.254° t=53317.7105 side=right -> Marker Cam Pos: [ +55.47,  -10.05, +200.07] mm
+  Pan= -8.254° t=53317.7340 side=left -> Marker Cam Pos: [-103.65,  -15.81, +176.82] mm
+  Pan= -8.345° t=53317.7885 side=right -> Marker Cam Pos: [ +55.07,  -10.05, +200.07] mm
+  Pan= -8.345° t=53317.8120 side=left -> Marker Cam Pos: [-104.01,  -15.79, +176.67] mm
+  Pan= -8.444° t=53317.8590 side=right -> Marker Cam Pos: [ +54.69,  -10.07, +200.09] mm
+  Pan= -8.444° t=53317.8745 side=left -> Marker Cam Pos: [-104.36,  -15.81, +176.50] mm
+  Pan= -8.522° t=53317.9135 side=right -> Marker Cam Pos: [ +54.35,  -10.07, +200.27] mm
+  Pan= -8.522° t=53317.9370 side=left -> Marker Cam Pos: [-104.66,  -15.78, +176.31] mm
+  Pan= -8.615° t=53317.9760 side=right -> Marker Cam Pos: [ +53.96,  -10.06, +200.21] mm
+  Pan= -8.615° t=53317.9995 side=left -> Marker Cam Pos: [-104.97,  -15.80, +176.07] mm
+  Pan= -8.701° t=53318.0540 side=right -> Marker Cam Pos: [ +53.57,  -10.07, +200.37] mm
+  Pan= -8.701° t=53318.0775 side=left -> Marker Cam Pos: [-105.31,  -15.78, +175.86] mm
+  Pan= -8.793° t=53318.1170 side=right -> Marker Cam Pos: [ +53.18,  -10.06, +200.36] mm
+  Pan= -8.793° t=53318.1405 side=left -> Marker Cam Pos: [-105.65,  -15.79, +175.66] mm
+  Pan= -8.889° t=53318.1870 side=right -> Marker Cam Pos: [ +52.81,  -10.06, +200.40] mm
+  Pan= -8.889° t=53318.2105 side=left -> Marker Cam Pos: [-106.01,  -15.82, +175.55] mm
+  Pan= -8.998° t=53318.2575 side=right -> Marker Cam Pos: [ +52.46,  -10.08, +200.52] mm
+  Pan= -8.998° t=53318.2885 side=left -> Marker Cam Pos: [-106.34,  -15.82, +175.35] mm
+  Pan= -9.064° t=53318.3200 side=right -> Marker Cam Pos: [ +52.09,  -10.09, +200.57] mm
+  Pan= -9.064° t=53318.3355 side=left -> Marker Cam Pos: [-106.68,  -15.79, +175.14] mm
+  Pan= -9.162° t=53318.4290 side=right -> Marker Cam Pos: [ +51.49,  -10.09, +200.62] mm
+  Pan= -9.162° t=53318.4450 side=left -> Marker Cam Pos: [-107.26,  -15.80, +174.98] mm
+  Pan= -9.301° t=53318.5310 side=right -> Marker Cam Pos: [ +50.92,  -10.08, +200.69] mm
+  Pan= -9.301° t=53318.5465 side=left -> Marker Cam Pos: [-107.78,  -15.84, +174.77] mm
+  Pan= -9.411° t=53318.5855 side=right -> Marker Cam Pos: [ +50.54,  -10.10, +200.89] mm
+  Pan= -9.411° t=53318.6090 side=left -> Marker Cam Pos: [-108.08,  -15.82, +174.50] mm
+  Pan= -9.501° t=53318.6480 side=right -> Marker Cam Pos: [ +50.14,  -10.11, +200.92] mm
+  Pan= -9.501° t=53318.6715 side=left -> Marker Cam Pos: [-108.45,  -15.85, +174.36] mm
+  Pan= -9.588° t=53318.7105 side=right -> Marker Cam Pos: [ +49.74,  -10.11, +200.94] mm
+  Pan= -9.588° t=53318.7340 side=left -> Marker Cam Pos: [-108.79,  -15.84, +174.17] mm
+  Pan= -9.681° t=53318.7730 side=right -> Marker Cam Pos: [ +49.40,  -10.12, +201.14] mm
+  Pan= -9.681° t=53318.8040 side=left -> Marker Cam Pos: [-109.14,  -15.84, +173.95] mm
+  Pan= -9.768° t=53318.8510 side=right -> Marker Cam Pos: [ +49.00,  -10.13, +201.14] mm
+  Pan= -9.768° t=53318.8745 side=left -> Marker Cam Pos: [-109.48,  -15.84, +173.82] mm
+  Pan= -9.854° t=53318.9135 side=right -> Marker Cam Pos: [ +48.59,  -10.12, +201.08] mm
+  Pan= -9.854° t=53318.9370 side=left -> Marker Cam Pos: [-109.80,  -15.85, +173.58] mm
+  Pan= -9.946° t=53318.9840 side=right -> Marker Cam Pos: [ +48.24,  -10.14, +201.23] mm
+  Pan= -9.946° t=53319.0075 side=left -> Marker Cam Pos: [-110.11,  -15.85, +173.36] mm
+  Pan= -9.994° t=53319.0465 side=right -> Marker Cam Pos: [ +47.87,  -10.13, +201.24] mm
+  Pan= -9.994° t=53319.0775 side=left -> Marker Cam Pos: [-110.33,  -15.84, +173.27] mm
+  Pan=-10.001° t=53319.1170 side=right -> Marker Cam Pos: [ +47.74,  -10.12, +201.23] mm
+  Pan=-10.001° t=53319.1405 side=left -> Marker Cam Pos: [-110.36,  -15.84, +173.24] mm
+  Pan=-10.002° t=53319.1870 side=right -> Marker Cam Pos: [ +47.72,  -10.13, +201.26] mm
+  Pan=-10.002° t=53319.2025 side=left -> Marker Cam Pos: [-110.34,  -15.84, +173.18] mm

@@ -1,0 +1,564 @@
+[23:11:40] output: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138
+[23:11:40] simulated sensor noise: position 0.100 mm, orientation 0.000 deg
+[23:11:40] v1.3 J5 stage sweeps: J6 +-22.5 deg, J4 +-30 deg
+[23:11:41] [INFO] Power (.*) is already ON.
+[23:11:41] [INFO] Required servos (^(?!.*wheel).*$) are already ON.
+[23:11:41] [INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
+[23:11:41] [INFO] Enabling control manager with unlimited_mode_enabled=True...
+[23:11:42] [INFO] Connected robot model 'M', version string 'v1.3'
+[23:11:42] [Camera] Auto exposure enabled
+[23:11:42] [INFO] head joints in the model: [24, 25]
+[23:11:42] 
+##### exposure-check ready pose (right, head to zero) #####
+[23:11:45] [INFO] Moving right arm to wrist_pitch_v13 Ready Pose...
+[23:11:45] [INFO] Moving inactive arm to zero pose first...
+[23:11:49] [INFO] Moving active arm, torso, and head to ready pose...
+[23:11:54] [INFO] Ready Pose Reached.
+[23:11:54] ##### exposure-check ready pose (right, head to zero): completed (12 s) #####
+[23:11:54] 
+##### exposure-check ready pose (left, head to zero) #####
+[23:11:57] [INFO] Moving left arm to wrist_pitch_v13 Ready Pose...
+[23:11:57] [INFO] Moving inactive arm to zero pose first...
+[23:12:00] [INFO] Moving active arm, torso, and head to ready pose...
+[23:12:05] [INFO] Ready Pose Reached.
+[23:12:05] ##### exposure-check ready pose (left, head to zero): completed (12 s) #####
+[23:12:10] [monitor] 43 summaries in 5 s; last: {}
+[23:12:10] 
+##### Full Auto ready pose #####
+[23:12:10] [INFO] Moving right arm to marker Ready Pose...
+[23:12:10] [INFO] Moving inactive arm to zero pose first...
+[23:12:14] [INFO] Moving active arm, torso, and head to ready pose...
+[23:12:19] [INFO] Ready Pose Reached.
+[23:12:19] [INFO] Moving left arm to marker Ready Pose...
+[23:12:19] [INFO] Moving inactive arm to zero pose first...
+[23:12:22] [INFO] Moving active arm, torso, and head to ready pose...
+[23:12:27] [INFO] Ready Pose Reached.
+[23:12:27] ##### Full Auto ready pose: completed (17 s) #####
+[23:12:27] 
+##### FULL AUTO (Step 1 -> Step 1.5 -> Step 2) #####
+[23:12:27] Starting Step 1 sequential calibration...
+[23:12:27] 
+==================================================
+[23:12:27]    STARTING PASS 1/2 FOR RIGHT ARM
+[23:12:27] ==================================================
+
+[23:12:27] [INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[23:12:27] [FULL AUTO] Starting 3-Axis Bracket Sweeps for right arm (Pass 1)...
+[23:12:27] [FULL AUTO] Moving right arm to marker ready pose...
+[23:12:27] [INFO] Moving right arm to marker Ready Pose...
+[23:12:27] [INFO] Moving inactive arm to zero pose first...
+[23:12:30] [INFO] Moving active arm, torso, and head to ready pose...
+[23:12:36] [INFO] Ready Pose Reached.
+[23:12:36] [FULL AUTO] Sweeping Axis 4 (Wrist Yaw)...
+[23:12:36] 
+==================================================
+[23:12:36]    STARTING 4 CONTINUOUS MARKER SWEEP
+[23:12:36] ==================================================
+[23:12:48] [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
+[23:12:48] [FULL AUTO] Sweeping Axis 6 (Wrist Roll)...
+[23:12:48] 
+==================================================
+[23:12:48]    STARTING 6 CONTINUOUS MARKER SWEEP
+[23:12:48] ==================================================
+[23:13:01] [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+[23:13:01] [FULL AUTO] Sweeping Axis 5 (Wrist Pitch)...
+[23:13:01] 
+==================================================
+[23:13:01]    STARTING 5 CONTINUOUS MARKER SWEEP
+[23:13:01] ==================================================
+[23:13:14] [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
+[23:13:14] 
+[FULL AUTO] Computing Marker Bracket Transform for right arm...
+[23:13:16] 
+[FULL AUTO] Calibrating J6 (Wrist Roll) under locked bracket...
+[23:13:16] [INFO] Moving right arm to wrist_roll_v13 Ready Pose...
+[23:13:16] [INFO] Moving inactive arm to zero pose first...
+[23:13:19] [INFO] Moving active arm, torso, and head to ready pose...
+[23:13:24] [INFO] Ready Pose Reached.
+[23:13:24] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+[23:13:46] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.02°, raw_diff=-1.48°, optimal_offset=-1.50°
+[23:13:46] [ITERATION 1/8] offset=0.0000°, residual=-1.5046° -> retry (exceeds 0.06° tolerance)
+[23:13:46] 
+[ITERATION 2/8] Sweeping physically with staged offset -1.5046°...
+[23:14:08] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.04°, raw_diff=0.01°, optimal_offset=-1.53°
+[23:14:08] [ITERATION 2/8] offset=-1.5046°, residual=-0.0276° -> OK (within 0.06°)
+[23:14:08] 
+[ITERATION 3/8] Sweeping physically with staged offset -1.5322°...
+[23:14:30] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.02°, raw_diff=0.04°, optimal_offset=-1.51°
+[23:14:30] [ITERATION 3/8] offset=-1.5322°, residual=+0.0219° -> OK (within 0.06°)
+[23:14:30] 
+[ITERATION 4/8] Sweeping physically with staged offset -1.5147°...
+[23:14:52] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.01°, raw_diff=0.02°, optimal_offset=-1.50°
+[23:14:52] [ITERATION 4/8] offset=-1.5147°, residual=+0.0101° -> OK (within 0.06°)
+[23:14:52] 
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+[23:14:52]   * Recommended Absolute Offset (mean): -1.5157°
+[23:14:53] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_right_wrist_roll_v13_joint_calib.png
+[23:14:53] [FULL AUTO] Staging J6 offset: -1.5157°
+[23:14:54] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_right_wrist_roll_v13_joint_calib.png
+[23:14:55] [FULL AUTO] Calibrating J5 (Wrist Pitch) under locked bracket + J6...
+[23:14:55] [INFO] Moving right arm to wrist_pitch_v13 Ready Pose...
+[23:14:55] [INFO] Moving inactive arm to zero pose first...
+[23:14:58] [INFO] Moving active arm, torso, and head to ready pose...
+[23:15:04] [INFO] Ready Pose Reached.
+[23:15:04] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+[23:15:25] [ITERATION 1/8] offset=0.0000°, residual=+1.9722° -> retry (exceeds 0.06° tolerance)
+[23:15:25] 
+[ITERATION 2/8] Sweeping physically with staged offset 1.9722°...
+[23:15:47] [ITERATION 2/8] offset=1.9722°, residual=-0.0206° -> OK (within 0.06°)
+[23:15:47] 
+[ITERATION 3/8] Sweeping physically with staged offset 1.9557°...
+[23:16:08] [ITERATION 3/8] offset=1.9557°, residual=-0.0630° -> retry (exceeds 0.06° tolerance)
+[23:16:08] 
+[ITERATION 4/8] Sweeping physically with staged offset 1.9053°...
+[23:16:30] [ITERATION 4/8] offset=1.9053°, residual=+0.1830° -> retry (exceeds 0.06° tolerance)
+[23:16:30] 
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+[23:16:30]   * Recommended Absolute Offset (mean): 1.9775°
+[23:16:32] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_right_wrist_pitch_v13_joint_calib.png
+[23:16:33] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_right_wrist_pitch_v13_joint_calib.png
+[23:16:34] [FULL AUTO] Sweeping Elbow (Joint 3)...
+[23:16:34] [INFO] Moving right arm to elbow Ready Pose...
+[23:16:34] [INFO] Moving inactive arm to zero pose first...
+[23:16:37] [INFO] Moving active arm, torso, and head to ready pose...
+[23:16:42] [INFO] Ready Pose Reached.
+[23:16:42] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+[23:17:04] [ITERATION 1/8] offset=0.0000°, residual=-0.4680° -> retry (exceeds 0.06° tolerance)
+[23:17:04] 
+[ITERATION 2/8] Sweeping physically with staged offset -0.4680°...
+[23:17:26] [ITERATION 2/8] offset=-0.4680°, residual=-0.0380° -> OK (within 0.06°)
+[23:17:26] 
+[ITERATION 3/8] Sweeping physically with staged offset -0.5060°...
+[23:17:47] [ITERATION 3/8] offset=-0.5060°, residual=+0.0074° -> OK (within 0.06°)
+[23:17:47] 
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+[23:17:47]   * Recommended Absolute Offset (mean): -0.5023°
+[23:17:48] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_right_elbow_joint_calib.png
+[23:17:50] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_right_elbow_joint_calib.png
+[23:17:51] 
+[PASS 1 EVALUATION] Staged parameter changes for RIGHT Arm:
+[23:17:51]   * Joint 6 Change      : 1.5157°
+[23:17:51]   * Joint 5 Change      : 1.9775°
+[23:17:51]   * Joint 3 Change      : 0.5023°
+[23:17:51]   * Bracket Pos Change  : 98.9221 mm
+[23:17:51]   * Bracket Rot Change  : 90.4891°
+[23:17:51] 
+==================================================
+[23:17:51]    STARTING PASS 2/2 FOR RIGHT ARM
+[23:17:51] ==================================================
+
+[23:17:51] [INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[23:17:51] [FULL AUTO] Starting 3-Axis Bracket Sweeps for right arm (Pass 2)...
+[23:17:51] [FULL AUTO] Moving right arm to marker ready pose...
+[23:17:51] [INFO] Moving right arm to marker Ready Pose...
+[23:17:51] [INFO] Moving inactive arm to zero pose first...
+[23:17:55] [INFO] Moving active arm, torso, and head to ready pose...
+[23:18:00] [INFO] Ready Pose Reached.
+[23:18:00] [FULL AUTO] Sweeping Axis 4 (Wrist Yaw)...
+[23:18:00] 
+==================================================
+[23:18:00]    STARTING 4 CONTINUOUS MARKER SWEEP
+[23:18:00] ==================================================
+[23:18:13] [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
+[23:18:13] [FULL AUTO] Sweeping Axis 6 (Wrist Roll)...
+[23:18:13] 
+==================================================
+[23:18:13]    STARTING 6 CONTINUOUS MARKER SWEEP
+[23:18:13] ==================================================
+[23:18:25] [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+[23:18:25] [FULL AUTO] Sweeping Axis 5 (Wrist Pitch)...
+[23:18:25] 
+==================================================
+[23:18:25]    STARTING 5 CONTINUOUS MARKER SWEEP
+[23:18:25] ==================================================
+[23:18:38] [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
+[23:18:38] 
+[FULL AUTO] Computing Marker Bracket Transform for right arm...
+[23:18:41] [FULL AUTO] J6 (Wrist Roll) converged in Pass 1 (-1.5157°). Skipping Pass 2 sweep.
+[23:18:42] [FULL AUTO] J5 (Wrist Pitch) converged in Pass 1 (1.9775°). Skipping Pass 2 sweep.
+[23:18:43] [FULL AUTO] J3 (Elbow) converged in Pass 1 (-0.5023°). Skipping Pass 2 sweep.
+[23:18:44] 
+[PASS 2 EVALUATION] Staged parameter changes for RIGHT Arm:
+[23:18:44]   * Joint 6 Change      : 0.0000°
+[23:18:44]   * Joint 5 Change      : 0.0000°
+[23:18:44]   * Joint 3 Change      : 0.0000°
+[23:18:44]   * Bracket Pos Change  : 0.0000 mm
+[23:18:44]   * Bracket Rot Change  : 0.0039°
+[23:18:44] [PASS 2 EVALUATION] All parameters converged physically (Step changes < 0.10°).
+[23:18:44] [PASS 2 EVALUATION] Calibration completed in Pass 2!
+[23:18:44] [INFO] RIGHT arm sequential calibration completed successfully.
+[23:18:45] 
+==================================================
+[23:18:45]    STARTING PASS 1/2 FOR LEFT ARM
+[23:18:45] ==================================================
+
+[23:18:45] [INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[23:18:45] [FULL AUTO] Starting 3-Axis Bracket Sweeps for left arm (Pass 1)...
+[23:18:45] [FULL AUTO] Moving left arm to marker ready pose...
+[23:18:45] [INFO] Moving left arm to marker Ready Pose...
+[23:18:45] [INFO] Moving inactive arm to zero pose first...
+[23:18:48] [INFO] Moving active arm, torso, and head to ready pose...
+[23:18:53] [INFO] Ready Pose Reached.
+[23:18:53] [FULL AUTO] Sweeping Axis 4 (Wrist Yaw)...
+[23:18:53] 
+==================================================
+[23:18:53]    STARTING 4 CONTINUOUS MARKER SWEEP
+[23:18:53] ==================================================
+[23:19:06] [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_left_marker_axis_4.txt
+[23:19:06] [FULL AUTO] Sweeping Axis 6 (Wrist Roll)...
+[23:19:06] 
+==================================================
+[23:19:06]    STARTING 6 CONTINUOUS MARKER SWEEP
+[23:19:06] ==================================================
+[23:19:19] [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_left_marker_axis_6.txt
+[23:19:19] [FULL AUTO] Sweeping Axis 5 (Wrist Pitch)...
+[23:19:19] 
+==================================================
+[23:19:19]    STARTING 5 CONTINUOUS MARKER SWEEP
+[23:19:19] ==================================================
+[23:19:32] [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_left_marker_axis_5.txt
+[23:19:32] 
+[FULL AUTO] Computing Marker Bracket Transform for left arm...
+[23:19:35] 
+[FULL AUTO] Calibrating J6 (Wrist Roll) under locked bracket...
+[23:19:35] [INFO] Moving left arm to wrist_roll_v13 Ready Pose...
+[23:19:35] [INFO] Moving inactive arm to zero pose first...
+[23:19:38] [INFO] Moving active arm, torso, and head to ready pose...
+[23:19:43] [INFO] Ready Pose Reached.
+[23:19:43] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+[23:20:05] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.03°, raw_diff=-4.21°, optimal_offset=-4.24°
+[23:20:05] [ITERATION 1/8] offset=0.0000°, residual=-4.2396° -> retry (exceeds 0.06° tolerance)
+[23:20:05] 
+[ITERATION 2/8] Sweeping physically with staged offset -4.2396°...
+[23:20:27] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.03°, raw_diff=0.03°, optimal_offset=-4.24°
+[23:20:27] [ITERATION 2/8] offset=-4.2396°, residual=+0.0003° -> OK (within 0.06°)
+[23:20:27] 
+[ITERATION 3/8] Sweeping physically with staged offset -4.2393°...
+[23:20:49] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.00°, raw_diff=0.04°, optimal_offset=-4.21°
+[23:20:49] [ITERATION 3/8] offset=-4.2393°, residual=+0.0321° -> OK (within 0.06°)
+[23:20:49] 
+[ITERATION 4/8] Sweeping physically with staged offset -4.2136°...
+[23:21:11] [INFO] wrist_roll_v13: J7 nominal ready pose=-0.03°, raw_diff=0.00°, optimal_offset=-4.24°
+[23:21:11] [ITERATION 4/8] offset=-4.2136°, residual=-0.0309° -> OK (within 0.06°)
+[23:21:11] 
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+[23:21:11]   * Recommended Absolute Offset (mean): -4.2303°
+[23:21:12] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_left_wrist_roll_v13_joint_calib.png
+[23:21:13] [FULL AUTO] Staging J6 offset: -4.2303°
+[23:21:14] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_left_wrist_roll_v13_joint_calib.png
+[23:21:16] [FULL AUTO] Calibrating J5 (Wrist Pitch) under locked bracket + J6...
+[23:21:16] [INFO] Moving left arm to wrist_pitch_v13 Ready Pose...
+[23:21:16] [INFO] Moving inactive arm to zero pose first...
+[23:21:19] [INFO] Moving active arm, torso, and head to ready pose...
+[23:21:24] [INFO] Ready Pose Reached.
+[23:21:24] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+[23:21:46] [ITERATION 1/8] offset=0.0000°, residual=-3.6089° -> retry (exceeds 0.06° tolerance)
+[23:21:46] 
+[ITERATION 2/8] Sweeping physically with staged offset -3.6089°...
+[23:22:07] [ITERATION 2/8] offset=-3.6089°, residual=-0.2800° -> retry (exceeds 0.06° tolerance)
+[23:22:07] 
+[ITERATION 3/8] Sweeping physically with staged offset -3.8889°...
+[23:22:28] [ITERATION 3/8] offset=-3.8889°, residual=+0.1869° -> retry (exceeds 0.06° tolerance)
+[23:22:28] 
+[ITERATION 4/8] Sweeping physically with staged offset -3.7394°...
+[23:22:50] [ITERATION 4/8] offset=-3.7394°, residual=+0.2805° -> retry (exceeds 0.06° tolerance)
+[23:22:50] 
+[ITERATION 5/8] Sweeping physically with staged offset -3.5150°...
+[23:23:12] [ITERATION 5/8] offset=-3.5150°, residual=-0.0311° -> OK (within 0.06°)
+[23:23:12] 
+[ITERATION 6/8] Sweeping physically with staged offset -3.5349°...
+[23:23:33] [ITERATION 6/8] offset=-3.5349°, residual=+0.0959° -> retry (exceeds 0.06° tolerance)
+[23:23:33] 
+[ITERATION 7/8] Sweeping physically with staged offset -3.4858°...
+[23:23:54] [ITERATION 7/8] offset=-3.4858°, residual=-0.2054° -> retry (exceeds 0.06° tolerance)
+[23:23:54] 
+[ITERATION 8/8] Sweeping physically with staged offset -3.5699°...
+[23:24:16] [ITERATION 8/8] offset=-3.5699°, residual=-0.0387° -> OK (within 0.06°)
+[23:24:16] 
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+[23:24:16]   * Recommended Absolute Offset (mean): -3.6192°
+[23:24:17] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_left_wrist_pitch_v13_joint_calib.png
+[23:24:19] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_left_wrist_pitch_v13_joint_calib.png
+[23:24:21] [FULL AUTO] Sweeping Elbow (Joint 3)...
+[23:24:21] [INFO] Moving left arm to elbow Ready Pose...
+[23:24:21] [INFO] Moving inactive arm to zero pose first...
+[23:24:24] [INFO] Moving active arm, torso, and head to ready pose...
+[23:24:30] [INFO] Ready Pose Reached.
+[23:24:30] 
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+[23:24:51] [ITERATION 1/8] offset=0.0000°, residual=-0.6821° -> retry (exceeds 0.06° tolerance)
+[23:24:51] 
+[ITERATION 2/8] Sweeping physically with staged offset -0.6821°...
+[23:25:13] [ITERATION 2/8] offset=-0.6821°, residual=-0.0172° -> OK (within 0.06°)
+[23:25:13] 
+[ITERATION 3/8] Sweeping physically with staged offset -0.6993°...
+[23:25:34] [ITERATION 3/8] offset=-0.6993°, residual=+0.0048° -> OK (within 0.06°)
+[23:25:34] 
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+[23:25:34]   * Recommended Absolute Offset (mean): -0.6969°
+[23:25:35] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_left_elbow_joint_calib.png
+[23:25:38] [SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_img\circle_fit_left_elbow_joint_calib.png
+[23:25:40] 
+[PASS 1 EVALUATION] Staged parameter changes for LEFT Arm:
+[23:25:40]   * Joint 6 Change      : 4.2303°
+[23:25:40]   * Joint 5 Change      : 3.6192°
+[23:25:40]   * Joint 3 Change      : 0.6969°
+[23:25:40]   * Bracket Pos Change  : 98.9221 mm
+[23:25:40]   * Bracket Rot Change  : 89.3949°
+[23:25:40] 
+==================================================
+[23:25:40]    STARTING PASS 2/2 FOR LEFT ARM
+[23:25:40] ==================================================
+
+[23:25:40] [INFO] Detected Robot Version: 1.3 (is_v1.3: True)
+[23:25:40] [FULL AUTO] Starting 3-Axis Bracket Sweeps for left arm (Pass 2)...
+[23:25:40] [FULL AUTO] Moving left arm to marker ready pose...
+[23:25:40] [INFO] Moving left arm to marker Ready Pose...
+[23:25:40] [INFO] Moving inactive arm to zero pose first...
+[23:25:43] [INFO] Moving active arm, torso, and head to ready pose...
+[23:25:48] [INFO] Ready Pose Reached.
+[23:25:48] [FULL AUTO] Sweeping Axis 4 (Wrist Yaw)...
+[23:25:48] 
+==================================================
+[23:25:48]    STARTING 4 CONTINUOUS MARKER SWEEP
+[23:25:48] ==================================================
+[23:26:01] [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_left_marker_axis_4.txt
+[23:26:01] [FULL AUTO] Sweeping Axis 6 (Wrist Roll)...
+[23:26:01] 
+==================================================
+[23:26:01]    STARTING 6 CONTINUOUS MARKER SWEEP
+[23:26:01] ==================================================
+[23:26:14] [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_left_marker_axis_6.txt
+[23:26:14] [FULL AUTO] Sweeping Axis 5 (Wrist Pitch)...
+[23:26:14] 
+==================================================
+[23:26:14]    STARTING 5 CONTINUOUS MARKER SWEEP
+[23:26:14] ==================================================
+[23:26:27] [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_left_marker_axis_5.txt
+[23:26:27] 
+[FULL AUTO] Computing Marker Bracket Transform for left arm...
+[23:26:30] [FULL AUTO] J6 (Wrist Roll) converged in Pass 1 (-4.2303°). Skipping Pass 2 sweep.
+[23:26:31] [FULL AUTO] J5 (Wrist Pitch) converged in Pass 1 (-3.6192°). Skipping Pass 2 sweep.
+[23:26:33] [FULL AUTO] J3 (Elbow) converged in Pass 1 (-0.6969°). Skipping Pass 2 sweep.
+[23:26:35] 
+[PASS 2 EVALUATION] Staged parameter changes for LEFT Arm:
+[23:26:35]   * Joint 6 Change      : 0.0000°
+[23:26:35]   * Joint 5 Change      : 0.0000°
+[23:26:35]   * Joint 3 Change      : 0.0000°
+[23:26:35]   * Bracket Pos Change  : 0.0000 mm
+[23:26:35]   * Bracket Rot Change  : 0.0003°
+[23:26:35] [PASS 2 EVALUATION] All parameters converged physically (Step changes < 0.10°).
+[23:26:35] [PASS 2 EVALUATION] Calibration completed in Pass 2!
+[23:26:35] [INFO] LEFT arm sequential calibration completed successfully.
+[23:26:36] [INFO] Bracket left/right symmetry enforced.
+[23:26:36]    measured asymmetry (left mirrored onto right): dX +0.00, dY +0.00, dZ +0.00 mm | rotation 0.112 deg [+0.000 +0.112 -0.000]
+[23:26:36]    right before [ +67.00   +0.00   +0.00] mm [+90.00  +0.00  -89.51] deg
+[23:26:36]    right after  [ +67.00   +0.00   +0.00] mm [+90.00  +0.00  -89.45] deg  (moved 0.00 mm)
+[23:26:36]    left  before [ +67.00   +0.00   +0.00] mm [+90.00  +0.00  -89.40] deg
+[23:26:36]    left  after  [ +67.00   +0.00   +0.00] mm [+90.00  +0.00  -89.45] deg  (moved 0.00 mm)
+[23:26:36] [INFO] The values above are staged in the UI -- click APPLY BRACKETS to write them to setting.yaml, otherwise they are lost when the window closes.
+[23:26:36] 
+==================================================
+[23:26:36]    FULL AUTO SEQUENTIAL CALIBRATION COMPLETE!
+[23:26:36] ==================================================
+
+[23:26:36] [CALIB REPORT] Final Calibrated Offsets (Relative to Nominal Design):
+[23:26:36]   --- RIGHT ARM ---
+[23:26:36]   * Bracket Pos: X: +0.0, Y: +0.0, Z: +0.0 mm
+[23:26:36]   * Bracket Rot: R: +0.00, P: +0.00, Y: +0.55 deg
+[23:26:36]   * Joint Offsets: Joint 6: -1.52°, Joint 5: +1.98°, Joint 3: -0.50°
+[23:26:36]   --- LEFT ARM ---
+[23:26:36]   * Bracket Pos: X: +0.0, Y: +0.0, Z: +0.0 mm
+[23:26:36]   * Bracket Rot: R: +0.00, P: +0.00, Y: +0.55 deg
+[23:26:36]   * Joint Offsets: Joint 6: -4.23°, Joint 5: -3.62°, Joint 3: -0.70°
+[23:26:36] ==================================================
+
+[23:26:40] [INFO] Step 1 results (arm J3/J5/J6 offsets, marker brackets) saved to setting.yaml.
+[23:26:42] [INFO] Moving robot to Head-Camera Calibration Ready Pose (Dual-arm Init Pose)...
+[23:26:56] [SUCCESS] Ready Pose reached. Visible markers: right, left.
+[23:26:56] ============================================================
+[23:26:56] [Head-Camera Calib] Commencing Head-Camera Extrinsic Calibration
+[23:26:56]   Target Marker Arm : auto
+[23:26:56]   Pan Sweep Range   : ±10.0° (continuous, 15s per direction)
+[23:26:56]   Tilt Sweep Range  : ±10.0° (continuous, 15s per direction)
+[23:26:56] ============================================================
+[23:26:57] [INFO] Stationary markers detected at center: right, left
+[23:26:57] [INFO] Markers used for Head sweep: right, left
+[23:26:57] 
+[Phase A] Sweeping Head Tilt Joint (-tilt to +tilt and back, continuous)...
+[23:27:31]   [INFO] Tilt sweep collected 2960 marker samples (right 1480, left 1480).
+[23:27:31] 
+[INFO] Returning head to center before Pan sweep...
+[23:27:34] 
+[Phase B] Sweeping Head Pan Joint (-pan to +pan and back, continuous)...
+[23:28:07]   [INFO] Pan sweep collected 2934 marker samples (right 1467, left 1467).
+[23:28:40] 
+============================================================
+[23:28:40]  [Step 1.5 Calibration Results]
+[23:28:40] ============================================================
+[23:28:40]  Markers used: left, right | samples: tilt 300, pan 300
+[23:28:40]  Camera Mount Extrinsics (Euler ZYX; only the optical-axis rotation is estimated):
+[23:28:40]    Roll  : Nom  -90.00° -> Calib  -90.00° (Δ +0.000°)
+[23:28:40]    Pitch : Nom   +0.00° -> Calib   +0.54° (Δ +0.542°)
+[23:28:40]    Yaw   : Nom  -90.00° -> Calib  -90.00° (Δ +0.000°)
+[23:28:40]    Position Δ: [+2.50, +3.40, +3.21] mm
+[23:28:40]  Head Joint Offsets:
+[23:28:40]    Head Pan  : +1.471°
+[23:28:40]    Head Tilt : -1.201°
+[23:28:40]  Camera latency: +2.3 ms
+[23:28:40]  Fit Quality Diagnostics:
+[23:28:40]    3D Reprojection RMSE: 0.185 mm (Decoupled: True) {'left': 0.185, 'right': 0.186}
+[23:28:40]    Tilt Plane Fit RMSE : 0.098 mm
+[23:28:40]    Pan  Plane Fit RMSE : 0.092 mm
+[23:28:40]    Axis Ortho Error    : 0.173°
+[23:28:40]    Out/Back tilt: -1.156° / -1.141°, pan: +1.304° / +1.333°
+[23:28:40] ============================================================
+[23:28:48] [Step2] Verifying marker visibility at the initial ready pose...
+[23:28:52] [INFO] Re-verifying marker visibility at the new posture...
+[23:28:55] [SUCCESS] Marker visibility verified successfully at the ready pose.
+[23:28:55] [Step2] Marker spacing (camera x): 21.3 cm (minimum 11.0 cm)
+[23:29:18] [collect] pose 8/64, samples 8, failures 0
+[23:29:40] [collect] pose 16/64, samples 16, failures 0
+[23:30:03] [collect] pose 24/64, samples 24, failures 0
+[23:30:25] [collect] pose 32/64, samples 32, failures 0
+[23:30:45] [collect] pose 40/64, samples 40, failures 0
+[23:31:05] [collect] pose 48/64, samples 48, failures 0
+[23:31:25] [collect] pose 56/64, samples 56, failures 0
+[23:31:44] [collect] pose 64/64, samples 64, failures 0
+[23:31:44] [Step2] Dataset saved: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_step2\dataset_20261006_233144_990572.npz
+[23:31:45] [INFO] Using calibrated marker bracket values for right: [0.067, 0.0, 0.0, 89.99999999999999, 1.2722218725854067e-14, -89.45105768265688]
+[23:31:45] [INFO] Using calibrated marker bracket values for left: [0.067, 0.0, 0.0, 89.99999999999999, 2.5444437451708134e-14, -89.45105768265688]
+[23:31:45] [INFO] Step 2 marker-orientation noise floor: 0.3 deg
+[23:31:45] [INFO] Using locked/calibrated head offsets for Step 2 optimization: {'pan': 1.4714, 'tilt': -1.2014}
+[23:31:45] [INFO] Applying joint offset bounds: {'right': {'joint3': -0.5022762148794577, 'joint5': 1.9775082950882512, 'joint6': -1.515710828385678}, 'left': {'joint3': -0.6968596098122919, 'joint5': -3.619238107709969, 'joint6': -4.230308007769566}, 'head': {'pan': 1.4714, 'tilt': -1.2014}}
+[23:31:45] 
+[INFO] === UNIFIED DUAL-ARM JOINT-CAMERA CALIBRATION WORKFLOW (2-PASS) ===
+[23:31:45] [INFO] Using Step 1.5 calibrated mount_to_cam as fixed baseline: [0.0495, 0.012401, 0.060209, -90.0, 0.5422, -90.0]
+[23:31:45] 
+[INFO] --- Pass 1/2: joint arm+head+camera solve (validated baseline) ---
+[23:31:54] [INFO] Pass 1 arm joint offsets (deg): [ 0.293185  2.471468  1.280061  0.483254 -2.008751 -2.023504  1.547153
+ -0.678078 -1.571078 -1.027216  0.702213  1.65075   3.609977  4.227908]
+[23:31:54] [INFO] Pass 1 head joint offsets (deg): [ 0.34283  -1.167403]
+[23:31:54] 
+[INFO] --- Pass 2/2: head/camera refinement (arms frozen at Pass 1) ---
+[23:31:59] 
+===== RESULT =====
+[23:31:59] lambda_cam_pos = 1.0
+[23:31:59] lambda_cam_rot = 1000000.0
+[23:31:59] measurement_noise = sigma_rot=0.3deg, sigma_pos=0.1335mm
+[23:31:59] Right arm joint offset (deg): [ 0.293185  2.471468  1.280061  0.483254 -2.008751 -2.023504  1.547153]
+[23:31:59] Left arm joint offset (deg): [-0.678078 -1.571078 -1.027216  0.702213  1.65075   3.609977  4.227908]
+[23:31:59] Head joint offset (deg): [ 0.34283  -1.167399]
+[23:31:59] mount_to_cam xi: [ 0.        0.       -0.000071 -0.002333 -0.002758 -0.000796]
+[23:31:59] mount_to_cam_new: [0.04870355724658006, 0.014707513022495771, 0.06298897670873908, -90.0, 0.538111741931538, -90.0]
+[23:32:00] [INFO] Step 2 observability: 768 weighted residuals, RMS 0.72 sigma. Weakest offset combinations (unit = 1 deg / 1 mm):
+[23:32:00]   * +0.108 sigma RMS per unit | camX +0.93, camY +0.16, RJ5 -0.14, LJ5 +0.12, head_pan +0.09, RJ0 +0.09 | check-pose hand move per unit: right x+0.1 y-0.5 z-0.1 mm; left x-0.2 y-0.4 z+0.0 mm
+[23:32:00]   * +0.111 sigma RMS per unit | camY +0.92, camZ +0.20, camX -0.15, LJ0 +0.14, RJ0 +0.13, LJ5 -0.13 | check-pose hand move per unit: right x-0.2 y+0.0 z-0.6 mm; left x-0.2 y+0.2 z-0.5 mm
+[23:32:00]   * +0.136 sigma RMS per unit | camZ +0.91, head_tilt +0.22, camY -0.21, LJ3 +0.13, RJ3 +0.13, RJ0 +0.10 | check-pose hand move per unit: right x+0.2 y+0.2 z-1.2 mm; left x+0.1 y-0.3 z-1.2 mm
+[23:32:00]   * +0.215 sigma RMS per unit | head_tilt +0.47, LJ0 +0.45, RJ0 +0.42, RJ5 +0.29, LJ1 -0.25, RJ1 +0.22 | check-pose hand move per unit: right x-1.4 y-0.4 z-1.0 mm; left x-1.3 y+0.0 z-1.3 mm
+[23:32:00] [WARN] Step 2 poses barely constrain 2 offset combination(s) that move a hand at the check pose by up to 1.9 mm per degree; the check pose can be off even with a small Step 2 residual (poses outside the Step 2 sample range).
+[23:32:00] Result saved to C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_step2\result_20261006_233144_990572.json
+[23:32:00] History appended to C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_step2\calibration_history.txt
+[23:32:00] 
+=========================================================
+[23:32:00]   SIMULATION GROUND-TRUTH COMPARISON REPORT
+[23:32:00] =========================================================
+[23:32:00]  [RIGHT ARM JOINTS]
+[23:32:00]    J0: Calc =  +0.2932° | GT =  +0.5000° | Error = 0.2068°
+[23:32:00]    J1: Calc =  +2.4715° | GT =  +2.5000° | Error = 0.0285°
+[23:32:00]    J2: Calc =  +1.2801° | GT =  +1.2000° | Error = 0.0801°
+[23:32:00]    J3: Calc =  +0.4833° | GT =  +0.5000° | Error = 0.0167°
+[23:32:00]    J4: Calc =  -2.0088° | GT =  -1.5000° | Error = 0.5088°
+[23:32:00]    J5: Calc =  -2.0235° | GT =  -2.1000° | Error = 0.0765°
+[23:32:00]    J6: Calc =  +1.5472° | GT =  +2.3000° | Error = 0.7528°
+[23:32:00]  [LEFT ARM JOINTS]
+[23:32:00]    J0: Calc =  -0.6781° | GT =  -0.4000° | Error = 0.2781°
+[23:32:00]    J1: Calc =  -1.5711° | GT =  -1.6000° | Error = 0.0289°
+[23:32:00]    J2: Calc =  -1.0272° | GT =  -1.0000° | Error = 0.0272°
+[23:32:00]    J3: Calc =  +0.7022° | GT =  +0.7000° | Error = 0.0022°
+[23:32:00]    J4: Calc =  +1.6507° | GT =  +1.1000° | Error = 0.5507°
+[23:32:00]    J5: Calc =  +3.6100° | GT =  +3.6000° | Error = 0.0100°
+[23:32:00]    J6: Calc =  +4.2279° | GT =  +3.5000° | Error = 0.7279°
+[23:32:00]  [HEAD JOINTS]
+[23:32:00]    Pan:  Calc =  +0.3428° | GT =  +0.8000° | Error = 0.4572°
+[23:32:00]    Tilt: Calc =  -1.1674° | GT =  -1.5000° | Error = 0.3326°
+[23:32:00]  [RIGHT ARM BRACKET OFFSETS]
+[23:32:00]    Pos X (mm): Calc =   +0.00 | GT =   +0.50 | Error =  0.50
+[23:32:00]    Pos Y (mm): Calc =   -0.64 | GT =   +0.00 | Error =  0.64
+[23:32:00]    Pos Z (mm): Calc =   +0.00 | GT =   +2.00 | Error =  2.00
+[23:32:00]    Rot R (deg): Calc =   +0.00° | GT =   -0.80° | Error =  0.80°
+[23:32:00]    Rot P (deg): Calc =   +0.00° | GT =   -0.60° | Error =  0.60°
+[23:32:00]    Rot Y (deg): Calc =   +0.55° | GT =   +0.50° | Error =  0.05°
+[23:32:00]  [LEFT ARM BRACKET OFFSETS]
+[23:32:00]    Pos X (mm): Calc =   +0.00 | GT =   +1.00 | Error =  1.00
+[23:32:00]    Pos Y (mm): Calc =   -0.64 | GT =   +0.50 | Error =  1.14
+[23:32:00]    Pos Z (mm): Calc =   +0.00 | GT =   -2.00 | Error =  2.00
+[23:32:00]    Rot R (deg): Calc =   +0.00° | GT =   +0.70° | Error =  0.70°
+[23:32:00]    Rot P (deg): Calc =   +0.00° | GT =   -0.50° | Error =  0.50°
+[23:32:00]    Rot Y (deg): Calc =   +0.55° | GT =   +0.60° | Error =  0.05°
+[23:32:00] =========================================================
+
+[23:32:00] [Step2] Result can be applied as home offset: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_step2\result_20261006_233144_990572.json
+[23:32:00] 
+[23:32:00] ==========================================================
+[23:32:00]    POST-STEP2 VERIFICATION AT THE READY POSE
+[23:32:00] ==========================================================
+[23:32:11]  camera frame: link_head_2 + [0.0487, 0.01471, 0.06299, -90.0, 0.53811, -90.0]
+[23:32:11]  model vs camera (marker pose the model predicts vs the one measured):
+[23:32:11]    right: uncalibrated  12.38 mm /  5.12 deg   ->  calibrated   0.22 mm /  0.14 deg
+[23:32:11]    left : uncalibrated  13.77 mm /  7.85 deg   ->  calibrated   0.15 mm /  0.05 deg
+[23:32:11]  where the two flanges really are, at a pose commanded symmetrically:
+[23:32:11]    front-back (x):  +6.51 mm
+[23:32:11]    separation (y): +206.28 mm  (mirror residual -1.77 mm)
+[23:32:11]    up-down    (z): +18.37 mm
+[23:32:11]    total offset  :  19.57 mm
+[23:32:11]    (the encoders themselves read symmetric to 0.03 mm, so everything above comes from the calibrated offsets)
+[23:32:11]  home offset symmetry (left minus the mirror of right; 0 means perfectly symmetric):
+[23:32:11]    joint :    J0     J1     J2     J3     J4     J5     J6
+[23:32:11]    right : +0.293 +2.471 +1.280 +0.483 -2.009 -2.024 +1.547
+[23:32:11]    left  : -0.678 -1.571 -1.027 +0.702 +1.651 +3.610 +4.228
+[23:32:11]    asym  : -0.971 +0.900 +0.253 +0.219 -0.358 +5.633 +5.775  deg
+[23:32:11]    worst : J6 at +5.775 deg
+[23:32:11] 
+[23:32:11]  moving to the offset-corrected ready pose (arms separate by -0.0..+14.5 mm; largest joint change 4.23 deg)
+[23:32:16]  at the offset-corrected pose (this is what the robot physically looks like now):
+[23:32:16]    flanges, from the model : x  -0.04, y  -0.00, z  +0.02 mm  ->  0.05 mm
+[23:32:16]    markers, as measured    : x  +0.27, y  -0.32, z  -0.43 mm  ->  0.60 mm,  0.12 deg
+[23:32:16]    marker separation       :  +220.08 mm
+[23:32:16]    (the model line is ~0 by construction; the measured line is what is left -- bracket mismatch plus camera error)
+[23:32:16] ==========================================================
+[23:32:16] 
+[23:32:22] ##### FULL AUTO (Step 1 -> Step 1.5 -> Step 2): completed (1195 s) #####
+[23:32:22]  step1: completed
+[23:32:22]  step1_5: completed
+[23:32:22]  step2: completed
+[23:32:22]  joint_offsets_store after the run: {"left": {"joint5": -3.619238107709969, "joint6": -4.230308007769566, "joint3": -0.6968596098122919}, "right": {"joint5": 1.9775082950882512, "joint6": -1.515710828385678, "joint3": -0.5022762148794577}, "head": {"pan": 1.4714, "tilt": -1.2014}}
+[23:32:22] 
+===== RESULT vs SIMULATOR TRUTH (estimate - truth) =====
+[23:32:22]  right arm J0..J6 (deg): -0.207 -0.029 +0.080 -0.017 -0.509 +0.076 -0.753   | worst 0.753
+[23:32:22]  left  arm J0..J6 (deg): -0.278 +0.029 -0.027 +0.002 +0.551 +0.010 +0.728   | worst 0.728
+[23:32:22]  head pan/tilt (deg): -0.457 +0.333
+[23:32:22]  camera mount: pos 4.24 mm (-2.73 -2.95 -1.33), rot 0.501 deg
+[23:32:22]  right bracket (Step 1, after symmetry): pos 2.06 mm (-0.03 -1.99 +0.52), rot 1.001 deg
+[23:32:22]  left  bracket (Step 1, after symmetry): pos 2.29 mm (+0.46 +2.01 +0.99), rot 0.862 deg
+[23:32:22] 
+##### check-pose preview with the new result #####
+[23:32:22] 
+[Check Position] Step 1: Moving to Joint Ready Pose...
+[23:32:29] [Check Position] Step 2: Moving to Check Pose with Offsets...
+[23:32:42] 
+===== HOME OFFSET PREVIEW: Optimized Result =====
+[23:32:42] JSON: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\result\result_step2\result_20261006_233144_990572.json
+[23:32:42] Arm: both
+[23:32:42] Right move offset (deg): [-0.2931846987474211, -2.471467552409899, -1.2800614309557052, -0.48325401309743465, 2.0087513560998858, 2.0235042842043662, -1.5471527544914319]
+[23:32:42] Left move offset (deg): [0.6780781694540761, 1.57107752871175, 1.0272159439244828, -0.7022129650931879, -1.6507498678861348, -3.6099770992747082, -4.22790848143952]
+[23:32:42] Head move offset (deg): [-0.34282999805673203, 1.1673988551383845]
+[23:32:42] Preview move complete. Inspect the robot pose before applying.
+[23:32:42] ##### check-pose preview with the new result: completed (20 s) #####
+[23:32:42] 
+summary: C:\Users\User\Desktop\camera_ws\reports\sim_v13_full_20261006_231138\summary.json

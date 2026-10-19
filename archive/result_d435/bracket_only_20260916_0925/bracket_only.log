@@ -1,0 +1,57 @@
+09:25:11 [RUN] Connecting robot 192.168.1.40:50051 ...
+09:25:12 [INFO] Power (48v) is already ON.
+09:25:12 [INFO] Required servos (^(?!.*wheel).*$) are already ON.
+09:25:12 [INFO] Control manager is already enabled. Re-enabling with unlimited_mode_enabled=True...
+09:25:12 [INFO] Enabling control manager with unlimited_mode_enabled=True...
+09:25:14 [RUN] Connecting camera ...
+09:25:26 [RUN] Exposure auto=False value=6000.0
+09:25:26 [RUN] Sweep ranges: axis4 -20.0..20.0, axis6 -22.5..22.5, axis5 0.0..-40.0 deg
+09:25:26 [RUN] Bracket in config before run: R=[0.0, -0.0539, -0.046, 90.8, 0.6, 180.0] L=[0.0, 0.0545, -0.05, 90.7, -0.5, 0.0]
+09:25:26 
+[RUN] ===== right arm marker bracket sweeps =====
+09:25:26 [INFO] Moving right arm to marker Ready Pose...
+09:25:26 [INFO] Moving inactive arm to zero pose first...
+09:25:30 [INFO] Moving active arm, torso, and head to ready pose...
+09:25:35 [INFO] Ready Pose Reached.
+09:25:35 
+==================================================
+09:25:35    STARTING 4 CONTINUOUS MARKER SWEEP
+09:25:35 ==================================================
+09:25:50 [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_right_marker_axis_4.txt
+09:25:50 
+==================================================
+09:25:50    STARTING 6 CONTINUOUS MARKER SWEEP
+09:25:50 ==================================================
+09:26:05 [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_right_marker_axis_6.txt
+09:26:05 
+==================================================
+09:26:05    STARTING 5 CONTINUOUS MARKER SWEEP
+09:26:05 ==================================================
+09:26:20 [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_right_marker_axis_5.txt
+09:26:20 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.087 -> 0.094 mm, axis change (J4/J6/J5) 0.23/0.44/0.54 deg, axis-to-wrist gap before 1.73/1.58/1.55 mm
+09:26:21 [RUN] right done in 55s | bracket {'x_e': 0.0, 'y_e': -54.4428, 'z_e': -48.9778, 'roll_e': 89.2956, 'pitch_e': -0.4146, 'yaw_e': 180.0} | frames {'axis4': 288, 'axis6': 304, 'axis5': 304}
+09:26:21 
+[RUN] ===== left arm marker bracket sweeps =====
+09:26:21 [INFO] Moving left arm to marker Ready Pose...
+09:26:21 [INFO] Moving inactive arm to zero pose first...
+09:26:25 [INFO] Moving active arm, torso, and head to ready pose...
+09:26:30 [INFO] Ready Pose Reached.
+09:26:30 
+==================================================
+09:26:30    STARTING 4 CONTINUOUS MARKER SWEEP
+09:26:30 ==================================================
+09:26:45 [FILTER] Filtered 1 IPPE flip spike frame(s) at indices: [23]
+09:26:45 [DEBUG] Saved Axis 4 marker sweep debug points to sweep_points_left_marker_axis_4.txt
+09:26:45 
+==================================================
+09:26:45    STARTING 6 CONTINUOUS MARKER SWEEP
+09:26:45 ==================================================
+09:27:00 [DEBUG] Saved Axis 6 marker sweep debug points to sweep_points_left_marker_axis_6.txt
+09:27:00 
+==================================================
+09:27:00    STARTING 5 CONTINUOUS MARKER SWEEP
+09:27:00 ==================================================
+09:27:15 [DEBUG] Saved Axis 5 marker sweep debug points to sweep_points_left_marker_axis_5.txt
+09:27:16 [INFO] Bracket axes refit with wrist-concurrency + J5 orthogonality: fit rms 0.102 -> 0.116 mm, axis change (J4/J6/J5) 1.82/0.37/1.68 deg, axis-to-wrist gap before 0.73/0.27/0.72 mm
+09:27:17 [RUN] left done in 56s | bracket {'x_e': 0.0, 'y_e': 52.7143, 'z_e': -49.3565, 'roll_e': 89.2554, 'pitch_e': -0.2179, 'yaw_e': 0.0} | frames {'axis4': 173, 'axis6': 304, 'axis5': 276}
+09:27:18 [RUN] Core closed (robot disconnected, camera off)

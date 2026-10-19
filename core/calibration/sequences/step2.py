@@ -1,14 +1,15 @@
 from core.storage import ResultStorage
 from core.storage import FileStorage
 from core.storage import StoragePaths
+from core.storage import CONFIG_PATHS, ConfigStorage
 import os
 import json
 import datetime
 from pathlib import Path
 import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
-from ..data import (get_arm_config, get_both_arm_config, get_head_config, load_step2_min_rot_noise_deg,
-                    validate_dataset)
+from ..data import (format_mount_constraint, get_arm_config, get_both_arm_config, get_head_config,
+                    load_camera_mount_constraint, load_step2_min_rot_noise_deg, mount_range_ends, validate_dataset)
 from ..calibration_optimizer import QPCalibrationOptimizer
 from ..observability import format_weak_directions, step2_weak_directions
 from ..CalibratorBase import BaseCalibrator
@@ -150,6 +151,22 @@ def optimize_step2(
         # to 5 deg) head-offset/noise ranges in the same sweep.
         camera_pos_bound_m = 0.025
 
+        # Design-accurate camera mount (camera_info.yaml mount_to_cam_position_range_m): the camera
+        # starts at its design position and may only move inside the range, its angles stay fixed, and
+        # J6 is solved here instead of being held at Step 1's value. Step 1.5 still gives the head
+        # offsets; its camera position is not carried over.
+        mount_constraint = load_camera_mount_constraint() if (use_head_kinematics and optimize_camera) else None
+        camera_pos_range_m = None
+        if mount_constraint is not None:
+            mount_cam_init = list(mount_constraint["mount_to_cam"])
+            if mount_cam_from_step1_5 is not None:
+                # The angles held are Step 1.5's: its optical-axis rotation comes from the head sweeps alone,
+                # while here it trades with both J1 (2026-10-16: -0.65 deg there, -0.87 deg when freed here).
+                mount_cam_init[3:] = [float(v) for v in mount_cam_from_step1_5[3:]]
+            camera_pos_range_m = mount_constraint["position_range_m"]
+            self.log_msg(f"[INFO] Camera mount held near its design pose ({mount_constraint['model']}): "
+                         f"{format_mount_constraint(mount_constraint)}")
+
         # Pass 1: the original validated joint optimization (arms + head +
         # camera together, J0 common-mode damping + head soft anchor active).
         # NOT arms-only: an earlier version of this 2-pass split held
@@ -186,6 +203,8 @@ def optimize_step2(
             eps=1e-7,
             max_iter=200,
             min_rot_noise_std_rad=min_rot_noise_rad,
+            camera_pos_range_m=camera_pos_range_m,
+            anchor_joint6=mount_constraint is None,
         )
         optimizer_pass1.stop_event = self.stop_event
         self.stop_check()
@@ -234,6 +253,8 @@ def optimize_step2(
             eps=1e-7,
             max_iter=200,
             min_rot_noise_std_rad=min_rot_noise_rad,
+            camera_pos_range_m=camera_pos_range_m,
+            anchor_joint6=mount_constraint is None,
         )
         optimizer.stop_event = self.stop_event
         self.stop_check()
@@ -244,6 +265,7 @@ def optimize_step2(
             xi_mount_cam_init=xi_cam_p1,
         )
     else:
+        mount_constraint = None
         self.log_msg("\n[INFO] === SINGLE-ARM JOINT-CAMERA CALIBRATION WORKFLOW ===")
         mount_cam_init = with_nominal_head_axis_rotation(mount_cam_from_step1_5 or self.marker_calibrator.camera_config.get("mount_to_cam", cfg["mount_to_cam_nom"]))
         if mount_cam_from_step1_5:
@@ -330,8 +352,40 @@ def optimize_step2(
     if head_base_to_cam_new is not None:
         result_dict["head_base_to_cam_new"] = head_base_to_cam_new
 
+    if mount_constraint is not None:
+        delta_m = np.array(mount_to_cam_new[:3]) - np.array(mount_constraint["mount_to_cam"][:3])
+        ends = mount_range_ends(delta_m, mount_constraint["position_range_m"])
+        self.log_msg(f"[INFO] Camera position against its design: x {delta_m[0] * 1000:+.2f}, y {delta_m[1] * 1000:+.2f}, "
+                     f"z {delta_m[2] * 1000:+.2f} mm")
+        for end in ends:
+            self.log_msg(f"[WARN] Camera {end} of its design range: the Step 2 poses want it further. "
+                         f"Check the design value or the range in camera_info.yaml.")
+        # joint_offsets_store has the opposite sign to the result.
+        step1_j6 = {side: -float(self.joint_offsets_store.get(side, {}).get("joint6", 0.0)) for side in ("right", "left")}
+        step2_j6 = {"right": float(np.rad2deg(right_arm_offset[6])), "left": float(np.rad2deg(left_arm_offset[6]))}
+        self.log_msg("[INFO] J6 solved in Step 2 (Step 1 value -> Step 2): "
+                     + ", ".join(f"{side} {step1_j6[side]:+.3f} -> {step2_j6[side]:+.3f} deg" for side in ("right", "left")))
+        result_dict["camera_mount_constraint"] = {
+            "model": mount_constraint["model"],
+            "mount_to_cam": mount_constraint["mount_to_cam"],
+            "position_range_m": mount_constraint["position_range_m"].tolist(),
+            "camera_offset_from_design_mm": (delta_m * 1000.0).tolist(),
+            "camera_at_range_end": ends,
+            "joint6_step1_deg": step1_j6,
+        }
+
     if self.last_home_reset_path is not None and Path(self.last_home_reset_path).exists():
         result_dict["home_reset_baseline_path"] = str(self.last_home_reset_path)
+
+    # The state this solve ran in, kept inside the result: Home Offset Apply later zeroes setting.yaml's
+    # joint offsets and the baseline file, and the exposure is never saved.
+    result_dict["camera_exposure"] = self.marker_calibrator.camera_exposure_record()
+    try:
+        result_dict["setting_snapshot"] = ConfigStorage.load(CONFIG_PATHS["setting_yaml"])
+        if "home_reset_baseline_path" in result_dict:
+            result_dict["home_reset_baseline"] = ResultStorage.load(self.last_home_reset_path)
+    except Exception as error:
+        self.log_msg(f"[WARN] setting.yaml / home reset baseline could not be copied into the result: {error}")
 
     if use_head_kinematics:
         result_dict["xi_mount_cam"] = result_dict["xi_cam"]

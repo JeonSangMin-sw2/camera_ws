@@ -1,0 +1,81 @@
+
+=== NEW ITERATION ===
+
+============================================================
+   STARTING ITERATIVE JOINT CALIBRATION SEQUENCE
+   Target Arm: LEFT | Joint Target: WRIST_PITCH
+============================================================
+
+
+[ITERATION 1/8] Sweeping physically with staged offset 0.0000°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+==================================================
+[DEBUG] Saved Axis 4 debug points to sweep_points_left_joint_A_axis_4.txt
+[DEBUG] Saved Axis 6 debug points to sweep_points_left_joint_B_axis_6.txt
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.3895 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.1659 mm
+  * Estimated Circle Center Distance       : 1.1194 mm
+  * Calculated Offset Correction           : -0.325748 deg
+==================================================
+  * Angle Error (Deviation)          : 0.3895°
+  * Circle Size Error (r_A-r_B)      : 0.1659 mm
+  * Center Distance Error            : 1.1194 mm
+  * Max Fitting Error Metric         : 1.1194 mm
+[ITERATION 1/8] offset=0.0000°, residual=-0.3257° -> retry (exceeds 0.06° tolerance)
+  * Updated Absolute Offset     : -0.3257°
+
+[ITERATION 2/8] Sweeping physically with staged offset -0.3257°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -0.3257°]
+==================================================
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.1599 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.1521 mm
+  * Estimated Circle Center Distance       : 0.1968 mm
+  * Calculated Offset Correction           : -0.010056 deg
+==================================================
+  * Angle Error (Deviation)          : 0.1599°
+  * Circle Size Error (r_A-r_B)      : 0.1521 mm
+  * Center Distance Error            : 0.1968 mm
+  * Max Fitting Error Metric         : 0.1968 mm
+[ITERATION 2/8] offset=-0.3257°, residual=-0.0101° -> OK (within 0.06°)
+  * Updated Absolute Offset     : -0.3358°
+
+[ITERATION 3/8] Sweeping physically with staged offset -0.3358°...
+
+==================================================
+   STARTING WRIST_PITCH CONTINUOUS OFFSET CALIBRATION SWEEP
+   [Baseline Shift (Current Applied Offset): -0.3358°]
+==================================================
+
+==================================================
+   SWEEP ANALYSIS & RESULTS (WRIST_PITCH)
+==================================================
+  * Camera Circle Normals Angle (Reference): 0.0258 deg
+  * Circle Size Error (abs: r_A - r_B)     : 0.1355 mm
+  * Estimated Circle Center Distance       : 0.1488 mm
+  * Calculated Offset Correction           : 0.014051 deg
+==================================================
+  * Angle Error (Deviation)          : 0.0258°
+  * Circle Size Error (r_A-r_B)      : 0.1355 mm
+  * Center Distance Error            : 0.1488 mm
+  * Max Fitting Error Metric         : 0.1488 mm
+[ITERATION 3/8] offset=-0.3358°, residual=+0.0141° -> OK (within 0.06°)
+  * Mean of 2 near-target estimates: -0.3288° (std=0.0300°, std err=0.0212°) -> OK (within 0.06°)
+
+[SUCCESS] Calibration CONVERGED (mean of repeated sweeps):
+  * Near-target estimates: -0.3358°, -0.3218°
+  * Std err 0.0212° <= 0.06°
+  * Recommended Absolute Offset (mean): -0.3288°
+[SUCCESS] Saved combined calibration comparison plot to: C:\Users\User\Desktop\camera_ws\result\result_img\circle_fit_left_wrist_pitch_joint_calib.png

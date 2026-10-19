@@ -9,6 +9,7 @@ import numpy as np
 from scipy.spatial.transform import Rotation as R_scipy
 from scipy.optimize import least_squares
 from .CalibratorBase import BaseCalibrator
+from .data import format_mount_constraint, load_camera_mount_constraint, mount_range_ends
 
 D2R = np.pi / 180.0
 R2D = 180.0 / np.pi
@@ -242,7 +243,17 @@ class HeadCameraCalibrator(BaseCalibrator):
 
         # Nominal CAD parameters (Loaded directly from setting.yaml camera_config)
         nominal_mount_to_cam = nom_mount
-        R_nom = R_scipy.from_euler('ZYX', [nominal_mount_to_cam[5], nominal_mount_to_cam[4], nominal_mount_to_cam[3]], degrees=True).as_matrix()
+        # A design-accurate mount is read from camera_info.yaml itself: the copy in camera_config was
+        # still the old height on 2026-10-08, the file having been edited just before the app started.
+        mount_constraint = load_camera_mount_constraint()
+        position_range_m = None
+        if mount_constraint is not None:
+            nominal_mount_to_cam = list(mount_constraint["mount_to_cam"])
+            position_range_m = mount_constraint["position_range_m"]
+            if log_callback:
+                log_callback(f"[INFO] Camera mount held near its design pose ({mount_constraint['model']}): "
+                             f"{format_mount_constraint(mount_constraint)}")
+        R_nom =R_scipy.from_euler('ZYX', [nominal_mount_to_cam[5], nominal_mount_to_cam[4], nominal_mount_to_cam[3]], degrees=True).as_matrix()
 
         # Check marker visibility at Ready Pose (head = [0, 0])
         obs_r_0, _ = self._detect_marker_point(arm_side="right", sampling_time=0.5)
@@ -493,7 +504,7 @@ class HeadCameraCalibrator(BaseCalibrator):
         # ----------------------------------------------------
         return self._solve_head_camera(
             [downsample(tilt_phase), downsample(pan_phase)], nominal_mount_to_cam, R_nom,
-            marker_priors=marker_priors, log_callback=log_callback
+            marker_priors=marker_priors, log_callback=log_callback, position_range_m=position_range_m
         )
 
     # Step 1.5 estimation bounds
@@ -526,9 +537,13 @@ class HeadCameraCalibrator(BaseCalibrator):
             [phase(1, "Tilt", pts_tilt_cam, captured_tilt_angles), phase(0, "Pan", pts_pan_cam, captured_pan_angles)],
             nominal_mount_to_cam, R_nom, marker_priors=priors, log_callback=log_callback)
 
-    def _solve_head_camera(self, phases, nominal_mount_to_cam, R_nom, marker_priors=None, log_callback=None):
+    def _solve_head_camera(self, phases, nominal_mount_to_cam, R_nom, marker_priors=None, log_callback=None,
+                           position_range_m=None):
         """
         Joint least-squares over continuous head Tilt/Pan sweep samples.
+
+        position_range_m (design-accurate mount, data.load_camera_mount_constraint): [low, high] per
+        link_head_2 axis for the camera position delta; the optical-axis rotation is still estimated.
 
         Unknowns:
           - camera-mount rotation about the optical (camera z) axis only. Rotation about the camera
@@ -670,11 +685,16 @@ class HeadCameraCalibrator(BaseCalibrator):
         meas_arr = np.array([f[5] for f in flat])
         outbound_arr = np.array([f[6] for f in flat], dtype=bool)
 
-        def run_solve(subset, fixed_latency=None):
+        def run_solve(subset, fixed_latency=None, x_start=None):
             meas = meas_arr[subset]
             x0 = np.zeros(n_core + 3 * len(sides))
             lo = [-np.deg2rad(5.0), -np.deg2rad(20.0), -np.deg2rad(20.0)] + [-self.CAMERA_POS_BOUND_M] * 3
             hi = [np.deg2rad(5.0), np.deg2rad(20.0), np.deg2rad(20.0)] + [self.CAMERA_POS_BOUND_M] * 3
+            if position_range_m is not None:
+                # The optical-axis rotation stays free (it was held at the design 2026-10-08..16): a robot whose
+                # camera sat -0.65 deg about it pushed the leftover into both J1 (-1.1 deg) in Step 2.
+                for axis, (range_low, range_high) in enumerate(position_range_m):
+                    lo[3 + axis], hi[3 + axis] = range_low - 1e-9, range_high + 1e-9
             if timed:
                 lo.append(self.LATENCY_BOUNDS_S[0]); hi.append(self.LATENCY_BOUNDS_S[1])
                 x0[6] = 0.0 if fixed_latency is None else fixed_latency
@@ -685,6 +705,8 @@ class HeadCameraCalibrator(BaseCalibrator):
             lo, hi = np.array(lo), np.array(hi)
             if timed and fixed_latency is not None:
                 lo[6] = fixed_latency - 1e-9; hi[6] = fixed_latency + 1e-9
+            if x_start is not None:
+                x0 = np.clip(x_start, lo, hi)
             sol = least_squares(lambda x: (predict(x, subset, fixed_latency) - meas).ravel(), x0,
                                 bounds=(lo, hi), method='trf', x_scale='jac', xtol=1e-10, ftol=1e-10)
             try:
@@ -709,9 +731,13 @@ class HeadCameraCalibrator(BaseCalibrator):
             out_subset = np.where(outbound_arr)[0]
             back_subset = np.where(~outbound_arr)[0]
             if len(out_subset) >= self.MIN_HEAD_SWEEP_POINTS and len(back_subset) >= self.MIN_HEAD_SWEEP_POINTS:
-                s_out, r_out, _ = run_solve(out_subset, fixed_latency=latency_sol)
-                s_back, r_back, _ = run_solve(back_subset, fixed_latency=latency_sol)
+                # Started from the joint solution. From zero, with the latency pinned, both halves ran
+                # into the evaluation limit on real data (2026-10-08: tilt -0.09 / -0.13 deg reported at
+                # 0.27 mm, the joint solution fits the same halves at 0.18 / 0.20 mm with -1.6 deg).
+                s_out, r_out, _ = run_solve(out_subset, fixed_latency=latency_sol, x_start=sol.x)
+                s_back, r_back, _ = run_solve(back_subset, fixed_latency=latency_sol, x_start=sol.x)
                 direction_check = {
+                    "converged": bool(s_out.success and s_back.success),
                     "tilt_out_deg": round(float(np.degrees(s_out.x[1])), 4),
                     "tilt_back_deg": round(float(np.degrees(s_back.x[1])), 4),
                     "pan_out_deg": round(float(np.degrees(s_out.x[2])), 4),
@@ -772,6 +798,9 @@ class HeadCameraCalibrator(BaseCalibrator):
             "pts_tilt_count": len(tilt_angles),
             "pts_pan_count": len(pan_angles),
         }
+        if position_range_m is not None:
+            results["camera_position_range_mm"] = (np.asarray(position_range_m) * 1000.0).tolist()
+            results["camera_at_range_end"] = mount_range_ends(dpos_sol, position_range_m)
 
         self.calibrated_results = results if decoupled_success else None
         self._record_step1_5_result(results, tilt_angles, pan_angles, log_callback)
@@ -786,6 +815,9 @@ class HeadCameraCalibrator(BaseCalibrator):
             log_callback(f"   Pitch : Nom {nom_pitch:+7.2f}° -> Calib {est_pitch_deg:+7.2f}° (Δ {diff_pitch:+6.3f}°)")
             log_callback(f"   Yaw   : Nom {nom_yaw:+7.2f}° -> Calib {est_yaw_deg:+7.2f}° (Δ {diff_yaw:+6.3f}°)")
             log_callback(f"   Position Δ: [{dpos_sol[0]*1000:+.2f}, {dpos_sol[1]*1000:+.2f}, {dpos_sol[2]*1000:+.2f}] mm")
+            for end in results.get("camera_at_range_end", []):
+                log_callback(f"   [WARN] Camera {end} of its design range: the head sweeps want it further. "
+                             f"Check the design value or the range in camera_info.yaml.")
             log_callback(f" Head Joint Offsets:")
             log_callback(f"   Head Pan  : {head_pan_offset_deg:+6.3f}°")
             log_callback(f"   Head Tilt : {head_tilt_offset_deg:+6.3f}°")
@@ -800,6 +832,8 @@ class HeadCameraCalibrator(BaseCalibrator):
                 d_tilt = direction_check["tilt_out_deg"] - direction_check["tilt_back_deg"]
                 log_callback(f"   Out/Back tilt: {direction_check['tilt_out_deg']:+.3f}° / {direction_check['tilt_back_deg']:+.3f}°, "
                              f"pan: {direction_check['pan_out_deg']:+.3f}° / {direction_check['pan_back_deg']:+.3f}°")
+                if not direction_check["converged"]:
+                    log_callback("   [WARN] The out-only / back-only solves did not converge; the Out/Back values above are not estimates.")
                 if abs(d_tilt) > self.DIRECTION_TILT_WARN_DEG:
                     log_callback(f"   [WARN] Out and back sweeps disagree on head tilt by {d_tilt:+.3f}° (> {self.DIRECTION_TILT_WARN_DEG}°).")
             log_callback("=" * 60)

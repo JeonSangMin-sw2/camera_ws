@@ -108,6 +108,36 @@ class TestFailureBoundaries(unittest.TestCase):
         robot.power_off.assert_not_called()
 
 
+class TestHomeOffsetResetValidation(unittest.TestCase):
+    """2026-10-14: the reset check raised every time (dynamics state) and the reset went ahead unchecked.
+    2026-10-16: its ready-pose joint-limit part was removed at the user's request; the posture signs stay."""
+
+    def check(self, right_deg):
+        from core.robot import home_offset
+        q = np.zeros(14)
+        q[:7] = np.radians(right_deg)
+        robot = SimpleNamespace(get_state=lambda: SimpleNamespace(position=q))
+        model = SimpleNamespace(right_arm_idx=list(range(7)), left_arm_idx=list(range(7, 14)), head_idx=[])
+        logs = []
+        valid, message = home_offset.validate_home_offset_joint_limits(robot, model, include_head=False,
+                                                                       log_cb=logs.append)
+        self.assertFalse([line for line in logs if "validation exception" in line], logs)
+        return valid, message
+
+    def test_a_correct_reset_pose_passes(self):
+        self.assertEqual(self.check([0.0, -2.0, 0.0, -3.0, 0.0, 0.0, 0.0]), (True, ""))
+
+    def test_a_shoulder_roll_on_the_wrong_side_is_refused(self):
+        valid, message = self.check([0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+        self.assertFalse(valid)
+        self.assertIn("J1", message)
+
+    def test_an_elbow_pushed_back_past_its_limit_may_be_the_new_zero(self):
+        # 2026-10-16 (v1.2): elbow pushed back to +1.7 deg (limit +1.0) so the offsets come out one way only;
+        # the removed ready-pose limit check refused it for the elbow ready pose J3 = 0.
+        self.assertEqual(self.check([0.0, -2.0, 0.0, 1.7, 0.0, 0.0, 0.0]), (True, ""))
+
+
 class TestHeadQualityGate(unittest.TestCase):
     def setUp(self):
         # _compute_head_camera_solution writes head_camera_result_latest.json and appends to
