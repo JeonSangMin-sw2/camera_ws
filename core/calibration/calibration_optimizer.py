@@ -411,6 +411,7 @@ class QPCalibrationOptimizer:
         min_rot_noise_std_rad=None,
         camera_pos_range_m=None,
         anchor_joint6=True,
+        anchor_joint5=True,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
@@ -422,6 +423,9 @@ class QPCalibrationOptimizer:
         # value. Only meaningful with camera_pos_range_m: with the camera free, J4 and the camera
         # height absorb a J6 change and the poses barely tell J6 values apart (2026-10-08).
         self.anchor_joint6 = anchor_joint6
+        # anchor_joint5=False (v1.3 with the camera range): Step 1's J5 comes from the J6 circle normal, which on the
+        # first v1.3 robot sat 5-7 deg off the marker rotation axis; held, Step 2 left 2.5-4 deg about J5 (2026-10-23).
+        self.anchor_joint5 = anchor_joint5
         # Head-mounted camera: rotation about the camera x axis (= head tilt axis) and y axis
         # (= head pan axis) points the camera exactly like the head joints. Convention (notion
         # References 3.2): the head pan/tilt offsets absorb it, so xi_mount_cam[0:2] stay at the
@@ -581,6 +585,9 @@ class QPCalibrationOptimizer:
 
                 if not self.anchor_joint6:
                     for idx in range(6, arm_dim, 7):
+                        q_lower[idx], q_upper[idx] = -15.0 * D2R, 15.0 * D2R
+                if not self.anchor_joint5:
+                    for idx in range(5, arm_dim, 7):
                         q_lower[idx], q_upper[idx] = -15.0 * D2R, 15.0 * D2R
 
             lower_parts.append(q_lower)
@@ -1019,6 +1026,8 @@ class QPCalibrationOptimizer:
                     ]
                 if not self.anchor_joint6:
                     anchors = [(idx, target_val) for idx, target_val in anchors if idx % 7 != 6]
+                if not self.anchor_joint5:
+                    anchors = [(idx, target_val) for idx, target_val in anchors if idx % 7 != 5]
 
                 for idx, target_val in anchors:
                     if idx < len(q_arm_offset):

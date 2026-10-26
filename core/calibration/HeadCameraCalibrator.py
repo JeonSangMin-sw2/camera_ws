@@ -252,7 +252,7 @@ class HeadCameraCalibrator(BaseCalibrator):
             position_range_m = mount_constraint["position_range_m"]
             if log_callback:
                 log_callback(f"[INFO] Camera mount held near its design pose ({mount_constraint['model']}): "
-                             f"{format_mount_constraint(mount_constraint)}")
+                             f"{format_mount_constraint(mount_constraint, j6_solved=not self.is_v13(), j5_solved=self.is_v13())}")
         R_nom =R_scipy.from_euler('ZYX', [nominal_mount_to_cam[5], nominal_mount_to_cam[4], nominal_mount_to_cam[3]], degrees=True).as_matrix()
 
         # Check marker visibility at Ready Pose (head = [0, 0])

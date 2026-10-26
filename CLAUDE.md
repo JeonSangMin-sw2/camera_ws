@@ -129,18 +129,3 @@ AI의 흔한 코딩 실수를 줄이기 위한 행동 지침이다. 속도보다
 | 2026-09-28 | 파일 읽기에 권한 창이 뜸 (묶은 명령·sed) → sed 허용, 읽기는 단일 명령/Read·Grep | 권한 ALLOW | `.claude/settings.json` |
 | 2026-09-30 | `start/stop_sim_wsl.bat`이 LF 줄바꿈이라 한글 줄과 `chcp 65001`에서 명령이 잘려 실행됨 (`ker`) | 저장소 설정 (체크아웃 시 CRLF 강제) | `.gitattributes` (`*.bat`, `*.cmd` eol=crlf) |
 | 2026-10-06 | 공통 하네스 개정 적용: 테스트는 허용, 실기 실행은 hook이 묻고 시뮬은 묻지 않음, lint 자동과 루프 한도·원본 보호·주석 검사 | 권한 + hook 7개 | `.claude/settings.json`, `.claude/hooks/` |
-
-## File reads
-
-This project uses [graft](https://github.com/flyingrobots/graft) as
-a context governor. Prefer graft's MCP tools over native file reads:
-
-- Use `safe_read` instead of `Read` for file contents
-- Use `file_outline` to see structure before reading
-- Use `read_range` with jump table entries for targeted reads
-- Use `graft_diff` instead of `git diff` for structural changes
-- Use `explain` if you get an unfamiliar reason code
-- Call `set_budget` at session start if context is tight
-
-These tools enforce read policy, cache observations, and track
-session metrics. Native reads bypass all of that.

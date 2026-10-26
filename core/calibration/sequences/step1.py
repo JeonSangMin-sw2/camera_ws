@@ -228,6 +228,9 @@ def _execute_step1_sequence(
                 )
                 log(f"[INFO] {arm_side} bracket position x {bracket_res['x_e']:.2f}, y {bracket_res['y_e']:.2f}, "
                     f"z {bracket_res['z_e']:.2f} mm ({bracket_res['position_source']}).")
+                if 'yaw_measured_e' in bracket_res:
+                    log(f"[INFO] {arm_side} bracket rotation held at the design (yaw {bracket_res['yaw_e']:.2f} deg); "
+                        f"the sweep axes alone give yaw {bracket_res['yaw_measured_e']:.2f} deg.")
                 if bracket_res['position_at_limit']:
                     log(f"[WARN] {arm_side} bracket x/z reached the +-{marker_calibrator.bracket_offset_tolerance_mm():g} mm "
                         f"limit around the design value; check the bracket mounting.")

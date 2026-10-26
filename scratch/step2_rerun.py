@@ -1,13 +1,12 @@
-"""Offline re-solve of the 2026-10-08 17:50 Step 2 run (new robot, v1.2, head, design-accurate camera
-mount mode) with the production optimize_step2: how much do the arm offsets depend on the camera range?
+"""Offline re-solve of a saved v1.2 head Step 2 run with the production optimize_step2: how much do the arm
+offsets depend on the camera range? Also the base that the other scratch analyses re-solve Step 2 with.
 
-The reset baseline of this run is not trusted (user), so nothing is compared against it: the columns are
-the offsets themselves and their change from the run. Kinematics: the v1.2 URDF kept by
-step2_rerun_20261008.py (arm and head chains are the same on models A and M; FK starts at link_torso_5).
-The first case must reproduce the saved result. No connection, nothing is commanded.
-Inputs: archive/runs/20261008_1750_newrobot_head, outputs: archive/reports/step2_rerun_20261008_1750/.
+Written for the 2026-10-08 17:50 run (the default without arguments). Reset baselines are not compared: the
+columns are the offsets themselves and their change from the run. Kinematics: the v1.2 URDF kept in
+archive/reports/step2_rerun_20261008/ (arm and head chains are the same on models A and M; FK starts at
+link_torso_5). The first case must reproduce the saved result. No connection, nothing is commanded.
 
-usage: .venv\\Scripts\\python.exe -X utf8 scratch\\step2_rerun_20261008_1750.py [<run folder> <timestamp>]
+usage: .venv\\Scripts\\python.exe -X utf8 scratch\\step2_rerun.py [<run folder> <timestamp>]
   another run (a folder with result_step2/ and result_txt/, read only) goes to archive/reports/step2_rerun_<date_time>/.
 """
 import contextlib

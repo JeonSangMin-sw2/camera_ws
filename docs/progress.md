@@ -16,6 +16,94 @@ AI가 작업 중에 갱신하는 파일입니다. 노션 정리를 요청받으�
 
 ---
 
+## 2026-10-26 — README 간소화 (사용자 지시)
+- PowerShell 안내 삭제(Windows는 `.bat`·명령 프롬프트), Ubuntu 22.04 기준, Python 3.11 고정(3.12 미검증), 카메라 D405 권장·D435, 성능은 대칭 확인 자세 손끝 약 1~3 mm만, 성능 저하 요인 NOTE(헤드 틀어짐·밝기·렌즈 왜곡), 상단 문의처 rby.support@rainbow-robotics.com, v1.2↔v1.3 설정 이동·v1.3 차이 절 삭제
+- 지원 OS에 "Ubuntu 24.04 미지원" 명시. SDK는 `requirements.txt`·`setup.py`를 `rby1_sdk>=0.10.0`으로 README(0.10.x 이상)에 맞춤 (설치본 0.10.0)
+- 남은 결정: Jetson(aarch64)은 PyPI `pyrealsense2` 2.59.1(최신)에 aarch64 휠이 cp39·cp310·cp312만 있고 cp311이 없어 3.11 고정과 충돌 (2026-10-26 PyPI 확인)
+
+## 2026-10-26 — README 갱신 (v1.3 실기 반영)
+- v1.3 "시뮬만 검증" → "로봇 1대 검증", v1.3 차이점 항목 추가(브라켓 각도 설계값, J6 Step 1, D405에서 J5는 Step 2), Step 1.5 언급, `cd rby1-calibration`(clone 주소는 그대로), `[!INFO]` → `[!NOTE]`, 오타, 수동 빌드에 `pip install pyinstaller`
+- 오프라인 분석 (코드 변경 없음): J4 축을 J5 축 둘레로 재는 J5 방식은 pass 간 0.01~0.14°로 재현되나 Step 2와 0.6~1.0° 차이(`archive/reports/v13_step2_20261023/j5_from_j4_about_j5.py`). 현행(Step 2가 J5) 유지. 고아 함수 22개 목록만 확인, 정리는 보류
+
+---
+
+## 2026-10-23 — v1.3 브라켓 회전 전부 설계값 고정, J5는 Step 2에서 풂
+> 검증 수준 🟠 (실기 데이터 오프라인 재풀이) + G2 · 시뮬 G4 미검증
+- **실기 (2026-10-26 사용자 보고)**: 수정 후 v1.3 보정이 잘 됨. 로그·수치는 받지 않음 (사용자 관찰만)
+- **근거 (확인)**: 같은 J6 스윕에서 원(위치) 법선과 마커 회전축이 브라켓 스윕 4.7~5.5°, J5 단계 5.4~7.4° 어긋남(J4는 약 1°). Step 1 J5(J4–J6 원 법선 각)와 브라켓 yaw가 모두 이 법선에 기댐. J5 단계 각: 원 89.1~90.0°, 회전축 85.1~85.7°(차 약 4°, 매 반복 일정)
+- **재풀이 (10-23 14:41 데이터, J6 Step 1 고정)**: 브라켓 yaw −90°+J5 Step 2 → 위치 0.29/0.27 mm, 회전 0.16/0.16°, 남는 일정 회전 없음(이전 0.71/2.66°). J5 Step 1 → Step 2: 오른쪽 −4.37 → −2.21, 왼쪽 −3.12 → +0.22°(결과 부호). J1 오른쪽 +0.41, 왼쪽 −1.15° → 영점+오프셋 미리보기 URDF 한계 안. 약한 방향 최소 0.081σ/단위(실행 때 0.037)
+- 원인 (추정): J6 원이 카메라를 정면으로 보는 평면이라 깊이 오차에 평면 기울기가 민감. 회전축 기반 J5(오른쪽 약 0.4, 왼쪽 약 −1.5°)는 Step 2와 1.4~1.8° 달라 미해결
+- **수정 (사용자 "브라켓 회전 전부 고정, J5는 (가)")**: `MarkerCalibrator.compute_marker_bracket_from_orthogonal_sweeps` v1.3 yaw도 설계값(`yaw_measured_e`로 로그만), `step1.py` 로그 1줄. `QPCalibrationOptimizer(anchor_joint5=)`, `step2.py` `solve_j5 = 범위 모드 and v1.3`, 결과 JSON `joint5_step1_deg`, `format_mount_constraint(j5_solved=)`. 테스트 4개 추가·1개 수정. G2 통과 328 / 0 / 0 / 0 (`archive/test_logs/g2_20261023_v13_bracket_design_j5_step2.log`). 분석 `archive/reports/v13_step2_20261023/`
+- 이 결과가 의미하지 않는 것: 브라켓 회전이 실제로 설계값인지는 사용자 판단(CAD=실물 전제). Step 1 J5 단계는 그대로 돌고 그 값은 준비자세·Step 2 시작값에만 쓰임. 시뮬·실기 미검증
+- 트랩 후보 (사용자 확인 후 harness 반영): 실기 J6 원 법선이 마커 회전축과 5~7° 어긋남 → 원 법선 기반 v1.3 브라켓 yaw·J5 신뢰 낮음
+
+---
+
+## 2026-10-23 — v1.3 실기 Full Auto 완료, Step 2 결과 이상 → v1.3 Step 2는 J6를 Step 1 값에 고정
+> 검증 수준 🟠 (실기 데이터 오프라인 재풀이) + G2 · 실기 재확인은 사용자
+- **실행** (14:41, 백업 `archive/runs/20261023_1441_v13_robot_full/`): J5 단계 12 s로 양팔 수렴(오른팔 7회, 왼팔 4회). Step 2 결과 왼팔 J1 +3.13, J2 −2.46, J4 +6.02, J6 +3.71°(Step 1 −0.06°), 대칭 자세 앞뒤 −8.2 mm. Zero+offset 미리보기가 "Failed to move robot with offset pose"로 실패
+- **원인 1 (확인)**: 미리보기가 왼팔 J1을 −3.13°로 보냄. v1.3 URDF 왼팔 J1 하한 −1.0°(오른팔 J1 상한 +1.0°). 이동 부호(−offset)는 v1.2와 같은 코드이며 버전 분기 없음
+- **원인 2 (확인)**: 카메라 설계 범위 모드에서 Step 2가 J6를 풀게 돼 있음(10-08, v1.2 기준 결정). v1.3 J6(손목 roll)는 Step 1에서 직접 잼. 같은 데이터로 J6를 Step 1 값에 고정하면 왼팔 J1 −0.59, J2 −0.15°, 위치 잔차 양팔 0.43 mm. 대신 마커에 포즈와 무관한 회전 차이가 남음(왼팔 2.7°, 오른팔 0.7°, 흩어짐 0.1° 이하) → 브라켓 회전 오차 모양
+- **QP 범위 (확인)**: 관절 오프셋 범위는 코드대로 적용됨: J0·J1·J2·J4 ±15°, J3·J5·(고정 시)J6는 Step 1 값 ±0.05°, 헤드 pan ±15°·tilt ±2°. J1 방향 제한은 Step 2에 원래 없음(리셋 전 자세 검사뿐). URDF 관절 한계(`q_lower/q_upper`)는 읽기만 하고 범위에 안 씀
+- **브라켓 회전**: yaw −90° 고정·J6 고정으로 풀면 데이터가 원하는 추가 회전(ee 기준) 오른팔 x −0.13, y +1.01, z −2.29°, 왼팔 x +0.35, y +1.55, z +3.81°. 같은 J6 스윕에서 마커 방향 회전축과 위치 원 축이 4.7~5.5° 어긋남 → Step 1 yaw(원 축 기반)는 신뢰 낮음. 미해결
+- **수정 (사용자 "a로 해보고")**: `step2.py` `solve_j6 = mount_constraint is not None and 버전 != "1.3"`, 두 패스 `anchor_joint6=not solve_j6`. `format_mount_constraint(..., j6_solved=)` 로그 문구. 테스트 `test_v13_holds_j6_at_step1_with_a_constraint`. 이번 데이터 재풀이가 J6 고정 결과와 같음. G2 통과 325 / 0 / 0 / 0 (`archive/test_logs/g2_20261023_v13_step2_j6_held.log`)
+- 이 결과가 의미하지 않는 것: 대칭 자세 앞뒤 차이(재풀이 −10.7 mm, 왼팔 J4 +4.3° vs 오른팔 +2.2°)는 그대로. 실기 미검증
+
+---
+
+## 2026-10-23 — 첫 v1.3 실기: J5 단계 미수렴 → J5 단계 스윕 12 s
+> 검증 수준 ⚪ (로그·스윕 원본 분석) + G2 · 실기 재확인은 사용자
+- **실행** (14:0x, 백업 `archive/runs/20261023_1409_v13_robot_j5_fail/`): 리셋 전 관절 OK → 오른팔 브라켓 x 66.91·z −1.11 mm, J6(`wrist_roll_v13`) 3회 수렴 −0.83° → J5(`wrist_pitch_v13`) 8회 미수렴. 추정값 5.92(클램프 5) / 4.26 / 4.72 / 4.16 / 4.16 / 4.30 / 4.64 / 4.67°, 흩어짐 약 0.24° (시뮬 0.10°)
+- **원인 (추정)**: J5 단계의 J6 스윕이 기본 8 s(60°, 약 240프레임). 같은 J6 축을 12 s로 도는 J6 단계는 축 사이 각이 87.60~87.63°(0.015°)로 안정. harness T20(J6 스윕 12 s 미만 금지, v1.2 실기 8 s에서 흔들림 3배)을 v1.3 J5 단계가 지키지 않고 있었음. 시뮬은 지연·동역학이 없어 8 s와 12 s 차이가 없었다(10-15). J4 원(r 68 mm) 맞춤 잔차 0.20 mm, J4 축 방향은 반복 간 약 0.1° 안. J6가 −15°인 준비자세는 J4–J6 축 사이 각에 영향 없음
+- **수정 (사용자 "12초로")**: `JointCalibrator.JOINT_SWEEP_DURATION_BY_MODE_S["wrist_pitch_v13"] = 12.0` (v1.3 전용, 기준·상한 그대로). G2 통과 324 / 실패 0 / 오류 0 / skip 0 (`archive/test_logs/g2_20261023_v13_j5_sweep_12s.log`)
+- 이 결과가 의미하지 않는 것: 12 s로 흩어짐이 줄지는 실기에서 확인 전
+
+---
+
+## 2026-10-21 — 실기(192.168.1.70, v1.2) 재조정 창 반복·상태 조회 불가 (사용자 문의)
+> 검증 수준 ⚪ (화면 로그 `result/result_log/gui_log_20261021.txt` 분석) · 로봇 동작 없음
+- **흐름**: 19:26 Home Offset Reset(전 관절 OK) → Full Auto: 왼팔 브라켓 Axis 5 스윕 "motion failed or was cancelled"(19:33) 재조정 2회 후 취소 → 이후 오른팔 J5 Joint A 스윕이 매번 같은 실패(19:39~20:01) → 19:43부터 gRPC `UNAVAILABLE`(Connection timed out, `tcp handshaker shutdown`) 반복, 영 자세 이동 실패 3회
+- **원인 (추정)**: PC–로봇 통신이 끊기거나 멈춤. 스윕 중 상태 조회가 막혀 스윕이 실패로 끝나고 재조정 창이 뜬다. 09-29에도 동작 중 `get_state`가 4.5 s씩 막힌 같은 증상이 로봇 재부팅으로 풀림
+- **위험 (코드 확인 + 추정)**: 19:54·19:56 Step 2 탭의 BASELINE 적용(19:26 리셋 되돌리기)이 통신 시간 초과로 중간에 끊김. 리셋 순서는 오른팔 0~6 → 왼팔 0~6 → 헤드이고 실패하면 거기서 멈춤(`reset_current_pose_home_offsets`). 1차는 left_arm_1에서, 2차는 left_arm_4에서 끊김 → 1차에서 이미 리셋된 오른팔 전체와 left_arm_0이 2차에서 같은 이동량만큼 한 번 더 움직인 뒤 리셋됐을 가능성(이중 적용: 오른팔 J0 −0.30, J1 −1.06, J3 −2.49, J5 −0.17°, 왼팔 J0 −0.10°). left_arm_1·4는 응답만 끊겨 적용 여부 불명, left_arm_5·6·헤드는 미적용(이동량 ≈ 0). 기준 파일은 19:26 그대로
+- 권고: 통신 정상화 후 위자드의 Home Offset Reset(기준 자세)부터 다시 — 전 관절을 한 번에 다시 잡으므로 섞인 상태를 덮어쓴다
+- **그 전 마지막 완료 실행** (19:04 리셋 → 19:20 Step 2 → 19:25 Apply, 백업 `archive/runs/20261021_1920_v12_robot_applied/`): 사용자 관찰 "왼쪽 마커가 약 4 mm 위". 데이터 품질이 평소보다 나쁨 — Step 1.5 3D 잔차 0.533 mm(왼 0.577, 10-16·10-19는 0.16~0.17), 카메라 x·z 모두 상한, 지연 66.6 ms(전에는 54), Step 2 위치 잔차 0.256 mm(평소 0.08~0.10), 헤드 pan Step 1.5 −4.32° → Step 2 −0.06°·tilt −0.21 → −0.73°로 두 단계가 어긋남, 적용 후 마커 0.59 mm / 0.28°(평소 0.2~0.3 mm). 추정: 이후 드러난 통신 지연이 이때부터 상태 조회를 늦춰 엔코더-영상 짝이 어긋났을 가능성(미확인). 이 결과는 쓰지 않는 게 안전
+- **발견 (미수정)**: `main_ui.py:5031` `handle_full_auto_joint_finished`가 Step 1 팔꿈치(J3) 결과를 `np.clip(-3.0, 0.0)`로 조용히 자른다(09-15 `5774239`부터). 이번 왼팔 −3.0028 → −3.0000(0.003°). 팔꿈치를 펴는 쪽으로 리셋하는 지금 방식에서는 J3가 −2.3~−3.0°로 경계에 붙어, 더 크면 경고 없이 잘린다
+
+---
+
+## 2026-10-20 — 프로젝트 정리: scratch 정리 (사용자 "1번으로 진행")
+- 결정 (사용자): 10-19 로봇의 확인 자세 오차(양손 z 1~3 mm)는 한계로 둔다. 프로젝트 정리 시작
+- **삭제** (모두 커밋 `a860b09`에 있음, git 이력으로 복원 가능): 일회성 분석 25개 (`*_20261008.py` 10개와 `step15_direction_check_audit.py`, `camera_height_recheck_20261015.py`, `step2_rerun_headless_20261002.py`, `verify_j4_j5_misalignment.py`, `wrist_axes_check.py`, `joint_sweep_scatter.py`, `v13_j5_noise_vs_arc.py`, `v13_sweep_view_check.py`, `v13_wrist_axis_estimators.py`, `v13_j5_ready_search.py`, `v13_sweep_clearance.py`, `v13_sweep_view_margin.py`, `v13_bracket_position_from_radii.py`, `v13_bracket_position_debug_sim.py`, `v13_bracket_yaw_estimators.py`)와 고장 난 `validate_step1_2_sim.py`, `scratch/__pycache__`
+- **살림**: `arm_sign_test.py`, `camera_swap_test.py`, `randomized_sweep_test.py` — `get_both_arm_config`·`get_head_config` import를 `core.calibration.data`로, 없어진 입력 데이터셋(`dataset_20260913_121257.npz`, 어디에도 없음)을 `archive/runs/20261019_0954_v12_robot_applied/result_step2/dataset_20261019_095439_157666.npz`(자세 틀만 씀)로. v1.2 시뮬에서 `N_TRIALS=2`로 세 개 모두 완주 (예전 자유 카메라 모드의 스트레스 시험이라 수치는 운영 모드와 비교 대상 아님). 출력 json은 지움, 시뮬은 다시 정지
+- **이름 변경**: `step2_rerun_20261008_1750.py` → `step2_rerun.py` (불러 쓰는 4개와 설명 수정). 10-19 실행 재계산으로 저장 결과 재현 확인
+- **남긴 scratch 14개**: `validate_full_v13_sim.py`, `summarize_v13_sim_runs.py`, `v13_stage_scatter_sim.py`, `validate_wrist_diversity_sim.py`, `step2_rerun.py`, `step2_with_step15_roll.py`, `head_camera_roll_check.py`, `step15_tilt_scan.py`, `check_pose_error_cost.py`, `bracket_roll_scan.py`, `calibration_report.py`(+`tests/test_calibration_report.py`), 스트레스 테스트 3개
+- 참고: `sed -i`로 고친 scratch 파일 일부가 줄바꿈만 바뀌어 수정으로 보임(내용 차이 없음). `.graftignore` 삭제는 이 작업에서 하지 않았음(원인 확인 필요)
+- **이어서 (사용자 결정)**: 코드에서 안 쓰이는 이미지 10개 삭제(`additional_head_bracket_.png`, `camera_intrinsics.png`, `conect_robot_set_zeroset.png`, `head_onoff.png`, `home_offset_position.png`, `main_ui_step1.png`, `main_ui_step2.png`, `marker_bracket_assemble.png`, `process.png`, `step1_calib.png`). graft 관련 삭제: `scripts/generate_architecture.py`, `.gitignore`의 graft 줄, `CLAUDE.md`의 "File reads"(graft) 절. `.gitignore`에 `archive/` 추가 (이미 추적 중인 1,337개는 `git rm -r --cached archive`를 해야 빠짐, 사용자 판단). 미사용 함수(A 목록)는 남김 (사용자: 시스템 전체 점검을 하지 않기 위해)
+- **리드미·환경 세팅 (사용자: 스크립트 안내 대신 매뉴얼 단계로)**: `Readme.md`의 Overview(OS, Python 3.11/3.12), "2. Environment Setup"(Windows / Ubuntu 단계: Python, venv, `libxcb-cursor0`, RealSense udev 규칙, USB 3.0, 화면, 로봇 네트워크), "3. Notes"(카메라 교체·버전 이동 설명 유지), 실행 명령, 빌드 스크립트 경로, "4. Target PC Requirements"(exe 대상 PC 필요 조건, glibc·아키텍처 제약)를 다시 씀. 사라진 `main_ui.py`의 Qt 경로 처리 설명은 뺌. 저장소 주소는 그대로(사용자 확인 대기)
+- **OpenCV headless** (사용자 동의: 같은 버전이라 기능 차이 없음): `requirements.txt`·`setup.py` `opencv-contrib-python==4.13.0.92` → `opencv-contrib-python-headless==4.13.0.92` (OpenCV 자체 Qt 플러그인이 없어 PySide6와 충돌 원인 제거, 앱은 OpenCV 창을 쓰지 않음 — 유일한 `cv2.imshow`는 `imshow_when_detect = False` 디버그 경로). 이 PC `.venv`도 교체: aruco·AprilTag 36h11 사전·PySide6 정상, `imshow`만 없음. G2 통과 324 / 실패 0 / 오류 0 / skip 0 (`archive/test_logs/g2_20261020_opencv_headless.log`)
+- **리드미 재구성 (사용자 순서)**: Overview → 1. Supported Systems → 2. Performance(10-16·10-19 v1.2 실측: Full Auto 16~22분, Step 2 위치 잔차 0.08~0.10 mm, 적용 후 마커 0.2~0.3 mm·0.1~0.2°, 실행 간 0.1~0.2°, 확인 자세 1~3 mm(육안), tilt 공통 오차 ~1 mm, v1.3은 시뮬만) → 3. Required Equipment(마커, ChArUco 8×5·36/27 mm·DICT_5X5_100 = 저장소 A4 PDF, 100 % 인쇄, 시뮬) → Environment Setup(실행파일 대상 PC에도 필요한 단계 표시) → Running(실행, 카메라·버전 노트) → Standalone Executable. 저장소 주소는 배포용이라 유지(사용자). 빌드는 사용자가 한다
+- G2 1차 324 중 1 실패: `test_camera_model_config` 보관 테스트가 실제 `config/camera_intrinsics_d405.yaml` 값을 기대값으로 써서, 10-19부터 작업 파일이 시리얼 260322277376 카메라 값(fx 655.56, 저장 파일은 651.83)일 때 실패. 앱 동작(나가는 작업 파일을 보관 후 복원)은 맞음 → 기대값을 테스트 시작 시점 작업 파일 값으로 수정. G2 통과 324 / 실패 0 / 오류 0 / skip 0 (`archive/test_logs/g2_20261020_cleanup_2.log`)
+
+---
+
+## 2026-10-19 — 또 다른 v1.2 로봇 09:54 실행·적용: 확인 자세에서 오른손이 로봇 x축 − 방향으로 돌아 보임 (사용자)
+> 검증 수준 ⚪ (로그·오프라인 재계산·FK 계산) · 코드 변경 없음
+- **실행**: 09:38 리셋 → Full Auto → 09:54 Step 2 → 09:58 Apply. 16:31 이후 v1.3 로봇 연결 기록(분석 대상 아님). 백업 `archive/runs/20261019_0954_v12_robot_applied/`
+- **값**: Step 1.5 광축 회전 −0.657°(10-16 로봇 −0.65°와 거의 같음, 같은 카메라·브라켓인지 미확인 — 로그에 시리얼 없음), 헤드 pan +2.05°, 3D 잔차 0.161 mm, 카메라 x 상한·z 하한. Step 2 위치 잔차 0.077 mm, 검증 자세 마커 0.32 mm / 0.18°. 오프셋 R `−0.63 +2.73 +0.36 +2.09 −0.13 +0.69 +1.35`, L `+2.57 −1.68 +0.10 +2.22 −0.15 +0.19 −0.13`, 좌우 대칭 차 J0 +3.19°·J1 +1.05°·J6 +1.22°
+- **카메라 영향 (오프라인)**: 설계 x 45.0으로 Step 1.5→Step 2를 다시 풀어도 관절 변화 0.05° 이하(오른 J1 +2.73 → +2.76), Step 2는 x 44.5 mm를 원함. 위치 범위 ±8 mm 0.15° 이하, 각도까지 풀어도 오른팔 0.12° 이하 → **카메라 설정은 원인이 아니고 45 mm여도 같았을 것**
+- **확인 자세(v1.2 `check_calib`)에서 오른손의 로봇 x축 둘레 회전 민감도** (URDF FK, 1°당): J1 +0.91°, J4 −0.75°, J5 −0.52°, J2 −0.39°, J0·J3·J6 ≈ 0. Step 2 약한 방향 4번(LJ4 +0.47, LJ6 −0.47, RJ6 −0.42, RJ4 +0.35, 단위당 잔차 상승 0.33σ)이 오른손을 x축 둘레 −0.26°/단위 돌린다 → 확인 자세의 x축 회전은 Step 2 자세 범위 밖의 J4·J6 조합(과 J1)에 약하게만 묶여 있다 (추정)
+- 오른팔 J6: Step 1 +1.21° / Step 2 +1.35°로 일치. 왼팔은 −0.62 / −0.13°로 0.49° 차이
+- **사용자 추가 관찰**: 확인 자세에서 오른손 x 위치는 맞고 roll(로봇 x축 둘레)이 틀어져 z가 약 2~3 mm 어긋나 보임, 오른팔 J0이 맞지 않음. 왼팔은 모름
+- **확인 자세 오차의 비용** (`scratch/check_pose_error_cost.py`, Step 2를 다시 풀어 최적화기를 받아 min |J d|² s.t. 확인 자세 손 이동 = 목표): 오른손 z +2.5 mm·x,y 0이고 왼손 자유면 잔차 RMS 0.733 → 0.853σ (J3/J5 고정) — 카메라 z −0.93 mm, 헤드 tilt −0.47°, R/L J0 −0.42 / −0.39°의 공통 방향이라 왼손도 +2.3 mm 같이 움직이고 오른손 roll −0.05°. 왼손을 고정하면 0.733 → 1.815σ (J1 양팔 −0.65°, 카메라 y −1.2 mm, 오른손 roll −0.42°) → 오른손만의 roll·z 오차는 데이터가 분명히 거부한다
+- **오른쪽 브라켓 roll 스캔** (`scratch/bracket_roll_scan.py`, 설계 90° ± 0.6°): 잔차 0.812 / 0.779 / 0.751 / **0.733** / 0.726 / 0.738 / 0.763σ (−0.6 … +0.6), 최소는 +0.2° 근처지만 평평. roll은 오른팔 J4(−0.72 … +0.30°)·J6(+1.88 … +0.90°)과 맞바뀌고 J0은 ±0.12°만 움직임 → 브라켓 roll은 오른팔 J0 문제의 원인이 아님 (데이터가 roll을 ±0.3° 안으로 둠)
+- **판단 (추정)**: 양손이 같이 z로 어긋났다면 J0 공통·헤드 tilt·카메라 높이의 약한 방향(관측 한계). 오른손만이라면 Step 2 모델 밖(팔 기구의 축 기울기 등)이라 오프셋으로는 못 맞춘다. 왼손 확인이 필요
+- 사용자: 양손 공통일 것 같다
+- **Step 1.5 tilt 정밀도** (`scratch/step15_tilt_scan.py`, 이번 헤드 스윕, 운영 조건 = 설계 범위·광축 회전 추정, tilt 고정 스캔): 자유 해 tilt +0.090°, 3D RMSE 0.1570 mm. 고정 tilt ±0.2° → +0.002 mm, −0.4 / +0.4° → +0.009 / +0.007 mm (약 5%), ±0.6° → +0.020 / +0.016, ±1.0° → +0.052 / +0.041 mm (약 30%). → Step 1.5가 tilt를 약 ±0.4° 폭으로만 잡는다 (10-08 로봇과 같은 수준)
+- **그 tilt가 Step 2에 주는 영향**: tilt −0.4° → J0 R/L −0.16 / −0.17°, 확인 자세 양손 z 약 +1.0 mm, tilt +0.4° → J0 +0.12 / +0.09°, 양손 z 약 −0.6 mm. Step 2 위치 잔차 0.077 → 0.079 / 0.082 mm (거의 그대로)
+- **판단 (추정)**: tilt 관측 한계로 설명되는 것은 양손 공통 z 약 ±1 mm까지. 2~3 mm가 되려면 tilt가 1° 넘게 틀려야 하는데 그러면 Step 1.5 잔차가 30% 넘게 커진다 → 남는 1~2 mm와 roll은 tilt·카메라 밖(팔 기구 형상 등, 모델 밖)일 가능성. 손끝 2~3 mm는 육안 추정이라 크기 자체의 불확실성도 있음
+
+---
+
 ## 2026-10-16 밤 — 시스템 확정 (사용자 "이걸로 시스템은 픽스하자", 노션 기록 요청)
 - **확정 상태**: 21:25 실행·21:29 Apply(다른 v1.2 로봇)의 코드와 설정. camera_info.yaml D405 `mount_to_cam` x 43.3 / y 9.0 / z 63.0 mm, 범위 x −3/+1, y 0, z ±0.5 mm. 광축 회전은 Step 1.5 추정(±5°)·Step 2 고정
 - **오늘 들어간 변경 (모두 미커밋)**:

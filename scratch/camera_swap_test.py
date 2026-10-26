@@ -38,7 +38,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import rby1_sdk as rby
-from core.calibration.calibration_core import get_both_arm_config, get_head_config
+from core.calibration.data import get_both_arm_config, get_head_config
 from core.calibration.calibration_optimizer import (
     QPCalibrationOptimizer, compute_fk, make_transform, prepare_q_full, D2R,
 )
@@ -46,7 +46,7 @@ from core.calibration.HeadCameraCalibrator import HeadCameraCalibrator
 
 SIM_ADDR = "127.0.0.1:50051"
 SIM_MODEL = "m"
-DATASET_PATH = "result/result_step2/dataset_20260913_121257.npz"
+DATASET_PATH = "archive/runs/20261019_0954_v12_robot_applied/result_step2/dataset_20261019_095439_157666.npz"
 N_TRIALS = int(os.environ.get("N_TRIALS", "30"))
 SEED = int(os.environ.get("SEED", "0"))
 

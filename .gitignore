@@ -15,6 +15,5 @@ camera_ws.code-workspace
 # AI 하네스 상태 파일 (hook이 만든다)
 .claude/state/
 
-# Graft runtime data
-.graft/
-!docs/graft_visualizations/graft-analysis.json
+# 실행 기록·분석 보존 폴더 (용량이 커서 git에 올리지 않음, 2026-10-20)
+archive/

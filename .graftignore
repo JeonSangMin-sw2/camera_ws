@@ -1,9 +1,0 @@
-# Graft ignore patterns — files matching these are refused by safe_read.
-# Syntax: same as .gitignore (glob matching via picomatch).
-
-# Examples:
-# *.generated.ts
-# vendor/**
-# data/**/*.json
-test/**
-scratch/**

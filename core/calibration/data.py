@@ -236,12 +236,15 @@ def load_camera_mount_constraint(setting_path=None, camera_info_path=None):
     return {"model": str(model), "mount_to_cam": [float(v) for v in mount], "position_range_m": position_range}
 
 
-def format_mount_constraint(constraint):
+def format_mount_constraint(constraint, j6_solved=True, j5_solved=False):
     """One log line for a camera mount constraint: the design position and its allowed range per axis."""
     mount = constraint["mount_to_cam"]
     spans = ", ".join(f"{axis} {mount[i] * 1000:.1f} mm [{low * 1000:+.1f}, {high * 1000:+.1f}]"
                       for i, (axis, (low, high)) in enumerate(zip("xyz", constraint["position_range_m"])))
-    return f"position {spans}; camera angles fixed; J6 is solved in Step 2"
+    joints = "J6 is solved in Step 2" if j6_solved else "J6 held at its Step 1 value"
+    if j5_solved:
+        joints = "J5 is solved in Step 2, " + joints
+    return f"position {spans}; camera angles fixed; {joints}"
 
 
 # How close to an end of its range a camera axis counts as being at that end.

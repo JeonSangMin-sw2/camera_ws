@@ -159,6 +159,10 @@ class TestIntrinsicsFollowTheCamera(CameraModelConfigCase):
         self.assertNotAlmostEqual(active["camera_matrix"][0][0], self.stored_focal_length("d405"))
 
     def test_the_outgoing_models_calibration_is_archived_before_the_swap(self):
+        # The working file is the outgoing D405 calibration; it can differ from the D405 store (2026-10-19:
+        # a serial file's values were in use), and that is what has to come back.
+        working = ConfigStorage.load(self.config_path("camera_intrinsics.yaml"))
+        self.assertEqual(working["device_name"], "D405")
         self.resolve("Intel RealSense D435")
 
         self.resolve("Intel RealSense D405")
@@ -166,7 +170,7 @@ class TestIntrinsicsFollowTheCamera(CameraModelConfigCase):
         self.assertAlmostEqual(self.focal_length(self.config_path("camera_intrinsics_d435.yaml")),
                                self.stored_focal_length("d435"))
         self.assertAlmostEqual(self.focal_length(self.config_path("camera_intrinsics.yaml")),
-                               self.stored_focal_length("d405"))
+                               working["camera_matrix"][0][0])
 
     def test_no_stored_calibration_falls_back_to_factory_rather_than_a_wrong_file(self):
         observer = self.resolve("Intel RealSense D455")

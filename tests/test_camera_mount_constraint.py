@@ -151,13 +151,20 @@ class TestOptimizerBounds(unittest.TestCase):
         held = [3, 5, 10, 12]
         np.testing.assert_allclose(optimizer.joint_offset_upper[held] - optimizer.joint_offset_lower[held], 0.1 * D2R)
 
+    def test_unanchored_j5_gets_the_other_joints_range_and_j3_j6_stay_held(self):
+        optimizer = make_optimizer(anchor_joint5=False)
+        np.testing.assert_allclose(optimizer.joint_offset_lower[[5, 12]], -15.0 * D2R)
+        np.testing.assert_allclose(optimizer.joint_offset_upper[[5, 12]], 15.0 * D2R)
+        held = [3, 6, 10, 13]
+        np.testing.assert_allclose(optimizer.joint_offset_upper[held] - optimizer.joint_offset_lower[held], 0.1 * D2R)
+
 
 class Stop(Exception):
     pass
 
 
 class TestStep2UsesTheConstraint(unittest.TestCase):
-    def created_with(self, constraint, step15_camera=None):
+    def created_with(self, constraint, step15_camera=None, version="1.2"):
         created = []
 
         def fake_optimizer(**kwargs):
@@ -167,6 +174,7 @@ class TestStep2UsesTheConstraint(unittest.TestCase):
         core = CalibrationCore()
         core.on_event = lambda kind, value: None
         core.robot, core.model = MagicMock(), MagicMock()
+        core.robot_version = version
         arm = {"arm_idx": list(range(2, 16)), "ee_links": {"right": "ee_right", "left": "ee_left"},
                "ee_to_marker_nom": {"right": [0] * 6, "left": [0] * 6},
                "mount_to_cam_nom": [0.047, 0.009, 0.057, -90.0, 0.0, -90.0]}
@@ -209,7 +217,20 @@ class TestStep2UsesTheConstraint(unittest.TestCase):
     def test_both_passes_get_the_constraint(self):
         source = (Path(step2_mod.__file__)).read_text(encoding="utf-8")
         self.assertEqual(source.count("camera_pos_range_m=camera_pos_range_m"), 2)
-        self.assertEqual(source.count("anchor_joint6=mount_constraint is None"), 2)
+        self.assertEqual(source.count("anchor_joint6=not solve_j6"), 2)
+        self.assertEqual(source.count("anchor_joint5=not solve_j5"), 2)
+
+    def test_v13_holds_j6_at_step1_and_solves_j5_with_a_constraint(self):
+        kwargs = self.created_with({"model": "D405", "mount_to_cam": MOUNT, "position_range_m": np.array(RANGE)},
+                                   version="1.3")
+        np.testing.assert_allclose(kwargs["camera_pos_range_m"], RANGE)
+        self.assertTrue(kwargs["anchor_joint6"])
+        self.assertFalse(kwargs["anchor_joint5"])
+
+    def test_v12_and_v13_without_a_constraint_hold_j5(self):
+        self.assertTrue(self.created_with({"model": "D405", "mount_to_cam": MOUNT,
+                                           "position_range_m": np.array(RANGE)})["anchor_joint5"])
+        self.assertTrue(self.created_with(None, version="1.3")["anchor_joint5"])
 
 
 class TestStep15StaysInTheRange(unittest.TestCase):

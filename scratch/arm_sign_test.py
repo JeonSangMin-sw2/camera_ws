@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 os.chdir(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import rby1_sdk as rby
-from core.calibration.calibration_core import get_both_arm_config, get_head_config
+from core.calibration.data import get_both_arm_config, get_head_config
 from core.calibration.calibration_optimizer import (
     QPCalibrationOptimizer, compute_fk, make_transform, prepare_q_full, D2R,
 )
@@ -43,7 +43,7 @@ def main():
     nominal_mount_to_cam = cfg_both["mount_to_cam_nom"]
     nominal_mount_to_cam_T = make_transform(nominal_mount_to_cam)
 
-    d = np.load("result/result_step2/dataset_20260913_121257.npz", allow_pickle=True)
+    d = np.load("archive/runs/20261019_0954_v12_robot_applied/result_step2/dataset_20261019_095439_157666.npz", allow_pickle=True)
     q_arm_list = d["q_arm"]
     q_head_list = d["q_head"]
     n_poses = q_arm_list.shape[0]

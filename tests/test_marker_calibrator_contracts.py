@@ -352,7 +352,8 @@ class V13BracketPositionFromRadii(unittest.TestCase):
 class V13BracketYawFromCircleFitAxes(unittest.TestCase):
     """2026-10-16: the v1.3 bracket yaw took its J6/J5 axes from rotations relative to the middle frame,
     so that frame's orientation noise moved the yaw up to 0.48 deg at 0.37 deg noise (simulator). The
-    axes now come from the circle fit mapped with every frame, as on v1.2."""
+    axes now come from the circle fit mapped with every frame, as on v1.2. Since 2026-10-23 that yaw is
+    only logged (yaw_measured_e) and the bracket keeps the design yaw."""
     YAW_OFFSET_DEG = 0.05
 
     def sweeps(self, side):
@@ -382,8 +383,18 @@ class V13BracketYawFromCircleFitAxes(unittest.TestCase):
             res_6, res_5 = self.sweeps(side)
             res = mc.compute_marker_bracket_from_orthogonal_sweeps(None, res_5, res_6, side)
             design_yaw = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES["1.3"][side][5]
-            yaw_offset = (res["yaw_e"] - design_yaw + 180.0) % 360.0 - 180.0
+            yaw_offset = (res["yaw_measured_e"] - design_yaw + 180.0) % 360.0 - 180.0
             self.assertAlmostEqual(yaw_offset, self.YAW_OFFSET_DEG, delta=0.02, msg=side)
+
+    def test_v13_bracket_rotation_is_the_design(self):
+        mc = MarkerCalibrator.__new__(MarkerCalibrator)
+        mc.robot = None
+        mc.is_v13 = MagicMock(return_value=True)
+        for side in ("right", "left"):
+            res_6, res_5 = self.sweeps(side)
+            res = mc.compute_marker_bracket_from_orthogonal_sweeps(None, res_5, res_6, side)
+            design = BaseCalibrator.NOMINAL_BRACKET_TEMPLATES["1.3"][side][3:6]
+            self.assertEqual([res["roll_e"], res["pitch_e"], res["yaw_e"]], [float(v) for v in design], msg=side)
 
 
 class RefitDropsOffCircleFrames(unittest.TestCase):

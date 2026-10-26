@@ -22,8 +22,8 @@ setup(
     install_requires=[
         "typeguard",
         "numpy>=2.0.1",
-        "opencv-contrib-python==4.13.0.92",
-        "rby1_sdk>=0.9.1",
+        "opencv-contrib-python-headless==4.13.0.92",
+        "rby1_sdk>=0.10.0",
         "scipy>=1.14.0",
         "matplotlib>=3.9.1",
         "pyrealsense2",

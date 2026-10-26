@@ -1,6 +1,6 @@
 """Is the camera of the 2026-10-16 v1.2 robot turned about its optical axis, and were the earlier robots?
 
-Step 2 with the camera angles free (scratch/step2_rerun_20261008_1750.py, old_mode) put the 19:11 camera at
+Step 2 with the camera angles free (scratch/step2_rerun.py, old_mode) put the 19:11 camera at
 -0.87 deg about the optical axis with half the position residual, and moved both J1 the same way. This solves
 Step 1.5 (head tilt/pan sweeps, independent of the arms) of each v1.2 head run on the new bracket again with the
 production solver, twice: the camera position held to its design range (the optical-axis rotation then stays at
@@ -41,6 +41,7 @@ RUNS = {
     "10-16 19:11 robot": ROOT / "archive/runs/20261016_1911_v12_robot/result_txt",
     "10-16 20:39 robot": ROOT / "archive/runs/20261016_2039_v12_robot_optical_roll/result_txt",
     "10-16 21:25 robot": ROOT / "archive/runs/20261016_2125_v12_robot_applied/result_txt",
+    "10-19 09:54 robot": ROOT / "archive/runs/20261019_0954_v12_robot_applied/result_txt",
 }
 if "--run" in sys.argv:
     RUNS = {name: RUNS[name] for name in [sys.argv[sys.argv.index("--run") + 1]]}

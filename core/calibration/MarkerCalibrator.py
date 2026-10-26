@@ -630,6 +630,13 @@ class MarkerCalibrator(BaseCalibrator):
         # so that 100% of the physical joint offsets are assigned to Joint 6 and Joint 5.
         pitch_e = float(nominal_rpy[1])
         roll_e = float(nominal_rpy[0])
+        # v1.3 yaw is held at the design too (user decision, 2026-10-23): the real robot's J6 circle normal sat
+        # 5-7 deg off the marker rotation axis and its yaw (-92.35 / -88.34) did not fit Step 2; only logged.
+        yaw_measured_e = float(yaw_e)
+        if self.is_v13():
+            yaw_e = float(nominal_rpy[2])
+            if arm_side == "right" and yaw_e < 0 and abs(yaw_e - 270.0) < 45.0:
+                yaw_e += 360.0
 
         rot_err_mat = R_ee_m_actual.T @ R_ee_m_ideal
         rot_err_deg = np.rad2deg(np.arccos(np.clip((np.trace(rot_err_mat) - 1) / 2, -1.0, 1.0)))
@@ -651,6 +658,7 @@ class MarkerCalibrator(BaseCalibrator):
             'converged': True,
             'x_e': float(xe_opt), 'y_e': float(ye_opt), 'z_e': float(ze_opt),
             'roll_e': float(roll_e), 'pitch_e': float(pitch_e), 'yaw_e': float(yaw_e),
+            'yaw_measured_e': yaw_measured_e,
             'rot_err_deg': float(rot_err_deg),
             'pos_diff_mm': float(pos_diff_mm),
             'warn_large_angle': rot_err_deg > 15.0,
