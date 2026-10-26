@@ -1,2 +1,0 @@
-start 17:10
-noise_free done 17:30 C:\Users\User\Desktop\camera_ws\archive\reports\sim_v13_full_20261015_171021

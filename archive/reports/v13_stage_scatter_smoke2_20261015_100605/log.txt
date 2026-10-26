@@ -1,4 +1,0 @@
-[10:06:08] output: C:\Users\User\Desktop\camera_ws\archive\reports\v13_stage_scatter_smoke2_20261015_100605
-[10:06:08] noise: position 0.100 mm per axis, orientation 0.000 deg per axis; repeats 3; stages [('wrist_pitch_v13', 8.0)]
-[10:07:30] right wrist_pitch_v13 8s         n=3 mean +2.5423 std 0.4162 deg | estimates +2.178 +2.453 +2.996
-[10:08:51] left wrist_pitch_v13 8s          n=3 mean -3.9984 std 0.4811 deg | estimates -3.486 -4.070 -4.440
