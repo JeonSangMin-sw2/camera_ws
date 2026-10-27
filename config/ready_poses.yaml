@@ -30,6 +30,9 @@ v1.2:
   # capsule collision model no pose comes closer to the torso/head or between the hands than the 64 base poses
   # did on the robot; re-checked on the 12:23 and 14:32 baselines). Offline estimate: weakest Step 2 direction
   # 2.4 -> 4.8, a 1 deg Step 1 J6 error reaches the check pose about 30 % less. The base plan is unchanged.
+  # 2026-10-27: scaled to 60 % for one real run (16:01) and put back. At full range (14:42) the wrist poses moved
+  # head pan -0.44 -> -0.62 deg and the check pose looked right; at 60 % they left it at -0.39 -> -0.41 and the
+  # right hand sat about 3 mm behind again. Full-range wrist residuals were about 3x the base poses'.
   step2_wrist_diversity:
     - {right: [7.0, 3.3, 27.7], left: [-12.8, -13.8, 23.9], head: [-7.5, 12.5]}
     - {right: [24.5, -17.2, -8.0], left: [14.8, 6.4, -26.0], head: [5.0, 2.5]}

@@ -110,12 +110,15 @@ class TestFailureBoundaries(unittest.TestCase):
 
 class TestHomeOffsetResetValidation(unittest.TestCase):
     """2026-10-14: the reset check raised every time (dynamics state) and the reset went ahead unchecked.
-    2026-10-16: its ready-pose joint-limit part was removed at the user's request; the posture signs stay."""
+    2026-10-16: its ready-pose joint-limit part was removed at the user's request; the posture signs stay.
+    2026-10-27: the signs were reversed; real reset postures (home_reset_baseline.json) are right J1 +,
+    left J1 -, J3 + on both arms, and an elbow pushed back to +5.64 deg was refused."""
 
-    def check(self, right_deg):
+    def check(self, right_deg, left_deg=(0.0,) * 7):
         from core.robot import home_offset
         q = np.zeros(14)
         q[:7] = np.radians(right_deg)
+        q[7:] = np.radians(left_deg)
         robot = SimpleNamespace(get_state=lambda: SimpleNamespace(position=q))
         model = SimpleNamespace(right_arm_idx=list(range(7)), left_arm_idx=list(range(7, 14)), head_idx=[])
         logs = []
@@ -124,18 +127,36 @@ class TestHomeOffsetResetValidation(unittest.TestCase):
         self.assertFalse([line for line in logs if "validation exception" in line], logs)
         return valid, message
 
-    def test_a_correct_reset_pose_passes(self):
-        self.assertEqual(self.check([0.0, -2.0, 0.0, -3.0, 0.0, 0.0, 0.0]), (True, ""))
+    def test_recorded_reset_postures_pass(self):
+        # (right J1, right J3, left J1, left J3) from the saved baselines, 2026-10-06 .. 10-27
+        for r1, r3, l1, l3 in [(2.52, 2.31, -2.21, 1.82), (1.60, 1.62, -2.67, 3.15), (0.96, 2.13, -2.09, 2.01),
+                               (3.24, 5.64, -1.94, 2.99)]:
+            self.assertEqual(self.check([0, r1, 0, r3, 0, 0, 0], [0, l1, 0, l3, 0, 0, 0]), (True, ""))
 
-    def test_a_shoulder_roll_on_the_wrong_side_is_refused(self):
-        valid, message = self.check([0.0, 10.0, 0.0, 0.0, 0.0, 0.0, 0.0])
+    def test_a_shoulder_roll_turned_outward_is_refused(self):
+        valid, message = self.check([0.0, -10.0, 0.0, 2.0, 0.0, 0.0, 0.0])
+        self.assertFalse(valid)
+        self.assertIn("J1", message)
+        valid, message = self.check([0.0] * 7, [0.0, 10.0, 0.0, 2.0, 0.0, 0.0, 0.0])
         self.assertFalse(valid)
         self.assertIn("J1", message)
 
-    def test_an_elbow_pushed_back_past_its_limit_may_be_the_new_zero(self):
-        # 2026-10-16 (v1.2): elbow pushed back to +1.7 deg (limit +1.0) so the offsets come out one way only;
-        # the removed ready-pose limit check refused it for the elbow ready pose J3 = 0.
-        self.assertEqual(self.check([0.0, -2.0, 0.0, 1.7, 0.0, 0.0, 0.0]), (True, ""))
+    def test_an_elbow_bent_forward_is_refused(self):
+        valid, message = self.check([0.0, 2.0, 0.0, -10.0, 0.0, 0.0, 0.0])
+        self.assertFalse(valid)
+        self.assertIn("J3", message)
+
+    def test_the_message_follows_the_ui_language(self):
+        from core.language import LanguageManager
+        manager = LanguageManager.instance()
+        previous = manager.current_lang
+        try:
+            manager.current_lang = "en"
+            _, message = self.check([0.0, 2.0, 0.0, -10.0, 0.0, 0.0, 0.0])
+            self.assertIn("Right Elbow (J3) is at -10.0°", message)
+            self.assertFalse(any("가" <= ch <= "힣" for ch in message), message)
+        finally:
+            manager.current_lang = previous
 
 
 class TestHeadQualityGate(unittest.TestCase):

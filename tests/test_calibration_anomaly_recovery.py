@@ -285,6 +285,24 @@ class TestCalibrationAnomalyRecovery(unittest.TestCase):
             (4, -20.0, 20.0, 10.0), (6, -22.5, 22.5, 10.0), (5, 0.0, -40.0, 10.0),
         ])
 
+    def test_elbow_needs_four_agreeing_sweeps(self):
+        """2026-10-27: elbow noise floor 0.12 deg; with the 0.06 deg standard-error criterion a mean of
+        identical near-zero estimates converges only from the fourth one (2 were enough at 0.05)."""
+        self.jc.marker_problem_callback = None
+        self.jc.perform_move_to_ready_pose = lambda arm_side, mode="marker", log_callback=None: True
+        staged = []
+
+        def sweep(arm_side, mode, **kwargs):
+            staged.append(kwargs.get('current_offset_deg', 0.0))
+            return {'angle_between_normals': 0.1, 'center_dist': 2.0, 'r_A': 180.0, 'r_B': 180.0,
+                    'optimal_offset': -3.5 if len(staged) == 1 else 0.0, 'sign': 1.0}
+
+        self.jc.perform_calibration_sweep_continuous = sweep
+        res = self.jc.perform_joint_calibration(arm_side="right", mode="elbow", log_callback=lambda *_: None,
+                                                current_offset_deg=0.0)
+        self.assertTrue(res['converged'])
+        self.assertEqual(len(staged), 5)     # the far first sweep + 4 near-zero sweeps
+
     def test_wrist_yaw2_orthogonal_normal_convergence(self):
         """Verify that in wrist_yaw2 (which has perpendicular axes at ~90 deg and center_dist ~56 mm),
         an angle_between_normals of 89.09 deg and center_dist of 56.69 mm is recognized as

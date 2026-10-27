@@ -12,10 +12,10 @@ cd /d "%~dp0..\.."
 echo [*] Checking and closing running instances...
 taskkill /F /IM camera_calibrator*.exe 2>nul
 
-:: 1. Find suitable Python (3.11 first, then 3.12; setup.py requires >=3.11,<3.13)
+:: 1. Find Python 3.12 (setup.py requires 3.12)
 set "PY_CMD="
 
-for %%v in (3.11 3.12) do (
+for %%v in (3.12) do (
     if not defined PY_CMD (
         py -%%v --version >nul 2>&1
         if !errorlevel! equ 0 (
@@ -34,8 +34,8 @@ if not defined PY_CMD (
 )
 
 if not defined PY_CMD (
-    echo [ERROR] Python 3.11 or 3.12 is not installed or not in PATH!
-    echo [ERROR] Please install Python 3.11 from https://www.python.org/
+    echo [ERROR] Python 3.12 is not installed or not in PATH!
+    echo [ERROR] Please install Python 3.12 from https://www.python.org/
     pause
     exit /b 1
 )

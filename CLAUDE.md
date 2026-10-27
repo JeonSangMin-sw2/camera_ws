@@ -90,7 +90,7 @@ AI의 흔한 코딩 실수를 줄이기 위한 행동 지침이다. 속도보다
 - 긴 출력 위임: `.claude/agents/`. 강제 차단: `.claude/settings.json`, `.claude/hooks/`
 
 ### 이 프로젝트의 규칙
-- Python 3.11.9 (`.venv`). 실기 `192.168.1.40:50051` 모델 "a", 시뮬 `127.0.0.1:50051` 모델 "m".
+- Python 3.12.10 (`.venv`, 2026-10-26부터 3.12 고정. 이전 3.11.9 환경은 `.venv_py311_backup`). 실기 `192.168.1.40:50051` 모델 "a", 시뮬 `127.0.0.1:50051` 모델 "m".
 - 문서와 코드가 충돌하면 **현재 코드가 기준**이며, 판단이 필요하면 사용자에게 묻는다.
 - exe 빌드(`build_windows.*`, `build_linux.sh`, PyInstaller)는 사용자가 직접 한다 (2026-09-22).
 - `main_ui.py`, `run_windows`, `run_linux`는 실기에 연결될 수 있어 실행할 때마다 hook이 묻는다. `scratch/`의 `*_sim.py`, `arm_sign_test.py`, `camera_swap_test.py`, `randomized_sweep_test.py`는 시뮬(`127.0.0.1`)에만 접속한다.

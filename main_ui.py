@@ -82,7 +82,8 @@ from core.calibration import BaseCalibrator, IntrinsicsCalibrator
 from core.robot.home_offset import load_offset_from_json
 
 from core.calibration.data import (get_arm_config, get_both_arm_config, get_head_config, load_npz_dataset,
-                                   load_step2_wrist_diversity, save_npz_dataset, validate_dataset)
+                                   load_step2_plan_options, load_step2_wrist_diversity, save_npz_dataset,
+                                   validate_dataset)
 from core.robot.motion import AutoCollectionConfig, build_incremental_motion_plan, reset_motion_state
 
 
@@ -3546,7 +3547,8 @@ class UnifiedCalibrationApp(QWidget):
                     active_arms = ["right", "left"]
                     temp_plan = build_incremental_motion_plan(
                         self.robot, self.dyn_model, self.auto_config, active_arms,
-                        include_head_motion=self.include_head_motion, wrist_diversity=self.step2_wrist_diversity()
+                        include_head_motion=self.include_head_motion, wrist_diversity=self.step2_wrist_diversity(),
+                        skip_half_steps=load_step2_plan_options()["skip_half_steps"]
                     )
                     cnt = len(temp_plan)
 
@@ -3714,7 +3716,8 @@ class UnifiedCalibrationApp(QWidget):
             try:
                 self.auto_motion_plan = build_incremental_motion_plan(
                     self.robot, self.dyn_model, self.auto_config, active_arms, include_head_motion=self.include_head_motion,
-                    wrist_diversity=self.step2_wrist_diversity()
+                    wrist_diversity=self.step2_wrist_diversity(),
+                    skip_half_steps=load_step2_plan_options()["skip_half_steps"]
                 )
             except Exception as e:
                 self.log_msg(f"[ERROR] Failed to build motion plan: {e}")
@@ -4802,7 +4805,11 @@ class UnifiedCalibrationApp(QWidget):
             success = True
         else:
             error_msg = result.get("error", "Some joints failed to reset")
-            QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {error_msg}")
+            if result.get("failed_joints") or result.get("reset_joints"):
+                QMessageBox.warning(self, "Warning", f"Home Offset Reset finished, but some joints failed to reset: {error_msg}")
+            else:
+                # Refused before any joint was touched (reset posture check): not a partial reset.
+                QMessageBox.warning(self, "Warning", error_msg)
             success = False
 
         if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
@@ -5028,7 +5035,12 @@ class UnifiedCalibrationApp(QWidget):
             joint_key = "joint5"
         else:
             joint_key = "joint3"
-            recommended = np.clip(recommended, -3.0, 0.0)
+            # -3 -> -4 deg (2026-10-27): an elbow pushed fully back measured -3.48 deg and was cut to -3.
+            clipped = float(np.clip(recommended, -4.0, 0.0))
+            if clipped != float(recommended):
+                self.log_msg(f"[WARN] {arm_side} elbow (J3) offset {float(recommended):+.4f}° is outside [-4, 0]°; "
+                             f"stored {clipped:+.4f}°.")
+            recommended = clipped
 
         # Update staged offsets store
         self.joint_offsets_store[arm_side][joint_key] = float(recommended)

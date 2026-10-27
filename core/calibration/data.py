@@ -166,6 +166,21 @@ def load_min_marker_x_gap_m(path=SETTING_PATH):
     return value, True
 
 
+def load_step2_plan_options(path=SETTING_PATH):
+    """Step 2 collection options from setting.yaml step2 (user, 2026-10-27, to shorten Step 2):
+    skip_half_steps (default False) drops the half-size steps of the base plan (head 64 -> 44 poses,
+    headless 54 -> 36); offline on two head and two headless real runs the check-pose hands moved
+    0.25-0.33 / <= 0.24 mm. sample_time_s (default 1.0) is how long each pose's marker capture averages;
+    0.5 s was tried on 2026-10-27 18:32 and raised the base-pose position residual 0.39 -> 0.66 mm."""
+    config = ConfigStorage.load(path) if os.path.exists(path) else {}
+    step2 = config.get("step2") or {}
+    skip = bool(step2.get("skip_half_steps", False))
+    sample_time = float(step2.get("sample_time_s", 1.0))
+    if not np.isfinite(sample_time) or sample_time <= 0:
+        raise ValueError(f"step2.sample_time_s in {path} must be a positive time in seconds, got {sample_time}")
+    return {"skip_half_steps": skip, "sample_time_s": sample_time}
+
+
 READY_POSES_PATH = Path(CONFIG_PATHS["ready_poses_yaml"])
 
 

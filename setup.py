@@ -12,9 +12,9 @@ setup(
     name="camera_ws",
     version="0.1",
     packages=find_packages(include=["core", "core.*", "ui", "ui.*"]),
-    # 3.11 is what .venv runs and the tests pass on; numpy/scipy/matplotlib at those versions need
-    # 3.11+, so 3.10 would install older libraries. 3.12 is the Ubuntu 24.04 system Python.
-    python_requires=">=3.11,<3.13",
+    # 3.12 only (2026-10-26): the one version with rby1_sdk, pyrealsense2 and osqp wheels on Windows,
+    # Linux x86_64 and Jetson aarch64 (pyrealsense2 has no aarch64 wheel for 3.11).
+    python_requires=">=3.12,<3.13",
     include_package_data=True,
     package_data={
         "": ["config/*.yaml"],

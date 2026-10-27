@@ -92,6 +92,8 @@ def _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, apply_offsets
             bracket = cfg["ee_to_marker_nom"][side]
         T_bracket = BaseCalibrator.make_transform(list(bracket))
         T_ee[side] = _fk(dyn, model, q_full, cfg["ee_links"][side])
+        if markers is None:
+            continue
         T_model = np.linalg.inv(T_t5_cam) @ T_ee[side] @ T_bracket
         delta = np.linalg.inv(T_model) @ markers[i]
         per_arm[side] = {
@@ -107,7 +109,7 @@ def _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, apply_offsets
     symmetry = _mirror_pair(T_ee["right"], T_ee["left"])
     # The same comparison on what the camera actually saw. Once the arms stand at a genuinely
     # symmetric pose, whatever is left here is bracket mismatch plus camera error.
-    measured = _mirror_pair(T_ee_seen["right"], T_ee_seen["left"])
+    measured = _mirror_pair(T_ee_seen["right"], T_ee_seen["left"]) if markers is not None else None
 
     return {"per_arm": per_arm, "symmetry": symmetry, "measured_symmetry": measured}
 
@@ -127,7 +129,10 @@ def _mirror_pair(T_right, T_left):
 
 def run_post_step2_verification(core, context, optimization=None, minimum_time=5.0,
                                 pos_tolerance_m=VERIFY_POS_TOLERANCE_M,
-                                ori_tolerance_rad=VERIFY_ORI_TOLERANCE_RAD):
+                                ori_tolerance_rad=VERIFY_ORI_TOLERANCE_RAD, reference=None):
+    """reference: (q_arm, q_head) of the last Step 2 sample, taken back at the ready pose. Given, the robot does not
+    move to the ready pose again (user, 2026-10-27): the right arm's joints mirrored onto the left stand in for
+    it, and the ready-pose model-vs-camera comparison is left out."""
     log = core.log_msg
     if core.robot is None or core.model is None:
         raise RuntimeError("Robot is not connected")
@@ -137,23 +142,28 @@ def run_post_step2_verification(core, context, optimization=None, minimum_time=5
     log("   POST-STEP2 VERIFICATION AT THE READY POSE")
     log("=" * 58)
 
-    context.check_cancelled()
-    move_to_auto_ready_pose(core.robot, ["right", "left"], minimum_time=minimum_time,
-                            include_head_motion=core.include_head_motion,
-                            robot_version=core.get_robot_version(),
-                            pos_tolerance_m=pos_tolerance_m,
-                            ori_tolerance_rad=ori_tolerance_rad)
-    context.check_cancelled()
-
     cfg = get_both_arm_config(core.model, version=core.get_robot_version())
     head_idx = get_head_config(core.model)["head_idx"] if core.include_head_motion else None
-    q_arm, q_head, markers = capture_one_sample(
-        core.robot, cfg["arm_idx"], core.observer,
-        sampling_time=0 if core.observer.sim else 1, side="all", head_idx=head_idx,
-    )
-    if markers is None:
-        log("[WARN] Verification skipped: both markers were not visible at the ready pose.")
-        return None
+    if reference is None:
+        context.check_cancelled()
+        move_to_auto_ready_pose(core.robot, ["right", "left"], minimum_time=minimum_time,
+                                include_head_motion=core.include_head_motion,
+                                robot_version=core.get_robot_version(),
+                                pos_tolerance_m=pos_tolerance_m,
+                                ori_tolerance_rad=ori_tolerance_rad)
+        context.check_cancelled()
+        q_arm, q_head, markers = capture_one_sample(
+            core.robot, cfg["arm_idx"], core.observer,
+            sampling_time=0 if core.observer.sim else 1, side="all", head_idx=head_idx,
+        )
+        if markers is None:
+            log("[WARN] Verification skipped: both markers were not visible at the ready pose.")
+            return None
+    else:
+        q_ref = np.asarray(reference[0], dtype=float)
+        q_arm = np.concatenate([q_ref[:7], MIRROR_JOINT_SIGN * q_ref[:7]])
+        q_head = None if reference[1] is None or head_idx is None else np.asarray(reference[1], dtype=float)
+        markers = None
 
     # Without a head the camera sits on the fixed head base, not on the pan/tilt link, and it is
     # described by head_base_to_cam. Step 2 already branches this way; reading the head-mounted
@@ -173,12 +183,16 @@ def run_post_step2_verification(core, context, optimization=None, minimum_time=5
     calibrated = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, True, optimization)
     baseline = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, False, optimization)
 
-    log(" model vs camera (marker pose the model predicts vs the one measured):")
-    for side in ("right", "left"):
-        before = baseline["per_arm"][side]
-        after = calibrated["per_arm"][side]
-        log(f"   {side:5s}: uncalibrated {before['pos_err_mm']:6.2f} mm / {before['rot_err_deg']:5.2f} deg"
-            f"   ->  calibrated {after['pos_err_mm']:6.2f} mm / {after['rot_err_deg']:5.2f} deg")
+    if markers is not None:
+        log(" model vs camera (marker pose the model predicts vs the one measured):")
+        for side in ("right", "left"):
+            before = baseline["per_arm"][side]
+            after = calibrated["per_arm"][side]
+            log(f"   {side:5s}: uncalibrated {before['pos_err_mm']:6.2f} mm / {before['rot_err_deg']:5.2f} deg"
+                f"   ->  calibrated {after['pos_err_mm']:6.2f} mm / {after['rot_err_deg']:5.2f} deg")
+    else:
+        log(" (no second move to the ready pose: its pose is the last Step 2 sample, right arm mirrored onto the"
+            " left; the markers are measured at the offset-corrected pose below)")
 
     sym = calibrated["symmetry"]
     log(" where the two flanges really are, at a pose commanded symmetrically:")
@@ -246,7 +260,10 @@ def _move_to_offset_corrected_pose(core, context, cfg, head_idx, q_arm, q_head,
     if head_idx is not None and q_head is not None:
         q_head_cmd = np.asarray(q_head, dtype=float) - _head_offsets_rad(optimization)[:len(q_head)]
 
-    sep_now = _link_separations(core, cfg, head_idx, q_arm, q_head)
+    # Measured from where the robot stands now (the last Step 2 pose when the ready-pose move is skipped).
+    state = np.asarray(core.robot.get_state().position, dtype=float)
+    q_head_now = None if head_idx is None else state[list(head_idx)]
+    sep_now = _link_separations(core, cfg, head_idx, state[list(cfg["arm_idx"])], q_head_now)
     sep_new = _link_separations(core, cfg, head_idx, q_cmd, q_head_cmd)
     closing = sep_new - sep_now
     if np.min(sep_new) < 50.0 or np.min(closing) < -5.0:

@@ -78,10 +78,43 @@ def fake_robot(upper=np.pi):
     return SimpleNamespace(model=lambda: model, get_dynamics=lambda: dyn, get_state=lambda: SimpleNamespace(position=q.copy()))
 
 
-def build_plan(include_head, poses):
+def build_plan(include_head, poses, skip_half_steps=False):
     with patch.object(motion, "compute_fk", return_value=(None, np.eye(4))):
         return motion.build_incremental_motion_plan(fake_robot(), None, motion.AutoCollectionConfig(),
-                                                    include_head_motion=include_head, wrist_diversity=poses)
+                                                    include_head_motion=include_head, wrist_diversity=poses,
+                                                    skip_half_steps=skip_half_steps)
+
+
+class TestSkipHalfSteps(unittest.TestCase):
+    """2026-10-27 (user): step2.skip_half_steps drops the half-size steps (head 64 -> 44, headless 54 -> 36).
+    Offline on real runs the check-pose hands moved 0.25-0.33 mm (head) and <= 0.24 mm (headless)."""
+
+    def test_plan_sizes(self):
+        self.assertEqual((len(build_plan(True, [])), len(build_plan(True, [], True))), (64, 44))
+        self.assertEqual((len(build_plan(False, [])), len(build_plan(False, [], True))), (54, 36))
+        self.assertEqual(len(build_plan(True, [POSE] * 24, True)), 44 + 25)
+
+    def test_only_half_size_steps_go(self):
+        full = [s["desc"] for s in build_plan(True, [])]
+        short = [s["desc"] for s in build_plan(True, [], True)]
+        dropped = [d for d in full if d not in short]
+        self.assertEqual(len(dropped), 20)
+        self.assertTrue(all(d in full for d in short))
+        self.assertFalse(any("+5.0deg" in d or "-5.0deg" in d for d in dropped if d.startswith("Joint 1 Offset")))
+        self.assertIn("Head Pan: +1.75deg", dropped)
+        self.assertIn("Head Pan: +3.50deg", short)
+
+    def test_options_default_to_the_old_behaviour(self):
+        from core.calibration.data import load_step2_plan_options
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "setting.yaml"
+            ConfigStorage.save(path, {"step2": {}})
+            self.assertEqual(load_step2_plan_options(path), {"skip_half_steps": False, "sample_time_s": 1.0})
+            ConfigStorage.save(path, {"step2": {"skip_half_steps": True, "sample_time_s": 0.5}})
+            self.assertEqual(load_step2_plan_options(path), {"skip_half_steps": True, "sample_time_s": 0.5})
+            ConfigStorage.save(path, {"step2": {"sample_time_s": 0}})
+            with self.assertRaises(ValueError):
+                load_step2_plan_options(path)
 
 
 class TestPlan(unittest.TestCase):

@@ -8,7 +8,7 @@ It measures the two arm markers with the head camera and estimates the home offs
 
 ### 1. Supported Systems
 - **OS**: Windows 10/11 x64, Ubuntu 22.04 (x86_64, Jetson Orin aarch64). Ubuntu 24.04 is not supported yet.
-- **Python version**: 3.11
+- **Python version**: 3.12
 - **SDK compatibility**: rby1-sdk 0.10.x and later
 - **Robot**: RB-Y1 v1.2, RB-Y1 v1.3, with or without the head camera
 - **Camera**: Intel RealSense D405 (recommended), D435 (Resolution: 1280x720, 30 FPS)
@@ -65,10 +65,10 @@ cd rby1-calibration
 ```
 
 ### 2. Windows
-1. **Python 3.11** (64-bit) from python.org.
+1. **Python 3.12** (64-bit) from python.org.
 2. **Virtual environment and packages** (Command Prompt, in the repository folder):
    ```bat
-   py -3.11 -m venv .venv
+   py -3.12 -m venv .venv
    .venv\Scripts\activate.bat
    python -m pip install --upgrade pip
    pip install -r requirements.txt
@@ -78,12 +78,24 @@ cd rby1-calibration
 4. **Robot network** (also for the executable): set the PC's Ethernet adapter to a fixed IP in the robot's subnet (e.g. `192.168.1.xxx` for a robot at `192.168.1.40`) and check `ping 192.168.1.40` before starting the app.
 
 ### 3. Ubuntu 22.04 (incl. Jetson Orin)
-1. **Python 3.11**. Ubuntu 22.04 ships 3.10, so install 3.11 first:
-   ```bash
-   sudo add-apt-repository ppa:deadsnakes/ppa
-   sudo apt update && sudo apt install -y python3.11 python3.11-venv
-   ```
-   On Jetson Orin (aarch64), `pyrealsense2` has no wheel for Python 3.11.
+1. **Python 3.12**, installed next to Ubuntu's own Python 3.10. `apt`, Ubuntu's tools and JetPack keep using 3.10, so the system `python3` must stay 3.10; the app uses 3.12 only inside its `.venv` (step 4).
+   1. Add the deadsnakes PPA and check that it has 3.12 for this PC (on Jetson Orin especially): the `Candidate:` line must not be `(none)`.
+      ```bash
+      sudo add-apt-repository ppa:deadsnakes/ppa
+      sudo apt update
+      apt-cache policy python3.12
+      ```
+   2. Install 3.12:
+      ```bash
+      sudo apt install -y python3.12 python3.12-venv
+      ```
+   3. Check that `python3` is still 3.10 and 3.12 is a separate command:
+      ```bash
+      python3 --version      # Python 3.10.x
+      python3.12 --version   # Python 3.12.x
+      ```
+   - Do **not** point `python3` at 3.12 (no `update-alternatives --install /usr/bin/python3 ...`, no `ln -sf ... /usr/bin/python3`), and do not install packages with `sudo pip`.
+   - If `python3 --version` already shows 3.12, set it back to 3.10: `sudo update-alternatives --config python3` and choose `/usr/bin/python3.10` if it was changed with `update-alternatives`, or `sudo ln -sf python3.10 /usr/bin/python3` if the link was changed by hand.
 2. **Qt system library** (also for the executable; PySide6 6.5 and later will not start without it):
    ```bash
    sudo apt install -y libxcb-cursor0
@@ -97,7 +109,7 @@ cd rby1-calibration
    Re-plug the camera afterwards, on a **USB 3.0** port.
 4. **Virtual environment and packages** (in the repository folder):
    ```bash
-   python3.11 -m venv .venv
+   python3.12 -m venv .venv
    source .venv/bin/activate
    python -m pip install --upgrade pip
    pip install -r requirements.txt
@@ -111,6 +123,9 @@ cd rby1-calibration
 > An existing `.venv` made with the old requirements must drop the old package first, since both install the same `cv2` module:
 > `pip uninstall -y opencv-contrib-python && pip install -r requirements.txt`
 
+> [!NOTE]
+> - `requirements.txt` gives minimum versions, so a new install takes the latest releases. Tested with this set (Windows, Python 3.12.10, RB-Y1 v1.2 robot, 2026-10): rby1-sdk 0.10.0, pyrealsense2 2.59.1, numpy 2.5.4, scipy 1.18.1, matplotlib 3.11.2, PySide6 6.12.0, opencv-contrib-python-headless 4.13.0.92, qpsolvers 4.11.0, osqp 1.1.1. If a later release breaks the app, install these versions.
+> - On Ubuntu 22.04 for Jetson (aarch64), recent PySide6 releases need a newer glibc than 22.04 has, so pip picks an older PySide6 that fits (for example 6.7.2) on its own. That version has not been tested with the app.
 ---
 
 ## Running the Calibration
@@ -144,7 +159,7 @@ If you want to run the calibration tool as a standalone portable application on 
 ### 1. Automated One-Click Build Scripts
 
 #### Windows Build
-On a Windows PC with Python 3.11 installed, run:
+On a Windows PC with Python 3.12 installed, run:
 ```bat
 scripts\windows\build_windows.bat
 ```

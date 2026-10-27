@@ -868,6 +868,26 @@ dialogs:
       en: "- Joint {joint}: Current {val}°, Limits [{low}°, {upp}°]"
       ko: "- 관절 {joint}: 현재 {val}°, 제한 범위 [{low}°, {upp}°]"
 
+  home_reset_posture:
+    title:
+      en: "Invalid Home Offset Reset posture. Nothing was reset."
+      ko: "유효하지 않은 홈 오프셋 리셋 자세입니다. 리셋하지 않았습니다."
+    j1_right:
+      en: "Right Shoulder Roll (J1) is at {value}°. Turn it in toward the body (+)."
+      ko: "오른쪽 Shoulder Roll(J1)이 {value}°입니다. 몸 안쪽(+)으로 돌려야 합니다."
+    j1_left:
+      en: "Left Shoulder Roll (J1) is at {value}°. Turn it in toward the body (-)."
+      ko: "왼쪽 Shoulder Roll(J1)이 {value}°입니다. 몸 안쪽(-)으로 돌려야 합니다."
+    j3_right:
+      en: "Right Elbow (J3) is at {value}°. Push it back (+)."
+      ko: "오른쪽 Elbow(J3)가 {value}°입니다. 뒤쪽(+)으로 보내야 합니다."
+    j3_left:
+      en: "Left Elbow (J3) is at {value}°. Push it back (+)."
+      ko: "왼쪽 Elbow(J3)가 {value}°입니다. 뒤쪽(+)으로 보내야 합니다."
+    guide:
+      en: "Follow the guide images and instructions to put each joint in the right direction, then try the reset again."
+      ko: "안내 가이드라인(이미지 및 지침 사항)을 참고하여 각 관절을 올바른 방향으로 위치시킨 후 다시 리셋을 시도해 주세요."
+
   home_offset_reset_warn:
     title:
       en: "Confirm Home Offset Reset"

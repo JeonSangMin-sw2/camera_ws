@@ -1,4 +1,5 @@
 from core.robot.robot_core import check_motion_cancelled, wait_motion
+from core.language import tr
 import os
 from core.storage import StoragePaths, CONFIG_PATHS
 from core.storage import ResultStorage, ConfigStorage
@@ -373,33 +374,35 @@ def validate_home_offset_joint_limits(robot, model, arm="both", include_head=Tru
         state = robot.get_state()
         q_current = np.array(state.position, dtype=np.float64).reshape(-1)
 
-        # 1. Posture Direction Sign Validation for Home Offset Reset
-        # Right Arm: J1 (Shoulder Roll) <= 0, J3 (Elbow) <= 0
-        # Left Arm:  J1 (Shoulder Roll) >= 0, J3 (Elbow) <= 0
+        # Reset posture: shoulder roll in toward the body (right J1 +, left J1 -), elbows back (J3 +). Signs were
+        # reversed until 2026-10-27; real resets (J3 up to +5.64 deg) had passed only inside the 5 deg buffer.
         tol = np.radians(5.0)  # 5° buffer
         invalid_reasons = []
+
+        def reason(side, joint, value_rad):
+            return tr(f"dialogs.home_reset_posture.{joint}_{side}", value=f"{np.degrees(value_rad):+.1f}")
 
         if arm in ("right", "both"):
             r_j1 = q_current[model.right_arm_idx[1]]
             r_j3 = q_current[model.right_arm_idx[3]]
-            if r_j1 > tol:
-                invalid_reasons.append(f"오른쪽 Shoulder Roll(J1)이 양수(+{np.degrees(r_j1):.1f}°)입니다. 음수(-) 방향(몸 안쪽)이어야 합니다.")
-            if r_j3 > tol:
-                invalid_reasons.append(f"오른쪽 Elbow(J3)가 양수(+{np.degrees(r_j3):.1f}°)입니다. 음수(-) 방향(뒤쪽)이어야 합니다.")
+            if r_j1 < -tol:
+                invalid_reasons.append(reason("right", "j1", r_j1))
+            if r_j3 < -tol:
+                invalid_reasons.append(reason("right", "j3", r_j3))
 
         if arm in ("left", "both"):
             l_j1 = q_current[model.left_arm_idx[1]]
             l_j3 = q_current[model.left_arm_idx[3]]
-            if l_j1 < -tol:
-                invalid_reasons.append(f"왼쪽 Shoulder Roll(J1)이 음수({np.degrees(l_j1):.1f}°)입니다. 양수(+) 방향(몸 안쪽)이어야 합니다.")
-            if l_j3 > tol:
-                invalid_reasons.append(f"왼쪽 Elbow(J3)가 양수(+{np.degrees(l_j3):.1f}°)입니다. 음수(-) 방향(뒤쪽)이어야 합니다.")
+            if l_j1 > tol:
+                invalid_reasons.append(reason("left", "j1", l_j1))
+            if l_j3 < -tol:
+                invalid_reasons.append(reason("left", "j3", l_j3))
 
         if invalid_reasons:
             err_msg = (
-                "⚠️ 유효하지 않은 홈 오프셋 리셋 자세입니다!\n\n"
-                + "\n".join(f"- {reason}" for reason in invalid_reasons)
-                + "\n\n안내 가이드라인(이미지 및 지침 사항)을 참고하여 각 관절을 올바른 방향으로 위치시킨 후 다시 리셋을 시도해 주세요."
+                tr("dialogs.home_reset_posture.title") + "\n\n"
+                + "\n".join(f"- {r}" for r in invalid_reasons)
+                + "\n\n" + tr("dialogs.home_reset_posture.guide")
             )
             if log_cb:
                 log_cb(f"[ERROR] {err_msg}")

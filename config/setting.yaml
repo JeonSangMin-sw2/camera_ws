@@ -11,21 +11,21 @@ camera:
   width: 1280
 joint_offset:
   left:
-    joint3: 0.0
-    joint5: 0.0
-    joint6: 0.0
+    joint3: -3.0133784077725876
+    joint5: -0.19632913024934212
+    joint6: -3.693716534008167
   right:
-    joint3: 0.0
-    joint5: 0.0
-    joint6: 0.0
+    joint3: -3.502000837453216
+    joint5: -3.3591105833594828
+    joint6: 2.2467667339796353
   head:
     pan: 0.0
     tilt: 0.0
 marker:
-  Tf_to_marker_left: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  Tf_to_marker_left: [-6.6130927153957065e-18, 0.054, -0.048822789062607994, 90.0, -0.03370219571728235, 0.0]
   Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
   Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
-  Tf_to_marker_right: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  Tf_to_marker_right: [6.6130927153957065e-18, -0.054, -0.048822789062607994, 90.0, -0.03370219571726962, 180.0]
   Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
   Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
   plate:
@@ -35,6 +35,8 @@ marker:
 step2:
   min_marker_x_gap_m: 0.11
   min_rot_noise_deg: 0.3
-  wrist_diversity_poses: false
+  sample_time_s: 1.0
+  skip_half_steps: true
+  wrist_diversity_poses: true
 exposure_check:
   max_marker_jitter_rms_mm: 0.2

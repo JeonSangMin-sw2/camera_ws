@@ -61,10 +61,11 @@ WRIST_YAW2_SOURCE = "bracket_sweeps"
 MAX_FIT_POINTS = 1000
 # Per-sweep target-estimate scatter measured on the real robot (deg). Used as a floor on the
 # sample std so a mean of only 2 agreeing sweeps cannot pass on luck.
-# elbow: 0.025 deg measured with +-20 deg sweeps fitting all frames (2026-09-15); floor kept at 0.05.
+# elbow: 0.025 deg measured with +-20 deg sweeps fitting all frames (2026-09-15); floor 0.05, raised to 0.12 on
+# 2026-10-27: three runs on one v1.2 reset scattered 0.11-0.12 deg per sweep and their means 0.3 deg apart.
 # v1.3 (2026-10-15; before, both fell back to 3 samples and no floor): wrist_roll_v13 is the wrist_yaw2
 # method, so it takes its floor; wrist_pitch_v13 measured 0.06-0.13 deg per sweep pair in the simulator.
-JOINT_ESTIMATE_NOISE_DEG = {"wrist_pitch": 0.03, "wrist_yaw2": 0.06, "elbow": 0.05,
+JOINT_ESTIMATE_NOISE_DEG = {"wrist_pitch": 0.03, "wrist_yaw2": 0.06, "elbow": 0.12,
                             "wrist_roll_v13": 0.06, "wrist_pitch_v13": 0.10}
 MIN_MEAN_SAMPLES_BY_MODE = {"wrist_pitch": 2, "wrist_yaw2": 2, "elbow": 2, "wrist_roll_v13": 2, "wrist_pitch_v13": 2}
 

@@ -9,20 +9,19 @@ echo "==================================================="
 echo "   Camera Calibrator - Linux Standalone Build"
 echo "==================================================="
 
-# 1. Virtual environment setup. Python 3.11 or 3.12 (setup.py): Ubuntu 24.04's python3 is 3.12;
-# Ubuntu 22.04's is 3.10, so install python3.12 there first (deadsnakes PPA, see the message below).
-# Build on 22.04: the binary then runs on 22.04 and 24.04 (it needs the glibc it was built against or newer).
+# 1. Virtual environment setup. Python 3.12 (setup.py): Ubuntu 22.04's python3 is 3.10, so install
+# python3.12 next to it first (deadsnakes PPA, see the message below). Build on Ubuntu 22.04.
 if [ ! -f ".venv/bin/activate" ]; then
     PY=""
-    for candidate in python3.12 python3.11 python3; do
+    for candidate in python3.12 python3; do
         if command -v "$candidate" >/dev/null 2>&1 && \
-           "$candidate" -c 'import sys; sys.exit(0 if (3, 11) <= sys.version_info[:2] <= (3, 12) else 1)'; then
+           "$candidate" -c 'import sys; sys.exit(0 if sys.version_info[:2] == (3, 12) else 1)'; then
             PY="$candidate"
             break
         fi
     done
     if [ -z "$PY" ]; then
-        echo "[ERROR] Python 3.11 or 3.12 is needed (python3 here is $(python3 --version 2>&1))."
+        echo "[ERROR] Python 3.12 is needed (python3 here is $(python3 --version 2>&1))."
         echo "        Ubuntu 22.04: sudo add-apt-repository ppa:deadsnakes/ppa && sudo apt install python3.12 python3.12-venv"
         exit 1
     fi

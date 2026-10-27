@@ -120,7 +120,7 @@ def reset_motion_state():
     }
 
 def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"], include_head_motion=True,
-                                  wrist_diversity=None):
+                                  wrist_diversity=None, skip_half_steps=False):
     """
     현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다. (최대 2루프, 총 82개 포즈로 구성)
 
@@ -128,6 +128,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
     {"right": [dJ4, dJ5, dJ6], "left": [...], "head": [dpan, dtilt]} in degrees from the baseline.
     They are appended once, marked optional (a pose that is out of limits or loses a marker is
     skipped instead of aborting Step 2), and followed by a return to the baseline.
+
+    skip_half_steps (setting.yaml step2.skip_half_steps): leave out every half-size step whose
+    full-size step in the same direction is also in the plan (head 64 -> 44 poses, headless 54 -> 36).
     """
     reset_motion_state()
     if robot is None:
@@ -201,7 +204,8 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         else:
             # Fixed camera (no head): safe small angle sweeps within optical window
             j0_safe = min(getattr(config, 'angle_step_deg', 5.0), 3.0)
-            for j0_off in [-j0_safe/2.0, -j0_safe, j0_safe/2.0, j0_safe]:
+            j0_offsets = [-j0_safe/2.0, -j0_safe, j0_safe/2.0, j0_safe]
+            for j0_off in (j0_offsets[1::2] if skip_half_steps else j0_offsets):
                 plan.append({
                     "type": "joint",
                     "joint_idx": 0,
@@ -229,7 +233,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
                 j_offsets = [-j2_half, -j2_full, j2_half, j2_full]
             else:
                 j_offsets = [-half_ang, -full_ang, half_ang, full_ang]
-            for offset in j_offsets:
+            for offset in (j_offsets[1::2] if skip_half_steps else j_offsets):
                 plan.append({
                     "type": "joint",
                     "joint_idx": joint_idx,
@@ -298,7 +302,7 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             (0.0, -half_ang, 0.0), (0.0, -full_ang, 0.0), (0.0, half_ang, 0.0), (0.0, full_ang, 0.0),
             (0.0, 0.0, -half_ang), (0.0, 0.0, -full_ang), (0.0, 0.0, half_ang), (0.0, 0.0, full_ang)
         ]
-        for dr, dp, dy in rpy_targets:
+        for dr, dp, dy in (rpy_targets[1::2] if skip_half_steps else rpy_targets):
             tr = apply_cartesian_offset(T_curr_right, droll_deg=dr, dpitch_deg=dp, dyaw_deg=dy)
             tl = apply_cartesian_offset(T_curr_left, droll_deg=dr, dpitch_deg=dp, dyaw_deg=dy)
             head_q = compute_head_tracking_q(tr, tl, active_arms, p_neck, q_head_0, p_marker_0) if has_head else None
@@ -316,6 +320,8 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             (0.0, -half_pos, 0.0), (0.0, -full_pos, 0.0), (0.0, half_pos, 0.0), (0.0, full_pos, 0.0),
             (0.0, 0.0, -half_pos), (0.0, 0.0, -full_pos), (0.0, 0.0, half_pos), (0.0, 0.0, full_pos)
         ]
+        if skip_half_steps:
+            xyz_targets = xyz_targets[:2] + xyz_targets[2:][1::2]
         for dx, dy, dz in xyz_targets:
             tr = apply_cartesian_offset(T_curr_right, dx=dx, dy=dy, dz=dz)
             tl = apply_cartesian_offset(T_curr_left, dx=dx, dy=dy, dz=dz)
@@ -330,7 +336,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
         if has_head and q_head_0 is not None:
             head_sweep_range_deg = 3.5
             steps_deg = [-head_sweep_range_deg, -head_sweep_range_deg / 2.0, head_sweep_range_deg / 2.0, head_sweep_range_deg]
-            
+            if skip_half_steps:
+                steps_deg = [-head_sweep_range_deg, head_sweep_range_deg]
+
             head_targets = []
             for ang in steps_deg:
                 ang_rad = np.radians(ang)

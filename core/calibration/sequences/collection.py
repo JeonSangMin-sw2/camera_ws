@@ -1,6 +1,6 @@
 from core.robot.motion import build_incremental_motion_plan, execute_auto_motion_step, move_to_auto_ready_pose, verify_and_align_head_at_ready_pose
 from ..data import (MarkersTooCloseError, capture_one_sample, get_both_arm_config, get_head_config,
-                    load_min_marker_x_gap_m, load_step2_wrist_diversity, marker_x_gap_m)
+                    load_min_marker_x_gap_m, load_step2_plan_options, load_step2_wrist_diversity, marker_x_gap_m)
 
 # How often the gap is re-measured and sent to the UI while the operator widens the arms.
 SPACING_MONITOR_PERIOD_S = 0.2
@@ -82,6 +82,7 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
         context.check_cancelled()
         ensure_marker_spacing(core, context)
     context.check_cancelled()
+    plan_options = load_step2_plan_options()
     if plan is None:
         wrist_diversity = []
         if core.include_head_motion:
@@ -92,7 +93,12 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
         plan = build_incremental_motion_plan(
             core.robot, core.robot.get_dynamics(), core.auto_config, ["right", "left"],
             include_head_motion=core.include_head_motion, wrist_diversity=wrist_diversity,
+            skip_half_steps=plan_options["skip_half_steps"],
         )
+        if plan_options["skip_half_steps"]:
+            core.log_msg("[INFO] Step 2 half-size steps skipped (step2.skip_half_steps on).")
+    sample_time = 0 if core.observer.sim else plan_options["sample_time_s"]
+    core.log_msg(f"[INFO] Step 2 capture averages {sample_time:g} s per pose (step2.sample_time_s).")
     # 2026-10-15: a simulator run ended with "No valid calibration samples collected" and nothing in
     # the log said whether the plan was empty or every capture failed.
     core.log_msg(f"[INFO] Step 2 plan: {len(plan)} poses (starting at {start_index + 1}).")
@@ -119,14 +125,15 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
         else:
             q_arm, q_head, transforms = capture_one_sample(
                 core.robot, arm["arm_idx"], core.observer,
-                sampling_time=0 if core.observer.sim else 1, side="all", head_idx=head,
+                sampling_time=sample_time, side="all", head_idx=head,
             )
         # Finish recording an acquired sample before acknowledging cancellation.
         if transforms is not None:
             # home_epoch: the robot zero this sample was taken at (CalibrationCore.home_epoch).
             samples.append({"q_arm": q_arm, "q_head": q_head, "marker": transforms,
                             "motion_index": index, "frame": core.observer.last_frame.copy(),
-                            "home_epoch": getattr(core, "home_epoch", None)})
+                            "home_epoch": getattr(core, "home_epoch", None),
+                            "baseline": isinstance(motion, dict) and motion.get("type") == "restore_baseline"})
             failures = 0
         elif optional:
             if moved is not None:

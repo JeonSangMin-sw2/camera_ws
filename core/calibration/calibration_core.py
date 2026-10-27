@@ -664,8 +664,13 @@ class CalibrationCore:
                 ctx.complete("optimization", value)
                 if options.get("verify", True) and solve.get("active_arms") == ["right", "left"]:
                     from .sequences.verify import run_post_step2_verification
+                    # Live collection ends on a restore_baseline step, i.e. at the ready pose; its sample stands in
+                    # for the verification's own return to that pose.
+                    reference = None
+                    if options.get("samples") is None and samples[-1].get("baseline"):
+                        reference = (q_arm_array[-1], None if q_head_list is None else q_head_list[-1])
                     try:
-                        run_post_step2_verification(self, ctx, optimization=value)
+                        run_post_step2_verification(self, ctx, optimization=value, reference=reference)
                     except SequenceCancelled:
                         raise
                     except Exception as error:
