@@ -11,6 +11,7 @@ result/
 build/
 dist/
 camera_calibrator*
+!camera_calibrator.spec
 camera_ws.code-workspace
 
 # AI 하네스 상태 파일 (hook이 만든다)

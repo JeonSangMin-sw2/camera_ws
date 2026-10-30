@@ -17,6 +17,14 @@ AI가 작업 중에 갱신하는 파일입니다. 노션 정리를 요청받으�
 
 ---
 
+## 2026-10-30 — 첫 위자드 슬라이드 예상 시간 ~40 → ~20분 (사용자)
+- `main_ui.py` `overview_duration` 문구만 변경 (10-27 실측 Full Auto 18분 32초). 영어 고정 문구라 i18n 키 없음
+
+## 2026-10-30 — 배포 저장소 빌드 실패: `camera_calibrator.spec` 없음
+- 배포 저장소 커밋 `b9d6aad`(09:51)에서 `main_ui.py`·`setup.py`가 지워져 설치·실행 실패 → 사용자가 `7c9e93e`(10:00)에서 복구
+- 이어서 `build_windows.bat`이 `Spec file "camera_calibrator.spec" not found`. 원인: 두 저장소 `.gitignore`의 `camera_calibrator*`가 spec까지 무시 → 배포 저장소에 한 번도 커밋 안 됨 (camera_ws에는 예전에 강제로 추가돼 추적 중)
+- **수정 (사용자 "추가해봐")**: 두 저장소 `.gitignore`에 `!camera_calibrator.spec` (빌드 결과 exe는 `dist/`라 계속 무시), camera_ws spec을 배포 저장소에 복사(상대 경로만 사용). 배포 저장소에서 `?? camera_calibrator.spec`로 잡힘 확인. 커밋·빌드는 사용자
+
 ## 2026-10-30 — camera_ws 삭제 직전 상황 점검, `.venv` 재생성 (사용자 "camera_ws를 다 지울 뻔")
 - git: 브랜치 `compute_jsm`, HEAD `950eb29`, `git fsck` 이상 없음, 삭제된 추적 파일 0. 수정 5개(`CLAUDE.md` 안티패턴 3행, `Readme.md`, `docs/progress.md`, `main_ui.py` 창 중앙 6줄, `config/setting.yaml`은 세션 시작 때부터의 Apply 후 0 상태)가 그대로
 - 추적 안 되는 것: `archive/`(runs 22, test_logs, reports), `result/`, `dist/`, `build/`, `.claude/settings.json`, `config/home_reset_baseline.json`, `.venv_py311_backup` 모두 있음. **`.venv`만 없어짐** → hook 7개가 `.venv` python으로 돌아 모두 멈춘 상태였음

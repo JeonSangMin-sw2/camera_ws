@@ -2396,7 +2396,7 @@ class UnifiedCalibrationApp(QWidget):
         self.overview_link.setOpenExternalLinks(True)
         container_layout.addWidget(self.overview_link)
 
-        self.overview_duration = QLabel("Estimated Execution Time: ~40 minutes")
+        self.overview_duration = QLabel("Estimated Execution Time: ~20 minutes")
         self.overview_duration.setStyleSheet("font-size: 16px; font-weight: bold; color: #00e5ff;")
         self.overview_duration.setAlignment(Qt.AlignCenter)
         container_layout.addWidget(self.overview_duration)
