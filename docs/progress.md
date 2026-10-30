@@ -13,8 +13,31 @@ AI가 작업 중에 갱신하는 파일입니다. 노션 정리를 요청받으�
 - 2026-10-06 밤 노션 동기화 (사용자 요청): 이 파일의 2026-10-06 항목 전부(모니터 창, 점검 보고서, 다른 로봇 1·2차, 실행 기록, v1.3 시뮬, 스윕 파일 이름)를 process 진행 기록 7건과 4.8 현황에, 결정은 cps C20~C23에, harness(G2 기록, 결과 파일 계약, T10·T12·T27, T34 신규, 5장 예외), report(상단 결정 대기, 결과 경로, Step 1 순서 설명), detail(한계 2줄)에 반영. 볼트(옵시디언)는 수정하지 않음. 다음 노션 정리는 이 뒤부터.
 - 지금 결정 대기: v1.3 J5 연산의 구체안 (cps C23, process 4.8), v1.3 J6를 브라켓 스윕에서 구할지.
 - 2026-10-16 밤 노션 동기화 (사용자 `/record`): 이 파일의 10-08~10-16 항목을 process 진행 기록 19건과 4.10 현황(시스템 확정)에, 결정은 cps C24~C31에, harness(원칙 4 카메라, T4/T18, T34 상태, T35~T39 신규, G2 324·G4, 5장 예외 해결, 안티패턴 3행, 결과 JSON `camera_mount_constraint`), detail(4.5.1 v1.3 브라켓, 4.5.2 설계 위치 모드·광축 회전, 4.5.3 표, 4.8, 4.9 파라미터 4행), report(상단 현재 상태, 결정 대기 3건 결정됨, 2.1 Python·시뮬·카메라, 2.3 파일 트리, 2.4 v1.3)에 반영. 저장소 `CLAUDE.md` 안티패턴 3행 추가. 볼트(옵시디언)는 수정하지 않음. 다음 노션 정리는 이 뒤부터.
+- 2026-10-27 노션 동기화 (사용자 `/record`): 이 파일의 10-19~10-27 항목을 process 진행 기록 13건과 4.11 현황에, 결정은 cps C32~C38(C31은 대체됨)에, harness(G2 336, scratch 표, 원칙 4 v1.3 J5·J6, T8·T20, T40~T42 신규, 안티패턴 3행), detail(R11 시간, 4.5.1 v1.3 브라켓 회전·J3 하한, 4.5.3 표·손목 자세 실기·자세 계획·검증, 4.8, 4.9 파라미터), report(상단 현재 상태, 2.1 Python·OS, 2.2 SDK·OpenCV headless·설치 버전, 2.3 트리, 2.4 v1.3·J3 하한)에 반영. 저장소 `CLAUDE.md` 안티패턴 3행 추가. 볼트(옵시디언)는 수정하지 않음. 다음 노션 정리는 이 뒤부터.
 
 ---
+
+## 2026-10-30 — camera_ws 삭제 직전 상황 점검, `.venv` 재생성 (사용자 "camera_ws를 다 지울 뻔")
+- git: 브랜치 `compute_jsm`, HEAD `950eb29`, `git fsck` 이상 없음, 삭제된 추적 파일 0. 수정 5개(`CLAUDE.md` 안티패턴 3행, `Readme.md`, `docs/progress.md`, `main_ui.py` 창 중앙 6줄, `config/setting.yaml`은 세션 시작 때부터의 Apply 후 0 상태)가 그대로
+- 추적 안 되는 것: `archive/`(runs 22, test_logs, reports), `result/`, `dist/`, `build/`, `.claude/settings.json`, `config/home_reset_baseline.json`, `.venv_py311_backup` 모두 있음. **`.venv`만 없어짐** → hook 7개가 `.venv` python으로 돌아 모두 멈춘 상태였음
+- `.venv`를 README Windows 절차로 다시 만듦 (Python 3.12.10, 패키지 버전 이전과 같음, `archive/test_logs/pip_venv312_rebuild_20261030.log`). hook 동작 확인(커밋 차단 hook이 바로 막음). G2 통과 336 / 0 / 0 / 0 (`archive/test_logs/g2_20261030_venv_rebuild.log`)
+
+## 2026-10-30 — 메인 창 화면 중앙 배치, README Windows / Linux 처음부터 안내 (사용자)
+> 검증 수준 🟠 (창 위치 실측 + G2) · Linux 절은 실행 안 함
+- **창 위치 (사용자 "UI가 자꾸 아래로 내려감")**: `main_ui.main()`이 `gui.show()` 뒤 창 틀을 그 모니터 작업 영역 중앙으로 옮기고, 작업 영역보다 크면 위쪽 맞춤. 실측(이 노트북 1920×1200 125%, 작업 영역 1536×912 논리): 수정 전(배포 저장소) 창 y 116, 아래 41 px 화면 밖 → 수정 후 위 37 / 아래 38, 좌우 243 / 243 (`--ui`와 카메라 없음 시뮬 모드 모두). 확인 스크립트는 세션 스크래치(보존 안 함). 10-30 오전 배포 저장소 실행 로그의 "최소 1060×899"가 나온 상태는 재현 못 함 → 그 상태면 작업 영역(912)보다 커서 위에 붙고 아래가 약간 잘릴 수 있음(미확인)
+- **README (사용자: PowerShell이면 cmd, Windows / Linux로, 예외 안내 없이 처음부터)**: 환경 설정을 "1. Windows 10/11"(Python 3.12·Git 설치 → `Win+R` `cmd`, PowerShell이면 `cmd` → `py -3.12 --version` → clone → venv·설치 → 카메라 → 네트워크 → 실행)과 "2. Linux (Ubuntu 22.04 / 24.04, Jetson Orin)"(deadsnakes·`python3.12 python3.12-venv git libxcb-cursor0` → 확인 → udev → clone → venv·설치 → 카메라 → 네트워크 → 실행)로. 삭제: 기본 Python pip 경고, `.venv` 삭제법, 시스템 python3 되돌리기, `apt-cache policy` 확인, 옛 OpenCV 정리 NOTE. 지원 OS 줄 "24.04 미지원" → "Ubuntu 22.04 / 24.04"(사용자 "22, 24 같잖아" — 24.04 실행 확인은 없음). 빌드 절 참조 "Linux setup 1·4단계"
+- **발견·우회**: `scripts/linux/run_linux.sh`가 git에 100644(실행 권한 없음)로 커밋됨(두 저장소 모두) → 새 clone에서 `./scripts/linux/run_linux.sh`는 Permission denied. README를 `bash scripts/linux/run_linux.sh`로. 실행 권한 자체(`git update-index --chmod=+x`)는 사용자 판단. 커밋본 줄바꿈(CRLF) 확인은 권한 hook이 막아 못 함
+- 배포 저장소 README를 camera_ws와 동일하게 복사 (사용자가 지웠던 `.venv` 삭제 안내도 새 내용에서 빠짐)
+
+## 2026-10-30 — README 환경 설정을 Windows·Ubuntu 단계별로 (사용자 배포 시도 중 설치 실패)
+> 검증 수준 ⚪ (문서만) · 코드 변경 없음
+- 증상 (사용자): 패키지 재설치 중 `Failed building wheel for rby1_sdk`. traceback의 Python이 `pythoncore-3.14-64` → pip가 3.12 `.venv`가 아니라 기본 Python 3.14로 실행돼 rby1_sdk 소스 빌드를 시도
+- README: Windows 절을 Python 3.12 설치(python.org 설치 파일 또는 `py install 3.12`) → `py -3.12 --version` 확인 → `.venv` 만들기·`python --version` 확인 → 설치(`python -m pip`) → 다른 버전 `.venv` 삭제법 → 카메라 → 네트워크 → 실행 순서로. 기본 Python으로 pip 실행 금지 IMPORTANT 박스(위 에러 문구 포함). Ubuntu 절에도 `python --version` 확인·`.venv` 삭제법·실행 단계 추가. Running 절은 OS별 실행 단계를 가리키게
+- 발견 (미수정): `scripts/windows/run_windows.bat`은 `.venv`가 없으면 경고만 하고 시스템 Python으로 실행함
+- **원인 확인 (사용자 "3.12 가상환경에 들어가도 3.14가 인식")**: 사용자 터미널이 PowerShell. PowerShell에서 `.venv\Scripts\activate.bat`은 cmd 하위 프로세스에서만 돌고 끝나 PATH가 그대로 → `pip` = `%LocalAppData%\Python\bin\pip.exe`(기본 3.14). `Activate.ps1`로 하면 `.venv` pip(3.12)로 바뀜을 이 PC에서 확인. `.venv` 자체는 3.12.10(`pyvenv.cfg`). README Windows 절 첫 줄에 "PowerShell이면 `cmd` 먼저" 안내 추가 (10-26 결정대로 PowerShell 명령은 넣지 않음)
+- **배포 저장소 `C:\Users\User\Desktop\rby1-calibration`에서 README Windows 절대로 실행 (사용자 요청)**: cmd에서 `py -3.12 --version` 3.12.10 → 기존 `.venv`(3.12.10, pip만 있음) 활성화·`python --version` 3.12.10 → `pip install --upgrade pip`, `-r requirements.txt`, `-e .` 모두 성공(`archive/test_logs/pip_deploy_repo_20261030.log`), 설치 버전이 README 시험 목록과 같음 → 모듈 import(aruco AprilTag 36h11, osqp, core/ui) 정상 → `main_ui.py` 15초 실행 후 종료, 오류 없음(Qt 창 크기 조정 경고만, `archive/test_logs/launch_deploy_repo_20261030.*.txt`). 로봇 연결 없음. clone 주소(RainbowRobotics, JeonSangMin-sw2 둘 다) 존재 확인
+- 발견·수정: `pip install -e .`이 만든 `camera_ws.egg-info/`가 배포 저장소 `.gitignore`에 없어 git에 잡힘 → 배포 저장소 `.gitignore`에 `*.egg-info/` (camera_ws에는 이미 있음). 배포 저장소 README를 camera_ws README와 동일하게(PowerShell 안내 줄)
+- 검증하지 않은 것: 새 PC의 Python 3.12 설치 단계 자체(이 PC에는 이미 설치됨), Ubuntu 절, exe 빌드
 
 ## 2026-10-27 — Python 3.12 실기 확인, README 문구
 - 오늘 실기 실행은 모두 `.venv` Python 3.12.10(패키지: rby1-sdk 0.10.0, pyrealsense2 2.59.1, numpy 2.5.4, scipy 1.18.1, matplotlib 3.11.2, PySide6 6.12.0, opencv-contrib-python-headless 4.13.0.92, qpsolvers 4.11.0, osqp 1.1.1). README 패키지 목록 문구 "offline tests pass" → "Tested with this set (… RB-Y1 v1.2 robot …)". 3.12 exe 빌드는 미확인(사용자)

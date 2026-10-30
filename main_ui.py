@@ -6031,6 +6031,12 @@ def main():
 
     gui = UnifiedCalibrationApp(core, robot, "right", ui_only=args.ui)
     gui.show()
+    # Windows' default placement left the bottom of the window off a 1920x1200 screen at 125 %.
+    # Centre the frame on the monitor's work area; if it is taller, keep the title bar on screen.
+    area = gui.screen().availableGeometry()
+    frame = gui.frameGeometry()
+    frame.moveCenter(area.center())
+    gui.move(max(frame.left(), area.left()), max(frame.top(), area.top()))
     if camera_error:
         # Used to go to the console only, so the window opened in UI-only mode with no word of
         # why -- including when the fix is simply a USB 3 cable.

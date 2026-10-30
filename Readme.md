@@ -7,7 +7,7 @@ This is a camera calibration tool for the robot to calibrate joint offsets and c
 It measures the two arm markers with the head camera and estimates the home offsets of both arms (14 joints) and the head (2 joints), the camera mounting pose and the marker brackets, then writes the offsets to the robot.
 
 ### 1. Supported Systems
-- **OS**: Windows 10/11 x64, Ubuntu 22.04 (x86_64, Jetson Orin aarch64). Ubuntu 24.04 is not supported yet.
+- **OS**: Windows 10/11 x64, Linux: Ubuntu 22.04 / 24.04 (x86_64), Jetson Orin (aarch64)
 - **Python version**: 3.12
 - **SDK compatibility**: rby1-sdk 0.10.x and later
 - **Robot**: RB-Y1 v1.2, RB-Y1 v1.3, with or without the head camera
@@ -56,85 +56,87 @@ If you need to calibrate the camera's intrinsic parameters (focal length, princi
 ---
 
 ## Environment Setup
-Follow the steps for your OS once per PC. Each step prevents a problem that otherwise only shows up when the app starts. To use the standalone executable instead, see [Standalone Executable](#standalone-executable): the target PC then only needs the steps marked **(also for the executable)**.
+Follow the steps for your OS once per PC, from the top. To use the standalone executable instead, see [Standalone Executable](#standalone-executable): the target PC then only needs the steps marked **(also for the executable)**.
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/RainbowRobotics/rby1-calibration.git
-cd rby1-calibration
-```
-
-### 2. Windows
-1. **Python 3.12** (64-bit) from python.org.
-2. **Virtual environment and packages** (Command Prompt, in the repository folder):
+### 1. Windows 10/11
+1. **Install Python 3.12 and Git**
+   - Python: the latest 3.12.x **Windows installer (64-bit)** from <https://www.python.org/downloads/windows/>. Keep "py launcher" checked.
+   - Git: <https://git-scm.com/download/win>
+2. **Open the Command Prompt**: press `Win + R`, type `cmd` and press Enter. All commands below are for the Command Prompt. If you are in PowerShell (the prompt starts with `PS`), type `cmd` first.
+3. **Check Python**:
+   ```bat
+   py -3.12 --version
+   ```
+   It prints `Python 3.12.x`.
+4. **Get the repository**:
+   ```bat
+   git clone https://github.com/RainbowRobotics/rby1-calibration.git
+   cd rby1-calibration
+   ```
+5. **Create the virtual environment and install the packages**:
    ```bat
    py -3.12 -m venv .venv
    .venv\Scripts\activate.bat
    python -m pip install --upgrade pip
-   pip install -r requirements.txt
-   pip install -e .
+   python -m pip install -r requirements.txt
+   python -m pip install -e .
    ```
-3. **Camera** (also for the executable): connect the RealSense to a **USB 3.0** port (blue port / SS mark) with a USB 3.0 cable.
-4. **Robot network** (also for the executable): set the PC's Ethernet adapter to a fixed IP in the robot's subnet (e.g. `192.168.1.xxx` for a robot at `192.168.1.40`) and check `ping 192.168.1.40` before starting the app.
+6. **Camera** (also for the executable): connect the RealSense to a **USB 3.0** port (blue port / SS mark) with a USB 3.0 cable.
+7. **Robot network** (also for the executable): set the PC's Ethernet adapter to a fixed IP in the robot's subnet (e.g. `192.168.1.xxx` for a robot at `192.168.1.40`) and check `ping 192.168.1.40`.
+8. **Launch**: double-click `run_windows.bat` in the repository folder, or in the Command Prompt:
+   ```bat
+   .venv\Scripts\activate.bat
+   python main_ui.py
+   ```
 
-### 3. Ubuntu 22.04 (incl. Jetson Orin)
-1. **Python 3.12**, installed next to Ubuntu's own Python 3.10. `apt`, Ubuntu's tools and JetPack keep using 3.10, so the system `python3` must stay 3.10; the app uses 3.12 only inside its `.venv` (step 4).
-   1. Add the deadsnakes PPA and check that it has 3.12 for this PC (on Jetson Orin especially): the `Candidate:` line must not be `(none)`.
-      ```bash
-      sudo add-apt-repository ppa:deadsnakes/ppa
-      sudo apt update
-      apt-cache policy python3.12
-      ```
-   2. Install 3.12:
-      ```bash
-      sudo apt install -y python3.12 python3.12-venv
-      ```
-   3. Check that `python3` is still 3.10 and 3.12 is a separate command:
-      ```bash
-      python3 --version      # Python 3.10.x
-      python3.12 --version   # Python 3.12.x
-      ```
-   - Do **not** point `python3` at 3.12 (no `update-alternatives --install /usr/bin/python3 ...`, no `ln -sf ... /usr/bin/python3`), and do not install packages with `sudo pip`.
-   - If `python3 --version` already shows 3.12, set it back to 3.10: `sudo update-alternatives --config python3` and choose `/usr/bin/python3.10` if it was changed with `update-alternatives`, or `sudo ln -sf python3.10 /usr/bin/python3` if the link was changed by hand.
-2. **Qt system library** (also for the executable; PySide6 6.5 and later will not start without it):
+### 2. Linux (Ubuntu 22.04 / 24.04, Jetson Orin)
+Run the commands in a terminal. Python 3.12 is installed next to the system Python; the system `python3` stays as it is, and the app uses 3.12 only inside its `.venv`.
+
+1. **Install Python 3.12, Git and the Qt library** (`libxcb-cursor0` is also for the executable):
    ```bash
-   sudo apt install -y libxcb-cursor0
+   sudo add-apt-repository -y ppa:deadsnakes/ppa
+   sudo apt update
+   sudo apt install -y python3.12 python3.12-venv git libxcb-cursor0
    ```
-3. **RealSense USB permission** (also for the executable; udev rule). Without it the camera can only be opened as root:
+2. **Check Python**:
+   ```bash
+   python3.12 --version
+   ```
+   It prints `Python 3.12.x`.
+3. **RealSense USB permission** (also for the executable):
    ```bash
    sudo curl -L https://raw.githubusercontent.com/IntelRealSense/librealsense/master/config/99-realsense-libusb.rules \
         -o /etc/udev/rules.d/99-realsense-libusb.rules
    sudo udevadm control --reload-rules && sudo udevadm trigger
    ```
-   Re-plug the camera afterwards, on a **USB 3.0** port.
-4. **Virtual environment and packages** (in the repository folder):
+4. **Get the repository**:
+   ```bash
+   git clone https://github.com/RainbowRobotics/rby1-calibration.git
+   cd rby1-calibration
+   ```
+5. **Create the virtual environment and install the packages**:
    ```bash
    python3.12 -m venv .venv
    source .venv/bin/activate
    python -m pip install --upgrade pip
-   pip install -r requirements.txt
-   pip install -e .
+   python -m pip install -r requirements.txt
+   python -m pip install -e .
    ```
-5. **Display** (also for the executable): run the app from the desktop session of the PC (it is a GUI). Over SSH it needs X11 forwarding (`ssh -X`); a plain SSH shell gives `could not connect to display`.
-6. **Robot network** (also for the executable): give the Ethernet port a fixed IP in the robot's subnet (e.g. `192.168.1.xxx`) and check `ping 192.168.1.40`.
-
-> [!NOTE]
-> OpenCV is installed as `opencv-contrib-python-headless` (same version, without OpenCV's own GUI). The full `opencv-contrib-python` brings its own Qt plugins, which clash with PySide6 on Linux (`Aborted` at start). The app does not use OpenCV windows.
-> An existing `.venv` made with the old requirements must drop the old package first, since both install the same `cv2` module:
-> `pip uninstall -y opencv-contrib-python && pip install -r requirements.txt`
+6. **Camera** (also for the executable): connect the RealSense to a **USB 3.0** port with a USB 3.0 cable.
+7. **Robot network** (also for the executable): give the Ethernet port a fixed IP in the robot's subnet (e.g. `192.168.1.xxx`) and check `ping 192.168.1.40`.
+8. **Launch** from the desktop session of the PC (the app is a GUI; also for the executable):
+   ```bash
+   bash scripts/linux/run_linux.sh
+   ```
 
 > [!NOTE]
 > - `requirements.txt` gives minimum versions, so a new install takes the latest releases. Tested with this set (Windows, Python 3.12.10, RB-Y1 v1.2 robot, 2026-10): rby1-sdk 0.10.0, pyrealsense2 2.59.1, numpy 2.5.4, scipy 1.18.1, matplotlib 3.11.2, PySide6 6.12.0, opencv-contrib-python-headless 4.13.0.92, qpsolvers 4.11.0, osqp 1.1.1. If a later release breaks the app, install these versions.
-> - On Ubuntu 22.04 for Jetson (aarch64), recent PySide6 releases need a newer glibc than 22.04 has, so pip picks an older PySide6 that fits (for example 6.7.2) on its own. That version has not been tested with the app.
+> - On Jetson Orin (aarch64), pip picks an older PySide6 that fits its glibc (for example 6.7.2). That version has not been tested with the app.
 ---
 
 ## Running the Calibration
 ### 1. Launch
-With the virtual environment active, launch the main UI:
-```bash
-python main_ui.py
-```
-or use the launchers `run_windows.bat` (Windows) / `scripts/linux/run_linux.sh` (Linux), which activate `.venv` first.
+Launch the main UI as in the last step of your OS in [Environment Setup](#environment-setup): `run_windows.bat` (Windows) or `bash scripts/linux/run_linux.sh` (Linux), which activate `.venv` first, or `python main_ui.py` with the `.venv` active.
 From the UI, you can connect to the robot, initialize the pose, and run Step 1 (joint offsets and marker brackets), Step 1.5 (head camera) and Step 2 (whole-system calibration) automatically.
 
 To begin, click the **Start** button; the wizard guides you through the rest.
@@ -166,7 +168,7 @@ scripts\windows\build_windows.bat
 The script will automatically create a `.venv`, install all dependencies (`rby1-sdk`, `pyrealsense2`, `PySide6`, etc.), and generate `dist\camera_calibrator_AMD64.exe`.
 
 #### Linux Build (Ubuntu / Jetson)
-On Linux (after steps 1-2 of the Ubuntu setup above):
+On Linux (after steps 1 and 4 of the Linux setup above):
 ```bash
 ./scripts/linux/build_linux.sh
 ```
