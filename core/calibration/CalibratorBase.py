@@ -207,9 +207,10 @@ class BaseCalibrator(RobotOperations):
         if source is None or getattr(source, "sim", False) or getattr(source, "camera", None) is None:
             return None
         auto, setpoint = source.get_camera_exposure()
+        last_frame = source.get_actual_exposure()
         return {"auto": bool(auto), "setpoint": float(setpoint),
                 "setpoint_unit_us": float(source.get_camera_exposure_unit_us()),
-                "last_frame_us": float(source.get_actual_exposure())}
+                "last_frame_us": None if last_frame is None else float(last_frame)}
 
     def save_debug_points(self, arm_side, axis_num, dataset, initial_joint_pos, ee_name, dyn_model, T_mount_to_cam, type_key, log_callback=None, note=None, file_tag=None):
         try:

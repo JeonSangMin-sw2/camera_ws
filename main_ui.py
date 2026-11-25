@@ -52,10 +52,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QGridLayout,
     QPushButton, QTextEdit, QLabel, QGroupBox, QComboBox, QCheckBox,
     QLineEdit, QSpinBox, QSlider, QTabWidget, QTableWidget, QHeaderView,
-    QTableWidgetItem, QSizePolicy, QStackedWidget, QButtonGroup
+    QTableWidgetItem, QSizePolicy, QStackedWidget, QButtonGroup, QScrollArea, QFrame
 )
 from PySide6.QtGui import (
-    QPainter, QColor, QPen, QFont, QPixmap, QImage, QGuiApplication
+    QPainter, QColor, QPen, QFont, QPixmap, QImage, QGuiApplication, QFontDatabase
 )
 
 # =============================================================================
@@ -71,7 +71,8 @@ from ui.busy_indicator import BusyIndicator
 # 6. Computer Vision & Calibration Logic (마커 검출 및 카메라/관절 캘리브레이터)
 # =============================================================================
 from ui.core_bridge import Step2ZeroPoseCheckWorker, CheckCalibrationStateWorker, idle_core_action
-from ui.core_bridge import FullAutoReadyWorker, HeadCamReadyWorker, ManualHeadWorker, MoveToReadyWorker
+from ui.core_bridge import FullAutoReadyWorker, HeadCamReadyWorker, ManualHeadWorker, MoveToReadyWorker, GripperPoseWorker
+from ui.core_bridge import AutoExposureWorker
 from ui.core_bridge import HomeOffsetResetWorker, Step2ApplyHomeOffsetWorker, Step2InitPoseWorker
 from core.storage import ResultStorage, ConfigStorage
 from core.calibration.calibration_core import CalibrationCore
@@ -247,7 +248,7 @@ class ZeroPoseCheckDialog(QDialog):
         self.setLayout(layout)
 
 class MarkerRecognitionProblemDialog(QDialog):
-    def __init__(self, parent=None, is_ko=None):
+    def __init__(self, parent=None, is_ko=None, arm_label=""):
         super().__init__(parent)
         self.parent_app = parent
         self.setWindowTitle(tr("dialogs.marker_problem.title"))
@@ -258,7 +259,7 @@ class MarkerRecognitionProblemDialog(QDialog):
         main_layout.setSpacing(12)
 
         # 1. Title Header
-        lbl_title = QLabel(tr("dialogs.marker_problem.warn_header"))
+        lbl_title = QLabel(tr("dialogs.marker_problem.warn_header", arm=arm_label))
         lbl_title.setObjectName("dialog_title_warn")
         lbl_title.setWordWrap(True)
         lbl_title.setAlignment(Qt.AlignCenter)
@@ -1445,19 +1446,39 @@ class UnifiedCalibrationApp(QWidget):
         self.log_msg(f"[SUCCESS] Confirmed and saved exposure for calibration: auto={self.saved_camera_auto_exposure}, exposure={self.saved_camera_exposure_value}")
 
     def reconnect_camera(self, show_dialog=True):
+        # The connect blocks this thread; clicks made meanwhile used to queue up and each ran another
+        # reconnect. Ignore them: the button stays disabled until the queued clicks have been delivered.
+        if getattr(self, "camera_reconnecting", False):
+            return
+        self.camera_reconnecting = True
+        button = getattr(self, "btn_reconnect_cam", None)
+        if button is not None:
+            button.setEnabled(False)
+            button.setText(tr("common.reconnecting_camera"))
+            QApplication.processEvents()
         self.log_msg("[INFO] Reconnecting RealSense camera...")
+        error = None
         try:
             self.core.connect_camera()
             self.init_camera_exposure_state()
             self.refresh_camera_tab_info()
             self.sync_marker_monitor()
             self.log_msg("[SUCCESS] RealSense Camera connected and streaming successfully!")
-            if show_dialog:
-                QMessageBox.information(self, "Camera Connected", "RealSense camera successfully connected and active!")
+            # The camera is no longer opened at start (2026-11-24), so its config gaps are reported here.
+            self.warn_camera_config_gaps()
         except Exception as e:
+            error = e
             self.log_msg(f"[ERROR] Failed to connect RealSense camera: {e}")
-            if show_dialog:
-                QMessageBox.warning(self, "Camera Connection Failed", f"Could not connect to RealSense camera:\n{e}\n\nPlease check USB cable connection.")
+        finally:
+            QApplication.processEvents()
+            if button is not None:
+                button.setText(tr("common.reconnect_camera"))
+                button.setEnabled(True)
+            self.camera_reconnecting = False
+        if show_dialog and error is None:
+            QMessageBox.information(self, tr("common.camera_connected_title"), tr("common.camera_connected_msg"))
+        elif show_dialog:
+            QMessageBox.warning(self, tr("common.camera_failed_title"), tr("common.camera_failed_msg", error=error))
 
     def load_offsets_from_yaml(self):
         self.joint_offsets_store = {
@@ -2260,6 +2281,11 @@ class UnifiedCalibrationApp(QWidget):
         exp_layout = QVBoxLayout()
         exp_layout.setSpacing(8)
 
+        self.lbl_exposure_guide = QLabel(tr("wizard.slides.slide_exposure.brightness_guide"))
+        self.lbl_exposure_guide.setStyleSheet("color: #dddddd; font-size: 12px; font-weight: bold;")
+        self.lbl_exposure_guide.setWordWrap(True)
+        exp_layout.addWidget(self.lbl_exposure_guide)
+
         init_auto = getattr(self, 'saved_camera_auto_exposure', True)
         init_exp = getattr(self, 'saved_camera_exposure_value', 6000)
 
@@ -2378,7 +2404,8 @@ class UnifiedCalibrationApp(QWidget):
         # ==========================================
         overview_tab = QWidget()
         overview_layout = QVBoxLayout()
-        overview_layout.setContentsMargins(20, 20, 20, 20)
+        # Tight margins: the wizard slides must fit a maximized 1536x960 (1920x1200 at 125 %) window.
+        overview_layout.setContentsMargins(10, 6, 10, 6)
 
         self.overview_container = QWidget()
         container_layout = QVBoxLayout(self.overview_container)
@@ -2423,15 +2450,24 @@ class UnifiedCalibrationApp(QWidget):
         # ==========================================
         # Top-level tabs (2026-09-30): Wizard / Camera / Advanced (Step 1 + Step 2 sub-tabs)
         # ==========================================
+        # 2026-11-17: the Advanced (840) and Camera tabs set the window's minimum height; on a screen lower
+        # than that, Linux window managers refuse to maximize and only the height fits. They scroll instead.
+        def scrollable(page):
+            scroll = QScrollArea()
+            scroll.setWidgetResizable(True)
+            scroll.setFrameShape(QFrame.NoFrame)
+            scroll.setWidget(page)
+            return scroll
+
         self.left_tabs.addTab(overview_tab, "Wizard")
-        self.left_tabs.addTab(camera_top_tab, "Camera")
+        self.left_tabs.addTab(scrollable(camera_top_tab), "Camera")
         advanced_tab = QWidget()
         advanced_layout = QVBoxLayout(advanced_tab)
         advanced_layout.setContentsMargins(0, 0, 0, 0)
         self.advanced_tabs = QTabWidget()
         self.advanced_tabs.addTab(main_tab, "Step 1")
         advanced_layout.addWidget(self.advanced_tabs)
-        self.left_tabs.addTab(advanced_tab, "Advanced")
+        self.left_tabs.addTab(scrollable(advanced_tab), "Advanced")
 
         # ==========================================
         # Step 2 Tab: Shared widgets + empty Box1
@@ -2715,6 +2751,8 @@ class UnifiedCalibrationApp(QWidget):
             self.int_busy.retranslate()
         if hasattr(self, 'lbl_exposure_not_saved'):
             self.lbl_exposure_not_saved.setText(tr("wizard.slides.slide_exposure.not_saved_warn"))
+        if hasattr(self, 'lbl_exposure_guide'):
+            self.lbl_exposure_guide.setText(tr("wizard.slides.slide_exposure.brightness_guide"))
         if hasattr(self, 'advanced_tabs'):
             self.advanced_tabs.setTabText(self.ADV_SUB_STEP1, tr("main_tabs.tab_step1"))
             self.advanced_tabs.setTabText(self.ADV_SUB_STEP2, tr("main_tabs.tab_step2"))
@@ -2844,11 +2882,9 @@ class UnifiedCalibrationApp(QWidget):
             self.btn_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 4px 8px; font-size: 11px;")
             self.btn_connect.setEnabled(True)
             if hasattr(self, 'wizard_widget') and self.wizard_widget:
-                self.wizard_widget.btn_wizard_connect.setText("CONNECTED")
+                self.wizard_widget.btn_wizard_connect.setText(tr("wizard.btn_connected"))
                 self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #757575; color: #ffffff; font-weight: bold; padding: 8px 16px; font-size: 15px;")
-                self.wizard_widget.lbl_step2_status.setText(tr("wizard.status_robot_connected"))
-                self.wizard_widget.lbl_step2_status.setStyleSheet("color: #4caf50; font-weight: bold; font-size: 16px;")
-                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ROBOT_CONNECT,True, "Connected")
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ROBOT_CONNECT, True, ("wizard.st.connected", {}))
         else:
             self.btn_connect.setText("CONNECT")
             self.btn_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 4px 8px; font-size: 11px;")
@@ -2856,9 +2892,7 @@ class UnifiedCalibrationApp(QWidget):
             if hasattr(self, 'wizard_widget') and self.wizard_widget:
                 self.wizard_widget.btn_wizard_connect.setText(tr("wizard.btn_connect"))
                 self.wizard_widget.btn_wizard_connect.setStyleSheet("background-color: #ff9800; color: #000000; font-weight: bold; padding: 8px 16px; font-size: 15px;")
-                self.wizard_widget.lbl_step2_status.setText(tr("wizard.status_disconnected"))
-                self.wizard_widget.lbl_step2_status.setStyleSheet("color: #aaaaaa; font-size: 16px; font-weight: bold;")
-                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ROBOT_CONNECT,False, "Disconnected")
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ROBOT_CONNECT, False, ("wizard.st.disconnected", {}))
 
     def sync_connection_settings(self, source='main'):
         if not hasattr(self, 'wizard_widget') or not self.wizard_widget:
@@ -2899,7 +2933,16 @@ class UnifiedCalibrationApp(QWidget):
             self.joint_calibrator.clear_user_taught_ready_poses(arm_side, mode)
 
     def _on_marker_problem_requested(self, arm_side, evt, res):
-        dlg = MarkerRecognitionProblemDialog(self)
+        # Stop pressed after the worker asked (the signal is queued): no readjustment window for a stopped run.
+        if self.core.stop_event.is_set():
+            res['resolved'] = False
+            evt.set()
+            return
+        # Operators did not understand the teaching window: say first which arm lost its marker.
+        arm_label = tr(f"dialogs.marker_problem.arm_{arm_side}") if arm_side in ("right", "left") else str(arm_side)
+        self.show_message_box(tr("dialogs.marker_problem.notice_title"),
+                              tr("dialogs.marker_problem.notice_msg", arm=arm_label), QMessageBox.Warning)
+        dlg = MarkerRecognitionProblemDialog(self, arm_label=arm_label)
         self.marker_problem_dlg = dlg
         self.on_left_tab_changed(self.left_tabs.currentIndex())
 
@@ -3008,6 +3051,10 @@ class UnifiedCalibrationApp(QWidget):
     def prompt_marker_problem_teaching(self, arm_side, active_mode=None, **kwargs):
         if not active_mode and 'mode' in kwargs:
             active_mode = kwargs['mode']
+        # 2026-11-17 (user): a sweep cut short by Stop loses its marker; that is not a posture problem.
+        if self.core.stop_event.is_set():
+            self.log_msg("[INFO] Stopped by the operator: no posture readjustment window.")
+            return False
         self.active_teaching_mode = active_mode
         evt = threading.Event()
         res = {'resolved': False}
@@ -3214,6 +3261,7 @@ class UnifiedCalibrationApp(QWidget):
                 self.overview_img.setVisible(False)
             self.btn_start_wizard.setVisible(False)
         self.wizard_widget.setVisible(True)
+        self.wizard_widget.skip_passed_over_start()
         self.on_left_tab_changed(self.left_tabs.currentIndex())
 
 
@@ -3897,53 +3945,9 @@ class UnifiedCalibrationApp(QWidget):
         self.zero_pose_worker.start()
 
     @idle_core_action
-    def move_to_zero_pose(self):
-        self.log_msg("[Wizard 3-2] Move to Zero Pose requested.")
-        if not self.robot:
-            self.log_msg("[ERROR] Robot is not connected!")
-            return False
-
-        self.zero_pose_worker = Step2ZeroPoseCheckWorker(
-            self._sync_core_state(),
-            "both",
-            self.include_head_motion
-        )
-        self.zero_pose_worker.log_signal.connect(self.log_msg)
-        def on_finished(success, error_msg):
-            if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
-                self.wizard_widget.set_wizard_busy(False)
-                if success:
-                    self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ZERO_POSE,True, "Moved to Zero Position")
-                else:
-                    self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_ZERO_POSE,False, error_msg)
-
-            if success:
-                self.log_msg("[Wizard 3-2] Robot moved to zero pose successfully.")
-            else:
-                self.log_msg(f"[Wizard 3-2] Failed to move to zero pose: {error_msg}")
-        self.zero_pose_worker.finished_signal.connect(on_finished)
-        self.zero_pose_worker.start()
-        return True
-
-    @idle_core_action
-    def move_arm_to_exposure_pose(self, arm_side, on_finished):
-        """Wizard exposure slide: one arm to the J5 (wrist pitch) calibration ready pose so its marker
-        faces the camera. The other arm, the torso and the head go to zero first."""
-        self.log_msg(f"[Wizard 3-1] {arm_side.upper()} arm to the J5 ready pose requested.")
-        if not self.robot:
-            self.log_msg("[ERROR] Robot is not connected!")
-            return False
-        mode = "wrist_pitch_v13" if self.get_robot_version() == "1.3" else "wrist_pitch"
-        self.exposure_pose_worker = MoveToReadyWorker(self._sync_core_state(), arm_side, mode, head_zero=True)
-        self.exposure_pose_worker.log_signal.connect(self.log_msg)
-        self.exposure_pose_worker.finished_signal.connect(on_finished)
-        self.exposure_pose_worker.start()
-        return True
-
-    @idle_core_action
     def move_to_zero_for_exposure(self, on_finished):
-        """Wizard exposure slide: back to zero after the markers were shown to the camera. The
-        zero-pose slide (3-2) is completed by its own button, not by this one."""
+        """Wizard exposure slide: back to zero after the markers were shown to the camera. Its Next
+        waits for this move, so the home offset reset starts from the zero pose."""
         self.log_msg("[Wizard 3-1] Move to Zero Pose requested.")
         if not self.robot:
             self.log_msg("[ERROR] Robot is not connected!")
@@ -3955,15 +3959,32 @@ class UnifiedCalibrationApp(QWidget):
         return True
 
     @idle_core_action
-    def power_off_tool_flanges(self):
-        """Wizard bracket slide: gripper power (tool flange output) off before the gripper is removed.
-        Returns the voltage read back per side; raises when the robot refuses or it stays on."""
+    def run_auto_exposure(self, on_finished):
+        """Wizard exposure slide: right arm to its J5 ready pose, then the auto exposure (D405 only).
+        on_finished(success, error, result)."""
+        self.log_msg("[Wizard] Test pose + auto exposure requested.")
+        if not self.robot or self.core.observer is None:
+            self.log_msg("[ERROR] Robot and camera must be connected!")
+            return False
+        self.auto_exposure_worker = AutoExposureWorker(self._sync_core_state())
+        self.auto_exposure_worker.log_signal.connect(self.log_msg)
+        self.auto_exposure_worker.finished_signal.connect(on_finished)
+        self.auto_exposure_worker.start()
+        return True
+
+    @idle_core_action
+    def move_to_gripper_pose(self, on_finished):
+        """Wizard gripper slide: both arms to the gripper-change pose of the robot version, then the
+        tool flange output off (v1.2; v1.3 keeps it on). on_finished(success, error, {side: volts})."""
+        self.log_msg("[Wizard] Gripper-change pose requested.")
         if not self.robot:
-            raise RuntimeError("Robot is not connected")
-        voltages = self._sync_core_state().power_off_tool_flanges()
-        self.log_msg("[Wizard 3] Tool flange output off: "
-                     + ", ".join(f"{side} {value:.0f} V" for side, value in voltages.items()))
-        return voltages
+            self.log_msg("[ERROR] Robot is not connected!")
+            return False
+        self.gripper_pose_worker = GripperPoseWorker(self._sync_core_state())
+        self.gripper_pose_worker.log_signal.connect(self.log_msg)
+        self.gripper_pose_worker.finished_signal.connect(on_finished)
+        self.gripper_pose_worker.start()
+        return True
 
     def step2_stop_auto_motion(self):
         self.log_msg("[Step2] Stop Auto Motion requested.")
@@ -4815,7 +4836,7 @@ class UnifiedCalibrationApp(QWidget):
         if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
             self.wizard_widget.set_wizard_busy(False)
             if success:
-                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_HOME_OFFSET,True, "Home Offset Reset complete")
+                self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_HOME_OFFSET, True, ("wizard.st.reset_done", {}))
             else:
                 self.wizard_widget.mark_step_completed(self.wizard_widget.SLIDE_HOME_OFFSET,False, error_msg)
 
@@ -5751,7 +5772,19 @@ class UnifiedCalibrationApp(QWidget):
         if prob_dlg_visible and hasattr(self.marker_problem_dlg, 'lbl_live_feed'):
             w_lbl = max(20, self.marker_problem_dlg.lbl_live_feed.width())
             h_lbl = max(20, self.marker_problem_dlg.lbl_live_feed.height())
-            self.marker_problem_dlg.lbl_live_feed.setPixmap(pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation))
+            scaled = pixmap.scaled(w_lbl, h_lbl, Qt.KeepAspectRatio, Qt.FastTransformation)
+            # Centre dot the operator brings the marker to (the teaching guide refers to it).
+            painter = QPainter(scaled)
+            painter.setRenderHint(QPainter.Antialiasing)
+            painter.setPen(QPen(QColor("#00e5ff"), 2))
+            centre = scaled.rect().center()
+            painter.drawEllipse(centre, 7, 7)
+            painter.drawLine(centre.x() - 20, centre.y(), centre.x() - 11, centre.y())
+            painter.drawLine(centre.x() + 11, centre.y(), centre.x() + 20, centre.y())
+            painter.drawLine(centre.x(), centre.y() - 20, centre.x(), centre.y() - 11)
+            painter.drawLine(centre.x(), centre.y() + 11, centre.x(), centre.y() + 20)
+            painter.end()
+            self.marker_problem_dlg.lbl_live_feed.setPixmap(scaled)
         if spacing_dlg is not None:
             w_lbl = max(20, spacing_dlg.lbl_live_feed.width())
             h_lbl = max(20, spacing_dlg.lbl_live_feed.height())
@@ -5774,7 +5807,7 @@ class UnifiedCalibrationApp(QWidget):
             self.lbl_captured.setText(f"Captured Frames: {frames}")
             if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
                 if hasattr(self.wizard_widget, 'lbl_captured') and self.wizard_widget.lbl_captured is not None:
-                    self.wizard_widget.lbl_captured.setText(f"Captured Frames: {frames} / 16")
+                    self.wizard_widget.set_status(self.wizard_widget.lbl_captured, "wizard.st.int_captured", frames=frames)
             self.log_msg(f"[INTRINSICS] Frame {frames} captured.")
 
             num_steps = len(IntrinsicsCalibrator.CALIB_GUIDELINES)
@@ -5864,15 +5897,16 @@ class UnifiedCalibrationApp(QWidget):
             self.show_intrinsics_verification()
             if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
                 if hasattr(self.wizard_widget, 'lbl_step1_status') and self.wizard_widget.lbl_step1_status is not None:
-                    self.wizard_widget.lbl_step1_status.setText(f"Status: Calibration OK (RMS: {self.intrinsics_calibrator.rms_error:.4f})")
-                    self.wizard_widget.lbl_step1_status.setStyleSheet("color: #ff9800; font-weight: bold; font-size: 16px;")
+                    self.wizard_widget.set_status(self.wizard_widget.lbl_step1_status, "wizard.st.int_ok",
+                                                  "color: #ff9800; font-weight: bold; font-size: 16px;",
+                                                  rms=f"{self.intrinsics_calibrator.rms_error:.4f}")
         else:
             self.log_msg("[ERROR] Calibration failed. Check images and board settings.")
             QMessageBox.critical(self, "Calibration Failed", "Calibration failed! Check board visibility and image quality.")
             if hasattr(self, 'wizard_widget') and self.wizard_widget is not None:
                 if hasattr(self.wizard_widget, 'lbl_step1_status') and self.wizard_widget.lbl_step1_status is not None:
-                    self.wizard_widget.lbl_step1_status.setText("Status: Calibration Failed (Check board settings)")
-                    self.wizard_widget.lbl_step1_status.setStyleSheet("color: #f44336; font-weight: bold; font-size: 16px;")
+                    self.wizard_widget.set_status(self.wizard_widget.lbl_step1_status, "wizard.st.int_failed",
+                                                  "color: #f44336; font-weight: bold; font-size: 16px;")
 
     def save_intrinsics_calibration(self):
         if len(self.captured_images) < 16:
@@ -6008,24 +6042,26 @@ def main():
 
     app = QApplication(sys.argv)
 
+    # Bundled Korean font (SIL OFL, config/fonts/OFL.txt): Linux PCs without a CJK font showed
+    # Hangul as boxes. Families named in code fall back to it when the PC lacks them.
+    for font_file in ("NotoSansKR-Regular.otf", "NotoSansKR-Bold.otf"):
+        if QFontDatabase.addApplicationFont(get_asset_path(f"config/fonts/{font_file}")) < 0:
+            print(f"[WARN] Could not load the bundled font config/fonts/{font_file}; Korean text may show as boxes.")
+    for family in ("Segoe UI", "Consolas", "Noto Sans CJK KR", "Noto Sans Mono CJK KR"):
+        QFont.insertSubstitution(family, "Noto Sans KR")
+
     # Global crisp Korean/English font with subpixel anti-aliasing
-    default_font = QFont("Noto Sans CJK KR", 10)
+    default_font = QFont("Noto Sans KR", 10)
     default_font.setStyleStrategy(QFont.PreferAntialias | QFont.PreferQuality)
     app.setFont(default_font)
 
     robot = None
     core = CalibrationCore()
 
-    camera_error = None
     if not args.ui:
-        print("[INFO] Initializing Camera Marker Transform System...")
-        try:
-            core.connect_camera()
-        except Exception as e:
-            print(f"[ERROR] Failed to load camera marker system: {e}")
-            print("[INFO] Fallback to UI-only mode.")
-            camera_error = str(e)
-            args.ui = True
+        # 2026-11-24 (user): the camera is connected from the wizard's first slide (or the Camera tab)
+        # after its how-to, not at start, where a failure dropped the whole app into UI-only mode.
+        print("[INFO] Camera not opened at start; connect it on the wizard's first slide or the Camera tab.")
     else:
         print("[INFO] Starting in simulation (UI-only) mode.")
 
@@ -6037,12 +6073,9 @@ def main():
     frame = gui.frameGeometry()
     frame.moveCenter(area.center())
     gui.move(max(frame.left(), area.left()), max(frame.top(), area.top()))
-    if camera_error:
-        # Used to go to the console only, so the window opened in UI-only mode with no word of
-        # why -- including when the fix is simply a USB 3 cable.
-        QMessageBox.critical(gui, "Camera Connection Failed",
-                             f"Could not connect to RealSense camera:\n{camera_error}\n\n"
-                             "Starting in UI-only mode.")
+    # Opens maximized (2026-11-12, user) so the wizard slides fit without scrolling; un-maximizing
+    # returns to the centred window above.
+    gui.showMaximized()
 
     try:
         sys.exit(app.exec())

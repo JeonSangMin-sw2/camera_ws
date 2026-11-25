@@ -163,6 +163,101 @@ class TestExecute(unittest.TestCase):
         self.assertEqual(sent, [])
 
 
+class TestCheckRegion(unittest.TestCase):
+    """2026-11-25 (user): Step 2 also photographs the lowered check pose (step2.check_region_poses), optional and
+    paced, then returns to the baseline so the verification still finds its ready pose last."""
+    CHECK_R = [-24.67, -39.97, 11.25, -107.95, -123.90, 62.21, 58.40]
+    REGION = {"right": [-72.0, -73.0, 27.0, -110.0, 25.0, -41.0, 37.0],
+              "left": [-72.0, 73.0, -27.0, -110.0, -25.0, -41.0, -37.0], "head": [0.0, 40.0]}
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.setting = Path(folder.name) / "setting.yaml"
+        self.ready = Path(folder.name) / "ready_poses.yaml"
+        left = (np.array([1, -1, -1, 1, -1, 1, -1]) * np.array(self.CHECK_R)).tolist()
+        ConfigStorage.save(self.ready, {"v1.2": {
+            "check_calib": {"right_arm": self.CHECK_R, "left_arm": left},
+            "check_calib_view": {"head_deg": [0.0, 58.0], "j6_turn_deg": -180.0},
+            "step2_check_region": [{"wrist_deg": [-20.0, -30.0], "head_deg": [0.0, 40.0]}]}})
+
+    def test_loader_is_off_by_default_and_targets_mirror(self):
+        from core.calibration.data import load_step2_check_region
+        from core.calibration.sequences.collection import check_region_targets
+        ConfigStorage.save(self.setting, {"step2": {}})
+        self.assertEqual(load_step2_check_region("1.2", self.setting, self.ready), (None, False))
+        ConfigStorage.save(self.setting, {"step2": {"check_region_poses": True}})
+        self.assertEqual(load_step2_check_region("1.3", self.setting, self.ready), (None, True))
+        region, enabled = load_step2_check_region("v1.2", self.setting, self.ready)
+        self.assertTrue(enabled)
+        (target,) = check_region_targets(region)
+        np.testing.assert_allclose(target["right"], np.add(self.CHECK_R, [0, 0, 0, 0, -20, -30, -180]))
+        np.testing.assert_allclose(target["left"], np.array([1, -1, -1, 1, -1, 1, -1]) * np.array(target["right"]))
+        self.assertEqual(target["head"], [0.0, 40.0])
+
+    def test_malformed_entry_is_an_error(self):
+        from core.calibration.data import load_step2_check_region
+        ConfigStorage.save(self.setting, {"step2": {"check_region_poses": True}})
+        ConfigStorage.save(self.ready, {"v1.2": {"step2_check_region": [{"wrist_deg": [1.0], "head_deg": [0, 40]}]}})
+        with self.assertRaises(ValueError):
+            load_step2_check_region("1.2", self.setting, self.ready)
+
+    def test_shipped(self):
+        from core.calibration.data import load_step2_check_region
+        region, enabled = load_step2_check_region("1.2", ROOT / "config" / "setting.yaml", ROOT / "config" / "ready_poses.yaml")
+        self.assertTrue(enabled)
+        self.assertEqual(len(region["poses"]), 4)
+        shipped = ConfigStorage.load(ROOT / "config" / "setting.yaml")["step2"]
+        self.assertIn("check_region_poses", shipped)             # explicit on/off, never implicit
+
+    def plan(self, wrist=()):
+        with patch.object(motion, "compute_fk", return_value=(None, np.eye(4))):
+            return motion.build_incremental_motion_plan(fake_robot(), None, motion.AutoCollectionConfig(),
+                                                        include_head_motion=True, wrist_diversity=list(wrist),
+                                                        skip_half_steps=True, check_region=[self.REGION] * 2)
+
+    def test_appended_last_then_a_paced_return(self):
+        plan = self.plan([POSE] * 24)
+        self.assertEqual(len(plan), 44 + 25 + 3)
+        first, second, back = plan[-3:]
+        for step in (first, second):
+            self.assertTrue(step["optional"] and step["paced"])
+            self.assertEqual(step["q_targets_deg"], {"right": self.REGION["right"], "left": self.REGION["left"]})
+            np.testing.assert_allclose(step["head_q"], np.radians([0.0, 40.0]))
+        self.assertEqual((back["type"], back["paced"]), ("restore_baseline", True))
+
+    def run_step(self, step, robot):
+        sent = []
+        with patch.object(motion, "send_auto_motion_cmd", side_effect=lambda **kw: sent.append(kw)), \
+                patch.object(motion, "wait_motion"), patch.object(motion, "compute_fk", return_value=(None, np.eye(4))):
+            out = motion.execute_auto_motion_step(robot, motion.AutoCollectionConfig(), step, ["right", "left"])
+        return out, sent
+
+    def test_absolute_targets_paced_by_the_largest_travel(self):
+        motion.reset_motion_state()
+        step = dict(self.plan()[-3], q_targets_deg={"right": np.add(self.REGION["right"], [0, 0, 0, 0, 0, 0, -90]).tolist(),
+                                                    "left": self.REGION["left"]})
+        out, sent = self.run_step(step, fake_robot())
+        self.assertIs(out, step)
+        np.testing.assert_allclose(sent[0]["q_right"], np.radians(step["q_targets_deg"]["right"]))
+        np.testing.assert_allclose(sent[0]["q_left"], np.radians(self.REGION["left"]))
+        np.testing.assert_allclose(sent[0]["head_position"], np.radians([0.0, 40.0]))
+        self.assertAlmostEqual(sent[0]["min_time"], 90.0 / motion.PACED_JOINT_SPEED_DEG_S, places=3)
+
+    def test_unpaced_steps_keep_the_plan_move_time(self):
+        motion.reset_motion_state()
+        out, sent = self.run_step(build_plan(True, [POSE])[-2], fake_robot())
+        self.assertEqual(sent[0]["min_time"], motion.AutoCollectionConfig().move_time)
+
+    def test_near_a_joint_limit_is_skipped_without_moving(self):
+        motion.reset_motion_state()
+        upper = np.full(NQ, np.pi)
+        upper[RIGHT[0]] = np.radians(-72 + 2)
+        out, sent = self.run_step(self.plan()[-3], fake_robot(upper))
+        self.assertIsNone(out)
+        self.assertEqual(sent, [])
+
+
 class TestCollectionSkipsOptionalFailures(unittest.TestCase):
     def setUp(self):
         self.core = CalibrationCore()

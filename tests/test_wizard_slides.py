@@ -211,63 +211,209 @@ class TestWizardSlides(unittest.TestCase):
         self.window.left_tabs.setCurrentIndex(self.window.TAB_WIZARD)
         self.window.reset_marker_monitor_confirmation()
         self.addCleanup(self.window.core.stop_marker_monitor)
+        # Navigation must not depend on the repository's own reset record or the connected robot.
+        pending = patch.object(self.W, "home_reset_pending", return_value=(False, None))
+        pending.start()
+        self.addCleanup(pending.stop)
+        version = self.window.robot_version
+        self.window.robot_version = "1.2"
+        self.addCleanup(setattr, self.window, "robot_version", version)
+
+    def walk(self):
+        """Indices visited by Next from the first slide to the last, then by Previous back to the first."""
+        forward = [self.wiz.stacked_widget.currentIndex()]
+        while self.wiz.stacked_widget.currentIndex() != self.W.SLIDE_APPLY:
+            self.wiz.go_next()
+            forward.append(self.wiz.stacked_widget.currentIndex())
+        backward = [forward[-1]]
+        while self.wiz.stacked_widget.currentIndex() != 0:
+            self.wiz.go_prev()
+            backward.append(self.wiz.stacked_widget.currentIndex())
+        return forward, backward
 
     def test_order_skips_the_optional_calibration_both_ways(self):
         W = self.W
         self.assertEqual(self.wiz.stacked_widget.count(), W.SLIDE_COUNT)
         self.assertEqual(sorted(W.TITLE_KEYS), list(range(W.SLIDE_COUNT)))
-        forward = [0]
-        while self.wiz.stacked_widget.currentIndex() != W.SLIDE_APPLY:
-            self.wiz.go_next()
-            forward.append(self.wiz.stacked_widget.currentIndex())
-        self.assertEqual(forward, [i for i in range(W.SLIDE_COUNT) if i != W.SLIDE_INTRINSICS_CALIB])
-        backward = [forward[-1]]
-        while self.wiz.stacked_widget.currentIndex() != 0:
-            self.wiz.go_prev()
-            backward.append(self.wiz.stacked_widget.currentIndex())
+        # A camera without intrinsics of its own: every slide, the intrinsics ones first.
+        forward, backward = self.walk()
+        self.assertEqual(forward, list(range(W.SLIDE_COUNT)))
         self.assertEqual(backward, forward[::-1])
+        # A camera registered by serial: the wizard opens on the camera connection (2026-11-24), Next goes
+        # straight to the robot connection, and Previous from the camera slide goes back to the start page.
+        with patch.object(self.wiz, "intrinsics_registered", return_value=True):
+            self.wiz.stacked_widget.setCurrentIndex(0)
+            self.window.show_wizard_ui()
+            self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_CAMERA_CONNECT)
+            self.wiz.go_next()
+            self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_ROBOT_CONNECT)
+            self.wiz.go_prev()
+            self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_CAMERA_CONNECT)
+            self.wiz.go_prev()
+            self.assertFalse(self.wiz.isVisible())
+
+    def test_v13_passes_over_the_gripper_removal(self):
+        # 2026-11-12: a v1.3 marker bracket goes on the gripper, so there is nothing to remove.
+        self.window.robot_version = "1.3"
+        forward, backward = self.walk()
+        self.assertNotIn(self.W.SLIDE_GRIPPER_REMOVAL, forward + backward)
+        self.assertIn(self.W.SLIDE_MARKER_BRACKET, forward)
+
+    def test_unapplied_reset_on_record_passes_over_the_reset_slide(self):
+        # 2026-11-12: a reset whose calibration was never applied (the app was closed) is not redone.
+        W = self.W
+        with patch.object(W, "home_reset_pending", return_value=(True, "2026-11-12T10:00:00")), \
+                patch.object(self.wiz, "confirm_home_reset_passed_over", return_value=True) as ask:
+            forward, backward = self.walk()
+        self.assertNotIn(W.SLIDE_HOME_OFFSET, forward + backward)
+        ask.assert_called_once()
+        # "Go to the Reset Step" on the notice opens it anyway (e.g. the record is another robot's).
+        self.wiz.stacked_widget.setCurrentIndex(W.SLIDE_EXPOSURE)
+        with patch.object(W, "home_reset_pending", return_value=(True, "2026-11-12T10:00:00")), \
+                patch.object(self.wiz, "confirm_home_reset_passed_over", return_value=False):
+            self.wiz.go_next()
+        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_HOME_OFFSET)
 
     def test_new_slides_sit_where_requested(self):
         W = self.W
-        # 2026-09-30: gripper removal + marker bracket are one slide. 2026-10-01: it comes right after
-        # the robot connection, because its photo depends on the robot version.
-        self.assertEqual(W.SLIDE_MARKER_BRACKET, W.SLIDE_ROBOT_CONNECT + 1)
-        # 2026-10-01: exposure (3-1) -> zero pose (3-2) -> home offset reset (3-3).
-        self.assertEqual(W.SLIDE_EXPOSURE, W.SLIDE_MARKER_BRACKET + 1)
-        self.assertEqual(W.SLIDE_ZERO_POSE, W.SLIDE_EXPOSURE + 1)
-        self.assertEqual(W.SLIDE_HOME_OFFSET, W.SLIDE_ZERO_POSE + 1)
-        self.assertEqual(W.SLIDE_CALIBRATION, W.SLIDE_HOME_OFFSET + 1)
+        # 2026-11-12: robot connection first, gripper-change pose, camera, gripper removal, marker bracket,
+        # then exposure (ends at the zero pose) -> home offset reset -> calibration -> apply. The separate
+        # zero-pose slide was dropped the same day: the exposure slide's zero button does that move. Later the
+        # same day the intrinsics (board printing, then the calibration) moved before the robot, numbered 0.
+        # 2026-11-24: the camera connection slide went first (the app no longer opens the camera at start).
+        order = [W.SLIDE_CAMERA_CONNECT, W.SLIDE_INTRINSICS_PREP, W.SLIDE_INTRINSICS_CALIB, W.SLIDE_ROBOT_CONNECT,
+                 W.SLIDE_GRIPPER_POSE, W.SLIDE_CAMERA_MOUNT, W.SLIDE_GRIPPER_REMOVAL, W.SLIDE_MARKER_BRACKET,
+                 W.SLIDE_EXPOSURE, W.SLIDE_HOME_OFFSET, W.SLIDE_CALIBRATION, W.SLIDE_CHECK_POSE, W.SLIDE_APPLY]
+        self.assertEqual(order, list(range(W.SLIDE_COUNT)))
+        self.assertFalse(hasattr(W, "SLIDE_ZERO_POSE"))
         numbers = [tr(W.TITLE_KEYS[i]).split(".")[0] for i in range(W.SLIDE_COUNT)]
-        self.assertEqual(numbers, ["1-1", "1-2", "2", "3", "3-1", "3-2", "3-3", "4", "5"])
-        for index, word in ((W.SLIDE_EXPOSURE, "Exposure"), (W.SLIDE_ZERO_POSE, "Zero"),
-                            (W.SLIDE_HOME_OFFSET, "Home Offset")):
+        self.assertEqual(numbers, ["0", "0-1", "0-2", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"])
+        self.assertTrue((ROOT / W.CHARUCO_BOARD_PDF).is_file())
+        self.assertIn(W.CHARUCO_BOARD_PDF, self.wiz.lbl_prep_steps.text())
+        for index, word in ((W.SLIDE_EXPOSURE, "Exposure"),
+                            (W.SLIDE_HOME_OFFSET, "Home Offset"), (W.SLIDE_GRIPPER_POSE, "Gripper")):
             self.assertIn(word, tr(W.TITLE_KEYS[index], lang="en"))
         self.assertIn(W.SLIDE_EXPOSURE, W.VIDEO_SLIDES)
-        self.assertFalse(hasattr(W, "SLIDE_GRIPPER") or hasattr(W, "SLIDE_INTRINSICS_CHECK"))
+        # The marker bracket text no longer assumes the gripper came off (v1.3 brackets go on it).
+        for key in ("cap_assemble", "inst1"):
+            for lang in ("en", "ko"):
+                self.assertNotIn("ripper" if lang == "en" else "그리퍼",
+                                 tr(f"wizard.slides.slide_marker_bracket.{key}", lang=lang))
 
-    def test_intrinsics_calibration_is_opened_from_the_camera_slide(self):
+    def test_check_pose_gather_and_spread_run_only_while_held(self):
+        # 2026-11-24 (user): after the check pose is reached, the hands come together / apart while held, on a
+        # slide of its own (check pose buttons, then the arrows), before the zero pose and the apply.
+        W, wiz = self.W, self.wiz
+        self.assertIs(wiz.btn_check_gather.window(), wiz.btn_new_offset_preview.window())
+        check_slide = wiz.stacked_widget.widget(W.SLIDE_CHECK_POSE)
+        for btn in (wiz.btn_rollback_preview, wiz.btn_new_offset_preview, wiz.btn_check_gather, wiz.btn_check_spread):
+            self.assertTrue(check_slide.isAncestorOf(btn))
+        for btn in (wiz.btn_rollback_zero, wiz.btn_new_offset_zero, wiz.btn_rollback_joint, wiz.btn_apply_new_offset):
+            self.assertTrue(wiz.stacked_widget.widget(W.SLIDE_APPLY).isAncestorOf(btn))
+        self.assertEqual((wiz.btn_check_gather.text(), wiz.btn_check_spread.text()), ("→   ←", "←   →"))
+        wiz.stacked_widget.setCurrentIndex(W.SLIDE_CHECK_POSE)
+        wiz.update_navigation(W.SLIDE_CHECK_POSE)
+        self.assertFalse(wiz.btn_check_gather.isEnabled() or wiz.btn_check_spread.isEnabled())
+
+        class FakeSignal:
+            def __init__(self):
+                self.slots = []
+
+            def connect(self, slot):
+                self.slots.append(slot)
+
+        created = []
+
+        class FakeWorker:
+            def __init__(self, app, task_type, **options):
+                self.task_type, self.options = task_type, options
+                self.log_signal, self.finished_signal = FakeSignal(), FakeSignal()
+                created.append(self)
+
+            def start(self):
+                pass
+
+        wiz.check_pose_state = "optimized"
+        wiz.refresh_check_gap_buttons()
+        self.assertTrue(wiz.btn_check_gather.isEnabled() and wiz.btn_check_spread.isEnabled())
+        with patch("ui.core_bridge.Step2ApplyHomeOffsetWorker", FakeWorker), \
+                patch.object(wiz, "get_apply_paths", return_value=("result.json", "baseline.json")), \
+                patch.object(self.window, "safe_cancel_control") as cancel:
+            wiz.btn_check_gather.pressed.emit()
+            self.assertEqual((created[0].task_type, created[0].options["direction"], created[0].options["json_path"]),
+                             ("check_gap", "gather", "result.json"))
+            self.assertTrue(wiz.btn_check_gather.isEnabled())       # held button stays enabled for its release
+            self.assertFalse(wiz.btn_check_spread.isEnabled())
+            wiz.btn_check_gather.released.emit()
+            cancel.assert_called_once()
+            created[0].finished_signal.slots[0](False, "Stopped by user", {})
+        self.assertEqual(wiz.lbl_check_status.text(), tr("wizard.step6.gap_stopped"))
+        self.assertTrue(wiz.btn_check_spread.isEnabled())
+        # No hands-together pose for v1.3 yet: both stay off.
+        self.window.robot_version = "1.3"
+        wiz.refresh_check_gap_buttons()
+        self.assertFalse(wiz.btn_check_gather.isEnabled())
+        wiz.check_pose_state = None
+
+    def test_camera_connection_slide_gates_next_on_an_open_camera(self):
+        # 2026-11-24 (user): the camera is connected here, after the how-to, instead of at app start.
         W = self.W
-        self.wiz.btn_cam_intrinsics.click()
-        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_INTRINSICS_CALIB)
-        self.wiz.go_next()
-        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_ROBOT_CONNECT)
-        self.wiz.stacked_widget.setCurrentIndex(W.SLIDE_INTRINSICS_CALIB)
-        self.wiz.go_prev()
-        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_CAMERA_MOUNT)
+        self.wiz.stacked_widget.setCurrentIndex(W.SLIDE_CAMERA_CONNECT)
+        self.wiz.update_navigation(W.SLIDE_CAMERA_CONNECT)
+        self.assertTrue(self.wiz.btn_next.isEnabled())          # UI-only window: no camera needed
+        self.assertFalse(self.wiz.btn_cc_connect.isEnabled())
+        with patch.object(self.window, "ui_only", False):
+            with patch.object(self.wiz, "camera_info", return_value=None):
+                self.wiz.update_navigation(W.SLIDE_CAMERA_CONNECT)
+                self.assertFalse(self.wiz.btn_next.isEnabled())
+                self.assertTrue(self.wiz.btn_cc_connect.isEnabled())
+            info = {"running": True, "device_name": "Intel RealSense D405", "serial_number": "230422270977",
+                    "intrinsics_serial_matched": False}
+            with patch.object(self.wiz, "camera_info", return_value=info):
+                self.wiz.update_navigation(W.SLIDE_CAMERA_CONNECT)
+                self.assertTrue(self.wiz.btn_next.isEnabled())
+                self.assertIn("230422270977", self.wiz.lbl_cc_status.text())
+                self.assertFalse(self.wiz.btn_cc_connect.isEnabled())   # one camera open: no second connect
+            seen = {}
 
-    def test_camera_without_its_own_intrinsics_is_warned(self):
-        base = {"running": True, "device_name": "Intel RealSense D405", "serial_number": "123456789",
-                "camera_model": "D405", "width": 1280, "height": 720, "fps": 30, "measured_fps": 30.0,
-                "intrinsics_file": "camera_intrinsics.yaml"}
-        warning = tr("wizard.slides.slide_0.cam_warn_serial")
-        with patch.object(self.wiz, "camera_info", return_value={**base, "intrinsics_serial_matched": False,
-                                                                  "intrinsics_source": "model"}):
-            self.wiz.refresh_camera_info()
-            self.assertIn(warning, self.wiz.lbl_cam_info.text())
-        with patch.object(self.wiz, "camera_info", return_value={**base, "intrinsics_serial_matched": True,
-                                                                  "intrinsics_source": "serial"}):
-            self.wiz.refresh_camera_info()
-            self.assertNotIn(warning, self.wiz.lbl_cam_info.text())
+            def connect_now(**_):
+                seen["text"], seen["enabled"] = self.wiz.lbl_cc_status.text(), self.wiz.btn_cc_connect.isEnabled()
+            with patch.object(self.wiz, "camera_info", return_value=None), \
+                    patch.object(self.window, "reconnect_camera", side_effect=connect_now) as connect, \
+                    patch("ui.wizard_widget.QMessageBox.warning") as warning:
+                self.wiz.update_navigation(W.SLIDE_CAMERA_CONNECT)
+                self.wiz.btn_cc_connect.click()
+                connect.assert_called_once_with(show_dialog=False)
+                self.assertEqual(seen, {"text": tr("wizard.slides.slide_camera_connect.st_connecting"), "enabled": False})
+                warning.assert_called_once()
+                self.assertTrue(self.wiz.btn_cc_connect.isEnabled())      # failed: try again
+
+    def test_intrinsics_slides_follow_the_camera_serial(self):
+        W = self.W
+        self.assertFalse(hasattr(self.wiz, "btn_cam_intrinsics"))   # no longer opened from the camera slide
+        registered = {"running": True, "serial_number": "123456789", "intrinsics_serial_matched": True}
+        with patch.object(self.wiz, "camera_info", return_value=registered):
+            self.assertTrue(self.wiz.slide_passed_over(W.SLIDE_INTRINSICS_PREP)
+                            and self.wiz.slide_passed_over(W.SLIDE_INTRINSICS_CALIB))
+        for info in (None, {**registered, "intrinsics_serial_matched": False}):
+            with patch.object(self.wiz, "camera_info", return_value=info):
+                self.assertFalse(self.wiz.slide_passed_over(W.SLIDE_INTRINSICS_PREP))
+        # The board slide moves on with Next; skipping the calibration slide goes to the robot connection.
+        self.wiz.step_completed = [False] * W.SLIDE_COUNT
+        self.wiz.step_completed[W.SLIDE_INTRINSICS_PREP] = True
+        self.wiz.stacked_widget.setCurrentIndex(W.SLIDE_INTRINSICS_PREP)
+        self.assertTrue(self.wiz.btn_next.isEnabled() and not self.wiz.btn_skip.isVisible())
+        self.wiz.go_next()
+        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_INTRINSICS_CALIB)
+        self.assertTrue(self.wiz.btn_skip.isVisible() and not self.wiz.btn_next.isEnabled())
+        self.wiz.btn_skip.click()
+        self.assertEqual(self.wiz.stacked_widget.currentIndex(), W.SLIDE_ROBOT_CONNECT)
+
+    def test_camera_mount_slide_no_longer_lists_the_camera(self):
+        # 2026-11-12 (user): the camera is checked on the distortion calibration slides (shown first for a
+        # camera without intrinsics of its own), so the mount slide drops its recognised-camera box.
+        self.assertFalse(hasattr(self.wiz, "cam_info_box") or hasattr(self.wiz, "lbl_cam_info"))
+        self.assertEqual(tr("wizard.slides.slide_0.cam_unknown", lang="en"), "unknown")  # still used by the Camera tab
 
     def test_bracket_photo_follows_the_connected_robot_version(self):
         # The slide comes after the robot connection, so the version is known when it opens.
@@ -302,7 +448,9 @@ class TestWizardSlides(unittest.TestCase):
             core.observer = FakeObserver(right_noise_m=0.00002, left_always=True)
             self.wiz.sync_marker_monitor()
             self.assertTrue(wait_for(lambda: panel.lbl_overall.styleSheet() == panel.OK_STYLE))
-            self.assertEqual(panel.labels["left"].styleSheet(), panel.OK_STYLE)
+            # The wizard checks the right marker only (2026-11-12): its test pose shows one arm.
+            self.assertEqual(list(panel.labels), ["right"])
+            self.assertEqual(panel.labels["right"].styleSheet(), panel.OK_STYLE)
             self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_CALIBRATION)
             self.assertFalse(core.marker_monitor_running)
             self.wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_EXPOSURE)
@@ -338,14 +486,15 @@ class TestWizardSlides(unittest.TestCase):
         self.assertEqual(self.wiz.lbl_wiz_exp_not_saved.text(), warning)
         self.assertEqual(self.window.lbl_exposure_not_saved.text(), warning)
 
-    def test_exposure_slide_buttons_move_one_arm_then_zero(self):
+    def test_exposure_slide_auto_button_then_zero(self):
         window, wiz, W = self.window, self.wiz, self.W
         wiz.stacked_widget.setCurrentIndex(W.SLIDE_EXPOSURE)
-        wiz.step_completed[W.SLIDE_ZERO_POSE] = False
+        wiz.step_completed[W.SLIDE_EXPOSURE] = False
+        wiz.chk_wiz_exp_confirmed.setChecked(False)
         calls, finish = [], {}
 
-        def fake_ready(arm_side, on_finished):
-            calls.append(("ready", arm_side))
+        def fake_auto(on_finished):
+            calls.append(("auto",))
             finish["cb"] = on_finished
             return True
 
@@ -354,46 +503,194 @@ class TestWizardSlides(unittest.TestCase):
             finish["cb"] = on_finished
             return True
 
-        with patch.object(window, "move_arm_to_exposure_pose", side_effect=fake_ready), \
-                patch.object(window, "move_to_zero_for_exposure", side_effect=fake_zero):
-            for side in ("right", "left"):
-                wiz.btn_exp_ready[side].click()
-                self.assertEqual(wiz.exposure_motion_status[:2], ("moving", f"ready_{side}"))
-                self.assertFalse(wiz.btn_exp_zero.isEnabled() or wiz.btn_prev.isEnabled())
-                self.assertTrue(wiz.btn_exp_stop.isEnabled())  # Stop stays usable while moving
-                finish["cb"](True, "")
-                self.assertEqual(wiz.exposure_motion_status[:2], ("done", f"ready_{side}"))
-                self.assertTrue(wiz.btn_exp_zero.isEnabled() and wiz.btn_prev.isEnabled())
-            wiz.btn_exp_zero.click()
+        with patch.object(window, "run_auto_exposure", side_effect=fake_auto), \
+                patch.object(window, "move_to_zero_for_exposure", side_effect=fake_zero), \
+                patch.object(window, "apply_camera_exposure"):
+            wiz.btn_exp_auto.click()
+            self.assertEqual(wiz.exposure_motion_status[:2], ("moving", "auto"))
+            self.assertFalse(wiz.btn_exp_zero.isEnabled() or wiz.btn_prev.isEnabled())
+            self.assertTrue(wiz.btn_exp_stop.isEnabled())  # Stop stays usable while moving
+            finish["cb"](True, "", {"applied": "manual", "exposure": 4000, "camera_model": "D405", "trials": []})
+            self.assertEqual(wiz.exposure_motion_status[:2], ("done", "auto"))
+            self.assertTrue(wiz.btn_exp_zero.isEnabled() and wiz.btn_prev.isEnabled())
+            # The applied value shows in both exposure controls and box 2 asks whether to keep it; the hand
+            # controls and the 3) check stay hidden (2026-11-12, user).
+            self.assertFalse(wiz.chk_wiz_auto_exp.isChecked())
+            self.assertEqual((wiz.spin_wiz_exp.value(), window.spin_exposure.value()), (4000, 4000))
+            self.assertIn("4000", wiz.lbl_exp_choice.text())
+            self.assertFalse(wiz.chk_wiz_exp_confirmed.isChecked())
+            self.assertTrue(wiz.btn_exp_accept.isEnabled())
+            self.assertFalse(any(w.isVisibleTo(wiz) for w in (wiz.exp_manual_panel, wiz.chk_wiz_exp_confirmed, wiz.btn_exp_zero)))
+            self.assertFalse(wiz.step_completed[W.SLIDE_EXPOSURE] or wiz.btn_next.isEnabled())
+            # Yes ticks 3) and goes straight on to 4) the zero pose; Next waits for the pose.
+            wiz.btn_exp_accept.click()
+            self.assertTrue(wiz.chk_wiz_exp_confirmed.isChecked())
+            self.assertEqual(wiz.exposure_motion_status[:2], ("moving", "zero"))
+            self.assertFalse(wiz.btn_next.isEnabled())
             finish["cb"](False, "cancelled")
             self.assertEqual(wiz.exposure_motion_status, ("failed", "zero", "cancelled"))
-        self.assertEqual(calls, [("ready", "right"), ("ready", "left"), ("zero",)])
-        # The zero button here does not complete the zero-pose slide (3-2).
-        self.assertFalse(wiz.step_completed[W.SLIDE_ZERO_POSE])
+            self.assertFalse(wiz.btn_next.isEnabled())
+            # 4) is in the hand panel now (2026-11-17), so on this path Yes is how the zero pose is retried.
+            self.assertTrue(wiz.btn_exp_accept.isEnabled())
+            wiz.btn_exp_accept.click()
+            finish["cb"](True, "")
+            self.assertTrue(wiz.step_completed[W.SLIDE_EXPOSURE] and wiz.btn_next.isEnabled())
+            # Moving the arm out again (auto exposure) leaves the zero pose: Next waits once more.
+            wiz.btn_exp_auto.click()
+            self.assertFalse(wiz.step_completed[W.SLIDE_EXPOSURE] or wiz.chk_wiz_exp_confirmed.isChecked())
+            self.assertFalse(wiz.btn_exp_accept.isEnabled())
+            finish["cb"](True, "", {"applied": "manual", "exposure": 4000, "camera_model": "D405", "trials": []})
+        self.assertEqual(calls, [("auto",), ("zero",), ("zero",), ("auto",)])
+        # 'Adjust by hand' opens the controls, the 3) check and 4) the zero pose.
+        wiz.chk_exp_manual.setChecked(True)
+        self.assertTrue(all(w.isVisibleTo(wiz) for w in (wiz.exp_manual_panel, wiz.chk_wiz_exp_confirmed, wiz.btn_exp_zero)))
+        wiz.chk_exp_manual.setChecked(False)
 
-    def test_exposure_ready_pose_is_the_j5_pose_of_the_robot_version(self):
-        window = self.window
-        version, robot = window.robot_version, window.robot
+    def test_auto_exposure_without_a_good_value_leaves_it_to_the_operator(self):
+        window, wiz = self.window, self.wiz
+        wiz.chk_wiz_exp_confirmed.setChecked(False)
+        finish = {}
+        with patch.object(window, "run_auto_exposure", side_effect=lambda cb: finish.setdefault("cb", cb) and True), \
+                patch.object(window, "set_camera_auto_mode"):
+            wiz.btn_exp_auto.click()
+            finish["cb"](True, "", {"applied": None, "trials": []})
+        self.assertTrue(wiz.btn_exp_auto.isEnabled())
+        self.assertFalse(wiz.chk_wiz_exp_confirmed.isChecked())
+        self.assertTrue(wiz.chk_wiz_auto_exp.isChecked())
+        self.assertEqual(wiz.lbl_exp_choice.text(), tr("wizard.slides.slide_exposure.auto_none"))
+        # Nothing to keep: no Yes, and the hand controls open by themselves.
+        self.assertFalse(wiz.btn_exp_accept.isEnabled())
+        self.assertTrue(wiz.chk_exp_manual.isChecked() and not wiz.exp_manual_panel.isHidden())
+        wiz.chk_exp_manual.setChecked(False)
+
+    def test_gripper_pose_button_moves_then_reports_the_power(self):
+        wiz, W = self.wiz, self.W
+        wiz.stacked_widget.setCurrentIndex(W.SLIDE_GRIPPER_POSE)
+        wiz.step_completed[W.SLIDE_GRIPPER_POSE] = False
+        finish = {}
+
+        def fake_move(on_finished):
+            finish["cb"] = on_finished
+            return True
+
+        # 2026-11-24 (user): the move runs only while the button is held.
+        with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move), \
+                patch.object(self.window, "safe_cancel_control") as cancel:
+            wiz.btn_gripper_pose.pressed.emit()
+            self.assertEqual(wiz.gripper_pose_status[0], "moving")
+            self.assertTrue(wiz.btn_gripper_pose.isEnabled())       # must stay enabled to see the release
+            self.assertFalse(wiz.btn_next.isEnabled())
+            self.assertFalse(hasattr(wiz, "btn_gp_stop"))              # letting go is the stop
+            finish["cb"](True, "", {"right": 0.0, "left": 0.0})
+            wiz.btn_gripper_pose.released.emit()                    # after arriving: nothing to stop
+            cancel.assert_not_called()
+        self.assertEqual(wiz.gripper_pose_status[0], "done")
+        self.assertIn("right 0 V", wiz.lbl_gripper_pose_status.text())
+        self.assertTrue(wiz.step_completed[W.SLIDE_GRIPPER_POSE] and wiz.btn_next.isEnabled())
+        # Let go before the pose: the motion is cancelled and the slide says how to carry on.
+        with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move), \
+                patch.object(self.window, "safe_cancel_control") as cancel:
+            wiz.btn_gripper_pose.pressed.emit()
+            wiz.btn_gripper_pose.released.emit()
+            cancel.assert_called_once()
+            finish["cb"](False, "Stopped by user", {})
+        self.assertEqual(wiz.gripper_pose_status[0], "stopped")
+        self.assertFalse(wiz.step_completed[W.SLIDE_GRIPPER_POSE])
+        with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move):
+            wiz.btn_gripper_pose.pressed.emit()
+            finish["cb"](False, "still on", {})
+        self.assertEqual(wiz.gripper_pose_status, ("failed", "still on"))
+        self.assertFalse(wiz.step_completed[W.SLIDE_GRIPPER_POSE])
+        self.assertTrue(wiz.btn_skip.isVisible())
+
+    def test_v13_gripper_pose_text_says_the_power_stays_on(self):
+        wiz, W = self.wiz, self.W
+        version = self.window.robot_version
         try:
-            window.robot = object()
-            for robot_version, mode in (("1.2", "wrist_pitch"), ("1.3", "wrist_pitch_v13")):
-                window.robot_version = robot_version
-                with patch("main_ui.MoveToReadyWorker") as worker, \
-                        patch.object(window, "_sync_core_state", return_value=window.core):
-                    self.assertTrue(window.move_arm_to_exposure_pose("left", lambda *_: None))
-                worker.assert_called_once_with(window.core, "left", mode, head_zero=True)
+            self.window.robot_version = "1.3"
+            wiz.stacked_widget.setCurrentIndex(W.SLIDE_ROBOT_CONNECT)
+            wiz.stacked_widget.setCurrentIndex(W.SLIDE_GRIPPER_POSE)
+            self.assertEqual(wiz.lbl_gp_desc.text(), tr("wizard.slides.slide_gripper_pose.desc_v13"))
+            finish = {}
+            with patch.object(self.window, "move_to_gripper_pose", side_effect=lambda cb: finish.setdefault("cb", cb) and True):
+                wiz.btn_gripper_pose.pressed.emit()
+                finish["cb"](True, "", {})
+            self.assertEqual(wiz.lbl_gripper_pose_status.text(), tr("wizard.slides.slide_gripper_pose.status_done_v13"))
+            self.window.robot_version = "1.2"
+            wiz.stacked_widget.setCurrentIndex(W.SLIDE_ROBOT_CONNECT)
+            wiz.stacked_widget.setCurrentIndex(W.SLIDE_GRIPPER_POSE)
+            self.assertEqual(wiz.lbl_gp_desc.text(), tr("wizard.slides.slide_gripper_pose.desc"))
         finally:
-            window.robot_version, window.robot = version, robot
+            self.window.robot_version = version
+            wiz.set_gripper_pose_status("idle")
 
-    def test_gripper_power_button_reports_the_result(self):
+    def test_no_readjustment_window_after_stop(self):
+        # 2026-11-17 (user): the error after Stop is expected, the posture readjustment window was not.
+        window = self.window
+        window.core.stop_event.set()
+        requests = []
+        spy = lambda *args: requests.append(args)
+        window.marker_problem_signal.connect(spy)
+        try:
+            self.assertFalse(window.prompt_marker_problem_teaching("right", mode="marker"))
+            self.assertEqual(requests, [])
+            # A request already queued before Stop: the window side gives up without a dialog.
+            evt, res = threading.Event(), {"resolved": True}
+            with patch.object(window, "show_message_box") as box:
+                window._on_marker_problem_requested("right", evt, res)
+            box.assert_not_called()
+            self.assertTrue(evt.is_set())
+            self.assertFalse(res["resolved"])
+        finally:
+            window.marker_problem_signal.disconnect(spy)
+            window.core.stop_event.clear()
+
+    def test_robot_address_by_where_the_program_runs(self):
+        from ui import wizard_widget as wizard_mod
+        from PySide6.QtWidgets import QDialog
         wiz = self.wiz
-        with patch.object(self.window, "power_off_tool_flanges", return_value={"right": 0.0, "left": 0.0}):
-            wiz.btn_tool_power_off.click()
-        self.assertEqual(wiz.tool_power_status[0], "off")
-        self.assertIn("right 0 V", wiz.lbl_tool_power_status.text())
-        with patch.object(self.window, "power_off_tool_flanges", side_effect=RuntimeError("still on")):
-            wiz.btn_tool_power_off.click()
-        self.assertEqual(wiz.tool_power_status, ("failed", "still on"))
+        self.assertEqual(wiz.wizard_ip_input.text(), "127.0.0.1:50051")      # no camera: simulator address
+        wiz.btn_ip_upc.click()
+        self.assertEqual(wiz.wizard_ip_input.text(), "192.168.30.1:50051")
+
+        def typed(text, result):
+            def fake_exec(dialog):
+                dialog.address_input.setText(text)
+                return result
+            return fake_exec
+
+        with patch.object(wizard_mod.RobotIpDialog, "exec", typed("192.168.8.130/23", QDialog.Accepted)):
+            wiz.btn_ip_external.click()
+        self.assertEqual(wiz.wizard_ip_input.text(), "192.168.8.130:50051")
+        with patch.object(wizard_mod.RobotIpDialog, "exec", typed("10.0.0.5", QDialog.Rejected)):
+            wiz.btn_ip_external.click()
+        self.assertEqual(wiz.wizard_ip_input.text(), "192.168.8.130:50051")
+        self.assertEqual(wizard_mod.normalize_robot_address(" 192.168.12.1 "), "192.168.12.1:50051")
+        self.assertEqual(wizard_mod.normalize_robot_address("192.168.12.1:50052"), "192.168.12.1:50052")
+        self.assertEqual(wizard_mod.normalize_robot_address(""), "")
+        dlg = wizard_mod.RobotIpDialog("", wiz)
+        self.assertIn("192.168.12.1:50051", dlg.lbl_hotspot.text())
+        self.assertTrue((ROOT / "img" / "robot_oled_ip.jpg").is_file())
+        wiz.wizard_ip_input.setText("127.0.0.1:50051")
+
+    def test_camera_reconnect_ignores_clicks_while_it_runs(self):
+        # 2026-11-12: every extra click on RECONNECT ran another reconnect once the first finished.
+        window = self.window
+        calls = []
+
+        def slow_connect():
+            calls.append(1)
+            self.assertFalse(window.btn_reconnect_cam.isEnabled())
+            self.assertEqual(window.btn_reconnect_cam.text(), tr("common.reconnecting_camera"))
+            window.reconnect_camera(show_dialog=False)       # a click arriving meanwhile
+            window.btn_reconnect_cam.click()                  # disabled: ignored
+
+        with patch.object(window.core, "connect_camera", side_effect=slow_connect), \
+                patch.object(window, "init_camera_exposure_state"), patch.object(window, "refresh_camera_tab_info"):
+            window.reconnect_camera(show_dialog=False)
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(window.btn_reconnect_cam.isEnabled())
+        self.assertEqual(window.btn_reconnect_cam.text(), tr("common.reconnect_camera"))
 
     def test_every_referenced_image_exists(self):
         # A line listing several paths is a fallback list (first existing one is used): one must exist.
@@ -403,23 +700,127 @@ class TestWizardSlides(unittest.TestCase):
                 if paths:
                     self.assertTrue(any((ROOT / p).is_file() for p in paths), f"{source.name}:{number}: {paths}")
 
+    def test_stage_line_on_top_follows_the_slides(self):
+        # 2026-11-12 (user): prepare - mount - calibrate - check result, over every slide.
+        W, wiz = self.W, self.wiz
+        self.assertEqual(sorted(W.SLIDE_STAGE), list(range(W.SLIDE_COUNT)))
+        expected = {W.SLIDE_ROBOT_CONNECT: ["now", "todo", "todo", "todo"],
+                    W.SLIDE_MARKER_BRACKET: ["done", "now", "todo", "todo"],
+                    W.SLIDE_HOME_OFFSET: ["done", "done", "now", "todo"],
+                    W.SLIDE_CHECK_POSE: ["done", "done", "done", "now"],
+                    W.SLIDE_APPLY: ["done", "done", "done", "now"]}
+        for idx, states in expected.items():
+            wiz.stacked_widget.setCurrentIndex(idx)
+            self.assertEqual(wiz.stage_progress.states, states, idx)
+        self.assertEqual(wiz.stage_progress.labels[1].text(), tr("wizard.progress.mount"))
+        self.assertTrue(wiz.stage_progress.isVisibleTo(wiz))
+
+    def test_run_line_follows_the_core_progress(self):
+        from core.calibration.sequences.result import SequenceResult
+        wiz = self.wiz
+        wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_CALIBRATION)
+        self.assertEqual(wiz.run_progress.states, ["todo"] * 4)
+        wiz.run_phase, wiz.run_detail, wiz.run_skipped, wiz.run_outcome = 0, None, set(), None
+        wiz.unified_timer.start(1000)
+        try:
+            wiz.on_core_progress(SequenceResult("step1"))
+            self.assertEqual(wiz.run_progress.states, ["now", "todo", "todo", "todo"])
+            wiz.on_core_progress(SequenceResult("step1_5"))
+            head = SequenceResult("step1_5", completed={"head_camera": {"skipped": True}})
+            wiz.on_core_progress(SequenceResult("full", completed={"step1": SequenceResult("step1"), "step1_5": head}))
+            wiz.on_core_progress(SequenceResult("step2"))
+            wiz.on_core_progress({"stage": "collect", "pose_index": 23, "pose_total": 60, "samples": 23})
+            self.assertEqual(wiz.run_progress.states, ["done", "skipped", "now", "todo"])
+            self.assertEqual(wiz.run_progress.labels[2].text(), tr("wizard.progress.run_collect_n", n=23, total=60))
+            self.assertEqual(wiz.run_progress.labels[1].text(),
+                             tr("wizard.progress.skipped", name=tr("wizard.progress.run_head")))
+            wiz.on_core_progress(SequenceResult("step2", partial={"dataset_path": "x.npz"}))
+            self.assertEqual(wiz.run_progress.states[3], "now")
+            # An event from an older nested result never moves the line back.
+            wiz.on_core_progress(SequenceResult("step1"))
+            self.assertEqual(wiz.run_progress.states[3], "now")
+        finally:
+            wiz.stop_step5(True)
+        self.assertEqual(wiz.run_progress.states, ["done", "skipped", "done", "done"])
+        wiz.on_core_progress(SequenceResult("step1"))   # after the run: ignored
+        self.assertEqual(wiz.run_progress.states, ["done", "skipped", "done", "done"])
+
+    def test_run_cautions_carry_their_log_lines(self):
+        # 2026-11-24 (user): a caution says what went wrong; clicking it shows the log lines behind it.
+        from core.calibration.sequences.result import SequenceResult
+        wiz = self.wiz
+        wiz.stacked_widget.setCurrentIndex(self.W.SLIDE_CALIBRATION)
+        line = "[WARN] wrist_yaw2: the two J6 estimates differ by 0.90 deg (> 0.5 deg)."
+        step1 = SequenceResult("step1", completed={"warnings": [{"key": "j6_methods", "params": {"arm": "left", "diff": 0.9}}],
+                                                   "warning_log": [line]})
+        wiz.run_warnings, wiz.run_warning_logs = {}, {}
+
+        def reset():
+            wiz.run_warnings, wiz.run_warning_logs = {}, {}
+            wiz.run_phase, wiz.run_detail, wiz.run_skipped, wiz.run_outcome = -1, None, set(), None
+            wiz.refresh_run_progress()
+        self.addCleanup(reset)
+        wiz.collect_run_warnings(SequenceResult("full", completed={"step1": step1}))
+        wiz.run_phase, wiz.run_outcome = 3, "completed"
+        wiz.refresh_run_progress()
+        self.assertIn(tr("wizard.run_warn.click_for_log"), wiz.lbl_run_warnings.text())
+        text = wiz.run_warning_log_text()
+        self.assertIn(line, text)
+        self.assertIn(tr("wizard.progress.run_wrist"), text)
+        # Step 2 settled them (J6 solved again): the stage goes back to green.
+        wiz.collect_run_warnings(SequenceResult("full", completed={"step1": SequenceResult("step1")}))
+        wiz.refresh_run_progress()
+        self.assertEqual(wiz.run_warnings, {})
+        self.assertFalse(wiz.lbl_run_warnings.isVisible())
+
+    def test_steps_read_top_to_bottom_with_their_buttons(self):
+        # 2026-11-12 (user): the teaching-button guide (text, then its button on the right) sits above the
+        # steps; steps 1-3 each have a big number and their text on one row, photos / the reset button below.
+        # The "skip if already done" note is gone (a reset on record is passed over by itself). Exposure:
+        # 3) the check, then 4) the zero pose last.
+        wiz, W = self.wiz, self.W
+        wiz.stacked_widget.setCurrentIndex(W.SLIDE_HOME_OFFSET)
+        QApplication.processEvents()
+        self.assertIs(wiz.btn_how_to_move.parentWidget(), wiz.teach_box)
+        tops = [lbl.mapToGlobal(lbl.rect().topLeft()).y() for lbl in (wiz.lbl_p1, wiz.lbl_p2, wiz.lbl_p3)]
+        self.assertLess(wiz.teach_box.mapToGlobal(wiz.teach_box.rect().bottomLeft()).y(), tops[0])
+        self.assertEqual(len(set(tops)), 1, tops)
+        self.assertGreater(wiz.btn_step3_reset.mapToGlobal(wiz.btn_step3_reset.rect().topLeft()).y(), tops[0])
+        self.assertFalse(hasattr(wiz, "lbl_skip_hint7") or hasattr(wiz, "inst3_2_box"))
+        box = wiz.exp_ctrl_box.parentWidget().layout()
+        order = [box.indexOf(w) for w in (wiz.exp_motion_box, wiz.exp_ctrl_box)]
+        self.assertEqual(order, sorted(order))
+        # 2026-11-17 (user): 3) and 4) sit on one row inside the hand panel, 3) on the left.
+        for w in (wiz.chk_wiz_exp_confirmed, wiz.btn_exp_zero):
+            self.assertTrue(wiz.exp_manual_panel.isAncestorOf(w))
+        wiz.stacked_widget.setCurrentIndex(W.SLIDE_EXPOSURE)
+        wiz.chk_exp_manual.setChecked(True)
+        QApplication.processEvents()
+        chk, zero = (w.mapToGlobal(w.rect().center()) for w in (wiz.chk_wiz_exp_confirmed, wiz.btn_exp_zero))
+        self.assertLess(chk.x(), zero.x())
+        self.assertLess(abs(chk.y() - zero.y()), 10)
+        wiz.chk_exp_manual.setChecked(False)
+        self.assertTrue(tr("wizard.slides.slide_exposure.chk_confirmed").startswith("3)"))
+        self.assertTrue(tr("wizard.slides.slide_exposure.btn_zero").startswith("4)"))
+
     def test_new_texts_exist_in_both_languages(self):
         slides = ConfigStorage.load(ROOT / "config" / "ui_config" / "i18n.yaml")["wizard"]["slides"]
         needed = {
-            "slide_0": ("title", "cap_head", "cap_nohead", "inst1", "btn_intrinsics", "cam_warn_serial", "cam_source",
-                        "cam_source_serial", "cam_source_model", "cam_source_factory", "cam_source_file"),
-            "slide_1": ("box_title", "inst1"),
-            "slide_marker_bracket": ("title", "box_title", "cap_assemble", "cap_overview", "inst1", "inst2", "inst3",
-                                     "tool_power_note", "btn_tool_power_off", "tool_power_idle", "tool_power_off",
-                                     "tool_power_failed"),
-            "slide_6": ("inst1", "inst2", "shoulder_warn"),
+            "slide_intrinsics_prep": ("title", "notice", "steps", "btn_open"),
+            "slide_0": ("title", "cap_head", "cap_nohead", "inst1", "inst2", "cam_unknown"),
+            "slide_gripper_pose": ("title", "desc", "desc_v13", "btn_move", "status_idle", "status_moving",
+                                   "status_done", "status_done_v13", "status_failed"),
+            "slide_1": ("title", "box_title", "inst1"),
+            "slide_marker_bracket": ("title", "box_title", "cap_assemble", "cap_overview", "inst1", "inst2", "inst3"),
+            "slide_6": ("inst1", "inst2", "inst3", "shoulder_warn", "pending_title", "pending_msg", "btn_go_reset",
+                        "teach_title", "teach_desc", "btn_how_to_move", "btn_reset"),
             "slide_exposure": ("title", "inst", "monitor_title", "monitor_right", "monitor_left", "monitor_idle",
                                "monitor_stable", "monitor_unstable", "monitor_hidden", "monitor_all_ok",
-                               "monitor_not_ok", "monitor_jitter", "monitor_note", "monitor_restart",
-                               "monitor_confirmed", "not_saved_warn", "motion_title", "motion_note",
-                               "btn_ready_right", "btn_ready_left", "btn_zero", "target_ready_right",
-                               "target_ready_left", "target_zero", "motion_status_idle", "motion_status_moving",
-                               "motion_status_done", "motion_status_failed"),
+                               "monitor_side_ok", "monitor_not_ok", "monitor_jitter", "monitor_note",
+                               "monitor_restart", "monitor_confirmed", "not_saved_warn", "motion_title",
+                               "motion_note", "manual_title", "btn_auto", "btn_zero", "target_auto", "target_zero",
+                               "auto_applied", "auto_camera_auto", "auto_none", "motion_status_idle",
+                               "motion_status_moving", "motion_status_done", "motion_status_failed"),
         }
         for slide, keys in needed.items():
             for key in keys:

@@ -91,7 +91,9 @@ class RealSenseCamera:
         self.profile = None                                     # Camera profile
         self.baseline = 0.065                                   # Stereo camera baseline (m)
         self.dist_coeffs = None                                 # Distortion coefficients
-        self.actual_exposure = 6000.0                           # Actual measured exposure from frame metadata (μs)
+        # Measured exposure from frame metadata (us); None while no frame has reported one (Windows without the
+        # metadata driver patch never does). A fixed 6000 here used to be logged as "last frame 6000 us".
+        self.actual_exposure = None
 
         # Lock for thread synchronization
         self.lock = threading.RLock()
@@ -457,9 +459,9 @@ class RealSenseCamera:
                 return True, 6000.0
 
     def get_actual_exposure(self):
-        """Returns the actual measured exposure (in microseconds) from the latest frame metadata."""
+        """Returns the actual measured exposure (in microseconds) from the latest frame metadata, or None."""
         with self.lock:
-            return float(self.actual_exposure)
+            return None if self.actual_exposure is None else float(self.actual_exposure)
 
     def get_dist_coeffs(self):
         return self.dist_coeffs

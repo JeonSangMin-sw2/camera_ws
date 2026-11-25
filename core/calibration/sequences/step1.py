@@ -725,6 +725,11 @@ def _execute_step1_sequence(
                         f"(J6: {j6_change:.3f}°, J5: {j5_change:.3f}°, J3: {j3_change:.3f}°, "
                         f"bracket pos: {pos_change:.3f} mm, bracket rot: {rot_change:.3f}°; "
                         f"limits 0.10° / 0.5 mm / 0.15°). Keeping Pass {pass_idx} values.")
+                    if context:
+                        context.checkpoint(f"pass_change_{arm_side}", {
+                            "joint6_deg": float(j6_change), "joint5_deg": float(j5_change),
+                            "joint3_deg": float(j3_change), "bracket_pos_mm": float(pos_change),
+                            "bracket_rot_deg": float(rot_change)})
 
             # Update prev values for next pass check
             prev_j6 = joint_offsets_store[arm_side]["joint6"]

@@ -412,11 +412,15 @@ class QPCalibrationOptimizer:
         camera_pos_range_m=None,
         anchor_joint6=True,
         anchor_joint5=True,
+        head_anchor_weight_tilt=HEAD_ANCHOR_WEIGHT_TILT,
     ):
         self.robot = robot
         self.dyn_model = robot.get_dynamics()
         self.model = robot.model()
         self.active_arms = active_arms
+        # Pull of Step 1.5's head tilt (step2.head_tilt_anchor_weight). 2026-11-13: held at 2e6 the tilt of a
+        # Step 1.5 run whose left marker sat on its +-20 mm box (0.76 deg) dragged both J0 along (right +0.22 deg).
+        self.head_anchor_weight_tilt = float(head_anchor_weight_tilt)
         self.apply_joint_offset_limits = apply_joint_offset_limits
         self.joint_offsets_to_apply = joint_offsets_to_apply
         # anchor_joint6=False: J6 is solved from the Step 2 poses instead of being held at Step 1's
@@ -1048,7 +1052,7 @@ class QPCalibrationOptimizer:
                 # bounds -- see HEAD_ANCHOR_WEIGHT_PAN/TILT comment above for why.
                 head_anchors = [
                     (0, head_jo.get("pan", 0.0) * D2R, HEAD_ANCHOR_WEIGHT_PAN),
-                    (1, head_jo.get("tilt", 0.0) * D2R, HEAD_ANCHOR_WEIGHT_TILT),
+                    (1, head_jo.get("tilt", 0.0) * D2R, self.head_anchor_weight_tilt),
                 ]
                 for local_idx, target_val, head_anchor_weight in head_anchors:
                     if local_idx < len(q_head_offset):

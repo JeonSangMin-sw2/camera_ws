@@ -50,10 +50,12 @@ class TestSerialIntrinsics(CameraModelConfigCase):
         self.assertIsNone(camera_intrinsics_serial_path(None))
         self.assertNotIn("..", camera_intrinsics_serial_path("../x"))
 
-    def test_without_a_serial_file_the_model_store_is_used_and_flagged(self):
+    def test_without_a_serial_file_the_factory_intrinsics_are_used(self):
+        # 2026-11-24 (user): another unit's calibration (the model store) is worse than the factory values.
         observer = self.resolve_unit("Intel RealSense D405", SERIAL)
         self.assertFalse(observer.intrinsics_serial_matched)
-        self.assertEqual(observer.intrinsics_source, "model")
+        self.assertEqual(observer.intrinsics_source, "factory")
+        self.assertIsNone(observer.active_intrinsics_path)
         self.assertEqual(observer.camera_serial, SERIAL)
 
     def test_the_units_own_file_wins_over_the_model_store(self):

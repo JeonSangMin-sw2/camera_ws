@@ -116,6 +116,18 @@ def build_home_reset_baseline_data(robot, model, model_name=None, include_head=T
     return data
 
 
+def home_reset_pending(path):
+    """(pending, created_at) for a home_reset_baseline.json. Pending = the file still holds arm offsets:
+    a reset was done but its calibration was not applied yet (Apply writes the offsets back to 0)."""
+    path = Path(path)
+    if not path.is_file():
+        return False, None
+    data = ResultStorage.load(path) or {}
+    offsets = list(data.get("right_arm_joint_offset_deg") or []) + list(data.get("left_arm_joint_offset_deg") or [])
+    pending = any(abs(float(value)) > 1e-6 for value in offsets)
+    return pending, (data.get("metadata") or {}).get("created_at")
+
+
 def save_home_reset_baseline_json(
     robot,
     model,
@@ -599,6 +611,41 @@ def reset_home_offsets(robot, model, log_cb=None):
     return result["success"]
 
 
+# check_calib <-> check_calib_gather moves the hands 100 mm closer together; 10 mm/s (user, 2026-11-24).
+CHECK_GAP_TRAVEL_S = 10.0
+CHECK_GAP_OFF_LINE_RAD = np.radians(2.0)
+CHECK_GAP_DONE_FRACTION = 0.002
+
+
+def has_check_gather_pose(version):
+    """Whether ready_poses.yaml has the hands-together check pose for this robot version ("1.2" / "1.3")."""
+    poses = ConfigStorage.load(StoragePaths.root / "config" / "ready_poses.yaml") or {}
+    return "check_calib_gather" in (poses.get(f"v{str(version).lstrip('v')}") or {})
+
+
+def check_gap_motion(q_now, q_check, q_gather, direction, travel_s=CHECK_GAP_TRAVEL_S):
+    """(target joints, minimum time) for one held 'gather' / 'spread' press, or (None, 0) when already there.
+
+    The time is the remaining share of the full check <-> gather travel, so a press after a release
+    carries on at the same speed. Arms that are off the line between the two poses (not at the check
+    pose) are refused instead of being swung across."""
+    if direction not in ("gather", "spread"):
+        raise ValueError(f"direction must be 'gather' or 'spread', got {direction}")
+    q_now, q_check, q_gather = (np.asarray(v, dtype=np.float64) for v in (q_now, q_check, q_gather))
+    line = q_gather - q_check
+    span = float(np.linalg.norm(line))
+    if span <= 0.0:
+        raise ValueError("check_calib and check_calib_gather are the same pose")
+    t = float(np.clip(np.dot(q_now - q_check, line) / span ** 2, 0.0, 1.0))
+    if np.max(np.abs(q_now - (q_check + t * line))) > CHECK_GAP_OFF_LINE_RAD:
+        raise RuntimeError("The arms are not at the check pose; move to the check pose first.")
+    target = q_gather if direction == "gather" else q_check
+    fraction = float(np.linalg.norm(target - q_now)) / span
+    if fraction < CHECK_GAP_DONE_FRACTION:
+        return None, 0.0
+    return target, max(0.3, travel_s * fraction)
+
+
 class HomeOffsetController:
     """Robot preview/application workflows, with values supplied by the UI core."""
     def __init__(self, robot, log_callback=None):
@@ -756,6 +803,43 @@ class HomeOffsetController:
         self.log_msg("Preview move complete. Inspect the robot pose before applying.")
         return result
 
+
+    def move_check_gap(self, json_path, label, direction):
+        """Wizard check pose, button held (2026-11-24, user): 'gather' moves both arms toward
+        check_calib_gather, 'spread' back toward check_calib, under the same offsets as the check pose.
+        Arms only; letting go cancels the command (core.cancel), and pressing again carries on."""
+        self.ensure_home_offset_robot()
+        offset_rad, _ = load_offset_from_json(str(json_path))
+        _, right_offset_rad, left_offset_rad = split_arm_offset(self.model, "both", offset_rad)
+        version_key = "v1.2"
+        try:
+            if "1.3" in self.robot.get_robot_info().robot_model_version:
+                version_key = "v1.3"
+        except Exception:
+            pass
+        poses = (ConfigStorage.load(StoragePaths.root / "config" / "ready_poses.yaml") or {}).get(version_key, {})
+        if "check_calib" not in poses or "check_calib_gather" not in poses:
+            raise RuntimeError(f"ready_poses.yaml has no check_calib / check_calib_gather for {version_key}")
+        offset = np.concatenate([right_offset_rad, left_offset_rad])
+        q_check = np.deg2rad(poses["check_calib"]["right_arm"] + poses["check_calib"]["left_arm"]) - offset
+        q_gather = np.deg2rad(poses["check_calib_gather"]["right_arm"] + poses["check_calib_gather"]["left_arm"]) - offset
+        arm_idx = list(self.model.right_arm_idx) + list(self.model.left_arm_idx)
+        q_now = np.array(self.robot.get_state().position, dtype=np.float64)[arm_idx]
+        target, minimum_time = check_gap_motion(q_now, q_check, q_gather, direction)
+        if target is None:
+            self.log_msg(f"[Check Pose] {label}: already there.")
+            return {"status": "success", "direction": direction, "moved": False}
+        dof = len(self.model.right_arm_idx)
+        body = (rby.BodyComponentBasedCommandBuilder()
+                .set_right_arm_command(rby.JointPositionCommandBuilder().set_minimum_time(minimum_time).set_position(target[:dof]))
+                .set_left_arm_command(rby.JointPositionCommandBuilder().set_minimum_time(minimum_time).set_position(target[dof:])))
+        check_motion_cancelled()
+        self.log_msg(f"[Check Pose] {label} ({minimum_time:.1f} s at most)...")
+        feedback = self.robot.send_command(
+            rby.RobotCommandBuilder().set_command(rby.ComponentBasedCommandBuilder().set_body_command(body)), 10).get()
+        if feedback.finish_code != rby.RobotCommandFeedback.FinishCode.Ok:
+            raise RuntimeError(f"{label} stopped: {feedback.finish_code}")
+        return {"status": "success", "direction": direction, "moved": True}
 
     def apply_current_pose_home_offset(self, arm, include_head, json_path=None):
         self.ensure_home_offset_robot()

@@ -162,7 +162,8 @@ class JointCalibrator(BaseCalibrator):
             if exposure is not None:
                 log_callback(f"[INFO] Camera exposure for these sweeps: {'auto' if exposure['auto'] else 'manual'}, "
                              f"setpoint {exposure['setpoint']:.0f} (x {exposure['setpoint_unit_us']:g} us), "
-                             f"last frame {exposure['last_frame_us']:.0f} us")
+                             + (f"last frame {exposure['last_frame_us']:.0f} us" if exposure['last_frame_us'] is not None
+                                else "last frame not reported (no frame metadata)"))
 
             max_readjust_retries = 2
             readjust_retry_count = 0
@@ -227,8 +228,10 @@ class JointCalibrator(BaseCalibrator):
                     )
 
                 restart_sequence = False
-                
+                iterations_used = 0
+
                 for i in range(1, max_iterations + 1):
+                    iterations_used = i
                     # Update self.joint_offsets with staged_offset for proper FK offset subtraction in this iteration
                     jcfg = self.JOINT_CONFIGS.get(mode, {})
                     offset_key = jcfg.get("offset_key")
@@ -501,7 +504,8 @@ class JointCalibrator(BaseCalibrator):
             # Final range safety: clamp to configured offset_range
             jcfg = self.JOINT_CONFIGS.get(mode, {})
             off_min, off_max = jcfg.get('offset_range', (-10.0, 10.0))
-            if staged_offset < off_min or staged_offset > off_max:
+            clamped = not off_min <= staged_offset <= off_max
+            if clamped:
                 if log_callback:
                     log_callback(f"  [SAFETY WARNING] Recommended final offset {staged_offset:.4f}° exceeds safe bounds [{off_min}°, {off_max}°]. Clamping.")
                 staged_offset = float(np.clip(staged_offset, off_min, off_max))
@@ -517,6 +521,10 @@ class JointCalibrator(BaseCalibrator):
                 'optimal_offset': staged_offset,
                 'converged': converged,
                 'convergence_basis': convergence_basis,
+                # Shown in the wizard's run line (sequences/run_warnings.py).
+                'iterations': iterations_used,
+                'max_iterations': max_iterations,
+                'clamped': clamped,
                 'perp_dist_before': final_res.get('perp_dist_before', float('nan')) if final_res else float('nan'),
                 'perp_dist_after': final_res.get('perp_dist_after', float('nan')) if final_res else float('nan'),
                 'axial_offset_mm': final_res.get('axial_offset_mm', float('nan')) if final_res else float('nan'),

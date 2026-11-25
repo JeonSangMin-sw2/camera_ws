@@ -22,6 +22,9 @@ class AutoCollectionConfig:
 
 # Optional plan steps (wrist-diversity poses) are skipped when a joint target comes this close to its limit.
 OPTIONAL_POSE_LIMIT_MARGIN_DEG = 5.0
+# Paced plan steps (the check-region poses and the return from them) travel far, J6 by ~110 deg: their move time
+# grows with the largest joint travel at this speed, as the wizard's gripper-pose move does.
+PACED_JOINT_SPEED_DEG_S = 18.0
 
 
 def rot_x(rad):
@@ -120,7 +123,7 @@ def reset_motion_state():
     }
 
 def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig, active_arms=["right", "left"], include_head_motion=True,
-                                  wrist_diversity=None, skip_half_steps=False):
+                                  wrist_diversity=None, skip_half_steps=False, check_region=None):
     """
     현재 자세를 읽어서 X축으로 전진하며 RPY/YZ 오프셋 타겟들과 헤드 트래킹 타겟 각도들을 생성합니다. (최대 2루프, 총 82개 포즈로 구성)
 
@@ -131,6 +134,9 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
 
     skip_half_steps (setting.yaml step2.skip_half_steps): leave out every half-size step whose
     full-size step in the same direction is also in the plan (head 64 -> 44 poses, headless 54 -> 36).
+
+    check_region: absolute poses near the check pose for head robots, each {"right": [7 deg], "left": [7 deg],
+    "head": [pan, tilt] deg}; appended last, optional and paced, then a paced return to the baseline.
     """
     reset_motion_state()
     if robot is None:
@@ -381,7 +387,39 @@ def build_incremental_motion_plan(robot, dyn_model, config: AutoCollectionConfig
             "desc": "Restore Baseline Pose",
         })
 
+    if has_head and check_region:
+        n = len(check_region)
+        for k, pose in enumerate(check_region, start=1):
+            plan.append({
+                "type": "joint",
+                "joint_idx": None,
+                "q_targets_deg": {side: [float(v) for v in pose[side]] for side in ("right", "left")},
+                "head_q": np.radians(pose["head"]),
+                "optional": True,
+                "paced": True,
+                "T_right": T_base_right.copy() if T_base_right is not None else None,
+                "T_left": T_base_left.copy() if T_base_left is not None else None,
+                "desc": f"Check region {k}/{n}: head {[round(float(v), 1) for v in pose['head']]} deg",
+            })
+        # Ends at the baseline: the verification takes the last sample as its ready pose.
+        plan.append({
+            "type": "restore_baseline",
+            "paced": True,
+            "T_right": T_base_right.copy() if T_base_right is not None else None,
+            "T_left": T_base_left.copy() if T_base_left is not None else None,
+            "desc": "Restore Baseline Pose",
+        })
+
     return plan
+
+
+def _paced_move_time(config, step, q_now, targets):
+    """config.move_time, or for a paced step the largest joint travel (deg) over PACED_JOINT_SPEED_DEG_S."""
+    if not step.get("paced"):
+        return config.move_time
+    travel = max((np.max(np.abs(np.degrees(np.asarray(target, dtype=float) - np.asarray(now, dtype=float))))
+                  for now, target in zip(q_now, targets) if target is not None), default=0.0)
+    return max(config.move_time, float(travel) / PACED_JOINT_SPEED_DEG_S)
 
 def move_to_auto_ready_pose(robot, active_arms, minimum_time=5.0, priority=10, include_head_motion=True, robot_version=None,
                            pos_tolerance_m=0.005, ori_tolerance_rad=0.02, skip_joint_pose=False):
@@ -597,17 +635,19 @@ def send_auto_motion_cmd(
     elbow_angle_deg=None,
     pos_tolerance_m=0.005,
     ori_tolerance_rad=0.02,
+    min_time=None,
 ):
     """
     Sends a unified motion command moving Arm and Head simultaneously in parallel.
     Data capture occurs cleanly after both arm and head arrive and settle at the target pose.
+    min_time: overrides config.move_time (paced plan steps).
     """
     cmd = make_dual_arm_head_cmd(
         T_right=T_right,
         T_left=T_left,
         active_arms=active_arms,
         head_position=head_position,
-        min_time=config.move_time,
+        min_time=config.move_time if min_time is None else min_time,
         hold_time=config.hold_time,
         q_right=q_right,
         q_left=q_left,
@@ -672,13 +712,18 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
         q_right_target = _motion_state["q_right_baseline"].copy()
         q_left_target = _motion_state["q_left_baseline"].copy()
 
-        if motion_plan_step.get("offsets_by_arm") is not None:
-            # Explicit per-arm offsets (no mirroring), e.g. the wrist-diversity poses.
+        if motion_plan_step.get("q_targets_deg") is not None or motion_plan_step.get("offsets_by_arm") is not None:
             targets = {"right": q_right_target, "left": q_left_target}
-            for side, offsets in motion_plan_step["offsets_by_arm"].items():
-                if side in active_arms:
-                    for j_i, off_deg in offsets.items():
-                        targets[side][int(j_i)] += np.deg2rad(off_deg)
+            if motion_plan_step.get("q_targets_deg") is not None:
+                # Absolute joint targets (the check-region poses), not offsets from the baseline.
+                for side in active_arms:
+                    targets[side][:] = np.radians(motion_plan_step["q_targets_deg"][side])
+            else:
+                # Explicit per-arm offsets (no mirroring), e.g. the wrist-diversity poses.
+                for side, offsets in motion_plan_step["offsets_by_arm"].items():
+                    if side in active_arms:
+                        for j_i, off_deg in offsets.items():
+                            targets[side][int(j_i)] += np.deg2rad(off_deg)
             if motion_plan_step.get("optional"):
                 names = model.robot_joint_names
                 limit_state = dyn_model.make_state(["link_torso_5", "ee_right"], names)
@@ -732,6 +777,7 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
                 # keep head strictly at the baseline aligned orientation
                 head_q = _motion_state["q_head_baseline"].copy() if _motion_state["q_head_baseline"] is not None else np.zeros(2, dtype=np.float64)
 
+        head_now = q_full[list(model.head_idx[:2])] if head_q is not None else None
         send_auto_motion_cmd(
             robot=robot,
             config=config,
@@ -739,6 +785,9 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
             q_right=q_right_target if "right" in active_arms else None,
             q_left=q_left_target if "left" in active_arms else None,
             head_position=head_q,
+            min_time=_paced_move_time(config, motion_plan_step,
+                                      (q_full[model.right_arm_idx[:7]], q_full[model.left_arm_idx[:7]], head_now),
+                                      (q_right_target, q_left_target, head_q)),
         )
 
         wait_motion(config.settle_time)
@@ -747,6 +796,15 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
     elif step_type == "restore_baseline":
         if _motion_state["q_right_baseline"] is not None:
             base_head = _motion_state["q_head_baseline"].copy() if (include_head_motion and _motion_state["q_head_baseline"] is not None) else None
+            min_time = None
+            if motion_plan_step.get("paced"):
+                q_now = np.array(robot.get_state().position)
+                model = robot.model()
+                min_time = _paced_move_time(
+                    config, motion_plan_step,
+                    (q_now[model.right_arm_idx[:7]], q_now[model.left_arm_idx[:7]],
+                     None if base_head is None else q_now[list(model.head_idx[:2])]),
+                    (_motion_state["q_right_baseline"], _motion_state["q_left_baseline"], base_head))
             send_auto_motion_cmd(
                 robot=robot,
                 config=config,
@@ -754,6 +812,7 @@ def execute_auto_motion_step(robot, config, motion_plan_step, active_arms, inclu
                 q_right=_motion_state["q_right_baseline"] if "right" in active_arms else None,
                 q_left=_motion_state["q_left_baseline"] if "left" in active_arms else None,
                 head_position=base_head,
+                min_time=min_time,
             )
 
         wait_motion(config.settle_time)

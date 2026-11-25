@@ -19,6 +19,7 @@ from scipy.spatial.transform import Rotation as R_scipy
 from core.robot.motion import move_to_auto_ready_pose
 from ..data import capture_one_sample, get_both_arm_config, get_head_config
 from ..CalibratorBase import BaseCalibrator
+from .result import SequenceCancelled
 
 # Reflection across the robot's sagittal plane (y -> -y).
 MIRROR = np.diag([1.0, -1.0, 1.0, 1.0])
@@ -30,6 +31,11 @@ MIRROR_JOINT_SIGN = np.array([1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0])
 
 VERIFY_POS_TOLERANCE_M = 0.0005
 VERIFY_ORI_TOLERANCE_RAD = 0.005
+
+# Left/right flange gap the camera may see at the check pose before the run line warns (user, 2026-11-24).
+CHECK_VIEW_GAP_LIMIT_MM = 2.0
+CHECK_VIEW_MOVE_S = 8.0
+CHECK_VIEW_HEAD_MOVE_S = 3.0
 
 
 def _fk(dyn, model, q_full, ee, base="link_torso_5"):
@@ -207,12 +213,20 @@ def run_post_step2_verification(core, context, optimization=None, minimum_time=5
 
     corrected = _move_to_offset_corrected_pose(core, context, cfg, head_idx, q_arm, q_head,
                                                camera, optimization, minimum_time, log)
+    try:
+        check_view = _check_pose_view(core, context, cfg, head_idx, camera, optimization, log)
+    except SequenceCancelled:
+        raise
+    except Exception as error:      # keep the ready-pose numbers above; the run line still warns
+        log(f"[WARN] Check-pose view failed: {error}")
+        check_view = {"seen": False, "reason": "error"}
     log("=" * 58)
     log("")
 
     result = {"calibrated": calibrated, "baseline": baseline,
               "joint_mirror_asymmetry_deg": joint_asym,
               "corrected_pose": corrected,
+              "check_pose_view": check_view,
               "q_arm": np.asarray(q_arm).tolist(),
               "q_head": np.asarray(q_head).tolist() if q_head is not None else None}
     context.checkpoint("verification", result)
@@ -308,6 +322,176 @@ def _move_to_offset_corrected_pose(core, context, cfg, head_idx, q_arm, q_head,
     value["q_arm"] = np.asarray(q_arm2).tolist()
     value["q_head"] = np.asarray(q_head2).tolist() if q_head2 is not None else None
     return value
+
+
+def _check_pose_view(core, context, cfg, head_idx, camera, optimization, log):
+    """The check pose, offset-corrected like the operator's preview, with the head tilted down and both J6 turned
+    (mirrored) so the markers face the camera. The ready pose can agree while this lower pose does not
+    (2026-11-24: left hand ~4 mm low by eye). J6 turns about the flange axis, so the flanges stay at the check pose.
+    Returns None when skipped, {"seen": False} when the markers were not both detected."""
+    version = core.get_robot_version()
+    poses = getattr(core.marker_calibrator, "ready_poses", None) or {}
+    view = (poses.get(f"v{version}") or {}).get("check_calib_view")
+    if head_idx is None or view is None:
+        log(f" [skip] check-pose view: needs the head camera and check_calib_view for v{version} in ready_poses.yaml")
+        return None
+
+    q_view = np.concatenate([core.marker_calibrator.get_ready_pose(f"v{version}", "check_calib", None, side)
+                             for side in ("right", "left")])
+    turn = np.radians(float(view["j6_turn_deg"]))
+    q_view[6] += turn
+    q_view[13] += MIRROR_JOINT_SIGN[6] * turn
+    q_cmd = q_view.copy()
+    q_cmd[:7] -= _arm_offsets_rad(optimization, "right")
+    q_cmd[7:] -= _arm_offsets_rad(optimization, "left")
+    q_head_cmd = np.radians(np.asarray(view["head_deg"], dtype=float)) - _head_offsets_rad(optimization)[:2]
+
+    sep = _link_separations(core, cfg, head_idx, q_cmd, q_head_cmd)
+    if np.min(sep) < 50.0:
+        log(f"[WARN] Check-pose view skipped: arm links would come within {np.min(sep):.1f} mm of each other.")
+        return {"seen": False, "reason": "clearance"}
+
+    log("")
+    log(f" check pose, offset-corrected, head at {list(view['head_deg'])} deg and J6 turned "
+        f"{float(view['j6_turn_deg']):+.0f} deg (left mirrored) so the camera sees the markers:")
+    context.check_cancelled()
+    ok = core.marker_calibrator.movej(core.robot, torso=None, right_arm=list(q_cmd[:7]), left_arm=list(q_cmd[7:]),
+                                      head=list(q_head_cmd), minimum_time=CHECK_VIEW_MOVE_S, apply_offsets=False)
+    context.check_cancelled()
+    # The raw measurement goes into the Step 2 result too (user, 2026-11-24), so the check pose can be
+    # re-solved offline: what was commanded, the camera and brackets the comparison used.
+    raw = {"view": {"head_deg": [float(v) for v in view["head_deg"]], "j6_turn_deg": float(view["j6_turn_deg"]),
+                    "extra_head_deg": [[float(v) for v in h] for h in view.get("extra_head_deg") or []],
+                    "facing_view": view.get("facing_view")},
+           "q_cmd_arm": q_cmd.tolist(), "q_cmd_head": np.asarray(q_head_cmd).tolist(),
+           "camera": {"link": camera[0], "transform": [float(v) for v in camera[1]]},
+           "brackets": {side: None if core.get_marker_bracket(side) is None
+                        else [float(v) for v in core.get_marker_bracket(side)] for side in ("right", "left")}}
+    value = {"seen": False, "reason": "move", **raw}
+    if not ok:
+        log("[WARN] Check-pose view: the move failed.")
+    else:
+        q_arm2, q_head2, markers2 = capture_one_sample(
+            core.robot, cfg["arm_idx"], core.observer,
+            sampling_time=0 if core.observer.sim else 1, side="all", head_idx=head_idx,
+        )
+        raw.update(q_arm=np.asarray(q_arm2).tolist(),
+                   q_head=None if q_head2 is None else np.asarray(q_head2).tolist())
+        if markers2 is None:
+            log("[WARN] Check-pose view: both markers were not detected; the check pose is not verified.")
+            value = {"seen": False, "reason": "markers", **raw}
+        else:
+            value = _evaluate(core, cfg, head_idx, q_arm2, q_head2, markers2, camera, True, optimization)
+            meas = value["measured_symmetry"]
+            value.update(raw, seen=True, gap_mm=meas["dist_mm"], limit_mm=CHECK_VIEW_GAP_LIMIT_MM,
+                         markers={side: np.asarray(markers2[i]).tolist() for i, side in enumerate(("right", "left"))})
+            for side in ("right", "left"):
+                err = value["per_arm"][side]
+                log(f"   model vs camera {side:5s}: {err['pos_err_mm']:6.2f} mm / {err['rot_err_deg']:5.2f} deg")
+            log(f"   flanges, as measured (left minus mirrored right): x {meas['dx_mm']:+6.2f}, "
+                f"y {meas['dy_mm']:+6.2f}, z {meas['dz_mm']:+6.2f} mm  -> {meas['dist_mm']:5.2f} mm "
+                f"(limit {CHECK_VIEW_GAP_LIMIT_MM:.1f} mm)")
+            if meas["dist_mm"] > CHECK_VIEW_GAP_LIMIT_MM:
+                log(f"[WARN] Check-pose view: the hands are {meas['dist_mm']:.2f} mm apart from symmetric, "
+                    f"over {CHECK_VIEW_GAP_LIMIT_MM:.1f} mm.")
+    if ok and view.get("extra_head_deg"):
+        value["other_views"] = _check_pose_other_views(core, context, cfg, head_idx, camera, optimization, log,
+                                                       view["extra_head_deg"], value)
+    if ok and view.get("facing_view"):
+        value["facing_view"] = _check_pose_facing_view(core, context, cfg, head_idx, camera, optimization, log,
+                                                       view["facing_view"], q_cmd, value)
+    # The robot stays here (user, 2026-11-24): nothing after the verification needs the ready pose.
+    return value
+
+
+def _check_pose_facing_view(core, context, cfg, head_idx, camera, optimization, log, facing, q_cmd_view, first):
+    """The check pose with J4/J5 also turned (left mirrored) so the markers face the camera, as in the Step 2
+    samples (user, 2026-11-25). The first view sees them ~49 deg off: a gap that stays here is the arms, one that
+    shrinks is the oblique detection. Shoulders and elbow as at the check pose; recorded and logged only."""
+    wrist = np.radians(np.asarray(facing["wrist_deg"], dtype=float))
+    q_cmd = np.asarray(q_cmd_view, dtype=float).copy()
+    q_cmd[4:6] += wrist
+    q_cmd[11:13] += MIRROR_JOINT_SIGN[4:6] * wrist
+    head_deg = [float(v) for v in facing["head_deg"]]
+    q_head_cmd = np.radians(head_deg) - _head_offsets_rad(optimization)[:2]
+    entry = {"wrist_deg": [float(v) for v in facing["wrist_deg"]], "head_deg": head_deg,
+             "q_cmd_arm": q_cmd.tolist(), "q_cmd_head": np.asarray(q_head_cmd).tolist(), "seen": False}
+    sep = _link_separations(core, cfg, head_idx, q_cmd, q_head_cmd)
+    if np.min(sep) < 50.0:
+        log(f"[WARN] Facing check view skipped: arm links would come within {np.min(sep):.1f} mm of each other.")
+        return dict(entry, reason="clearance")
+
+    log(f" check pose with J4/J5 turned {entry['wrist_deg']} deg (left mirrored), head at {head_deg} deg, "
+        "markers facing the camera:")
+    context.check_cancelled()
+    moved = core.marker_calibrator.movej(core.robot, torso=None, right_arm=list(q_cmd[:7]), left_arm=list(q_cmd[7:]),
+                                         head=list(q_head_cmd), minimum_time=CHECK_VIEW_MOVE_S, apply_offsets=False)
+    context.check_cancelled()
+    if not moved:
+        log("[WARN] Facing check view: the move failed.")
+        return dict(entry, reason="move")
+    q_arm, q_head, markers = capture_one_sample(
+        core.robot, cfg["arm_idx"], core.observer,
+        sampling_time=0 if core.observer.sim else 1, side="all", head_idx=head_idx,
+    )
+    entry.update(q_arm=np.asarray(q_arm).tolist(), q_head=None if q_head is None else np.asarray(q_head).tolist())
+    if markers is None:
+        log("[WARN] Facing check view: both markers were not detected.")
+        return dict(entry, reason="markers")
+    result = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, True, optimization)
+    meas = result["measured_symmetry"]
+    entry.update(result, seen=True, gap_mm=meas["dist_mm"],
+                 markers={side: np.asarray(markers[i]).tolist() for i, side in enumerate(("right", "left"))})
+    for side in ("right", "left"):
+        err = result["per_arm"][side]
+        log(f"   model vs camera {side:5s}: {err['pos_err_mm']:6.2f} mm / {err['rot_err_deg']:5.2f} deg")
+    line = (f"   flanges, as measured (left minus mirrored right): x {meas['dx_mm']:+6.2f}, y {meas['dy_mm']:+6.2f}, "
+            f"z {meas['dz_mm']:+6.2f} mm  -> {meas['dist_mm']:5.2f} mm")
+    if first.get("seen"):
+        line += f" (first check view {first['gap_mm']:.2f} mm)"
+    log(line)
+    return entry
+
+
+def _check_pose_other_views(core, context, cfg, head_idx, camera, optimization, log, heads_deg, first):
+    """The same check pose seen with the head at other angles, arms still (user, 2026-11-24): a gap that changes
+    with the head angle comes from the head / camera model, one that stays comes from the arms. Recorded and
+    logged only; the run-line caution follows the first view."""
+    views = []
+    for head_deg in heads_deg:
+        head_deg = [float(v) for v in head_deg]
+        q_head_cmd = np.radians(head_deg) - _head_offsets_rad(optimization)[:2]
+        context.check_cancelled()
+        moved = core.marker_calibrator.movej(core.robot, head=list(q_head_cmd), minimum_time=CHECK_VIEW_HEAD_MOVE_S,
+                                             apply_offsets=False)
+        context.check_cancelled()
+        entry = {"head_deg": head_deg, "q_cmd_head": np.asarray(q_head_cmd).tolist(), "seen": False,
+                 "reason": "move" if not moved else "markers"}
+        if moved:
+            q_arm, q_head, markers = capture_one_sample(
+                core.robot, cfg["arm_idx"], core.observer,
+                sampling_time=0 if core.observer.sim else 1, side="all", head_idx=head_idx,
+            )
+            entry.update(q_arm=np.asarray(q_arm).tolist(), q_head=None if q_head is None else np.asarray(q_head).tolist())
+            if markers is not None:
+                result = _evaluate(core, cfg, head_idx, q_arm, q_head, markers, camera, True, optimization)
+                entry.update(result, seen=True, gap_mm=result["measured_symmetry"]["dist_mm"],
+                             markers={side: np.asarray(markers[i]).tolist() for i, side in enumerate(("right", "left"))})
+        views.append(entry)
+        if not entry["seen"]:
+            log(f"[WARN] Check-pose view at head {head_deg} deg: {'the head move failed' if not moved else 'both markers were not detected'}.")
+            continue
+        meas = entry["measured_symmetry"]
+        line = (f"   head {head_deg} deg: model vs camera right {entry['per_arm']['right']['pos_err_mm']:.2f} mm / "
+                f"{entry['per_arm']['right']['rot_err_deg']:.2f} deg, left {entry['per_arm']['left']['pos_err_mm']:.2f} mm / "
+                f"{entry['per_arm']['left']['rot_err_deg']:.2f} deg; flanges x {meas['dx_mm']:+.2f}, y {meas['dy_mm']:+.2f}, "
+                f"z {meas['dz_mm']:+.2f} mm -> {meas['dist_mm']:.2f} mm")
+        if first.get("seen"):
+            ref = first["measured_symmetry"]
+            line += (f" (change from head {first['view']['head_deg']}: x {meas['dx_mm'] - ref['dx_mm']:+.2f}, "
+                     f"y {meas['dy_mm'] - ref['dy_mm']:+.2f}, z {meas['dz_mm'] - ref['dz_mm']:+.2f} mm)")
+        log(line)
+    return views
 
 
 def _joint_mirror_asymmetry(optimization, q_arm, log):

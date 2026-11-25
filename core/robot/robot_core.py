@@ -62,6 +62,24 @@ def cancel_control(robot, address=None, model_name=None):
     return robot.cancel_control()
 
 
+# Robot LED around a calibration run (2026-11-24, user): off while it moves, red blinking after a
+# problem. set_led_color holds a color for `duration` s and then the robot's own LED comes back.
+CALIBRATION_LED_OFF_S = 7200.0     # longer than any run (a slow UPC run took over 40 min)
+CALIBRATION_LED_ALERT_S = 60.0
+
+
+def set_calibration_led(robot, state):
+    """state: "off" (calibration moving), "alert" (red, blinking) or "release" (hand the LED back)."""
+    if state == "off":
+        return robot.set_led_color(rby.Color(0, 0, 0), duration=CALIBRATION_LED_OFF_S)
+    if state == "alert":
+        return robot.set_led_color(rby.Color(255, 0, 0), duration=CALIBRATION_LED_ALERT_S,
+                                   blinking=True, blinking_freq=2.0)
+    if state == "release":
+        return robot.set_led_color(rby.Color(0, 0, 0), duration=0.01)
+    raise ValueError(f"Unknown LED state: {state}")
+
+
 class RobotOperations:
     """SDK operations shared by calibration controllers; no UI dependencies."""
     @staticmethod
@@ -252,6 +270,11 @@ class RobotOperations:
             model = robot.model()
             has_head = hasattr(model, 'head_idx') and len(model.head_idx) > 0
             if not has_head:
+                head = None
+            elif getattr(self, 'include_head_motion', True) is False:
+                # Head-less setup: the head servos are left off on connect, and a command to them faults
+                # the control manager (2026-11-20, user report).
+                logging.warning("Head command dropped: head motion is off (head servos are not enabled).")
                 head = None
 
         if apply_offsets and hasattr(self, 'joint_offsets') and self.joint_offsets is not None:

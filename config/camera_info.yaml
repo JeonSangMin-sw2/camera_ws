@@ -23,9 +23,12 @@ D405:
   # x: module face at 47 mm minus the 3.7 mm depth start point (the colour image comes from the same
   # imager as the depth). y: half the 18 mm baseline. z: bracket height measured at the bolt position,
   # 63 mm (2026-10-15; 67 mm until then was the height of the whole part). Range: only x is not
-  # settled (optical position inside the module), so z is held to +-0.5 mm.
+  # settled (optical position inside the module), so z was held to +-0.5 mm and y at 0.
+  # 2026-11-24 (user): widened to x +2, y +-0.5, z +1.5 mm. A v1.2 robot's camera ended at the x/z
+  # upper ends in Step 1.5 and Step 2; re-solved with a wide range it settled at x +1.86, y -0.35,
+  # z +1.07 mm, and the held range had moved both hands about 2.6 mm at the check pose.
   mount_to_cam: [0.0433, 0.009, 0.063, -90.0, 0.0, -90.0]
-  mount_to_cam_position_range_m: [[-0.003, 0.001], [0.0, 0.0], [-0.0005, 0.0005]]
+  mount_to_cam_position_range_m: [[-0.003, 0.002], [-0.0005, 0.0005], [-0.0005, 0.0015]]
   camera_mount_link: link_head_2
   temp_supported: false
 

@@ -21,6 +21,10 @@ from .sequences.result import SequenceContext, SequenceCancelled, require_conver
 DEFAULT_AUTO_EXPOSURE_US = 6000.0
 # Head move to zero before an arm ready pose that asks for it ("ready" sequence, head_zero=True).
 HEAD_ZERO_MOVE_TIME_S = 3.0
+# Wizard gripper-change pose: the farthest joint travels at this speed (110 deg from zero took the old fixed 6 s), so a
+# move resumed after the held button was let go keeps the same pace instead of stretching over 6 s (user, 2026-11-24).
+GRIPPER_POSE_JOINT_SPEED_DEG_S = 18.0
+GRIPPER_POSE_MIN_TIME_S = 1.0
 
 # The marker brackets are rigid parts bolted to nominally symmetric flanges, so their fitted
 # poses should differ only by a small mounting skew. Enforcing that halves the random part of
@@ -32,6 +36,8 @@ ENFORCE_BRACKET_SYMMETRY = True
 # would hide it, so the pair is left alone and reported instead.
 BRACKET_SYMMETRY_MAX_POS_MM = 2.0
 BRACKET_SYMMETRY_MAX_ROT_DEG = 1.5
+# Calibration runs that keep the robot LED off while they move (robot_core.set_calibration_led).
+LED_SEQUENCES = ("full", "step1", "step1_5", "step2", "marker", "joint", "collect")
 
 
 class CalibrationCore:
@@ -52,6 +58,7 @@ class CalibrationCore:
         self.model = robot.model() if robot is not None else None
         self.robot_version = "1.2"
         self.include_head_motion = True
+        self.run_warned = False
         self.apply_joint_offset_flag = True
         self.bracket_calibrated_sides = set()
         self.joint_offsets_store = {side: {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0} for side in ("right", "left")}
@@ -98,6 +105,8 @@ class CalibrationCore:
                 logging.getLogger(__name__).exception("Core event consumer failed: %s", kind)
 
     def log_msg(self, message):
+        if self._contexts and "[WARN]" in str(message):
+            self._contexts[-1].warn_log.append(str(message))
         self.emit("log", message)
 
     def emit_detection(self, detected):
@@ -442,19 +451,35 @@ class CalibrationCore:
                 raise RuntimeError("Sequence must be prepared exactly once")
             self._prepared = False
             self._executing = True
+        self.run_warned = False
+        led = name in LED_SEQUENCES and self.robot is not None
         try:
             from core.robot.robot_core import motion_cancellation
+            if led:
+                self._set_led("off")
             with motion_cancellation(self.stop_event):
                 result = self._execute(name, options)
             self._progress(result)
         finally:
             self._executing = False
             self._run_lock.release()
+        if led:
+            # The LED comes on only after the run, so it never lights the markers mid-measurement.
+            self._set_led("alert" if result.status == "failed" or self.run_warned else "release")
         self.emit("result", result.snapshot())
         return result
 
+    def _set_led(self, state):
+        from core.robot.robot_core import set_calibration_led
+        try:
+            if not set_calibration_led(self.robot, state):
+                self.log_msg(f"[WARN] Robot LED '{state}' was not accepted.")
+        except Exception as error:
+            self.log_msg(f"[WARN] Robot LED '{state}' failed: {error}")
+
     def _execute(self, name, options):
         ctx = SequenceContext(name, self.stop_event, self._progress)
+        ctx.warn_log = []       # this stage's [WARN] lines, shown when the wizard's caution line is clicked
         self._contexts.append(ctx)
         if self.observer is not None:
             self.observer.on_observation = self._record_observation
@@ -488,6 +513,8 @@ class CalibrationCore:
                 elif task == "move_check":
                     self._warn_preview_only(options.get("json_path"))
                     value = controller.move_to_check_position_candidate_path(**options)
+                elif task == "check_gap":
+                    value = controller.move_check_gap(**options)
                 elif task == "apply":
                     self._require_applicable_result(options.get("json_path"))
                     try:
@@ -553,6 +580,34 @@ class CalibrationCore:
                 if not value:
                     raise RuntimeError("Ready pose failed")
                 ctx.complete("ready", True)
+            elif name == "gripper_pose":
+                # Wizard: both arms to the gripper-change pose of the robot version, head to zero, then
+                # the tool flange output off so the gripper can be unplugged. A v1.3 marker bracket goes
+                # on the gripper, which stays plugged in, so its power is left alone (2026-11-12, user).
+                from .data import load_gripper_change_pose
+                pose = load_gripper_change_pose(self.robot_version)
+                # Without the head its servos stay off (robot_core servo pattern), so it gets no command.
+                head = [0.0, 0.0] if self.include_head_motion else None
+                if not self.joint_calibrator.movej(self.robot, right_arm=np.radians(pose["right"]),
+                                                   left_arm=np.radians(pose["left"]), head=head,
+                                                   minimum_time=self._gripper_pose_move_time(pose, head),
+                                                   apply_offsets=False):
+                    ctx.check_cancelled()
+                    raise RuntimeError("Gripper-change pose move failed")
+                ctx.check_cancelled()
+                if str(self.robot_version).lstrip("v") == "1.3":
+                    self.log_msg("[Wizard] Gripper-change pose reached; v1.3 keeps the gripper, tool flange power left on.")
+                    ctx.complete("gripper_pose", {})
+                else:
+                    voltages = RobotOperations.power_off_tool_flanges(self.robot)
+                    self.log_msg("[Wizard] Gripper-change pose reached; tool flange output off: "
+                                 + ", ".join(f"{side} {value:.0f} V" for side, value in voltages.items()))
+                    ctx.complete("gripper_pose", voltages)
+            elif name == "auto_exposure":
+                from .sequences.auto_exposure import run_auto_exposure
+                if self.robot is None or self.observer is None:
+                    raise RuntimeError("Robot and camera must be connected for the auto exposure")
+                ctx.complete("auto_exposure", run_auto_exposure(self, ctx, **options))
             elif name == "full_ready":
                 for side in ("right", "left"):
                     ctx.check_cancelled()
@@ -670,11 +725,13 @@ class CalibrationCore:
                     if options.get("samples") is None and samples[-1].get("baseline"):
                         reference = (q_arm_array[-1], None if q_head_list is None else q_head_list[-1])
                     try:
-                        run_post_step2_verification(self, ctx, optimization=value, reference=reference)
+                        verification = run_post_step2_verification(self, ctx, optimization=value, reference=reference)
                     except SequenceCancelled:
                         raise
                     except Exception as error:
                         self.log_msg(f"[WARN] Post-Step2 verification failed: {error}")
+                    else:
+                        self._save_check_pose_view(solve["result_path"], verification)
             elif name == "full":
                 from .sequences.full import run_full
                 run_full(self, ctx, **options)
@@ -683,6 +740,8 @@ class CalibrationCore:
             if ctx.result.status == "running":
                 ctx.check_cancelled()
                 ctx.result.finish("completed")
+            if ctx.result.success and name in ("step1", "step1_5", "step2"):
+                self._attach_run_warnings(name, ctx)
         except SequenceCancelled as error:
             ctx.result.partial.update(error.partial)
             ctx.result.finish("cancelled", str(error))
@@ -695,6 +754,45 @@ class CalibrationCore:
                     ctx.result.partial[key] = deepcopy(c.partial_data)
             self._contexts.pop()
         return ctx.result.snapshot()
+
+    def _save_check_pose_view(self, result_path, verification):
+        """Add the post-Step 2 check-pose measurement to the result JSON just written (user, 2026-11-24)."""
+        view = (verification or {}).get("check_pose_view")
+        if view is None:
+            return
+        from core.storage import ResultStorage
+        try:
+            data = ResultStorage.load(result_path)
+            data["check_pose_view"] = view
+            ResultStorage.save(result_path, data)
+        except Exception as error:
+            self.log_msg(f"[WARN] Check-pose view measurement not saved to {result_path}: {error}")
+            return
+        self.log_msg(f"[INFO] Check-pose view measurement saved to {result_path} (check_pose_view)")
+
+    def _gripper_pose_move_time(self, pose, head):
+        model = self.robot.model()
+        q = np.asarray(self.robot.get_state().position, dtype=float)
+        idx = list(model.right_arm_idx) + list(model.left_arm_idx)
+        target = list(np.radians(pose["right"])) + list(np.radians(pose["left"]))
+        if head is not None:
+            idx += list(model.head_idx)
+            target += list(np.radians(head))
+        travel_deg = float(np.degrees(np.max(np.abs(np.asarray(target) - q[idx]))))
+        return max(GRIPPER_POSE_MIN_TIME_S, travel_deg / GRIPPER_POSE_JOINT_SPEED_DEG_S)
+
+    def _attach_run_warnings(self, name, ctx):
+        """The stage's problems as completed["warnings"], for the wizard's run line and the robot LED."""
+        from .sequences.run_warnings import stage_warnings
+        warnings = stage_warnings(name, ctx.result.completed, ctx.result.partial)
+        if not warnings:
+            return
+        ctx.result.completed["warnings"] = warnings
+        ctx.result.completed["warning_log"] = list(ctx.warn_log)
+        self.run_warned = True
+        for item in warnings:
+            self.log_msg(f"[WARN] {name} check: {item['key']} {item['params']}")
+        self._progress(ctx.result)
 
     def _record_observation(self, value, frame):
         if self._contexts and value is not None:

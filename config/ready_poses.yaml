@@ -20,9 +20,46 @@ v1.2:
   marker:
     right_arm: [-90.0, -40.0, 73.0, -97.0, 90.0, 90.0, -10.0]
     left_arm: [-90.0, 40.0, -73.0, -97.0, -80.0, 90.0, 10.0]
+  # Wizard gripper-change pose (2026-11-12, user): tool flange facing up so the gripper comes off easily. J3+J5 = -180
+  # turns the flange up (FK on the model M v1.2 URDF, arm chains as on model A); J5 -70 stays clear of its -90 limit,
+  # J1 10 deg out keeps the hands off the body (flange 10 deg from vertical).
+  gripper_change:
+    right_arm: [0.0, -10.0, 0.0, -110.0, 0.0, -70.0, 0.0]
+    left_arm: [0.0, 10.0, 0.0, -110.0, 0.0, -70.0, 0.0]
   check_calib:
-    right_arm: [-24.670293247716117, -39.97309779281507, 11.245521098854034, -107.94826174466372, -123.90104309118438, 62.20615349398536, 58.400917359415544]
+    right_arm: [-24.670293247716117,-39.97309779281507, 11.245521098854034, -107.94826174466372, -123.90104309118438, 62.20615349398536, 58.400917359415544]
     left_arm: [-24.673371649425416, 39.977181699521026, -11.2449384541747, -107.94870000866068, 123.90090751555407, 62.20615370729742, -58.400917505707554]
+  # The check pose with the hands brought in (wizard 'Bring Together', held): check_calib puts both ee at
+  # link_torso_5 x 350, y +-150, z 0 mm; this keeps x, z and the orientation with y +-100 mm. Solved on the
+  # model M v1.2 simulator (scratch/check_gather_pose_sim.py, 2026-11-24): orientation change 0.005 deg.
+  check_calib_gather:
+    right_arm: [-28.7608, -36.0076, 17.6918, -109.1932, -117.6528, 55.7002, 54.7571]
+    left_arm: [-28.7726, 36.0173, -17.692, -109.1955, 117.6485, 55.6984, -54.7536]
+  # Post-Step 2 check at check_calib (sequences/verify.py): head [pan, tilt] and the right J6 turn (left mirrored)
+  # that make the head camera see both markers there. A detected marker's -z faces the camera; the -42 deg first
+  # used here turned the markers away and the real run saw neither (2026-11-24 16:51). Facing them needs +136 deg,
+  # past the J6 limit (+-155); -180 is the best within it. Model M v1.2, nominal camera: markers 49 deg from
+  # facing the camera (Step 2 poses <= 37), >= 60 px inside the image, about 300 mm away. User chose this, 2026-11-24.
+  # extra_head_deg: the same pose seen again with only the head moved (user, 2026-11-24): a gap that changes with
+  # the head angle is the head / camera model, one that stays is the arms. Both markers are in view from 40 to
+  # 60 deg tilt at J6 -180 (model M v1.2); at 46 they sit near the image's vertical centre.
+  check_calib_view:
+    head_deg: [0.0, 58.0]
+    j6_turn_deg: -180.0
+    extra_head_deg: [[0.0, 46.0]]
+    # facing_view: then right J4/J5 also turned by wrist_deg (left mirrored; J6 stays turned) so the markers face
+    # the camera as in Step 2 (user, 2026-11-25). Model M v1.2, nominal camera: 11-13 deg from facing, 318-325 mm,
+    # v 272 px at tilt 35, links >= 440 mm apart; shoulders and elbow unchanged (scratch/low_view_pose_search.py).
+    facing_view: {wrist_deg: [-20.0, -30.0], head_deg: [0.0, 35.0]}
+  # Step 2 check-region poses (setting.yaml step2.check_region_poses, user 2026-11-25): check_calib with the
+  # check-view J6 turn, right J4/J5 further by wrist_deg (left mirrored), head [pan, tilt] deg. Offline on the
+  # 2026-11-25 11:30 run (second robot), three check photos added to Step 2 took the check-view gap 3.3 -> 1.9 mm
+  # for a Step 2 RMS 0.77 -> 0.94 sigma. Head angles differ from the verification views above (58 / 46, 35).
+  step2_check_region:
+    - {wrist_deg: [0.0, 0.0], head_deg: [0.0, 52.0]}
+    - {wrist_deg: [0.0, 0.0], head_deg: [0.0, 42.0]}
+    - {wrist_deg: [-20.0, -30.0], head_deg: [0.0, 40.0]}
+    - {wrist_deg: [-20.0, -30.0], head_deg: [0.0, 30.0]}
   # Step 2 wrist-diversity poses (head robots, setting.yaml step2.wrist_diversity_poses): deltas in deg from the
   # Step 2 baseline -- right/left [J4, J5, J6], head [pan, tilt]; J0-J3 stay at the baseline. Chosen offline on
   # 2026-09-30 from the 09-29 15:13 D405 run within J4 +-25 / J5 +-20 / J6 +-30 deg (both markers in view with
@@ -74,6 +111,10 @@ v1.3:
   marker:
     right_arm: [-55.0, -45.0, 25.0, -117.0, 0.0, 0.0, 0.0]
     left_arm: [-55.0, 45.0, -25.0, -117.0, 0.0, 0.0, 0.0]
+  # Wizard gripper-change pose (2026-11-12, user): the marker bracket goes on the gripper, so the elbow at 90 deg is enough.
+  gripper_change:
+    right_arm: [0.0, 0.0, 0.0, -90.0, 0.0, 0.0, 0.0]
+    left_arm: [0.0, 0.0, 0.0, -90.0, 0.0, 0.0, 0.0]
   check_calib:
     right_arm: [-17.82228884572811, -27.04549236723799, 12.864900847863778, -117.00109658957737, -36.77069303997991, 33.009714276936286, 56.151562426380856]
     left_arm: [-17.82482498256172, 27.048507754986268, -12.86455848252023, -117.00150295840393, 36.770642199399795, 33.00941636873258, -56.151542365905975]

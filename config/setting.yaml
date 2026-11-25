@@ -6,26 +6,26 @@ camera:
   head_base_to_cam: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
   head_base_to_cam_nominal: [0.098, 0.009, 0.012, -90.0, 0.0, -90.0]
   height: 720
-  mount_to_cam: [0.044299999999786475, 0.009006232409356796, 0.06349996115550234, -90.0, -0.7142000000000001, -90.0]
+  mount_to_cam: [0.044299999999964056, 0.008998323614394245, 0.06349999718971111, -90.0, 0.19210000000000002, -90.0]
   mount_to_cam_nominal: [0.0433, 0.009, 0.063, -90.0, 0.0, -90.0]
   width: 1280
 joint_offset:
   left:
-    joint3: 0.0
-    joint5: 0.0
-    joint6: 0.0
+    joint3: -2.0112344599045633
+    joint5: -2.7164747924898602
+    joint6: -0.42646072479542063
   right:
-    joint3: 0.0
-    joint5: 0.0
-    joint6: 0.0
+    joint3: -1.7034299683922176
+    joint5: -0.1267858881474854
+    joint6: 0.2963591573655364
   head:
     pan: 0.0
     tilt: 0.0
 marker:
-  Tf_to_marker_left: [-6.6130927153957065e-18, 0.054, -0.048822789062607994, 90.0, -0.03370219571728235, 0.0]
+  Tf_to_marker_left: [-6.6130927153957065e-18, 0.054, -0.04832148187222659, 90.0, 0.029316256589254967, 0.0]
   Tf_to_marker_left_v12: [0.0, 0.054, -0.048, 90.0, 0.0, 0.0]
   Tf_to_marker_left_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
-  Tf_to_marker_right: [6.6130927153957065e-18, -0.054, -0.048822789062607994, 90.0, -0.03370219571726962, 180.0]
+  Tf_to_marker_right: [6.6130927153957065e-18, -0.054, -0.04832148187222659, 90.0, 0.029316256589254967, 180.0]
   Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
   Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
   plate:
@@ -35,8 +35,10 @@ marker:
 step2:
   min_marker_x_gap_m: 0.11
   min_rot_noise_deg: 0.3
+  head_tilt_anchor_weight: 200000.0
   sample_time_s: 1.0
   skip_half_steps: true
   wrist_diversity_poses: true
+  check_region_poses: true
 exposure_check:
   max_marker_jitter_rms_mm: 0.2

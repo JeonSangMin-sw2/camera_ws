@@ -15,8 +15,9 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 
 from core.calibration import CalibrationCore
-from core.calibration.calibration_optimizer import QPCalibrationOptimizer, ResidualNoiseEstimator
-from core.calibration.data import DEFAULT_STEP2_MIN_ROT_NOISE_DEG, load_step2_min_rot_noise_deg
+from core.calibration.calibration_optimizer import HEAD_ANCHOR_WEIGHT_TILT, QPCalibrationOptimizer, ResidualNoiseEstimator
+from core.calibration.data import (DEFAULT_STEP2_MIN_ROT_NOISE_DEG, load_step2_head_tilt_anchor_weight,
+                                   load_step2_min_rot_noise_deg)
 from core.calibration.JointCalibrator import choose_wrist_yaw2_offset
 from core.calibration.sequences import step2 as step2_mod
 from core.storage import ConfigStorage
@@ -118,6 +119,42 @@ class TestOptimizeStep2PassesTheFloor(unittest.TestCase):
         constructions = source.count("QPCalibrationOptimizer(")
         self.assertEqual(constructions, 3)                      # pass 1, pass 2, single arm
         self.assertEqual(source.count("min_rot_noise_std_rad=min_rot_noise_rad"), constructions)
+
+
+class TestHeadTiltAnchorWeight(unittest.TestCase):
+    """2026-11-13 (user, model M v1.2): held at 2e6, a head tilt of 0.76 deg from a Step 1.5 run whose left marker
+    sat on its +-20 mm box stayed at 0.33 deg in Step 2 and dragged both J0 (right +0.22 deg); setting.yaml now
+    sets step2.head_tilt_anchor_weight to 2e5. Without the key the old 2e6 hold stays."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.path = Path(folder.name) / "setting.yaml"
+
+    def test_config_value_missing_and_invalid(self):
+        ConfigStorage.save(self.path, {"step2": {"head_tilt_anchor_weight": 200000.0}})
+        self.assertEqual(load_step2_head_tilt_anchor_weight(self.path), 200000.0)
+        ConfigStorage.save(self.path, {"step2": {}})
+        self.assertIsNone(load_step2_head_tilt_anchor_weight(self.path))
+        ConfigStorage.save(self.path, {"step2": {"head_tilt_anchor_weight": -1}})
+        with self.assertRaises(ValueError):
+            load_step2_head_tilt_anchor_weight(self.path)
+
+    def test_shipped_value_is_2e5_and_the_code_default_stays_2e6(self):
+        shipped = ConfigStorage.load(ROOT / "config" / "setting.yaml")["step2"]["head_tilt_anchor_weight"]
+        self.assertEqual(shipped, 2.0e5)
+        self.assertEqual(HEAD_ANCHOR_WEIGHT_TILT, 2.0e6)
+
+    def test_the_tilt_anchor_uses_the_weight_given(self):
+        self.assertEqual(make_optimizer().head_anchor_weight_tilt, 2.0e6)
+        self.assertEqual(make_optimizer(head_anchor_weight_tilt=2.0e5).head_anchor_weight_tilt, 2.0e5)
+        source = (ROOT / "core" / "calibration" / "calibration_optimizer.py").read_text(encoding="utf-8")
+        self.assertIn('head_jo.get("tilt", 0.0) * D2R, self.head_anchor_weight_tilt', source)
+
+    def test_every_step2_optimizer_gets_the_weight(self):
+        source = (ROOT / "core" / "calibration" / "sequences" / "step2.py").read_text(encoding="utf-8")
+        self.assertEqual(source.count("head_anchor_weight_tilt=head_tilt_anchor_weight"),
+                         source.count("QPCalibrationOptimizer("))
 
 
 class TestWristYaw2Choice(unittest.TestCase):

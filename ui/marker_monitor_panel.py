@@ -22,8 +22,10 @@ class MarkerMonitorPanel(QGroupBox):
 
     restart_requested = Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, sides=SIDES):
         super().__init__(parent)
+        # The wizard checks the right marker only (its test pose shows one arm); Camera > Brightness both.
+        self.SIDES = tuple(sides)
         self.setStyleSheet("QGroupBox::title { color: #00e5ff; font-weight: bold; font-size: 15px;}")
         self.last_info = None
         self.confirmed = {side: False for side in self.SIDES}
@@ -106,7 +108,8 @@ class MarkerMonitorPanel(QGroupBox):
             lbl.setStyleSheet(style)
         self.lbl_overall.setVisible(running or self.all_confirmed)
         if self.all_confirmed:
-            self.lbl_overall.setText(tr(TEXT_KEY + "monitor_all_ok"))
+            self.lbl_overall.setText(tr(TEXT_KEY + "monitor_all_ok") if len(self.SIDES) > 1 else
+                                     tr(TEXT_KEY + "monitor_side_ok", marker=tr(TEXT_KEY + f"monitor_{self.SIDES[0]}")))
             self.lbl_overall.setStyleSheet(self.OK_STYLE)
         elif running:
             self.lbl_overall.setText(tr(TEXT_KEY + "monitor_not_ok", limit=limit))

@@ -36,8 +36,23 @@ common:
     en: "Camera Temp: -- °C"
     ko: "카메라 온도: -- °C"
   reconnect_camera:
-    en: "🔄 RECONNECT CAMERA"
-    ko: "🔄 카메라 재연결"
+    en: "RECONNECT CAMERA"
+    ko: "카메라 재연결"
+  reconnecting_camera:
+    en: "Reconnecting camera..."
+    ko: "카메라 재연결 중..."
+  camera_connected_title:
+    en: "Camera Connected"
+    ko: "카메라 연결됨"
+  camera_connected_msg:
+    en: "RealSense camera successfully connected and active!"
+    ko: "RealSense 카메라가 연결되어 동작 중입니다."
+  camera_failed_title:
+    en: "Camera Connection Failed"
+    ko: "카메라 연결 실패"
+  camera_failed_msg:
+    en: "Could not connect to RealSense camera:\n{error}\n\nPlease check the USB 3 cable connection."
+    ko: "RealSense 카메라에 연결하지 못했습니다:\n{error}\n\nUSB 3 케이블 연결을 확인하세요."
   auto_exposure:
     en: "Enable Auto Exposure"
     ko: "자동 노출 활성화"
@@ -45,8 +60,8 @@ common:
     en: "Home Offset Reset Confirmation"
     ko: "Home Offset Reset 확인"
   home_offset_reset_msg:
-    en: "⚠️ [WARNING] Home Offset Reset Notice\n\nResetting Home Offsets will redefine the current physical robot joint positions as the new 0° (Home Position).\n\nProcedure:\n1. Use Direct Teaching or manual positioning to precisely align both arms to the Home Pose.\n   (Do not turn Shoulder Roll so far inwards that the arm physically touches the body.)\n2. If resetting head offsets as well, align the head straight forward to the center.\n3. Click [Apply] to begin the reset process.\n\n※ During reset, Control Manager will be paused, 48V power will be cycled, and robot connection will restart."
-    ko: "⚠️ [경고] Home Offset Reset 알림\n\nHome Offset Reset을 진행하면 현재 로봇 관절의 물리적 위치가 새로운 0도(홈 위치)로 재설정됩니다.\n\n진행 순서:\n1. 직접 교시 등을 사용하여 양 팔을 홈 자세 위치에 정확히 맞춥니다.\n   (어깨 롤은 팔이 몸체에 물리적으로 닿을 만큼 안쪽으로 넣지 마세요.)\n2. 헤드 오프셋도 초기화하려면 헤드를 정면 중앙으로 정렬합니다.\n3. [적용]을 누르면 리셋 프로세스가 시작됩니다.\n\n※ 리셋 도중 Control Manager가 일시 중지되고 48V 전원이 재인가되며 로봇 연결이 재시작됩니다."
+    en: "⚠ [WARNING] Home Offset Reset Notice\n\nResetting Home Offsets will redefine the current physical robot joint positions as the new 0° (Home Position).\n\nProcedure:\n1. Use Direct Teaching or manual positioning to precisely align both arms to the Home Pose.\n   (Do not turn Shoulder Roll so far inwards that the arm physically touches the body.)\n2. If resetting head offsets as well, align the head straight forward to the center.\n3. Click [Apply] to begin the reset process.\n\n※ During reset, Control Manager will be paused, 48V power will be cycled, and robot connection will restart."
+    ko: "⚠ [경고] Home Offset Reset 알림\n\nHome Offset Reset을 진행하면 현재 로봇 관절의 물리적 위치가 새로운 0도(홈 위치)로 재설정됩니다.\n\n진행 순서:\n1. 직접 교시 등을 사용하여 양 팔을 홈 자세 위치에 정확히 맞춥니다.\n   (어깨 롤은 팔이 몸체에 물리적으로 닿을 만큼 안쪽으로 넣지 마세요.)\n2. 헤드 오프셋도 초기화하려면 헤드를 정면 중앙으로 정렬합니다.\n3. [적용]을 누르면 리셋 프로세스가 시작됩니다.\n\n※ 리셋 도중 Control Manager가 일시 중지되고 48V 전원이 재인가되며 로봇 연결이 재시작됩니다."
 
 main_tabs:
   tab_overview:
@@ -93,6 +108,40 @@ wizard:
   title:
     en: "RBY1 Calibration Wizard"
     ko: "RBY1 캘리브레이션 마법사"
+  progress:
+    prep: {en: "Prepare", ko: "준비"}
+    prep_tip: {en: "Camera distortion calibration, robot connection", ko: "카메라 왜곡 보정 · 로봇 연결"}
+    mount: {en: "Mount", ko: "장착"}
+    mount_tip: {en: "Gripper pose, camera, gripper removal, markers", ko: "그리퍼 자세 · 카메라 · 그리퍼 분리 · 마커"}
+    calib: {en: "Calibrate", ko: "보정"}
+    calib_tip: {en: "Camera brightness, home offset reset, calibration run", ko: "카메라 밝기 · 홈 오프셋 리셋 · 보정 실행"}
+    result: {en: "Check result", ko: "결과 확인"}
+    result_tip: {en: "Compare and apply", ko: "비교 · 적용"}
+    run_wrist: {en: "Wrist joints", ko: "손목 관절"}
+    run_head: {en: "Head camera", ko: "헤드 카메라"}
+    run_collect: {en: "Pose collection", ko: "자세 수집"}
+    run_collect_n: {en: "Pose collection {n}/{total}", ko: "자세 수집 {n}/{total}"}
+    run_solve: {en: "Solve and verify", ko: "계산 · 검증"}
+    skipped: {en: "{name} (skipped)", ko: "{name} (건너뜀)"}
+  # Run-line cautions (core/calibration/sequences/run_warnings.py), 2026-11-24 (user).
+  run_warn:
+    arm_right: {en: "right arm", ko: "오른팔"}
+    arm_left: {en: "left arm", ko: "왼팔"}
+    iter_cap: {en: "{arm} {joint} used all {n} iterations before it settled", ko: "{arm} {joint}가 반복 {n}회를 모두 쓰고서야 수렴함"}
+    offset_clamped: {en: "{arm} {joint} offset was cut at its safe limit", ko: "{arm} {joint} 오프셋이 안전 한도에서 잘림"}
+    j6_methods: {en: "{arm} J6: the two methods differ by {diff}° (check the bracket mounting)", ko: "{arm} J6 두 방법이 {diff}° 다름 (브라켓 장착 확인)"}
+    bracket_limit: {en: "{arm} bracket position reached its limit around the design value", ko: "{arm} 브라켓 위치가 설계값 기준 한도에 닿음"}
+    pass_change: {en: "{arm} values still moved between passes (J6 {joint6_deg}°, J5 {joint5_deg}°, J3 {joint3_deg}°, bracket {bracket_pos_mm} mm)", ko: "{arm} 회차 사이 값이 아직 움직임 (J6 {joint6_deg}°, J5 {joint5_deg}°, J3 {joint3_deg}°, 브라켓 {bracket_pos_mm} mm)"}
+    camera_range: {en: "camera position at the end of its allowed range ({ends})", ko: "카메라 위치가 허용 범위 끝에 걸림 ({ends})"}
+    marker_bound: {en: "{sides} marker position reached its ±{bound} mm search range (check that the head is fixed firmly)", ko: "{sides} 마커 위치가 추정 범위 ±{bound} mm 끝에 걸림 (헤드 고정 상태 확인)"}
+    head_tilt_gap: {en: "head tilt differs between the head-camera step ({step1_5}°) and the final solve ({step2}°) by more than {limit}°", ko: "헤드 tilt가 헤드 카메라 단계({step1_5}°)와 최종 계산({step2}°)에서 {limit}° 넘게 다름"}
+    check_pose_gap: {en: "at the check pose the camera sees the hands {gap} mm off symmetric (x {dx}, y {dy}, z {dz} mm; limit {limit} mm)", ko: "체크포즈에서 카메라가 본 양손이 대칭에서 {gap} mm 어긋남 (x {dx}, y {dy}, z {dz} mm, 기준 {limit} mm)"}
+    check_pose_unseen: {en: "the check pose could not be checked by the camera (see the log)", ko: "체크포즈를 카메라로 확인하지 못함 (로그 참고)"}
+    click_for_log: {en: "(click here for the log lines behind these cautions)", ko: "(누르면 주의 내용의 로그를 볼 수 있습니다)"}
+    log_title: {en: "Calibration cautions and their log", ko: "보정 주의 내용과 로그"}
+    log_header: {en: "Warning lines in the log:", ko: "로그의 경고 줄:"}
+    log_none: {en: "(no warning lines were logged for this stage)", ko: "(이 단계에서 기록된 경고 줄이 없습니다)"}
+    log_close: {en: "Close", ko: "닫기"}
   btn_start_wizard:
     en: "Start"
     ko: "시작"
@@ -123,21 +172,57 @@ wizard:
   safety_title:
     en: "Safety & Monitoring Controls"
     ko: "안전 및 모니터링 제어"
-  status_robot_connected:
-    en: "Status: Robot Connected"
-    ko: "상태: Step 2 - 로봇 연결 완료"
-  status_disconnected:
-    en: "Status: Disconnected"
-    ko: "상태: 연결 해제"
   btn_connect:
     en: "CONNECT"
     ko: "로봇 연결"
+  btn_connected:
+    en: "CONNECTED"
+    ko: "연결됨"
+  # Wizard status lines (ui/wizard_widget.set_status re-renders them on a language switch).
+  st:
+    waiting: {en: "Status: Waiting", ko: "상태: 대기 중"}
+    success: {en: "Status: Done", ko: "상태: 완료"}
+    success_msg: {en: "Status: Done - {msg}", ko: "상태: 완료 - {msg}"}
+    error_msg: {en: "Status: ERROR - {msg}", ko: "상태: 오류 - {msg}"}
+    feed_loading: {en: "Camera Feed Loading...", ko: "카메라 영상 불러오는 중..."}
+    robot_not_connected: {en: "Robot not connected", ko: "로봇이 연결되지 않음"}
+    connected: {en: "Robot connected", ko: "로봇 연결됨"}
+    disconnected: {en: "Disconnected", ko: "연결 끊김"}
+    connect_failed: {en: "Connection failed", ko: "연결 실패"}
+    reset_confirm_title: {en: "Confirm Home Offset Reset", ko: "홈 오프셋 리셋 확인"}
+    reset_confirm_msg: {en: "Are you sure you want to proceed?", ko: "진행하시겠습니까?"}
+    reset_cancelled: {en: "Status: Reset cancelled", ko: "상태: 리셋 취소됨"}
+    reset_progress: {en: "Status: Reset in progress...", ko: "상태: 리셋 진행 중..."}
+    reset_done: {en: "Home Offset Reset complete", ko: "홈 오프셋 리셋 완료"}
+    int_waiting: {en: "Status: Waiting for captures (16 frames needed)", ko: "상태: 캡처 대기 (16장 필요)"}
+    int_captured: {en: "Captured Frames: {frames} / 16", ko: "캡처한 프레임: {frames} / 16"}
+    int_ok: {en: "Status: Calibration OK (RMS: {rms})", ko: "상태: 보정 완료, RMS {rms}"}
+    int_ready: {en: "Status: {frames} / 16 frames captured. Ready to calibrate.", ko: "상태: {frames} / 16장 캡처 완료. 보정 실행 가능"}
+    int_need: {en: "Status: {frames} / 16 frames captured (16 needed)", ko: "상태: {frames} / 16장 캡처 (16장 필요)"}
+    int_need_all: {en: "Status: All 16 frames are needed to run the calibration!", ko: "상태: 보정하려면 16장을 모두 캡처해야 합니다!"}
+    int_failed: {en: "Status: Calibration failed (check the board settings)", ko: "상태: 보정 실패 (보드 설정 확인)"}
+    int_insufficient_title: {en: "Insufficient Data", ko: "데이터 부족"}
+    int_insufficient_run: {en: "Cannot run the calibration: only {frames} / 16 frames collected.\nPlease capture all 16 frames first.", ko: "보정을 실행할 수 없습니다: {frames} / 16장만 모였습니다.\n16장을 모두 캡처하세요."}
+    int_insufficient_save: {en: "Cannot save the parameters: only {frames} / 16 frames collected.", ko: "파라미터를 저장할 수 없습니다: {frames} / 16장만 모였습니다."}
+    int_need_save: {en: "16 frames are needed to save", ko: "저장하려면 16장이 필요합니다"}
+    int_saved: {en: "Parameters saved", ko: "파라미터 저장됨"}
+    int_invalid_title: {en: "Invalid Calibration", ko: "보정 결과 없음"}
+    int_invalid_msg: {en: "The calibration must run successfully before the parameters are saved.", ko: "파라미터를 저장하기 전에 보정을 먼저 성공적으로 실행해야 합니다."}
+    int_not_run: {en: "Calibration not run yet", ko: "아직 보정을 실행하지 않음"}
+    calib_progress: {en: "Status: Full Auto in progress ({time})", ko: "상태: 풀 오토 진행 중 ({time})"}
+    calib_done: {en: "Calibration complete! Total time: {time}", ko: "보정 완료! 총 소요 시간: {time}"}
+    calib_cancelled: {en: "Cancelled by the user", ko: "사용자가 취소함"}
+    calib_not_started: {en: "The calibration could not start", ko: "보정을 시작하지 못함"}
+    exp_auto_switched: {en: "Status: switched to auto exposure", ko: "상태: 자동 노출로 전환"}
+    exp_auto_applied: {en: "Status: auto exposure applied", ko: "상태: 자동 노출 적용"}
+    exp_manual_applied: {en: "Status: manual exposure {value} ({ms} ms) applied", ko: "상태: 수동 노출 {value} ({ms} ms) 적용"}
+    exp_cancelled: {en: "Status: cancelled, the previous exposure is back", ko: "상태: 취소됨, 이전 노출로 되돌림"}
 
   slides:
     slide_0:
       title:
-        en: "1-1. Camera Bracket Assembly & Mounting"
-        ko: "1-1. 카메라 브라켓 조립 및 마운팅"
+        en: "3. Camera Bracket Assembly & Mounting"
+        ko: "3. 카메라 브라켓 조립 및 마운팅"
       box_title:
         en: "Camera Mounting Guidelines"
         ko: "카메라 마운팅 지침 사항"
@@ -153,58 +238,82 @@ wizard:
       inst2:
         en: "2. Check that the camera USB cable connection is stable."
         ko: "2. 카메라 USB 케이블 연결이 안정적인지 확인하세요."
-      cam_box_title:
-        en: "Connected Camera"
-        ko: "인식된 카메라"
-      cam_device:
-        en: "Camera: {name}  (S/N {serial})  → {model} settings"
-        ko: "카메라: {name}  (S/N {serial})  → {model} 설정 사용"
-      cam_stream:
-        en: "Resolution: {width}×{height} @ {fps} fps  (measured {measured})"
-        ko: "해상도: {width}×{height} @ {fps} fps  (실측 {measured})"
-      cam_intrinsics:
-        en: "Intrinsics: {file}"
-        ko: "내부 파라미터: {file}"
-      cam_not_connected:
-        en: "No camera connected. Check the USB 3 cable and reconnect the camera."
-        ko: "카메라가 연결되지 않았습니다. USB 3 케이블을 확인하고 다시 연결하세요."
-      cam_measuring:
-        en: "measuring..."
-        ko: "측정 중..."
       cam_unknown:
         en: "unknown"
         ko: "확인 불가"
-      cam_warn_resolution:
-        en: "Warning: the stream is not 1280×720. Replace the cable with a USB 3 cable."
-        ko: "경고: 1280×720이 아닙니다. USB 3 케이블로 교체하세요."
-      cam_warn_fps:
-        en: "Warning: frames arrive slower than the set rate. Lower the exposure or improve the lighting."
-        ko: "경고: 설정보다 프레임이 느리게 들어옵니다. 노출을 낮추거나 조명을 밝게 하세요."
-      cam_warn_intrinsics:
-        en: "Warning: no intrinsics file is in use. Calibrate and save the intrinsics first."
-        ko: "경고: 사용 중인 내부 파라미터 파일이 없습니다. 내부 파라미터 보정 후 저장하세요."
-      cam_source:
-        en: "Intrinsics source: {source}"
-        ko: "내부 파라미터 출처: {source}"
-      cam_source_serial:
-        en: "calibrated for this camera (S/N)"
-        ko: "이 카메라(S/N) 전용 보정값"
-      cam_source_model:
-        en: "shared file of the same camera model"
-        ko: "같은 모델 공용 파일"
-      cam_source_factory:
-        en: "camera factory values"
-        ko: "카메라 공장값"
-      cam_source_file:
-        en: "stored file (no camera identified)"
-        ko: "저장된 파일 (카메라 식별 안 됨)"
-      cam_warn_serial:
-        en: "Caution: no intrinsics were calibrated for this camera (S/N). If the intrinsics differ, the robot calibration result can be wrong. When using a new camera, please calibrate the intrinsics first."
-        ko: "주의: 이 카메라(S/N)로 보정한 내부 파라미터가 없습니다. 내부 파라미터가 다르면 로봇 보정 결과가 이상할 수 있습니다. 새 카메라를 사용하는 경우 가급적 내부 파라미터를 보정해 주세요."
-      btn_intrinsics:
-        en: "Calibrate Camera Intrinsics"
-        ko: "카메라 내부 파라미터 보정"
+    slide_camera_connect:
+      title:
+        en: "0. Camera Connection"
+        ko: "0. 카메라 연결"
+      steps:
+        en: "1. Connect the RealSense camera to a USB 3.0 port (blue, or marked SS) with a USB 3.0 cable.\n2. Close any other program that uses the camera (e.g. RealSense Viewer).\n3. Press [Connect Camera]. When the model and serial number appear below, press [Next]."
+        ko: "1. RealSense 카메라를 USB 3.0 케이블로 USB 3.0 포트(파란색 또는 SS 표시)에 연결하세요.\n2. 카메라를 쓰는 다른 프로그램(RealSense Viewer 등)을 닫으세요.\n3. [카메라 연결]을 누르세요. 아래에 모델과 시리얼 번호가 나오면 [다음]을 누르세요."
+      btn_connect:
+        en: "Connect Camera"
+        ko: "카메라 연결"
+      st_not_connected:
+        en: "Camera not connected."
+        ko: "카메라가 연결되지 않았습니다."
+      st_connecting:
+        en: "Connecting to the camera..."
+        ko: "카메라 연결 중..."
+      st_connected:
+        en: "Connection complete: {model} (S/N {serial})\n{intrinsics}"
+        ko: "연결 완료: {model} (S/N {serial})\n{intrinsics}"
+      st_ui_only:
+        en: "UI-only (simulation) mode: no camera is needed. Press [Next]."
+        ko: "UI 전용(시뮬레이션) 모드에서는 카메라가 필요 없습니다. [다음]을 누르세요."
+      failed_msg:
+        en: "The camera could not be connected. Check the USB 3.0 cable and port, close other camera programs, then press [Connect Camera] again. The log shows the error."
+        ko: "카메라를 연결하지 못했습니다. USB 3.0 케이블과 포트를 확인하고 카메라를 쓰는 다른 프로그램을 닫은 뒤 [카메라 연결]을 다시 누르세요. 오류 내용은 로그에 있습니다."
+    slide_intrinsics_prep:
+      title:
+        en: "0-1. Before Camera Distortion Calibration"
+        ko: "0-1. 카메라 왜곡 보정 준비"
+      notice:
+        en: "This camera has no registered distortion calibration yet. Without the camera's distortion calibration, the accuracy may be lower."
+        ko: "이 카메라는 아직 등록된 왜곡 보정값이 없습니다. 카메라의 왜곡 보정을 하지 않을 경우, 정확도가 저하될 수 있습니다."
+      steps:
+        en: "1. Print the calibration board that comes with the program ({file}) on A4 paper at actual size (100%, no scaling).\n2. Lay the printed board on a flat surface or stick it to a flat board, without wrinkles or bends.\n3. When it is ready, press Next: the calibration screen opens, and you show the board to the camera in several poses."
+        ko: "1. 프로그램과 함께 들어 있는 보정판 파일({file})을 A4 용지에 실제 크기(100%, 크기 조정 없음)로 인쇄하세요.\n2. 인쇄한 보정판을 구겨지거나 휘지 않게 평평한 곳에 놓거나 평평한 판에 붙이세요.\n3. 준비가 되면 [다음]을 누르세요. 보정 화면이 열리고, 보정판을 카메라 앞에서 여러 자세로 보여 줍니다."
+      btn_open:
+        en: "Open the Board File (PDF) to Print"
+        ko: "인쇄할 보정판 PDF 파일 열기"
+    slide_gripper_pose:
+      title:
+        en: "2. Gripper-Change Pose"
+        ko: "2. 그리퍼 교체 자세"
+      desc:
+        en: "Press the button below: both arms move to a pose where the grippers are easy to reach, then the gripper power (tool flange output) is turned off. Keep clear of the robot while it moves."
+        ko: "아래 버튼을 누르면 양팔이 그리퍼를 다루기 쉬운 자세로 이동한 뒤 그리퍼 전원(툴 플랜지 출력)이 꺼집니다. 로봇이 움직이는 동안 가까이 가지 마세요."
+      desc_v13:
+        en: "Press the button below: both arms move to a pose where the grippers are easy to reach. A v1.3 robot keeps its grippers, so their power stays on. Keep clear of the robot while it moves."
+        ko: "아래 버튼을 누르면 양팔이 그리퍼를 다루기 쉬운 자세로 이동합니다. v1.3은 그리퍼를 떼지 않으므로 그리퍼 전원은 그대로 둡니다. 로봇이 움직이는 동안 가까이 가지 마세요."
+      btn_move:
+        en: "Hold to Move to the Gripper-Change Pose"
+        ko: "누르고 있는 동안 그리퍼 교체 자세로 이동"
+      status_idle:
+        en: "Status: waiting (keep the button pressed; letting go stops the arms)"
+        ko: "상태: 대기 중 (버튼을 누르고 있으세요. 손을 떼면 팔이 멈춥니다)"
+      status_moving:
+        en: "Status: moving to the gripper-change pose... (let go to stop)"
+        ko: "상태: 그리퍼 교체 자세로 이동 중... (손을 떼면 멈춤)"
+      status_stopped:
+        en: "Stopped part way. Press and hold the button again to carry on."
+        ko: "중간에 멈췄습니다. 버튼을 다시 누르고 있으면 이어서 이동합니다."
+      status_done:
+        en: "Pose reached and gripper power OFF"
+        ko: "자세 도착, 그리퍼 전원 꺼짐"
+      status_done_v13:
+        en: "Pose reached (v1.3: gripper power left on)"
+        ko: "자세 도착 (v1.3: 그리퍼 전원 유지)"
+      status_failed:
+        en: "Gripper-change pose FAILED"
+        ko: "그리퍼 교체 자세 실패"
     slide_1:
+      title:
+        en: "4. Gripper Removal (v1.2 Robots)"
+        ko: "4. 그리퍼 분리 (v1.2 로봇)"
       box_title:
         en: "Gripper Removal"
         ko: "그리퍼 분리 안내"
@@ -213,72 +322,78 @@ wizard:
         ko: "양쪽 로봇 팔에 장착된 그리퍼를 제거하십시오 (<a href=\"https://rainbowco-my.sharepoint.com/:p:/g/personal/support_rainbow-robotics_com/IQBQNoNxvENnSIt29V1aNsCCAYICOBKbsLJnAnvFFuTkA80?e=AEW1KM\" style=\"color: #00e5ff;\">그리퍼 해체 가이드</a>). 마커 브라켓은 다음 단계에서 부착합니다."
     slide_marker_bracket:
       title:
-        en: "3. Gripper Removal & Marker Bracket Attachment"
-        ko: "3. 그리퍼 분리 및 마커 브라켓 부착"
+        en: "5. Marker Bracket Attachment"
+        ko: "5. 마커 브라켓 부착"
       box_title:
         en: "Marker Bracket Guidelines"
         ko: "마커 브라켓 부착 지침 사항"
       cap_assemble:
-        en: "Bolt the bracket onto the arm end flange where the gripper was."
-        ko: "그리퍼를 떼어낸 팔 말단 플랜지에 브라켓을 볼트로 고정합니다."
+        en: "Bolt the bracket on as in the photo."
+        ko: "사진처럼 브라켓을 볼트로 고정합니다."
       cap_overview:
         en: "Right marker on the right arm, Left marker on the left arm (robot's own left/right)."
         ko: "Right 마커는 오른팔, Left 마커는 왼팔에 붙입니다 (로봇 기준 좌우)."
       inst1:
-        en: "1. Attach marker brackets to both arm end-effectors (gripper and bolt specifications are identical)."
-        ko: "1. 양쪽 로봇 팔 말단에 마커 브라켓을 부착하십시오(그리퍼와 볼트 규격이 동일합니다)."
+        en: "1. Attach the marker brackets to both arms as in the left photo."
+        ko: "1. 왼쪽 사진처럼 양쪽 로봇 팔에 마커 브라켓을 부착하십시오."
       inst2:
         en: "2. Check the Right/Left label on each marker and attach it to the matching arm as in the right photo."
         ko: "2. 각 마커의 Right/Left 표시를 확인하고, 오른쪽 사진처럼 맞는 팔에 부착하세요."
       inst3:
         en: "3. Ensure markers are flat and clear of dust or distortion."
         ko: "3. 마커 표면이 구겨지거나 오염되지 않도록 유지하세요."
-      tool_power_note:
-        en: "Before unplugging the gripper cable, turn the gripper power (tool flange output) off."
-        ko: "그리퍼 케이블을 뽑기 전에 그리퍼 전원(툴 플랜지 출력)을 끄세요."
-      btn_tool_power_off:
-        en: "Turn Gripper Power Off"
-        ko: "그리퍼 전원 끄기"
-      tool_power_idle:
-        en: "Gripper power: not switched off from this program"
-        ko: "그리퍼 전원: 이 프로그램에서 끄지 않음"
-      tool_power_off:
-        en: "Gripper power is OFF: the grippers can be unplugged"
-        ko: "그리퍼 전원 꺼짐: 그리퍼를 분리해도 됩니다"
-      tool_power_failed:
-        en: "Gripper power off FAILED"
-        ko: "그리퍼 전원 끄기 실패"
     slide_exposure:
       title:
-        en: "3-1. Camera Exposure & Marker Recognition"
-        ko: "3-1. 카메라 노출 및 마커 인식 확인"
+        en: "6. Camera Exposure & Marker Recognition"
+        ko: "6. 카메라 노출 및 마커 인식 확인"
       inst:
-        en: "Show one marker at a time (ready-pose buttons or the teaching button), set the exposure until each marker is stable, return to zero, then tick the box."
-        ko: "한 팔씩 J5 준비 자세로 보내(버튼 또는 티칭) 마커를 화면에 넣고, 마커가 안정될 때까지 노출을 조절한 뒤 제로 포즈로 되돌리고 체크하세요."
+        en: "Follow steps 1) to 4) on the right, top to bottom. With a D405, step 1) finds and applies the exposure by itself (about a minute)."
+        ko: "오른쪽의 1) ~ 4)를 위에서부터 순서대로 진행하세요. D405이면 1)에서 노출을 스스로 찾아 적용합니다(약 1분)."
+      brightness_guide:
+        en: "Keep the image slightly dark, with no glare or blur on the marker; turn auto exposure off and set the Exposure Time."
+        ko: "화면은 약간 어둡게, 마커가 빛에 반사되거나 흐릿하지 않게 맞추세요. 자동 노출을 끄고 Exposure Time(노출 시간)으로 조절합니다."
       not_saved_warn:
         en: "⚠ This exposure value is not saved."
         ko: "⚠ 이 노출값은 저장되지 않습니다."
       motion_title:
-        en: "Show the Markers to the Camera"
-        ko: "마커를 카메라에 보여주기"
+        en: "Test Pose & Auto Exposure"
+        ko: "테스트 자세와 밝기 자동 조절"
+      manual_title:
+        en: "2) Choose the exposure"
+        ko: "2) 노출값 정하기"
+      choice_idle:
+        en: "When 1) finishes, its result shows here. To set the exposure yourself, tick 'Adjust by hand'."
+        ko: "1)이 끝나면 여기에 결과가 나옵니다. 노출을 직접 정하려면 '직접 수정하기'를 체크하세요."
+      btn_accept:
+        en: "Yes, use this value (then 4) zero pose)"
+        ko: "예, 이 값으로 (이어서 4) 제로 포즈)"
+      chk_manual:
+        en: "Adjust by hand"
+        ko: "직접 수정하기"
       motion_note:
-        en: "Other arm, torso and head go to zero first. Keep clear."
-        ko: "반대쪽 팔·몸통·헤드는 먼저 영점으로 갑니다. 접근 금지."
-      btn_ready_right:
-        en: "Right Arm → J5 Ready Pose"
-        ko: "오른팔 → J5 준비 자세"
-      btn_ready_left:
-        en: "Left Arm → J5 Ready Pose"
-        ko: "왼팔 → J5 준비 자세"
+        en: "The robot moves: right arm forward, wrist tilting. Keep clear."
+        ko: "로봇이 움직입니다(오른팔 이동, 손목 기울임). 접근 금지."
+      btn_auto:
+        en: "1) Test Pose + Auto Exposure"
+        ko: "1) 테스트 자세 + 밝기 자동 조절"
       btn_zero:
-        en: "Move to Zero Pose"
-        ko: "제로 포즈로 이동"
-      target_ready_right:
-        en: "right arm J5 ready pose"
-        ko: "오른팔 J5 준비 자세"
-      target_ready_left:
-        en: "left arm J5 ready pose"
-        ko: "왼팔 J5 준비 자세"
+        en: "4) Move to Zero Pose"
+        ko: "4) 제로 포즈로 이동"
+      target_auto:
+        en: "test pose (auto exposure)"
+        ko: "테스트 자세(밝기 자동 조절)"
+      auto_applied:
+        en: "Auto exposure result: {value} ({ms} ms). Use this value?"
+        ko: "밝기 자동 조절 결과: {value} ({ms} ms). 이 값으로 할까요?"
+      auto_camera_auto:
+        en: "Camera {model} is not a D405, so the camera's own auto exposure is used. Use it?"
+        ko: "카메라 {model}은(는) D405가 아니라서 카메라 자체 자동 노출을 씁니다. 이대로 할까요?"
+      auto_none:
+        en: "No exposure kept the right marker steady. Adjust the exposure by hand below (see the log)."
+        ko: "오른쪽 마커가 안정적으로 인식되는 노출을 찾지 못했습니다. 아래에서 노출을 직접 조절하세요(로그 참고)."
+      monitor_side_ok:
+        en: "{marker} recognized and stable at this exposure: exposure OK"
+        ko: "{marker}가 이 노출값에서 안정적으로 인식됨: 노출 설정 성공"
       target_zero:
         en: "zero pose"
         ko: "제로 포즈"
@@ -316,8 +431,8 @@ wizard:
         en: "{marker}: NOT recognized  |  detection {rate}%  |  jitter {jitter}"
         ko: "{marker}: 인식 안 됨  |  인식률 {rate}%  |  흔들림 {jitter}"
       monitor_all_ok:
-        en: "✅ Both markers were recognized and stable at this exposure: exposure OK"
-        ko: "✅ 두 마커 모두 이 노출값에서 안정적으로 인식됨: 노출 설정 성공"
+        en: "Both markers were recognized and stable at this exposure: exposure OK"
+        ko: "두 마커 모두 이 노출값에서 안정적으로 인식됨: 노출 설정 성공"
       monitor_not_ok:
         en: "Not yet: each marker must be recognized once with RMS jitter ≤ {limit} mm while its arm is still (one arm at a time is fine)"
         ko: "아직 아님: 각 마커가 팔이 멈춘 상태에서 한 번씩 인식되고 흔들림 RMS {limit} mm 이하여야 합니다 (한 팔씩 확인해도 됩니다)"
@@ -346,18 +461,18 @@ wizard:
         en: "CANCEL"
         ko: "취소"
       chk_confirmed:
-        en: "I have confirmed and applied the camera brightness."
-        ko: "카메라 밝기 설정을 확인하고 적용 완료했습니다."
+        en: "3) Brightness checked and applied"
+        ko: "3) 밝기 확인·적용 완료"
       status_confirmed:
-        en: "Status: Exposure Confirmed! You can now click NEXT."
-        ko: "상태: 카메라 밝기 설정 완료! 다음 버튼을 눌러 진행하세요."
+        en: "Confirmed. Now do 4) Move to Zero Pose."
+        ko: "확인 완료. 이제 4) 제로 포즈로 이동하세요."
     slide_3:
       title:
-        en: "1-2. Camera Intrinsics Calibration (Optional)"
-        ko: "1-2. 카메라 내부 파라미터 보정 (선택)"
+        en: "0-2. Camera Distortion Calibration (Intrinsics)"
+        ko: "0-2. 카메라 왜곡 보정 (내부 파라미터)"
       skip_hint:
-        en: "If you have already completed this step, click Next or Skip to proceed."
-        ko: "이미 완료하셨다면 다음 또는 건너뛰기 버튼을 누르세요."
+        en: "Skipping this calibration may lower the accuracy."
+        ko: "이 보정을 건너뛰면 정확도가 저하될 수 있습니다."
       box_guidelines:
         en: "Calibration Guidelines"
         ko: "보정 가이드라인"
@@ -371,20 +486,17 @@ wizard:
         en: "Show Guide Overlay"
         ko: "가이드 오버레이 표시"
       btn_capture:
-        en: "CAPTURE FRAME (C)"
-        ko: "프레임 캡처 (C)"
+        en: "1) CAPTURE FRAME (C)"
+        ko: "1) 프레임 캡처 (C)"
       btn_calibrate:
-        en: "RUN CALIBRATION"
-        ko: "캘리브레이션 실행"
+        en: "2) RUN CALIBRATION"
+        ko: "2) 캘리브레이션 실행"
       btn_save:
-        en: "SAVE PARAMETERS"
-        ko: "파라미터 저장"
+        en: "3) SAVE PARAMETERS"
+        ko: "3) 파라미터 저장"
       btn_reset:
         en: "RESET CAPTURES"
         ko: "캡처 리셋"
-      lbl_captured:
-        en: "Captured Frames: "
-        ko: "캡처된 프레임: "
       lbl_temp:
         en: "Camera Temp: "
         ko: "카메라 온도: "
@@ -402,69 +514,71 @@ wizard:
         ko: "4. 캡처 중에는 보드를 흔들리지 않게 들고 계세요."
     slide_4:
       title:
-        en: "2. Robot Connection"
-        ko: "2. 로봇 연결"
+        en: "1. Robot Connection"
+        ko: "1. 로봇 연결"
       box_title:
-        en: "Robot Connection & Initialization"
+        en: "Robot Connection && Initialization"
         ko: "로봇 연결 및 초기화"
       inst1:
         en: "Connect to the robot using the configured IP address."
         ko: "설정된 IP 주소를 사용하여 로봇에 연결하십시오."
 
-      additional_bracket_query:
-        en: "Are you using an additional camera bracket?"
-        ko: "추가 카메라 브라켓을 사용하시나요?"
+      run_where:
+        en: "Where is this program running?"
+        ko: "이 프로그램을 어디서 실행하나요?"
+      btn_upc:
+        en: "On the robot's UPC"
+        ko: "로봇 안의 UPC"
+      btn_external:
+        en: "On an external PC"
+        ko: "외부 PC"
       "yes":
-        en: "Yes"
-        ko: "예"
+        en: "Mounted on the chest\n(no head calibration)"
+        ko: "가슴에 체결하여 진행\n(헤드 보정 X)"
       "no":
-        en: "No"
-        ko: "아니오"
-    slide_5:
-      title:
-        en: "3-2. Initial Zero Position Setup"
-        ko: "3-2. 초기 제로 포즈 이동"
-      box_title:
-        en: "Zero Position Movement"
-        ko: "제로 포즈 이동 안내"
-      inst1:
-        en: "To set up the baseline, first move the robot arms to the initial zero position."
-        ko: "기준 위치 설정을 위해 로봇 팔을 초기 제로 포즈로 이동시킵니다."
-      btn_move_zero:
-        en: "Move to Zero Position"
-        ko: "제로 포즈로 이동"
+        en: "Mounted on the head\n(with head calibration)"
+        ko: "헤드에 체결하여 진행\n(헤드 보정 포함)"
     slide_6:
       title:
-        en: "3-3. Home Offset Position Setup"
-        ko: "3-3. 홈 오프셋 위치 설정"
-      skip_hint:
-        en: "If you have already completed this step or are testing in simulation, please skip this process."
-        ko: "이미 이 스텝을 진행했거나 시뮬레이션에서 테스트해보고 있는 경우, 이 과정을 스킵해주세요."
-      box_title:
-        en: "Teaching Posture Guidelines"
-        ko: "교시 자세 지침 사항"
+        en: "7. Home Offset Position Setup"
+        ko: "7. 홈 오프셋 위치 설정"
+      pending_title:
+        en: "Home Offset Reset Already Done"
+        ko: "홈 오프셋 리셋 기록 있음"
+      pending_msg:
+        en: "A Home Offset Reset from {created_at} is on record and its calibration has not been applied yet, so the reset step is skipped.\n\nIf this is another robot, or you want to reset again, choose 'Go to the Reset Step'."
+        ko: "{created_at}에 한 홈 오프셋 리셋 기록이 있고 아직 보정이 적용되지 않았습니다. 그래서 리셋 단계를 건너뜁니다.\n\n다른 로봇이거나 리셋을 다시 하려면 '리셋 단계로 가기'를 누르세요."
+      btn_go_reset:
+        en: "Go to the Reset Step"
+        ko: "리셋 단계로 가기"
+      teach_title:
+        en: "Moving the Arms by Hand (Teaching Button)"
+        ko: "팔을 손으로 움직이는 법 (티칭 버튼)"
+      teach_desc:
+        en: "Poses 1 and 2 are made by pushing the arm by hand. The arm moves by hand only while its teaching (direct teaching) button is held; release the button once the pose is set. Never hold the buttons of both arms at once."
+        ko: "1·2번 자세는 팔을 손으로 밀어서 만듭니다. 팔의 티칭(직접 교시) 버튼을 누르고 있는 동안만 손으로 움직일 수 있고, 자세가 되면 버튼을 놓습니다. 양팔 버튼을 동시에 누르지 마세요."
       btn_how_to_move:
-        en: "How to move arms?"
-        ko: "팔 이동 방법 안내"
+        en: "Where the Teaching Button Is and How to Use It"
+        ko: "티칭 버튼 위치·사용법 보기"
       btn_reset:
         en: "Reset Home Offset"
         ko: "홈 오프셋 리셋"
       inst1:
-        en: "1. Rotate Shoulder Roll inwards towards the body."
-        ko: "1. 어깨 롤 관절을 몸 안쪽 방향으로 회전시킵니다."
+        en: "Rotate Shoulder Roll inwards towards the body."
+        ko: "어깨 롤 관절을 몸 안쪽 방향으로 회전시킵니다."
       shoulder_warn:
         en: "⚠ Do not turn it so far that the arm physically touches the body."
         ko: "⚠ 팔이 몸체에 물리적으로 닿을 만큼 안쪽으로 넣지 마세요."
       inst2:
-        en: "2. Push Elbow fully backwards until physically contacted / stopped."
-        ko: "2. 팔꿈치 관절을 스토퍼에 닿을 때까지 완전히 뒤로 밀어 붙입니다."
+        en: "Push Elbow fully backwards until physically contacted / stopped."
+        ko: "팔꿈치 관절을 스토퍼에 닿을 때까지 완전히 뒤로 밀어 붙입니다."
       inst3:
-        en: "3. Once steps 1~2 are complete, click 'Reset Home Offset' button below."
-        ko: "3. 위 과정이 완료되면 아래 '홈 오프셋 리셋' 버튼을 눌러 조인트 영점을 재설정하세요."
+        en: "With poses 1 and 2 set, reset the joint zero below."
+        ko: "1·2번 자세가 되면 아래 버튼으로 영점을 다시 잡으세요."
     slide_7:
       title:
-        en: "4. Calibration Start"
-        ko: "4. 캘리브레이션 시작"
+        en: "8. Calibration Start"
+        ko: "8. 캘리브레이션 시작"
       desc:
         en: "Click 'Start Calibration' to execute Full Auto calibration, initial pose setup, auto motion data collection, and 3D optimization in one unified process."
         ko: "'캘리브레이션 시작' 버튼을 누르면 풀 오토 캘리브레이션부터 초기 포즈 이동, 자동 궤적 수집 및 3D 최적화 연산까지 일괄 진행됩니다."
@@ -474,10 +588,21 @@ wizard:
       stop_desc:
         en: "Emergency stop on abnormal motion ->"
         ko: "비정상 동작 시 모션 정지 ->"
+    # 2026-11-24 (user): the check pose split off the apply slide.
+    slide_check_pose:
+      title:
+        en: "9. Check Pose"
+        ko: "9. 체크 자세 확인"
+      desc:
+        en: "1) Move to the check pose with the original or the calibrated offsets and see whether the two arms stand symmetrically.\n2) At the check pose, hold a button below to bring the hands together or move them apart and compare them up close."
+        ko: "1) 원본 또는 보정 오프셋으로 체크 자세에 가서 두 팔이 대칭인지 확인하세요.\n2) 체크 자세에 도착하면 아래 버튼을 누르고 있는 동안 양손을 모으거나 벌려 가까이에서 비교할 수 있습니다."
+      gap_hint:
+        en: "2) Hold to move:  → ←  together   |   ← →  apart"
+        ko: "2) 누르고 있는 동안 이동:  → ←  모으기   |   ← →  벌리기"
     slide_8:
       title:
-        en: "5. Apply Home Offset"
-        ko: "5. 홈 오프셋 적용"
+        en: "10. Apply Home Offset"
+        ko: "10. 홈 오프셋 적용"
       desc:
         en: "Review and apply the calculated optimized home offset to the robot."
         ko: "계산된 최적화 홈 오프셋을 검토하고 로봇에 적용합니다."
@@ -485,43 +610,47 @@ wizard:
         en: "Apply Home Offset Instructions"
         ko: "홈 오프셋 적용 지침 사항"
       inst1:
-        en: "1. Comparison: Review and compare offsets before and after calibration using 'Baseline' and 'Optimized'."
-        ko: "1. 비교: 'Baseline' 및 'Optimized'를 선택하여 보정 전후 오프셋을 비교해 볼 수 있습니다."
+        en: "1. Zero Pose Check: Use 'Rollback Zero Pose' / 'New Offset Zero Pose' to move the joints to zero with the original or the calibrated offsets and compare them."
+        ko: "1. 제로 포즈 검사: '원본 제로 자세' / '보정 제로 자세'를 눌러 기존 영점과 보정된 영점으로 각각 이동해 비교하세요."
       inst2:
-        en: "2. Zero Pose Check: Use 'Rollback Zero Pose' / 'New Offset Zero Pose' to move the joints to zero with the original or the calibrated offsets and compare them."
-        ko: "2. 제로 포즈 검사: '원본 제로 자세' / '보정 제로 자세'를 눌러 기존 영점과 보정된 영점으로 각각 이동해 비교하세요."
-      inst3:
-        en: "3. Symmetry Check: Use 'Rollback Check Pose' / 'New Offset Check Pose' to verify if both robot arms are symmetrical."
-        ko: "3. 대칭성 검사: '원본 체크 자세' / '보정 체크 자세'를 눌러 두 팔이 대칭을 이루는지 확인하세요."
-      inst4:
-        en: "4. Apply / Rollback: Select 'Baseline' to rollback to original values, or select 'Optimized' to apply calibrated values, then click 'Apply Selected Offset'."
-        ko: "4. 적용/롤백: 적용을 원하는 값(Baseline 또는 Optimized)을 선택한 뒤 '선택한 오프셋 적용' 버튼을 클릭하세요."
+        en: "2. Apply / Rollback: click 'Apply New Offset' to apply the calibrated values, or 'Rollback Joint' to go back to the original values."
+        ko: "2. 적용/롤백: 보정값을 쓰려면 '신규 보정 적용', 원래 값으로 되돌리려면 '기존 영점 복구'를 누르세요."
       btn_apply:
         en: "Apply Home Offset"
         ko: "홈 오프셋 적용"
       btn_rollback_zero:
-        en: "Rollback Zero Pose"
-        ko: "원본 제로 자세"
+        en: "1) Rollback Zero Pose"
+        ko: "1) 원본 제로 자세"
       btn_new_offset_zero:
-        en: "New Offset Zero Pose"
-        ko: "보정 제로 자세"
+        en: "1) New Offset Zero Pose"
+        ko: "1) 보정 제로 자세"
       btn_rollback_preview:
-        en: "Rollback Check Pose"
-        ko: "원본 체크 자세"
+        en: "1) Rollback Check Pose"
+        ko: "1) 원본 체크 자세"
       btn_new_offset_preview:
-        en: "New Offset Check Pose"
-        ko: "보정 체크 자세"
+        en: "1) New Offset Check Pose"
+        ko: "1) 보정 체크 자세"
       btn_rollback_joint:
-        en: "Rollback Joint"
-        ko: "기존 영점 복구"
+        en: "2) Rollback Joint"
+        ko: "2) 기존 영점 복구"
       btn_apply_new_offset:
-        en: "Apply New Offset"
-        ko: "신규 보정 적용"
+        en: "2) Apply New Offset"
+        ko: "2) 신규 보정 적용"
 
   step6:
     no_json:
       en: "No {state} JSON found."
       ko: "{state} 설정 파일을 찾을 수 없습니다."
+    # Gather / spread at the check pose, held (2026-11-24, user).
+    btn_gather: {en: "→   ←", ko: "→   ←"}
+    btn_spread: {en: "←   →", ko: "←   →"}
+    gap_moving_gather: {en: "Status: bringing the hands together... (let go to stop)", ko: "상태: 양손을 모으는 중... (손을 떼면 멈춤)"}
+    gap_moving_spread: {en: "Status: moving the hands apart... (let go to stop)", ko: "상태: 양손을 벌리는 중... (손을 떼면 멈춤)"}
+    gap_done_gather: {en: "Status: hands brought together (100 mm closer than the check pose).", ko: "상태: 양손을 다 모았습니다 (확인 자세보다 100 mm 가까움)."}
+    gap_done_spread: {en: "Status: back at the check pose.", ko: "상태: 확인 자세로 돌아왔습니다."}
+    gap_stopped: {en: "Status: stopped where you let go. Press and hold again to carry on.", ko: "상태: 손을 뗀 자리에서 멈췄습니다. 다시 누르고 있으면 이어서 움직입니다."}
+    gap_error: {en: "Status: the move failed ({error}).", ko: "상태: 이동 실패 ({error})"}
+    gap_unavailable: {en: "No hands-together pose for v{version} yet.", ko: "v{version}에는 아직 양손 모으기 자세가 없습니다."}
     moving_check:
       en: "Status: Moving to {state} check posture..."
       ko: "상태: {state} 체크 자세로 이동 중..."
@@ -601,6 +730,17 @@ wizard:
       ko: "적용 에러"
 
 dialogs:
+  robot_ip:
+    title: {en: "Find the Robot's IP Address", ko: "로봇 IP 찾기"}
+    guide:
+      en: "The OLED display on the robot shows the network it is connected to and its IP address (the vertical text on the right: network name on top, IP below). Enter that IP below. Leave out a suffix such as /23; the port 50051 is added if you leave it out."
+      ko: "로봇의 OLED 화면에 로봇이 연결된 네트워크와 IP가 나옵니다 (오른쪽 세로 글자: 위가 네트워크 이름, 아래가 IP). 그 IP를 아래에 입력하세요. /23 같은 뒷부분은 빼도 되고, 포트를 빼면 50051을 붙입니다."
+    hotspot:
+      en: "Connected through the robot's hotspot: the address is {address}."
+      ko: "로봇 핫스팟으로 연결된 경우 주소는 {address} 입니다."
+    label: {en: "Robot IP", ko: "로봇 IP"}
+    btn_ok: {en: "Use This Address", ko: "이 주소 사용"}
+    btn_cancel: {en: "Cancel", ko: "취소"}
   how_to_move_arms:
     title:
       en: "How to Move Arms (Direct Teaching)"
@@ -618,8 +758,8 @@ dialogs:
       en: "2. Important: Manually move target joints so calibration offsets are calculated in the correct direction."
       ko: "2. 중요: 보정값이 반대 방향으로 계산되어 오작동을 일으키지 않도록, 지정된 주요 관절을 수작업으로 옮겨주어야 합니다."
     warn_lbl:
-      en: "⚠️ Warning: NEVER press teaching buttons on both arms simultaneously!"
-      ko: "⚠️ 경고: 양팔의 직접 교시 버튼을 절대로 동시에 누르지 마십시오!"
+      en: "⚠ Warning: NEVER press teaching buttons on both arms simultaneously!"
+      ko: "⚠ 경고: 양팔의 직접 교시 버튼을 절대로 동시에 누르지 마십시오!"
     btn_close:
       en: "Close"
       ko: "닫기"
@@ -704,8 +844,20 @@ dialogs:
       en: "Marker Recognition Problem & Teaching Guidance"
       ko: "마커 인식 오류 및 수동 위치 교시 가이드"
     warn_header:
-      en: "⚠️ Marker Unrecognized: Manual Teaching & View Alignment"
-      ko: "⚠️ 마커 미인식: 수동 위치 교시 및 카메라 시야 확보 안내"
+      en: "⚠ {arm}: bring the marker to the dot in the centre of the camera view"
+      ko: "⚠ {arm}: 마커를 카메라 화면 가운데 점에 맞춰 주세요"
+    notice_title:
+      en: "Marker Not Clearly Visible"
+      ko: "마커가 잘 보이지 않음"
+    notice_msg:
+      en: "While calibrating the {arm}, the camera cannot see the marker clearly.\n\nIn the next window, press the teaching button and move the arm so that the marker sits as close as possible to the dot in the centre of the camera view."
+      ko: "{arm}을 보정하는 중 카메라에 마커가 잘 보이지 않습니다.\n\n다음 창에서 티칭 버튼을 누르고 팔을 움직여, 카메라 화면 가운데 점에 마커가 최대한 가운데 오도록 맞춰 주세요."
+    arm_right:
+      en: "right arm"
+      ko: "오른팔"
+    arm_left:
+      en: "left arm"
+      ko: "왼팔"
     steps_box_title:
       en: "Manual Teaching Steps"
       ko: "수동 위치 교시 절차"
@@ -716,11 +868,11 @@ dialogs:
       en: "Camera Feed Loading..."
       ko: "카메라 피드 로딩 중..."
     btn_done:
-      en: "✅ Teaching Done (Resume Calibration)"
-      ko: "✅ 티칭 완료 (캘리브레이션 재개)"
+      en: "Teaching Done (Resume Calibration)"
+      ko: "티칭 완료 (캘리브레이션 재개)"
     btn_cancel:
-      en: "❌ Cancel Calibration"
-      ko: "❌ 캘리브레이션 취소"
+      en: "Cancel Calibration"
+      ko: "캘리브레이션 취소"
     step1_cap:
       en: "1. Unrecognized"
       ko: "1. 미인식 발생"
@@ -728,11 +880,11 @@ dialogs:
       en: "2. Press Teaching"
       ko: "2. 교시 버튼 누름"
     step3_cap:
-      en: "3. Align Marker"
-      ko: "3. 마커 정면 조향"
+      en: "3. Marker on the Centre Dot"
+      ko: "3. 가운데 점에 맞추기"
     desc:
-      en: "<b>1. Press Teaching Button:</b> Press the direct teaching button on the robot arm/head.<br><br><b>2. Align Marker:</b> Watching the live camera feed on the right, position the marker in the center of the camera view.<br><br><b>3. Resume Calibration:</b> Click [Teaching Done] below once aligned.<br><span style='color: #ffca28; font-size: 13px;'>* Resumes calibration by aligning only the target calibration joint to 0° from adjusted posture.</span>"
-      ko: "<b>1. 티칭 버튼 누르기:</b> 로봇 팔/헤드의 직접 교시 버튼을 누르세요.<br><br><b>2. 마커 방향 조정:</b> 우측 실시간 카메라 화면을 보면서 마커가 화각 중앙에 정면으로 오도록 이동시키세요.<br><br><b>3. 캘리브레이션 재개:</b> 정렬을 마치면 아래 [티칭 완료] 버튼을 누르세요.<br><span style='color: #ffca28; font-size: 13px;'>* 조정한 현재 위치에서 보정 대상 관절만 0°로 정렬 후 스위프를 계속 진행합니다.</span>"
+      en: "<b>1. Press the teaching button</b> on the robot arm and move the arm by hand.<br><br><b>2. Bring the marker to the centre dot:</b> watching the camera view on the right, move the arm so that the marker sits as close as possible to the dot in the centre, facing the camera.<br><br><b>3. Resume calibration:</b> click [Teaching Done] below.<br><span style='color: #ffca28; font-size: 13px;'>* Resumes calibration by aligning only the target calibration joint to 0° from adjusted posture.</span>"
+      ko: "<b>1. 티칭 버튼 누르기:</b> 로봇 팔의 직접 교시(티칭) 버튼을 누르고 팔을 손으로 움직이세요.<br><br><b>2. 가운데 점에 맞추기:</b> 오른쪽 카메라 화면을 보면서 마커가 화면 가운데 점에 최대한 가깝게, 카메라를 정면으로 보도록 팔을 옮기세요.<br><br><b>3. 캘리브레이션 재개:</b> 아래 [티칭 완료] 버튼을 누르세요.<br><span style='color: #ffca28; font-size: 13px;'>* 조정한 현재 위치에서 보정 대상 관절만 0°로 정렬 후 스위프를 계속 진행합니다.</span>"
 
   markers_too_close:
     title:
@@ -759,8 +911,8 @@ dialogs:
       en: "Marker Spacing Monitor"
       ko: "마커 간격 모니터"
     monitor_header:
-      en: "⚠️ Widen the arms: markers are too close"
-      ko: "⚠️ 팔 간격 벌리기: 마커가 너무 가깝습니다"
+      en: "⚠ Widen the arms: markers are too close"
+      ko: "⚠ 팔 간격 벌리기: 마커가 너무 가깝습니다"
     monitor_desc:
       en: "Press the teaching button and move the arms apart, keeping both markers in view of the camera. The gap turns green at {min_gap} cm or more; then press [Spacing Done]. Step 2 continues from this posture without checking the spacing again."
       ko: "티칭 버튼을 누르고 두 마커가 카메라에 보이도록 유지하면서 팔 사이를 벌리세요. 간격이 {min_gap} cm 이상이 되면 초록색으로 바뀌고, 그때 [간격 조정 완료]를 누르세요. 이후 Step 2는 이 자세에서 간격을 다시 확인하지 않고 진행합니다."
@@ -771,11 +923,11 @@ dialogs:
       en: "Marker not visible: keep both markers in view  (minimum {min_gap} cm)"
       ko: "마커가 보이지 않음: 두 마커가 모두 보이게 하세요  (기준 {min_gap} cm 이상)"
     btn_done:
-      en: "✅ Spacing Done (Continue Step 2)"
-      ko: "✅ 간격 조정 완료 (Step 2 계속)"
+      en: "Spacing Done (Continue Step 2)"
+      ko: "간격 조정 완료 (Step 2 계속)"
     btn_cancel:
-      en: "❌ Cancel Step 2"
-      ko: "❌ Step 2 취소"
+      en: "Cancel Step 2"
+      ko: "Step 2 취소"
 
   apply_home_offset:
     title:
@@ -894,7 +1046,7 @@ dialogs:
       ko: "Home Offset Reset 확인"
     msg:
       en: |
-        ⚠️ [Warning] Home Offset Reset Notice
+        ⚠ [Warning] Home Offset Reset Notice
 
         Proceeding with Home Offset Reset will reset the current physical positions of robot joints as the new 0 degrees (Home Position).
 
@@ -905,7 +1057,7 @@ dialogs:
 
         ※ During reset, Control Manager will be paused, 48V power will be cycled, and the robot connection will restart.
       ko: |
-        ⚠️ [경고] Home Offset Reset 알림
+        ⚠ [경고] Home Offset Reset 알림
 
         Home Offset Reset을 진행하면 현재 로봇 관절의 물리적 위치가 새로운 0도(홈 위치)로 재설정됩니다.
 

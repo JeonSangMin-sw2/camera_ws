@@ -219,6 +219,36 @@ class Step2InitPoseWorker(SequenceWorker):
         self.finished_signal.emit(self.result.success, self.result.error)
 
 
+class GripperPoseWorker(SequenceWorker):
+    """Wizard: both arms to the gripper-change pose, then the tool flange output off.
+    finished_signal(success, error, {side: volts read back})."""
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str, dict)
+
+    def __init__(self, core):
+        super().__init__(core, "gripper_pose", {})
+
+    def run(self):
+        super().run()
+        self.finished_signal.emit(self.result.success, self.result.error,
+                                  dict(self.result.completed.get("gripper_pose") or {}))
+
+
+class AutoExposureWorker(SequenceWorker):
+    """Wizard exposure slide: right arm test pose, then the auto exposure (D405).
+    finished_signal(success, error, result dict of sequences.auto_exposure.run_auto_exposure)."""
+    log_signal = Signal(str)
+    finished_signal = Signal(bool, str, dict)
+
+    def __init__(self, core):
+        super().__init__(core, "auto_exposure", {})
+
+    def run(self):
+        super().run()
+        self.finished_signal.emit(self.result.success, self.result.error,
+                                  dict(self.result.completed.get("auto_exposure") or {}))
+
+
 class MoveToReadyWorker(SequenceWorker):
     log_signal = Signal(str)
     finished_signal = Signal(bool, str)

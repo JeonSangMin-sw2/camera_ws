@@ -7,6 +7,8 @@ def run_full(core, context, step1=None, step1_5=None, step2=None):
         context.check_cancelled()
         child = core._execute(name, dict(options or {}))
         if child.success:
+            if name == "step2":
+                _settle_step1_j6(core, context, child)
             context.complete(name, child)
             head_done = (not child.completed.get("head_camera", {}).get("skipped", False)
                          and dict(step1_5 or {}).get("prepare", True))
@@ -21,3 +23,23 @@ def run_full(core, context, step1=None, step1_5=None, step2=None):
             context.checkpoint(name, child)
             context.result.finish(child.status, child.error)
             return
+
+
+def _settle_step1_j6(core, context, step2):
+    """Step 1's J6-only cautions go back to green once Step 2 has solved J6 again; their log lines stay."""
+    from .run_warnings import settled_by_step2
+    step1 = context.result.completed.get("step1")
+    items = getattr(step1, "completed", {}).get("warnings") if step1 is not None else None
+    if not items:
+        return
+    kept, settled = settled_by_step2(items, step2.completed)
+    if not settled:
+        return
+    if kept:
+        step1.completed["warnings"] = kept
+    else:
+        step1.completed.pop("warnings", None)
+    core.log_msg("[INFO] Step 1 J6 cautions settled by Step 2 (it solved J6 again): "
+                 + "; ".join(f"{i['key']} {i['params']}" for i in settled))
+    children = [context.result.completed.get("step1_5"), step2, step1]
+    core.run_warned = any(getattr(c, "completed", {}).get("warnings") for c in children if c is not None)

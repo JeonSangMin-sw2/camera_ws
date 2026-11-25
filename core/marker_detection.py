@@ -776,6 +776,16 @@ class Marker_Transform:
         if self._use_serial_intrinsics(working, working_data, working_family):
             return
 
+        if self.camera_serial:
+            # 2026-11-24 (user): a unit without its own file uses its factory intrinsics. Another unit's
+            # calibration is worse than none -- two D405s here differ by 16 px (1.4 deg) in cy, and the
+            # camera angles are held at the design in Step 1.5 / Step 2, so that error lands on the joints.
+            self.active_intrinsics_path = None
+            self.intrinsics_source = "factory"
+            print(f"[INFO] Camera S/N {self.camera_serial} has no intrinsics of its own; using its factory "
+                  f"intrinsics. Run the intrinsics calibration and save it to register this unit.")
+            return
+
         if working_family == self.camera_model:
             self.active_intrinsics_path = working if working_data else None
             self.intrinsics_missing = not working_data
@@ -850,8 +860,8 @@ class Marker_Transform:
 
     def _use_serial_intrinsics(self, working, working_data, working_family):
         """Use this unit's own calibration, config/camera_intrinsics/<serial>.yaml, when it has one
-        (or when the working file is already stamped with its serial). Returns False to fall back
-        to the per-model store. The outgoing working file is archived first, as for a model swap.
+        (or when the working file is already stamped with its serial). Returns False when it has none
+        (the caller then uses the factory intrinsics). The outgoing working file is archived first.
         """
         serial = self.camera_serial
         if not serial:
@@ -871,8 +881,6 @@ class Marker_Transform:
                     and "camera_matrix" in working_data:
                 data, path = working_data, working
             else:
-                print(f"[INFO] No intrinsics calibrated for camera S/N {serial}; using the "
-                      f"'{self.camera_model}' model calibration if there is one.")
                 return False
 
         if working_data and path != working:

@@ -1,13 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
+from pathlib import Path
 import platform
 
 datas_rby, binaries_rby, hiddenimports_rby = collect_all('rby1_sdk')
 
+# img/: only the app's own pictures; img/wizard_ui (manual screenshots) stays out of the executable.
+# The ChArUco board PDF sits at the bundle root, where the wizard's "open the board file" button looks.
 datas = [
     ('config', 'config'),
-    ('img', 'img'),
-] + datas_rby
+    ('calib.io_charuco_297x210_5x8_36_27_DICT_5X5.pdf', '.'),
+] + [(str(p), 'img') for p in sorted(Path('img').iterdir()) if p.is_file()] + datas_rby
 
 binaries = [] + binaries_rby
 hiddenimports = [

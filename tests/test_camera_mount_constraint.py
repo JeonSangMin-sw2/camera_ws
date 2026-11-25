@@ -66,8 +66,9 @@ class TestLoader(unittest.TestCase):
         root = Path(__file__).resolve().parents[1] / "config"
         entry = ConfigStorage.load(root / "camera_info.yaml")["D405"]
         # 2026-10-08: the bracket height was measured (67 mm), so z went from +-1 mm to +-0.5 mm.
+        # 2026-11-24 (user): widened after a real v1.2 run hit the x/z upper ends (camera_info.yaml).
         np.testing.assert_allclose(entry["mount_to_cam_position_range_m"],
-                                   [[-0.003, 0.001], [0.0, 0.0], [-0.0005, 0.0005]])
+                                   [[-0.003, 0.002], [-0.0005, 0.0005], [-0.0005, 0.0015]])
         self.assertNotIn("mount_to_cam_position_range_m", ConfigStorage.load(root / "camera_info.yaml")["D435"])
 
 
