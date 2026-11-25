@@ -104,7 +104,7 @@ class Step2WarningsTest(unittest.TestCase):
         meas = {"dx_mm": -0.7, "dy_mm": 0.3, "dz_mm": -4.04, "dist_mm": 4.11}
         items = self.check_view({"seen": True, "gap_mm": 4.11, "limit_mm": 2.0, "measured_symmetry": meas})
         self.assertEqual(keys(items), ["check_pose_gap"])
-        self.assertEqual(items[0]["params"], {"gap": 4.1, "limit": 2.0, "dx": -0.7, "dy": 0.3, "dz": -4.0})
+        self.assertEqual(items[0]["params"], {"gap": 4.1, "limit": 2.0, "dx": -0.7, "dz": -4.0})
 
     def test_check_pose_within_the_limit(self):
         meas = {"dx_mm": 0.5, "dy_mm": 0.1, "dz_mm": 1.0, "dist_mm": 1.12}

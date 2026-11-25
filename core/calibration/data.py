@@ -217,34 +217,21 @@ def load_step2_wrist_diversity(robot_version, setting_path=SETTING_PATH, ready_p
     return steps, True
 
 
-def load_step2_check_region(robot_version, setting_path=SETTING_PATH, ready_poses_path=READY_POSES_PATH):
-    """Extra Step 2 poses at the check pose (ready_poses.yaml <version>.step2_check_region, switched by
-    setting.yaml step2.check_region_poses; user, 2026-11-25): the Step 2 poses do not reach the lowered check
-    pose, and some offset combinations they barely see move the hands there. Returns (region, enabled):
-    region is None when off or the version has no list, else {"right": [7 deg], "left": [7 deg] (check_calib),
-    "j6_turn_deg": (check_calib_view), "poses": [{"wrist_deg": [dJ4, dJ5], "head_deg": [pan, tilt]}]}."""
-    setting = ConfigStorage.load(setting_path) if os.path.exists(setting_path) else {}
-    if not bool((setting.get("step2") or {}).get("check_region_poses", False)):
-        return None, False
+def load_auto_exposure_ceiling_j6_deg(robot_version, ready_poses_path=READY_POSES_PATH):
+    """J6 turn (deg) of the auto exposure's ceiling-facing pose (ready_poses.yaml <version>.auto_exposure_ceiling_j6_deg),
+    or None when the version has none. A value that is not a finite number is an error."""
     poses = ConfigStorage.load(ready_poses_path) if os.path.exists(ready_poses_path) else {}
     ver = str(robot_version).lstrip("v")
-    entry = poses.get(f"v{ver}") or {}
-    listed = entry.get("step2_check_region") or []
-    if not listed:
-        return None, True
+    value = (poses.get(f"v{ver}") or {}).get("auto_exposure_ceiling_j6_deg")
+    if value is None:
+        return None
     try:
-        region = {side: [float(v) for v in entry["check_calib"][f"{side}_arm"]] for side in ("right", "left")}
-        region["j6_turn_deg"] = float(entry["check_calib_view"]["j6_turn_deg"])
-        region["poses"] = [{key: [float(v) for v in item[key]] for key in ("wrist_deg", "head_deg")} for item in listed]
-    except (KeyError, TypeError, ValueError) as error:
-        raise ValueError(f"{ready_poses_path} v{ver}.step2_check_region needs check_calib, check_calib_view.j6_turn_deg "
-                         f"and items {{wrist_deg: [dJ4, dJ5], head_deg: [pan, tilt]}} in degrees: {error!r}") from error
-    for i, pose in enumerate(region["poses"]):
-        if len(pose["wrist_deg"]) != 2 or len(pose["head_deg"]) != 2 \
-                or not np.all(np.isfinite(pose["wrist_deg"] + pose["head_deg"])):
-            raise ValueError(f"{ready_poses_path} v{ver}.step2_check_region[{i}] must have wrist_deg [dJ4, dJ5] and "
-                             f"head_deg [pan, tilt] in degrees, got {listed[i]}")
-    return region, True
+        value = float(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{ready_poses_path} v{ver}.auto_exposure_ceiling_j6_deg must be degrees, got {value!r}") from error
+    if not np.isfinite(value):
+        raise ValueError(f"{ready_poses_path} v{ver}.auto_exposure_ceiling_j6_deg must be finite, got {value}")
+    return value
 
 
 def load_gripper_change_pose(robot_version, ready_poses_path=READY_POSES_PATH):

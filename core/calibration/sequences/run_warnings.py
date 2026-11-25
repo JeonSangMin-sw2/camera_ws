@@ -74,7 +74,7 @@ def step2_warnings(completed, partial=None):
     elif isinstance(view, dict) and view["gap_mm"] > view["limit_mm"]:
         meas = view["measured_symmetry"]
         out.append(_warn("check_pose_gap", gap=round(view["gap_mm"], 1), limit=view["limit_mm"],
-                         dx=round(meas["dx_mm"], 1), dy=round(meas["dy_mm"], 1), dz=round(meas["dz_mm"], 1)))
+                         dx=round(meas["dx_mm"], 1), dz=round(meas["dz_mm"], 1)))
     ends = (result.get("camera_mount_constraint") or {}).get("camera_at_range_end")
     if ends:
         out.append(_warn("camera_range", ends=_compact_ends(ends)))

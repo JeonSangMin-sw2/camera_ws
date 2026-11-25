@@ -361,6 +361,7 @@ class CalibrationWizardWidget(QWidget):
         # Gripper-change pose
         if hasattr(self, 'lbl_gp_desc'): self.refresh_gripper_pose_desc()
         if hasattr(self, 'btn_gripper_pose'): self.btn_gripper_pose.setText(tr("wizard.slides.slide_gripper_pose.btn_move"))
+        if hasattr(self, 'btn_gp_stop'): self.btn_gp_stop.setText(tr("wizard.btn_stop_motion"))
         if hasattr(self, 'lbl_gripper_pose_status'): self.set_gripper_pose_status(*self.gripper_pose_status)
 
         # Gripper removal & marker bracket attachment
@@ -562,11 +563,15 @@ class CalibrationWizardWidget(QWidget):
         self.btn_gripper_pose = QPushButton(tr("wizard.slides.slide_gripper_pose.btn_move"))
         self.btn_gripper_pose.setMinimumSize(360, 52)
         self.btn_gripper_pose.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; font-size: 16px; border-radius: 6px; padding: 0 20px;")
-        # 2026-11-24 (user): the arms move only while the button is held; letting go stops them, so the slide
-        # has no stop button of its own.
-        self.btn_gripper_pose.pressed.connect(self.move_to_gripper_pose)
-        self.btn_gripper_pose.released.connect(self.release_gripper_pose)
+        # 2026-11-25 (user): one click goes all the way, with a stop button beside it. The hold-to-move version
+        # (2026-11-24) was dropped as confusing for this long move.
+        self.btn_gripper_pose.clicked.connect(self.move_to_gripper_pose)
         gp_row.addWidget(self.btn_gripper_pose)
+        self.btn_gp_stop = QPushButton(tr("wizard.btn_stop_motion"))
+        self.btn_gp_stop.setMinimumSize(160, 52)
+        self.btn_gp_stop.setStyleSheet("background-color: #e53935; color: white; font-weight: bold; font-size: 16px; border-radius: 6px;")
+        self.btn_gp_stop.clicked.connect(self.stop_gripper_pose)
+        gp_row.addWidget(self.btn_gp_stop)
         l_gp.addLayout(gp_row)
         self.lbl_gripper_pose_status = QLabel()
         self.lbl_gripper_pose_status.setAlignment(Qt.AlignCenter)
@@ -1507,7 +1512,10 @@ class CalibrationWizardWidget(QWidget):
         self.btn_check_spread = QPushButton(tr("wizard.step6.btn_spread"))
         for btn, direction in ((self.btn_check_gather, "gather"), (self.btn_check_spread, "spread")):
             btn.setMinimumSize(200, 52)
-            btn.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; font-size: 22px; border-radius: 6px;")
+            # Held = the running colour with a white edge, so the operator sees the arms move only while pressed (user, 2026-11-25).
+            btn.setStyleSheet("QPushButton { background-color: #2b5278; color: white; font-weight: bold; font-size: 22px; "
+                              "border-radius: 6px; border: 2px solid transparent; } "
+                              "QPushButton:pressed { background-color: #1e88e5; border: 2px solid #ffffff; }")
             btn.pressed.connect(lambda d=direction: self.start_check_gap(d))
             btn.released.connect(self.release_check_gap)
             btn.setEnabled(False)
@@ -1803,30 +1811,31 @@ class CalibrationWizardWidget(QWidget):
             f"color: {self.GRIPPER_POSE_STYLES[state]}; font-size: 15px; font-weight: bold;")
 
     def move_to_gripper_pose(self):
-        """Button pressed: start the move; release_gripper_pose stops it if the button is let go early."""
         def on_finished(success, error="", voltages=None):
             self.gripper_pose_moving = False
             self.set_wizard_busy(False)
+            self.btn_gripper_pose.setEnabled(True)
             if success:
                 self.set_gripper_pose_status("done", ", ".join(f"{side} {value:.0f} V" for side, value in (voltages or {}).items()))
-            elif self.gripper_pose_released:
+            elif self.gripper_pose_stopped:
                 self.set_gripper_pose_status("stopped")
             else:
                 self.set_gripper_pose_status("failed", error)
             self.mark_step_completed(self.SLIDE_GRIPPER_POSE, success)
 
-        self.gripper_pose_released = False
+        self.gripper_pose_stopped = False
         if self.parent_app.move_to_gripper_pose(on_finished):
             self.gripper_pose_moving = True
             self.set_gripper_pose_status("moving")
+            self.btn_gripper_pose.setEnabled(False)
             self.set_wizard_busy(True)
         elif not self.parent_app.robot:
             self.set_gripper_pose_status("failed", tr("wizard.st.robot_not_connected"))
 
-    def release_gripper_pose(self):
+    def stop_gripper_pose(self):
         if getattr(self, "gripper_pose_moving", False):
-            self.gripper_pose_released = True
-            self.parent_app.safe_cancel_control()
+            self.gripper_pose_stopped = True
+        self.exposure_stop_motion()
 
     def sync_marker_monitor(self):
         """The app runs the core marker monitor while this slide or Camera > Brightness is shown."""

@@ -151,7 +151,7 @@ class IndicatorWidget(QWidget):
 class CameraFeedDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Camera Live Feed")
+        self.setWindowTitle("Live View")
         self.resize(640, 480)
         self.setStyleSheet(DARK_STYLESHEET)
 
@@ -2127,7 +2127,7 @@ class UnifiedCalibrationApp(QWidget):
         self.btn_monitor.toggled.connect(self.on_monitor_toggled)
         self.btn_monitor.setFixedHeight(26)
 
-        self.btn_camera_feed = QPushButton("Camera Feed")
+        self.btn_camera_feed = QPushButton("Live View")
         self.btn_camera_feed.setStyleSheet("background-color: #2b5278; color: white; font-weight: bold; border-radius: 4px; border: 1px solid #111111;")
         self.btn_camera_feed.clicked.connect(self.toggle_camera_feed_dialog)
         self.btn_camera_feed.setFixedHeight(26)

@@ -145,6 +145,60 @@ class TestAutoExposureSequence(unittest.TestCase):
                    if "right_arm" in c.kwargs]
         self.assertEqual([round(p) for p in pitches], [-15, 15, 0])
 
+    def out_of_view_below(self, core, camera, j5_deg):
+        """The camera loses the marker while the right J5 is below j5_deg (out of view, at every exposure)."""
+        pose = {"q": np.zeros(7)}
+        core.joint_calibrator.movej.side_effect = lambda *a, **k: pose.update(q=k.get("right_arm", pose["q"])) or True
+        seen = camera.get_marker_transform
+        camera.get_marker_transform = lambda **kw: None if np.degrees(pose["q"][5]) < j5_deg else seen(**kw)
+
+    def test_v12_adds_the_j6_ceiling_pose(self):
+        # 2026-11-25 (user): J6 turned towards the ceiling (glare); J5 only spins the v1.2 marker in its plane.
+        core = fake_core(FakeCamera(), version="1.2")
+        result = self.run_sequence(core)
+        moves = [np.degrees(c.kwargs["right_arm"]) for c in core.joint_calibrator.movej.call_args_list
+                 if "right_arm" in c.kwargs]
+        self.assertEqual([(round(m[5], 1), round(m[6], 1)) for m in moves], [(-15, 0), (15, 0), (0, -22.5), (0, 0)])
+        self.assertEqual([p["used_deg"] for p in result["turned_poses"]], [-15, 15, -22.5])
+        self.assertTrue(all(len(t["turned"]) == 3 for t in result["trials"] if t["turned"]))
+        self.assertEqual(result["applied"], "manual")
+
+    def test_a_pose_out_of_view_is_retried_closer(self):
+        # 2026-11-25: J5 -15 saw 0 % at every exposure on the real robot and nothing qualified.
+        camera = FakeCamera()
+        core = fake_core(camera, version="1.3")
+        self.out_of_view_below(core, camera, -7.0)
+        result = self.run_sequence(core)
+        self.assertEqual(result["turned_poses"][0], {"joint": 5, "requested_deg": -15.0, "used_deg": -5.0})
+        self.assertEqual((result["applied"], result["exposure"]), ("manual", 8500))
+        turned = next(t for t in result["trials"] if t["exposure"] == 8500)["turned"]
+        self.assertEqual([m["turn_deg"] for m in turned], [-5.0, 15.0])
+        logs = " ".join(str(c.args[0]) for c in core.log_msg.call_args_list)
+        self.assertIn("trying -10 deg", logs)
+        self.assertIn("trying -5 deg", logs)
+
+    def test_a_pose_never_in_view_is_left_out_with_a_warning(self):
+        camera = FakeCamera()
+        core = fake_core(camera, version="1.3")
+        self.out_of_view_below(core, camera, -1.0)
+        result = self.run_sequence(core)
+        self.assertEqual(result["turned_poses"][0]["used_deg"], None)
+        turned = next(t for t in result["trials"] if t["exposure"] == 8500)["turned"]
+        self.assertEqual([m["turn_deg"] for m in turned], [15.0])         # judged by the poses it did see
+        self.assertEqual(result["applied"], "manual")
+        logs = " ".join(str(c.args[0]) for c in core.log_msg.call_args_list)
+        self.assertIn("[WARN] [Auto exposure] J5 -15 deg: the marker was not seen", logs)
+
+    def test_ceiling_pose_loader(self):
+        from core.calibration.data import load_auto_exposure_ceiling_j6_deg
+        self.assertEqual(load_auto_exposure_ceiling_j6_deg("1.2"), -22.5)
+        self.assertIsNone(load_auto_exposure_ceiling_j6_deg("1.3"))
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / "ready_poses.yaml"
+            ConfigStorage.save(path, {"v1.2": {"auto_exposure_ceiling_j6_deg": "up"}})
+            with self.assertRaises(ValueError):
+                load_auto_exposure_ceiling_j6_deg("1.2", path)
+
     def test_other_cameras_use_their_own_auto_exposure(self):
         camera = FakeCamera(model="D435")
         result = self.run_sequence(fake_core(camera))

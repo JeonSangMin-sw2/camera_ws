@@ -311,6 +311,8 @@ class TestWizardSlides(unittest.TestCase):
         for btn in (wiz.btn_rollback_zero, wiz.btn_new_offset_zero, wiz.btn_rollback_joint, wiz.btn_apply_new_offset):
             self.assertTrue(wiz.stacked_widget.widget(W.SLIDE_APPLY).isAncestorOf(btn))
         self.assertEqual((wiz.btn_check_gather.text(), wiz.btn_check_spread.text()), ("→   ←", "←   →"))
+        for btn in (wiz.btn_check_gather, wiz.btn_check_spread):     # held: running colour (user, 2026-11-25)
+            self.assertIn("QPushButton:pressed { background-color: #1e88e5", btn.styleSheet())
         wiz.stacked_widget.setCurrentIndex(W.SLIDE_CHECK_POSE)
         wiz.update_navigation(W.SLIDE_CHECK_POSE)
         self.assertFalse(wiz.btn_check_gather.isEnabled() or wiz.btn_check_spread.isEnabled())
@@ -573,31 +575,29 @@ class TestWizardSlides(unittest.TestCase):
             finish["cb"] = on_finished
             return True
 
-        # 2026-11-24 (user): the move runs only while the button is held.
-        with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move), \
-                patch.object(self.window, "safe_cancel_control") as cancel:
-            wiz.btn_gripper_pose.pressed.emit()
+        # 2026-11-25 (user): one click goes all the way; the stop button beside it halts the arms.
+        with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move):
+            wiz.btn_gripper_pose.click()
             self.assertEqual(wiz.gripper_pose_status[0], "moving")
-            self.assertTrue(wiz.btn_gripper_pose.isEnabled())       # must stay enabled to see the release
+            self.assertFalse(wiz.btn_gripper_pose.isEnabled())
+            self.assertTrue(wiz.btn_gp_stop.isEnabled())
             self.assertFalse(wiz.btn_next.isEnabled())
-            self.assertFalse(hasattr(wiz, "btn_gp_stop"))              # letting go is the stop
             finish["cb"](True, "", {"right": 0.0, "left": 0.0})
-            wiz.btn_gripper_pose.released.emit()                    # after arriving: nothing to stop
-            cancel.assert_not_called()
         self.assertEqual(wiz.gripper_pose_status[0], "done")
+        self.assertTrue(wiz.btn_gripper_pose.isEnabled())
         self.assertIn("right 0 V", wiz.lbl_gripper_pose_status.text())
         self.assertTrue(wiz.step_completed[W.SLIDE_GRIPPER_POSE] and wiz.btn_next.isEnabled())
-        # Let go before the pose: the motion is cancelled and the slide says how to carry on.
+        # Stop part way: the motion is stopped and the slide says how to carry on.
         with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move), \
-                patch.object(self.window, "safe_cancel_control") as cancel:
-            wiz.btn_gripper_pose.pressed.emit()
-            wiz.btn_gripper_pose.released.emit()
-            cancel.assert_called_once()
+                patch.object(self.window, "stop_motion") as stop:
+            wiz.btn_gripper_pose.click()
+            wiz.btn_gp_stop.click()
+            stop.assert_called_once()
             finish["cb"](False, "Stopped by user", {})
         self.assertEqual(wiz.gripper_pose_status[0], "stopped")
         self.assertFalse(wiz.step_completed[W.SLIDE_GRIPPER_POSE])
         with patch.object(self.window, "move_to_gripper_pose", side_effect=fake_move):
-            wiz.btn_gripper_pose.pressed.emit()
+            wiz.btn_gripper_pose.click()
             finish["cb"](False, "still on", {})
         self.assertEqual(wiz.gripper_pose_status, ("failed", "still on"))
         self.assertFalse(wiz.step_completed[W.SLIDE_GRIPPER_POSE])
@@ -613,7 +613,7 @@ class TestWizardSlides(unittest.TestCase):
             self.assertEqual(wiz.lbl_gp_desc.text(), tr("wizard.slides.slide_gripper_pose.desc_v13"))
             finish = {}
             with patch.object(self.window, "move_to_gripper_pose", side_effect=lambda cb: finish.setdefault("cb", cb) and True):
-                wiz.btn_gripper_pose.pressed.emit()
+                wiz.btn_gripper_pose.click()
                 finish["cb"](True, "", {})
             self.assertEqual(wiz.lbl_gripper_pose_status.text(), tr("wizard.slides.slide_gripper_pose.status_done_v13"))
             self.window.robot_version = "1.2"

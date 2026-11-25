@@ -135,7 +135,7 @@ wizard:
     camera_range: {en: "camera position at the end of its allowed range ({ends})", ko: "카메라 위치가 허용 범위 끝에 걸림 ({ends})"}
     marker_bound: {en: "{sides} marker position reached its ±{bound} mm search range (check that the head is fixed firmly)", ko: "{sides} 마커 위치가 추정 범위 ±{bound} mm 끝에 걸림 (헤드 고정 상태 확인)"}
     head_tilt_gap: {en: "head tilt differs between the head-camera step ({step1_5}°) and the final solve ({step2}°) by more than {limit}°", ko: "헤드 tilt가 헤드 카메라 단계({step1_5}°)와 최종 계산({step2}°)에서 {limit}° 넘게 다름"}
-    check_pose_gap: {en: "at the check pose the camera sees the hands {gap} mm off symmetric (x {dx}, y {dy}, z {dz} mm; limit {limit} mm)", ko: "체크포즈에서 카메라가 본 양손이 대칭에서 {gap} mm 어긋남 (x {dx}, y {dy}, z {dz} mm, 기준 {limit} mm)"}
+    check_pose_gap: {en: "at the check pose the camera sees the hands {gap} mm apart front-back / up-down (x {dx}, z {dz} mm; limit {limit} mm)", ko: "체크포즈에서 카메라가 본 양손 앞뒤·높이 차가 {gap} mm (x {dx}, z {dz} mm, 기준 {limit} mm)"}
     check_pose_unseen: {en: "the check pose could not be checked by the camera (see the log)", ko: "체크포즈를 카메라로 확인하지 못함 (로그 참고)"}
     click_for_log: {en: "(click here for the log lines behind these cautions)", ko: "(누르면 주의 내용의 로그를 볼 수 있습니다)"}
     log_title: {en: "Calibration cautions and their log", ko: "보정 주의 내용과 로그"}
@@ -164,8 +164,8 @@ wizard:
     en: "Start Calibration"
     ko: "캘리브레이션 시작"
   btn_open_feed:
-    en: "Open Camera Feed"
-    ko: "카메라 피드 열기"
+    en: "Open Live View"
+    ko: "라이브 뷰 열기"
   btn_stop_motion:
     en: "Stop Motion"
     ko: "모션 정지"
@@ -290,17 +290,17 @@ wizard:
         en: "Press the button below: both arms move to a pose where the grippers are easy to reach. A v1.3 robot keeps its grippers, so their power stays on. Keep clear of the robot while it moves."
         ko: "아래 버튼을 누르면 양팔이 그리퍼를 다루기 쉬운 자세로 이동합니다. v1.3은 그리퍼를 떼지 않으므로 그리퍼 전원은 그대로 둡니다. 로봇이 움직이는 동안 가까이 가지 마세요."
       btn_move:
-        en: "Hold to Move to the Gripper-Change Pose"
-        ko: "누르고 있는 동안 그리퍼 교체 자세로 이동"
+        en: "Move to the Gripper-Change Pose"
+        ko: "그리퍼 교체 자세로 이동"
       status_idle:
-        en: "Status: waiting (keep the button pressed; letting go stops the arms)"
-        ko: "상태: 대기 중 (버튼을 누르고 있으세요. 손을 떼면 팔이 멈춥니다)"
+        en: "Status: waiting"
+        ko: "상태: 대기 중"
       status_moving:
-        en: "Status: moving to the gripper-change pose... (let go to stop)"
-        ko: "상태: 그리퍼 교체 자세로 이동 중... (손을 떼면 멈춤)"
+        en: "Status: moving to the gripper-change pose... (STOP halts the arms)"
+        ko: "상태: 그리퍼 교체 자세로 이동 중... (정지 버튼으로 멈춤)"
       status_stopped:
-        en: "Stopped part way. Press and hold the button again to carry on."
-        ko: "중간에 멈췄습니다. 버튼을 다시 누르고 있으면 이어서 이동합니다."
+        en: "Stopped part way. Press the move button again to carry on."
+        ko: "중간에 멈췄습니다. 이동 버튼을 다시 누르면 이어서 이동합니다."
       status_done:
         en: "Pose reached and gripper power OFF"
         ko: "자세 도착, 그리퍼 전원 꺼짐"
@@ -597,8 +597,8 @@ wizard:
         en: "1) Move to the check pose with the original or the calibrated offsets and see whether the two arms stand symmetrically.\n2) At the check pose, hold a button below to bring the hands together or move them apart and compare them up close."
         ko: "1) 원본 또는 보정 오프셋으로 체크 자세에 가서 두 팔이 대칭인지 확인하세요.\n2) 체크 자세에 도착하면 아래 버튼을 누르고 있는 동안 양손을 모으거나 벌려 가까이에서 비교할 수 있습니다."
       gap_hint:
-        en: "2) Hold to move:  → ←  together   |   ← →  apart"
-        ko: "2) 누르고 있는 동안 이동:  → ←  모으기   |   ← →  벌리기"
+        en: "2) The arms move toward that pose only while you hold the button and stop when you let go:  → ←  together   |   ← →  apart"
+        ko: "2) 버튼을 누르고 있는 동안만 그 자세로 움직이고, 손을 떼면 멈춥니다:  → ←  모으기   |   ← →  벌리기"
     slide_8:
       title:
         en: "10. Apply Home Offset"
@@ -862,8 +862,8 @@ dialogs:
       en: "Manual Teaching Steps"
       ko: "수동 위치 교시 절차"
     feed_box_title:
-      en: "Live Camera Feed"
-      ko: "실시간 카메라 피드"
+      en: "Live View"
+      ko: "라이브 뷰"
     feed_loading:
       en: "Camera Feed Loading..."
       ko: "카메라 피드 로딩 중..."

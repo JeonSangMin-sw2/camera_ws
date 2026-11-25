@@ -170,7 +170,14 @@ variants = {
     "W_cam_y1p5": dict(tilt_weight=2.0e5, camera_range="[[-0.003, 0.002], [-0.0015, 0.0015], [-0.0005, 0.0015]]"),
     "W_cam_y3": dict(tilt_weight=2.0e5, camera_range="[[-0.003, 0.002], [-0.003, 0.003], [-0.0005, 0.0015]]"),
     "W_cam_y6": dict(tilt_weight=2.0e5, camera_range="[[-0.003, 0.002], [-0.006, 0.006], [-0.0005, 0.0015]]"),
+    # 2026-11-25 another v1.2 robot on rby1-calibration (11-20): its camera range before the 11-24 widening; the
+    # camera x / z ended at these upper ends in Step 1.5 and Step 2 on 11-24 and 11-25.
+    "Y_old_range_2e5": dict(tilt_weight=2.0e5, camera_range="[[-0.003, 0.001], [0.0, 0.0], [-0.0005, 0.0005]]"),
 }
+# 2026-11-25 second robot, 13:23 run: the right hand sits ~3 mm below the left at a symmetric pose though the camera
+# saw 0.3 mm. Is Step 1.5's optical-axis rotation (image roll) off? Rotation relative to this run's Step 1.5 value.
+for _d in (-1.0, -0.6, -0.3, 0.0, 0.3, 0.6, 1.0):
+    variants[f"Z_roll_{_d:+.1f}"] = dict(tilt_weight=2.0e5, cam_axis_rot=step15["calibrated_mount_to_cam"][4] + _d)
 chosen = sys.argv[7].split(",") if len(sys.argv) > 7 else list(variants)
 rows = [solve(name, **variants[name]) for name in chosen]
 (OUT / f"variants_{'_'.join(n[0] for n in chosen)}.json").write_text(json.dumps(rows, indent=1, ensure_ascii=False), encoding="utf-8")

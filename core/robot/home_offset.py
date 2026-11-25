@@ -174,10 +174,11 @@ def movej(robot, torso=None, right_arm=None, left_arm=None, head=None, minimum_t
             .set_position(left_arm)
         )
 
+    # torso None keeps the zero-pose callers' straight torso; a given torso used to be dropped for zeros (2026-11-25).
     rc.set_torso_command(
         rby.JointPositionCommandBuilder()
         .set_minimum_time(minimum_time)
-        .set_position(np.zeros(6))
+        .set_position(np.zeros(6) if torso is None else np.asarray(torso, dtype=float))
     )
 
     cmd = rby.ComponentBasedCommandBuilder().set_body_command(rc)
@@ -232,8 +233,10 @@ def initialize_robot(address, model, power="48v", servo="^(?!.*wheel).*$"):
             raise RuntimeError("Servo on failed")
         wait_motion(0.5)
 
-    if not robot.is_control_manager_enabled():
-        robot.enable_control_manager()
+    # rby1_sdk 0.10 has no is_control_manager_enabled(); read the state as above.
+    if robot.get_control_manager_state().state != rby.ControlManagerState.State.Enabled:
+        if not robot.enable_control_manager():
+            raise RuntimeError("Control manager enable failed")
         wait_motion(0.5)
 
     return robot

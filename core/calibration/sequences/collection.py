@@ -1,22 +1,6 @@
-import numpy as np
-
 from core.robot.motion import build_incremental_motion_plan, execute_auto_motion_step, move_to_auto_ready_pose, verify_and_align_head_at_ready_pose
 from ..data import (MarkersTooCloseError, capture_one_sample, get_both_arm_config, get_head_config,
-                    load_min_marker_x_gap_m, load_step2_check_region, load_step2_plan_options,
-                    load_step2_wrist_diversity, marker_x_gap_m)
-from .verify import MIRROR_JOINT_SIGN
-
-
-def check_region_targets(region):
-    """Absolute joint targets (deg) of the Step 2 check-region poses: check_calib, the check-view J6 turn and
-    the pose's J4/J5 turn on the right arm, mirrored onto the left (as the post-Step 2 check views do)."""
-    steps = []
-    for pose in region["poses"]:
-        delta = np.array([0, 0, 0, 0, pose["wrist_deg"][0], pose["wrist_deg"][1], region["j6_turn_deg"]])
-        steps.append({"right": (np.asarray(region["right"]) + delta).tolist(),
-                      "left": (np.asarray(region["left"]) + MIRROR_JOINT_SIGN * delta).tolist(),
-                      "head": list(pose["head_deg"])})
-    return steps
+                    load_min_marker_x_gap_m, load_step2_plan_options, load_step2_wrist_diversity, marker_x_gap_m)
 
 # How often the gap is re-measured and sent to the UI while the operator widens the arms.
 SPACING_MONITOR_PERIOD_S = 0.2
@@ -100,22 +84,16 @@ def run_collection(core, context, prepare=False, plan=None, start_index=0, max_s
     context.check_cancelled()
     plan_options = load_step2_plan_options()
     if plan is None:
-        wrist_diversity, check_region = [], []
+        wrist_diversity = []
         if core.include_head_motion:
             wrist_diversity, enabled = load_step2_wrist_diversity(core.get_robot_version())
             if enabled:
                 core.log_msg(f"[INFO] Step 2 wrist-diversity poses: {len(wrist_diversity)} "
                              f"(step2.wrist_diversity_poses on, v{core.get_robot_version()}).")
-            region, enabled = load_step2_check_region(core.get_robot_version())
-            if region is not None:
-                check_region = check_region_targets(region)
-            if enabled:
-                core.log_msg(f"[INFO] Step 2 check-region poses: {len(check_region)} "
-                             f"(step2.check_region_poses on, v{core.get_robot_version()}).")
         plan = build_incremental_motion_plan(
             core.robot, core.robot.get_dynamics(), core.auto_config, ["right", "left"],
             include_head_motion=core.include_head_motion, wrist_diversity=wrist_diversity,
-            skip_half_steps=plan_options["skip_half_steps"], check_region=check_region,
+            skip_half_steps=plan_options["skip_half_steps"],
         )
         if plan_options["skip_half_steps"]:
             core.log_msg("[INFO] Step 2 half-size steps skipped (step2.skip_half_steps on).")

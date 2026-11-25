@@ -1,22 +1,26 @@
 """Wizard auto exposure: right arm to its J5 ready pose, then try exposure times on the right marker.
 
 D405 only (2026-11-12, user); any other camera is put on its own auto exposure. Each candidate is measured
-held still, the steadiest few again with the wrist pitched towards and away from the camera (glare and
-blur change with the marker angle), and data.choose_auto_exposure picks the value. Detection is raw (no
-filter), sampled like the marker monitor, so the jitter is what the detector gives.
+held still, the steadiest few again with the wrist turned (J5 either way, and J6 towards the ceiling where
+the version has that pose; glare and blur change with the marker angle), and data.choose_auto_exposure picks
+the value. Detection is raw (no filter), sampled like the marker monitor, so the jitter is what the detector gives.
 """
 import time
 
 import numpy as np
 
 from ..data import (AUTO_EXPOSURE_CANDIDATES_US, AUTO_EXPOSURE_MIN_RATE, choose_auto_exposure,
-                    load_max_marker_jitter_mm, marker_position_jitter_mm)
+                    load_auto_exposure_ceiling_j6_deg, load_max_marker_jitter_mm, marker_position_jitter_mm)
 
 SAMPLE_PERIOD_S = 0.1
 SETTLE_S = 0.5          # frames after an exposure change still carry the old exposure
 STILL_S = 2.0
 TURNED_S = 1.0
 TURN_DEG = 15.0          # J5 (wrist pitch) either way from the ready pose
+# A turned pose no exposure detects the marker at is out of view, not an exposure result (2026-11-25: J5 -15 saw 0 %
+# at every value on the real v1.2 robot, so nothing qualified). It is retried this much closer to the ready pose.
+TURN_STEP_DEG = 5.0
+MIN_TURN_DEG = 5.0
 TURN_MOVE_S = 1.5
 TURNED_CANDIDATES = 3
 SIDE = "right"
@@ -70,22 +74,46 @@ def run_auto_exposure(core, ctx, settle_s=SETTLE_S, still_s=STILL_S, turned_s=TU
 
     steady = sorted((t for t in trials if t["rate"] >= AUTO_EXPOSURE_MIN_RATE and t["jitter_mm"] is not None),
                     key=lambda t: t["jitter_mm"])[:TURNED_CANDIDATES]
+    turns = [(5, -TURN_DEG), (5, TURN_DEG)]
+    ceiling = load_auto_exposure_ceiling_j6_deg(core.robot_version)
+    if ceiling is None:
+        log(f"[Auto exposure] No J6 ceiling pose for v{core.robot_version} (ready_poses.yaml auto_exposure_ceiling_j6_deg).")
+    else:
+        turns.append((6, ceiling))
     arm_idx = list(robot.model().right_arm_idx)
     q_ready = np.asarray(robot.get_state().position, dtype=np.float64)[arm_idx]
+    turned_poses = []
     try:
-        for turn in (-TURN_DEG, TURN_DEG):
-            q = q_ready.copy()
-            q[5] += np.radians(turn)
-            if not calibrator.movej(robot, right_arm=q, minimum_time=TURN_MOVE_S, apply_offsets=False):
-                ctx.check_cancelled()
-                raise RuntimeError("Wrist turn for the auto exposure failed")
-            for trial in steady:
-                observer.set_camera_exposure(trial["exposure"], auto_exposure=False)
-                time.sleep(settle_s)
-                m = measure(observer, turned_s, ctx.check_cancelled)
-                trial["turned"].append(m)
-                log(f"[Auto exposure] {trial['exposure']} us, J5 {turn:+.0f} deg: detected {m['rate'] * 100:.0f}%, "
-                    f"jitter {m['jitter_mm'] if m['jitter_mm'] is None else round(m['jitter_mm'], 3)} mm")
+        for joint, requested in (turns if steady else []):
+            used = requested
+            while True:
+                q = q_ready.copy()
+                q[joint] += np.radians(used)
+                if not calibrator.movej(robot, right_arm=q, minimum_time=TURN_MOVE_S, apply_offsets=False):
+                    ctx.check_cancelled()
+                    raise RuntimeError("Wrist turn for the auto exposure failed")
+                measured = []
+                for trial in steady:
+                    observer.set_camera_exposure(trial["exposure"], auto_exposure=False)
+                    time.sleep(settle_s)
+                    m = {**measure(observer, turned_s, ctx.check_cancelled), "joint": joint, "turn_deg": used}
+                    measured.append((trial, m))
+                    log(f"[Auto exposure] {trial['exposure']} us, J{joint} {used:+g} deg: detected {m['rate'] * 100:.0f}%, "
+                        f"jitter {m['jitter_mm'] if m['jitter_mm'] is None else round(m['jitter_mm'], 3)} mm")
+                if any(m["rate"] > 0 for _, m in measured):
+                    for trial, m in measured:
+                        trial["turned"].append(m)
+                    break
+                smaller = abs(used) - TURN_STEP_DEG
+                if smaller < MIN_TURN_DEG - 1e-9:
+                    log(f"[WARN] [Auto exposure] J{joint} {requested:+g} deg: the marker was not seen at any exposure even at "
+                        f"{used:+g} deg (out of view); this pose is left out of the choice.")
+                    used = None
+                    break
+                log(f"[WARN] [Auto exposure] J{joint} {used:+g} deg: no exposure saw the marker (out of view); "
+                    f"trying {np.sign(used) * smaller:+g} deg.")
+                used = float(np.sign(used) * smaller)
+            turned_poses.append({"joint": joint, "requested_deg": requested, "used_deg": used})
     finally:
         if not ctx.stop_event.is_set():
             calibrator.movej(robot, right_arm=q_ready, minimum_time=TURN_MOVE_S, apply_offsets=False)
@@ -95,8 +123,9 @@ def run_auto_exposure(core, ctx, settle_s=SETTLE_S, still_s=STILL_S, turned_s=TU
         observer.set_camera_exposure(AUTO_EXPOSURE_CANDIDATES_US[3], auto_exposure=True)
         log(f"[Auto exposure] No exposure kept the right marker detected and within {max_jitter} mm; "
             "the camera's own auto exposure is back on. Adjust the exposure by hand.")
-        return {"applied": None, "camera_model": family, "trials": trials, "max_jitter_mm": max_jitter}
+        return {"applied": None, "camera_model": family, "trials": trials, "max_jitter_mm": max_jitter,
+                "turned_poses": turned_poses}
     observer.set_camera_exposure(best["exposure"], auto_exposure=False)
     log(f"[Auto exposure] Applied {best['exposure']} us.")
     return {"applied": "manual", "exposure": best["exposure"], "camera_model": family, "trials": trials,
-            "max_jitter_mm": max_jitter}
+            "max_jitter_mm": max_jitter, "turned_poses": turned_poses}

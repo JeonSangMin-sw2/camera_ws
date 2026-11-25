@@ -23,6 +23,11 @@ v1.2:
   # Wizard gripper-change pose (2026-11-12, user): tool flange facing up so the gripper comes off easily. J3+J5 = -180
   # turns the flange up (FK on the model M v1.2 URDF, arm chains as on model A); J5 -70 stays clear of its -90 limit,
   # J1 10 deg out keeps the hands off the body (flange 10 deg from vertical).
+  # Wizard auto exposure (user, 2026-11-25): the right wrist_pitch pose with J6 turned this far (deg) tilts the marker
+  # towards the ceiling lights, the end of the Step 1 J6 sweep (+-22.5). At this pose J5 only spins the marker in its
+  # plane, so the J5 +-15 checks never changed the glare angle. Model M v1.2, nominal camera: face up 17 deg, 25 deg from
+  # facing the camera. v1.3 has none: there J6 spins the marker in its plane and J5 +15 already tilts it up.
+  auto_exposure_ceiling_j6_deg: -22.5
   gripper_change:
     right_arm: [0.0, -10.0, 0.0, -110.0, 0.0, -70.0, 0.0]
     left_arm: [0.0, 10.0, 0.0, -110.0, 0.0, -70.0, 0.0]
@@ -40,26 +45,11 @@ v1.2:
   # used here turned the markers away and the real run saw neither (2026-11-24 16:51). Facing them needs +136 deg,
   # past the J6 limit (+-155); -180 is the best within it. Model M v1.2, nominal camera: markers 49 deg from
   # facing the camera (Step 2 poses <= 37), >= 60 px inside the image, about 300 mm away. User chose this, 2026-11-24.
-  # extra_head_deg: the same pose seen again with only the head moved (user, 2026-11-24): a gap that changes with
-  # the head angle is the head / camera model, one that stays is the arms. Both markers are in view from 40 to
-  # 60 deg tilt at J6 -180 (model M v1.2); at 46 they sit near the image's vertical centre.
+  # Removed 2026-11-25: extra views (head 46, facing at head 35) always gave the same gap as this one, and check-region
+  # poses added to Step 2 made the real hands 0.7 mm worse (do not retry; harness trap).
   check_calib_view:
     head_deg: [0.0, 58.0]
     j6_turn_deg: -180.0
-    extra_head_deg: [[0.0, 46.0]]
-    # facing_view: then right J4/J5 also turned by wrist_deg (left mirrored; J6 stays turned) so the markers face
-    # the camera as in Step 2 (user, 2026-11-25). Model M v1.2, nominal camera: 11-13 deg from facing, 318-325 mm,
-    # v 272 px at tilt 35, links >= 440 mm apart; shoulders and elbow unchanged (scratch/low_view_pose_search.py).
-    facing_view: {wrist_deg: [-20.0, -30.0], head_deg: [0.0, 35.0]}
-  # Step 2 check-region poses (setting.yaml step2.check_region_poses, user 2026-11-25): check_calib with the
-  # check-view J6 turn, right J4/J5 further by wrist_deg (left mirrored), head [pan, tilt] deg. Offline on the
-  # 2026-11-25 11:30 run (second robot), three check photos added to Step 2 took the check-view gap 3.3 -> 1.9 mm
-  # for a Step 2 RMS 0.77 -> 0.94 sigma. Head angles differ from the verification views above (58 / 46, 35).
-  step2_check_region:
-    - {wrist_deg: [0.0, 0.0], head_deg: [0.0, 52.0]}
-    - {wrist_deg: [0.0, 0.0], head_deg: [0.0, 42.0]}
-    - {wrist_deg: [-20.0, -30.0], head_deg: [0.0, 40.0]}
-    - {wrist_deg: [-20.0, -30.0], head_deg: [0.0, 30.0]}
   # Step 2 wrist-diversity poses (head robots, setting.yaml step2.wrist_diversity_poses): deltas in deg from the
   # Step 2 baseline -- right/left [J4, J5, J6], head [pan, tilt]; J0-J3 stay at the baseline. Chosen offline on
   # 2026-09-30 from the 09-29 15:13 D405 run within J4 +-25 / J5 +-20 / J6 +-30 deg (both markers in view with

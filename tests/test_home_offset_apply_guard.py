@@ -169,6 +169,46 @@ class TestCoreApplyGuard(GuardFixture):
         self.assertEqual(result.completed["samples"][0]["home_epoch"], 3)
 
 
+class TestHomeOffsetRobotHelpers(unittest.TestCase):
+    """Two helpers in core/robot/home_offset.py that were broken (found 2026-11-24, fixed 2026-11-25)."""
+
+    def test_movej_sends_the_given_torso(self):
+        # The check-pose preview passes the calibration's torso [0, 30, -60, 30, 0, 0]; zeros were sent instead.
+        from core.robot import home_offset
+        rby = MagicMock()
+        rby.RobotCommandFeedback.FinishCode.Ok = "ok"
+        robot = MagicMock()
+        robot.send_command.return_value.get.return_value.finish_code = "ok"
+        torso = np.deg2rad([0, 30, -60, 30, 0, 0])
+        with patch.object(home_offset, "rby", rby), patch.object(home_offset, "check_motion_cancelled"):
+            self.assertTrue(home_offset.movej(robot, torso=torso, right_arm=np.zeros(7), left_arm=np.zeros(7)))
+            sent = [c.args[0] for c in rby.JointPositionCommandBuilder.return_value.set_minimum_time.return_value
+                    .set_position.call_args_list]
+            np.testing.assert_allclose(sent[-1], torso)
+            home_offset.movej(robot, right_arm=np.zeros(7))          # the zero-pose callers: torso straight
+            sent = [c.args[0] for c in rby.JointPositionCommandBuilder.return_value.set_minimum_time.return_value
+                    .set_position.call_args_list]
+            np.testing.assert_allclose(sent[-1], np.zeros(6))
+
+    def test_initialize_robot_enables_the_control_manager_on_sdk_0_10(self):
+        # rby1_sdk 0.10 has no is_control_manager_enabled(): the old call raised before enabling.
+        import rby1_sdk
+        from core.robot import home_offset
+        robot = MagicMock(spec=["connect", "is_power_on", "get_control_manager_state", "is_servo_on",
+                                "enable_control_manager"])
+        robot.connect.return_value = True
+        robot.is_power_on.return_value = True
+        robot.is_servo_on.return_value = True
+        robot.get_control_manager_state.return_value.state = rby1_sdk.ControlManagerState.State.Idle
+        robot.enable_control_manager.return_value = True
+        with patch.object(home_offset.rby, "create_robot", return_value=robot), patch.object(home_offset, "wait_motion"):
+            self.assertIs(home_offset.initialize_robot("127.0.0.1:50051", "m"), robot)
+            robot.enable_control_manager.assert_called_once()
+            robot.enable_control_manager.return_value = False
+            with self.assertRaises(RuntimeError):                     # not silent
+                home_offset.initialize_robot("127.0.0.1:50051", "m")
+
+
 class TestApplyButtons(GuardFixture):
     @classmethod
     def setUpClass(cls):

@@ -59,9 +59,7 @@ If you need to calibrate the camera's intrinsic parameters (focal length, princi
 Follow the steps for your OS once per PC, from the top. To use the standalone executable instead, see [Standalone Executable](#standalone-executable): the target PC then only needs the steps marked **(also for the executable)**.
 
 ### 1. Windows 10/11
-1. **Install Python 3.12 and Git**
-   - Python: the latest 3.12.x **Windows installer (64-bit)** from <https://www.python.org/downloads/windows/>. Keep "py launcher" checked.
-   - Git: <https://git-scm.com/download/win>
+1. **Install Python 3.12**: the latest 3.12.x **Windows installer (64-bit)** from <https://www.python.org/downloads/windows/>. Keep "py launcher" checked.
 2. **Open the Command Prompt**: press `Win + R`, type `cmd` and press Enter. All commands below are for the Command Prompt. If you are in PowerShell (the prompt starts with `PS`), type `cmd` first.
 3. **Check Python**:
    ```bat
@@ -92,11 +90,11 @@ Follow the steps for your OS once per PC, from the top. To use the standalone ex
 ### 2. Linux (Ubuntu 22.04 / 24.04, Jetson Orin)
 Run the commands in a terminal. Python 3.12 is installed next to the system Python; the system `python3` stays as it is, and the app uses 3.12 only inside its `.venv`.
 
-1. **Install Python 3.12, Git and the Qt library** (`libxcb-cursor0` is also for the executable):
+1. **Install Python 3.12 and the Qt library** (`libxcb-cursor0` is also for the executable):
    ```bash
    sudo add-apt-repository -y ppa:deadsnakes/ppa
    sudo apt update
-   sudo apt install -y python3.12 python3.12-venv git libxcb-cursor0
+   sudo apt install -y python3.12 python3.12-venv libxcb-cursor0
    ```
 2. **Check Python**:
    ```bash
