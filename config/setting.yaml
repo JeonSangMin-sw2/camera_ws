@@ -28,6 +28,8 @@ marker:
   Tf_to_marker_right: [6.6130927153957065e-18, -0.054, -0.04843061572093271, 90.0, 0.006153528481109917, 180.0]
   Tf_to_marker_right_v12: [0.0, -0.054, -0.048, 90.0, 0.0, 180.0]
   Tf_to_marker_right_v13: [0.067, 0.0, 0.0, 90.0, 0.0, -90.0]
+  bracket_symmetry: true
+  lock_bracket_y: true
   plate:
     left_ids: [7]
     plate_size_mm: 80.0

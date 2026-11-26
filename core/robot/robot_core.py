@@ -69,11 +69,15 @@ CALIBRATION_LED_ALERT_S = 60.0
 
 
 def set_calibration_led(robot, state):
-    """state: "off" (calibration moving), "alert" (red, blinking) or "release" (hand the LED back)."""
+    """state: "off" (calibration moving), "alert" (red, blinking), "pass" (green, blinking: finished with no
+    caution left, 2026-11-26 user) or "release" (hand the LED back)."""
     if state == "off":
         return robot.set_led_color(rby.Color(0, 0, 0), duration=CALIBRATION_LED_OFF_S)
     if state == "alert":
         return robot.set_led_color(rby.Color(255, 0, 0), duration=CALIBRATION_LED_ALERT_S,
+                                   blinking=True, blinking_freq=2.0)
+    if state == "pass":
+        return robot.set_led_color(rby.Color(0, 255, 0), duration=CALIBRATION_LED_ALERT_S,
                                    blinking=True, blinking_freq=2.0)
     if state == "release":
         return robot.set_led_color(rby.Color(0, 0, 0), duration=0.01)

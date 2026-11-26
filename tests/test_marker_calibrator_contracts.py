@@ -262,14 +262,27 @@ class BracketRadiiFromEncoderFits(unittest.TestCase):
         return (make([0, 1, 0], np.hypot(x, Zp)), make([0, 0, 1], np.hypot(x, y)),
                 make([1, 0, 0], np.hypot(y, Zp)))
 
-    def solve(self, y):
+    def solve(self, y, markers=None):
         import io, contextlib
         d5, d6, d4 = self.sweeps(0.0, y, -49.0)
         logs = []
+        mc = self.calibrator()
+        mc.markers_config = dict(markers or {})
         with contextlib.redirect_stdout(io.StringIO()):
-            out = self.calibrator().compute_unified_bracket_calibration(
-                d5, d6, "left", marker_data_4=d4, log_callback=logs.append)
+            out = mc.compute_unified_bracket_calibration(d5, d6, "left", marker_data_4=d4, log_callback=logs.append)
         return out, logs, d4, d6
+
+    def test_y_lock_off_uses_the_sweep_y(self):
+        # 2026-11-26 (user): marker.lock_bracket_y off takes the y the radii give (48 recent fits within 0.4 mm).
+        out, logs, _, _ = self.solve(54.3, {"lock_bracket_y": False})
+        self.assertAlmostEqual(out["y_e"], 54.3, places=2)
+        self.assertFalse([l for l in logs if "[WARN]" in l], logs)
+
+    def test_y_lock_off_and_y_more_than_1_mm_off_stops_with_an_error(self):
+        # A bad sweep would carry a wrong y into J0 (cps C14): with the lock off it is an error, not a guess.
+        with self.assertRaises(RuntimeError) as caught:
+            self.solve(55.5, {"lock_bracket_y": False})
+        self.assertIn("y at 55.50", str(caught.exception))
 
     def test_translation_uses_the_encoder_radii(self):
         out, logs, d4, d6 = self.solve(54.0)
@@ -283,6 +296,40 @@ class BracketRadiiFromEncoderFits(unittest.TestCase):
         out, logs, _, _ = self.solve(55.5)
         self.assertEqual(out["y_e"], 54.0)                # still held at the design value
         self.assertTrue(any("[WARN]" in l and "y at 55.50" in l for l in logs), logs)
+
+
+class BracketSymmetrySwitch(unittest.TestCase):
+    """setting.yaml marker.bracket_symmetry (user, 2026-11-26): off keeps each arm's fit and still logs the gap."""
+    RIGHT = [0.0, -0.054, -0.04803, 90.0, 0.09, 180.0]
+    LEFT = [0.0, 0.054, -0.04837, 90.0, -0.06, 0.0]
+
+    def run_symmetry(self, markers):
+        from core.calibration import CalibrationCore
+        core = CalibrationCore()
+        self.addCleanup(core.close)
+        core.robot_version = "1.2"
+        core.marker_calibrator.markers_config = dict(markers)
+        for calibrator in core.calibrators:
+            calibrator.camera_config["Tf_to_marker_right"] = list(self.RIGHT)
+            calibrator.camera_config["Tf_to_marker_left"] = list(self.LEFT)
+        core.bracket_calibrated_sides = {"right", "left"}
+        logs = []
+        info = core.apply_bracket_symmetry(log=logs.append)
+        return core, info, logs
+
+    def test_off_keeps_each_arm_and_logs_the_gap(self):
+        core, info, logs = self.run_symmetry({"bracket_symmetry": False})
+        self.assertEqual((info["enforced"], info["disabled"]), (False, True))
+        self.assertAlmostEqual(info["d_pos_mm"][2], -0.34, places=2)
+        self.assertEqual(core.get_marker_bracket("right"), self.RIGHT)
+        self.assertEqual(core.get_marker_bracket("left"), self.LEFT)
+        self.assertTrue(any(l.startswith("[INFO] Bracket symmetry off") for l in logs), logs)
+
+    def test_without_the_key_it_averages_as_before(self):
+        core, info, _ = self.run_symmetry({})
+        self.assertTrue(info["enforced"])
+        right, left = core.get_marker_bracket("right"), core.get_marker_bracket("left")
+        self.assertAlmostEqual(right[2], left[2], places=6)
 
 
 class V13BracketPositionFromRadii(unittest.TestCase):

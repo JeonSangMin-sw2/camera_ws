@@ -1176,11 +1176,20 @@ class MarkerCalibrator(BaseCalibrator):
             opt_res = least_squares(residuals_trans, initial_guess, bounds=(lower_bounds, upper_bounds), loss='huber')
             x_e, y_e, z_e = opt_res.x
             fit_y, fit_z = y_e, z_e
-            if abs(fit_y - y_nom) > self.BRACKET_Y_WARN_MM and log_callback:
-                log_callback(f"[WARN] {arm_side} bracket: the sweep radii put y at {fit_y:.2f} mm, "
-                             f"{abs(fit_y - y_nom):.2f} mm from the design {y_nom:.1f} mm (both brackets "
-                             f"measure 54 mm). Check the sweep plots and the marker/bracket mounting.")
-            if self.bracket_y_locked():
+            y_locked = self.bracket_y_locked()
+            if abs(fit_y - y_nom) > self.BRACKET_Y_WARN_MM:
+                if not y_locked:
+                    # With y free a bad sweep (lost marker frames, a loose bracket) would carry its y into J0
+                    # (cps C14), so it stops the run (user, 2026-11-26). 2026-11-24~26: 48 fits within 0.4 mm.
+                    raise RuntimeError(f"{arm_side} bracket: the sweep radii put y at {fit_y:.2f} mm, "
+                                       f"{abs(fit_y - y_nom):.2f} mm from the design {y_nom:.1f} mm (limit "
+                                       f"{self.BRACKET_Y_WARN_MM:.1f} mm). Check the sweep plots (lost marker frames) "
+                                       f"and the marker/bracket mounting, then run again.")
+                if log_callback:
+                    log_callback(f"[WARN] {arm_side} bracket: the sweep radii put y at {fit_y:.2f} mm, "
+                                 f"{abs(fit_y - y_nom):.2f} mm from the design {y_nom:.1f} mm (both brackets "
+                                 f"measure 54 mm). Check the sweep plots and the marker/bracket mounting.")
+            if y_locked:
                 # y is essentially the J6 sweep radius. Up to 2026-09-22 that radius came from a
                 # position-only fit, and the short arc (45 deg of a ~54 mm circle, 4 mm sagitta)
                 # turned 0.1 mm of fit error into ~1.3 mm of radius: the fitted y wandered 50-54 mm.
@@ -1206,6 +1215,9 @@ class MarkerCalibrator(BaseCalibrator):
                     if at_bound:
                         log_callback(f"[WARN] {arm_side} bracket x/z reached the ±{tol:.1f} mm assembly limit; "
                                      f"check the bracket mounting or the sweep plots.")
+            elif log_callback:
+                log_callback(f"[INFO] {arm_side} bracket y from the sweep radii {fit_y:.2f} mm (design {y_nom:.1f}, "
+                             f"marker.lock_bracket_y off); z {z_e:.2f} mm, x {x_e:.2f} mm.")
 
         print(f"DEBUG SOLVER v1.2: arm_side={arm_side}", flush=True)
         print(f"  L_5_ee = {L_5_ee:.4f}", flush=True)

@@ -59,6 +59,7 @@ class CalibrationCore:
         self.robot_version = "1.2"
         self.include_head_motion = True
         self.run_warned = False
+        self.run_led_shown = False
         self.apply_joint_offset_flag = True
         self.bracket_calibrated_sides = set()
         self.joint_offsets_store = {side: {"joint3": 0.0, "joint5": 0.0, "joint6": 0.0} for side in ("right", "left")}
@@ -323,11 +324,13 @@ class CalibrationCore:
     def apply_bracket_symmetry(self, log=None, require_both_fresh=True):
         """Replace both brackets with their mirror-symmetric average.
 
-        Returns the asymmetry measured beforehand, or None when it was not applied.
+        Returns the asymmetry measured beforehand (also when switched off or over the limit, then not applied),
+        or None when there was nothing to compare.
         """
         log = log or self.log_msg
-        if not ENFORCE_BRACKET_SYMMETRY:
-            return None
+        # setting.yaml marker.bracket_symmetry (user, 2026-11-26); without the key the averaging stays on as before.
+        markers = getattr(self.marker_calibrator, "markers_config", None) or {}
+        enforce = bool(markers.get("bracket_symmetry", ENFORCE_BRACKET_SYMMETRY))
         if require_both_fresh and not {"right", "left"} <= self.bracket_calibrated_sides:
             return None
         right_vec = self.get_marker_bracket("right")
@@ -341,6 +344,16 @@ class CalibrationCore:
             d_pos_mm, d_rot_vec, d_rot_deg = BaseCalibrator.bracket_asymmetry(
                 right_vec, left_vec, version)
             worst_pos = float(max(abs(v) for v in d_pos_mm))
+            if not enforce:
+                # Off: each arm keeps its own fit; the gap is still logged, and warned past the limit.
+                over = worst_pos > BRACKET_SYMMETRY_MAX_POS_MM or d_rot_deg > BRACKET_SYMMETRY_MAX_ROT_DEG
+                log(f"[{'WARN' if over else 'INFO'}] Bracket symmetry off (setting.yaml marker.bracket_symmetry): "
+                    f"left mirrored onto right differs by dX {d_pos_mm[0]:+.2f}, dY {d_pos_mm[1]:+.2f}, "
+                    f"dZ {d_pos_mm[2]:+.2f} mm | rotation {d_rot_deg:.3f} deg"
+                    + (f", past the {BRACKET_SYMMETRY_MAX_POS_MM:.1f} mm / {BRACKET_SYMMETRY_MAX_ROT_DEG:.1f} deg "
+                       "limit; check the brackets." if over else "; each arm keeps its own fit."))
+                return {"enforced": False, "disabled": True, "d_pos_mm": [float(v) for v in d_pos_mm],
+                        "d_rot_deg": d_rot_deg}
             if worst_pos > BRACKET_SYMMETRY_MAX_POS_MM or d_rot_deg > BRACKET_SYMMETRY_MAX_ROT_DEG:
                 log(f"[WARN] Bracket symmetry NOT enforced: the two arms disagree by "
                     f"{worst_pos:.2f} mm / {d_rot_deg:.2f} deg, past the "
@@ -464,10 +477,22 @@ class CalibrationCore:
             self._executing = False
             self._run_lock.release()
         if led:
-            # The LED comes on only after the run, so it never lights the markers mid-measurement.
-            self._set_led("alert" if result.status == "failed" or self.run_warned else "release")
+            # The LED comes on only after the run, so it never lights the markers mid-measurement. A caution a
+            # later stage settled (Step 1 J6 after Step 2) is already gone from run_warned: that run is a pass.
+            if result.status == "failed" or self.run_warned:
+                state = "alert"
+            else:
+                state = "pass" if result.status == "completed" else "release"
+            self._set_led(state)
+            self.run_led_shown = state != "release"
         self.emit("result", result.snapshot())
         return result
+
+    def release_run_led(self):
+        """Hand the LED back early (wizard left the slide): the end-of-run colour otherwise holds 60 s."""
+        if self.run_led_shown and self.robot is not None and not self._executing:
+            self.run_led_shown = False
+            self._set_led("release")
 
     def _set_led(self, state):
         from core.robot.robot_core import set_calibration_led

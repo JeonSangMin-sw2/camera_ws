@@ -74,8 +74,29 @@ STORE = {"right": dict(snap["joint_offset"]["right"]), "left": dict(snap["joint_
          "head": {"pan": step15["head_offsets_deg"]["pan"], "tilt": step15["head_offsets_deg"]["tilt"]}}
 
 
+def check_view_gap(value):
+    """The run's saved check-pose photo re-evaluated with this variant's offsets, camera and brackets:
+    left minus mirrored right x, y, z (mm) and the x/z gap the verification judges."""
+    view = result.get("check_pose_view") or {}
+    if not view.get("seen"):
+        return None
+    from core.calibration.data import get_both_arm_config
+    from core.calibration.sequences import verify
+    cfg = get_both_arm_config(core.model, "1.2")
+    head_idx = list(core.model.head_idx[:2])
+    markers2 = [np.asarray(view["markers"][s], dtype=float) for s in ("right", "left")]
+    camera = (view["camera"]["link"], list(value["mount_to_cam_new"]))
+    ev = verify._evaluate(core, cfg, head_idx, np.asarray(view["q_arm"]), np.asarray(view["q_head"]), markers2,
+                          camera, True, value)
+    m = ev["measured_symmetry"]
+    return {"x": round(m["dx_mm"], 2), "y": round(m["dy_mm"], 2), "z": round(m["dz_mm"], 2),
+            "xz_gap": round(float(np.hypot(m["dx_mm"], m["dz_mm"])), 2)}
+
+
 def solve(name, keep=None, head_tilt=None, j0_common_weight=2000.0, camera_range=None, tilt_weight=None,
-          cam_axis_rot=None, cam_rot_lambda=1e6, free_j5=False, pin_j24=False, marker_scale=(1.0, 1.0)):
+          cam_axis_rot=None, cam_rot_lambda=1e6, free_j5=False, pin_j24=False, marker_scale=(1.0, 1.0),
+          brackets=None):
+    """brackets: {"right": [x, y, z m, roll, pitch, yaw deg], "left": [...]} in place of the run's (symmetrized) ones."""
     """tilt_weight None = step2.head_tilt_anchor_weight absent from the copied setting.yaml (code default)."""
     core.joint_offsets_store = copy.deepcopy(STORE)
     run_setting = copy.deepcopy(setting)
@@ -89,7 +110,9 @@ def solve(name, keep=None, head_tilt=None, j0_common_weight=2000.0, camera_range
     if cam_axis_rot is not None:  # rotation about the optical axis (middle ZYX angle), the image roll
         core.head_camera_calibrator.calibrated_results["calibrated_mount_to_cam"][4] = float(cam_axis_rot)
     for side in ("right", "left"):
-        core.marker_calibrator.camera_config[f"Tf_to_marker_{side}"] = list(snap["marker"][f"Tf_to_marker_{side}"])
+        bracket = (brackets or {}).get(side) or snap["marker"][f"Tf_to_marker_{side}"]
+        for calibrator in core.calibrators:
+            calibrator.camera_config[f"Tf_to_marker_{side}"] = list(bracket)
     calibration_optimizer.J0_COMMON_WEIGHT_REF = j0_common_weight
     text = camera_info_text
     if camera_range is not None:
@@ -117,7 +140,8 @@ def solve(name, keep=None, head_tilt=None, j0_common_weight=2000.0, camera_range
     row = {"variant": name, "n": int(q_arm[rows].shape[0]), "R": r.round(3).tolist(), "L": l.round(3).tolist(),
            "head": None if head is None else np.round(head, 3).tolist(),
            "cam_xyz_mm": None if cam is None else (np.array(cam[:3]) * 1000).round(2).tolist(),
-           "pos_noise_mm": round(noise.get("measurement_noise_pos_std_mm", float("nan")), 4), "rms": str(rms).strip()}
+           "pos_noise_mm": round(noise.get("measurement_noise_pos_std_mm", float("nan")), 4), "rms": str(rms).strip(),
+           "check_view": check_view_gap(value)}
     print(json.dumps(row, ensure_ascii=False), flush=True)
     (OUT / f"log_{name}.txt").write_text("\n".join(str(x) for x in logs), encoding="utf-8")
     return row
@@ -178,6 +202,14 @@ variants = {
 # saw 0.3 mm. Is Step 1.5's optical-axis rotation (image roll) off? Rotation relative to this run's Step 1.5 value.
 for _d in (-1.0, -0.6, -0.3, 0.0, 0.3, 0.6, 1.0):
     variants[f"Z_roll_{_d:+.1f}"] = dict(tilt_weight=2.0e5, cam_axis_rot=step15["calibrated_mount_to_cam"][4] + _d)
+# Bracket variants (2026-11-26, first robot 09:32 run): as run (left/right symmetrized), each arm's own fit before the
+# averaging, and that with y left where the sweep radii put it (gui_log_20261126 09:18 right / 09:25 left).
+_used = result.get("ee_to_marker_used") or {}
+variants["BR_A_as_run"] = dict(tilt_weight=2.0e5, brackets={s: _used.get(s) for s in ("right", "left")})
+variants["BR_B_per_arm"] = dict(tilt_weight=2.0e5, brackets={"right": [0.0, -0.054, -0.04803, 90.0, 0.09, 180.0],
+                                                             "left": [0.0, 0.054, -0.04837, 90.0, -0.06, 0.0]})
+variants["BR_C_per_arm_free_y"] = dict(tilt_weight=2.0e5, brackets={"right": [0.0, -0.0542, -0.0480, 90.0, 0.09, 180.0],
+                                                                    "left": [0.0, 0.0543, -0.0483, 90.0, -0.06, 0.0]})
 chosen = sys.argv[7].split(",") if len(sys.argv) > 7 else list(variants)
 rows = [solve(name, **variants[name]) for name in chosen]
 (OUT / f"variants_{'_'.join(n[0] for n in chosen)}.json").write_text(json.dumps(rows, indent=1, ensure_ascii=False), encoding="utf-8")

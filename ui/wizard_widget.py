@@ -320,6 +320,7 @@ class CalibrationWizardWidget(QWidget):
         self.wrapped_label_height = WrappedLabelHeight(
             [label for label in self.findChildren(QLabel) if label.wordWrap()], self)
         self.stacked_widget.currentChanged.connect(self.update_navigation)
+        self.stacked_widget.currentChanged.connect(self.release_run_led)
         bridge = getattr(parent, "core_bridge", None)
         if bridge is not None:
             bridge.progress.connect(self.on_core_progress)
@@ -1837,6 +1838,12 @@ class CalibrationWizardWidget(QWidget):
             self.gripper_pose_stopped = True
         self.exposure_stop_motion()
 
+    def release_run_led(self, _index=None):
+        """Leaving a slide ends the end-of-run LED colour instead of letting it hold its 60 s (user, 2026-11-26)."""
+        core = getattr(self.parent_app, "core", None)
+        if core is not None:
+            core.release_run_led()
+
     def sync_marker_monitor(self):
         """The app runs the core marker monitor while this slide or Camera > Brightness is shown."""
         if hasattr(self.parent_app, "sync_marker_monitor"):
@@ -2582,6 +2589,8 @@ class CalibrationWizardWidget(QWidget):
         available = has_check_gather_pose(self.robot_version())
         ready = enabled and available and getattr(self, "check_pose_state", None) is not None
         for btn in (self.btn_check_gather, self.btn_check_spread):
+            if getattr(self, "check_gap_moving", False) and btn is getattr(self, "check_gap_held", None):
+                continue
             btn.setEnabled(ready)
             btn.setToolTip("" if available else tr("wizard.step6.gap_unavailable", version=self.robot_version()))
 
@@ -2595,9 +2604,10 @@ class CalibrationWizardWidget(QWidget):
         from ui.core_bridge import Step2ApplyHomeOffsetWorker
         self.check_gap_released = False
         self.check_gap_moving = True
+        # The held button is never disabled: Qt releases a button the moment it is disabled, so the old
+        # disable-then-enable sent 'released' at once and the real let-go sent nothing (2026-11-26).
+        self.check_gap_held = self.btn_check_gather if direction == "gather" else self.btn_check_spread
         self.set_wizard_buttons_enabled(False)
-        held = self.btn_check_gather if direction == "gather" else self.btn_check_spread
-        held.setEnabled(True)       # stays enabled so its release is seen
         self.lbl_check_status.setText(tr(f"wizard.step6.gap_moving_{direction}"))
         self.lbl_check_status.setStyleSheet("color: #2196f3; font-weight: bold; font-size: 16px;")
         self.gap_worker = Step2ApplyHomeOffsetWorker(

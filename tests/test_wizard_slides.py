@@ -338,15 +338,20 @@ class TestWizardSlides(unittest.TestCase):
         wiz.check_pose_state = "optimized"
         wiz.refresh_check_gap_buttons()
         self.assertTrue(wiz.btn_check_gather.isEnabled() and wiz.btn_check_spread.isEnabled())
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
         with patch("ui.core_bridge.Step2ApplyHomeOffsetWorker", FakeWorker), \
                 patch.object(wiz, "get_apply_paths", return_value=("result.json", "baseline.json")), \
                 patch.object(self.window, "safe_cancel_control") as cancel:
-            wiz.btn_check_gather.pressed.emit()
+            # Real mouse events (2026-11-26): disabling the held button used to release it at once, so the
+            # pressed colour flashed and the actual let-go never stopped the arms.
+            QTest.mousePress(wiz.btn_check_gather, Qt.LeftButton)
             self.assertEqual((created[0].task_type, created[0].options["direction"], created[0].options["json_path"]),
                              ("check_gap", "gather", "result.json"))
-            self.assertTrue(wiz.btn_check_gather.isEnabled())       # held button stays enabled for its release
+            self.assertTrue(wiz.btn_check_gather.isEnabled() and wiz.btn_check_gather.isDown())
             self.assertFalse(wiz.btn_check_spread.isEnabled())
-            wiz.btn_check_gather.released.emit()
+            cancel.assert_not_called()
+            QTest.mouseRelease(wiz.btn_check_gather, Qt.LeftButton)
             cancel.assert_called_once()
             created[0].finished_signal.slots[0](False, "Stopped by user", {})
         self.assertEqual(wiz.lbl_check_status.text(), tr("wizard.step6.gap_stopped"))
@@ -602,6 +607,14 @@ class TestWizardSlides(unittest.TestCase):
         self.assertEqual(wiz.gripper_pose_status, ("failed", "still on"))
         self.assertFalse(wiz.step_completed[W.SLIDE_GRIPPER_POSE])
         self.assertTrue(wiz.btn_skip.isVisible())
+
+    def test_changing_slide_hands_the_run_led_back(self):
+        # 2026-11-26 (user): the end-of-run LED colour held 60 s even after moving on.
+        wiz, W = self.wiz, self.W
+        wiz.stacked_widget.setCurrentIndex(W.SLIDE_CALIBRATION)
+        with patch.object(self.window.core, "release_run_led") as release:
+            wiz.stacked_widget.setCurrentIndex(W.SLIDE_CHECK_POSE)
+        release.assert_called_once()
 
     def test_v13_gripper_pose_text_says_the_power_stays_on(self):
         wiz, W = self.wiz, self.W

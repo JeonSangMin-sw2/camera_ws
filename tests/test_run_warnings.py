@@ -138,12 +138,23 @@ class CalibrationLedTest(unittest.TestCase):
 
         with patch.object(core, "_execute", side_effect=execute):
             core.run(name)
+        self.core = core
         return calls
 
-    def test_a_clean_run_turns_it_off_then_hands_it_back(self):
+    def test_a_clean_run_turns_it_off_then_blinks_green(self):
+        # 2026-11-26 (user): a run that ends with no caution left (also one a later stage settled) is a pass.
         calls = self.run_with("full", "completed")
-        self.assertEqual([kw["duration"] for _, kw in calls], [7200.0, 0.01])
-        self.assertTrue(all(r == 0 for r, _ in calls))
+        self.assertEqual([kw["duration"] for _, kw in calls], [7200.0, 60.0])
+        self.assertEqual(calls[0][0], 0)
+        green = calls[-1]
+        self.assertTrue(green[1]["blinking"])
+        self.assertEqual(green[0], 0)          # red channel off: green
+
+    def test_leaving_the_slide_hands_the_led_back_once(self):
+        calls = self.run_with("full", "completed")
+        self.core.release_run_led()
+        self.core.release_run_led()                  # nothing more to release
+        self.assertEqual([kw["duration"] for _, kw in calls], [7200.0, 60.0, 0.01])
 
     def test_failure_or_caution_ends_in_red_blinking(self):
         for status, warned in (("failed", False), ("completed", True)):
